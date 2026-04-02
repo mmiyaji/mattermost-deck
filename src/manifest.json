@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Mattermost Deck",
+  "version": "0.1.0",
+  "description": "Adds a TweetDeck-style right rail to Mattermost Web.",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["http://127.0.0.1:8065/*", "http://localhost:8065/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": ["http://127.0.0.1:8065/*", "http://localhost:8065/*"]
+}
