@@ -17,6 +17,12 @@ export interface MattermostChannel {
   name: string;
   display_name: string;
   type: string;
+  team_id?: string;
+}
+
+export interface MattermostChannelMember {
+  channel_id: string;
+  user_id: string;
 }
 
 export interface MattermostPost {
@@ -45,8 +51,33 @@ export interface CurrentRoute {
 }
 
 const GET_BURST_GUARD_TTL_MS = 1_000;
+const API_REQUEST_MIN_GAP_MS = 120;
 const inflightGetRequests = new Map<string, Promise<unknown>>();
 const recentGetResponses = new Map<string, { expiresAt: number; value: unknown }>();
+let requestQueue = Promise.resolve();
+let nextRequestAt = 0;
+
+async function scheduleApiRequest<T>(task: () => Promise<T>): Promise<T> {
+  let release!: () => void;
+  const waitTurn = new Promise<void>((resolve) => {
+    release = () => resolve();
+  });
+  const previous = requestQueue;
+  requestQueue = previous.then(() => waitTurn);
+  await previous;
+
+  const delay = Math.max(0, nextRequestAt - Date.now());
+  if (delay > 0) {
+    await new Promise((resolve) => window.setTimeout(resolve, delay));
+  }
+
+  try {
+    return await task();
+  } finally {
+    nextRequestAt = Date.now() + API_REQUEST_MIN_GAP_MS;
+    release();
+  }
+}
 
 async function apiGet<T>(pathname: string): Promise<T> {
   const now = Date.now();
@@ -66,14 +97,16 @@ async function apiGet<T>(pathname: string): Promise<T> {
     ?.split("=")[1];
 
   const request = (async () => {
-    const response = await fetch(`/api/v4${pathname}`, {
-      credentials: "include",
-      headers: {
-        Accept: "application/json",
-        "X-Requested-With": "XMLHttpRequest",
-        ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
-      },
-    });
+    const response = await scheduleApiRequest(async () =>
+      await fetch(`/api/v4${pathname}`, {
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+          ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
+        },
+      }),
+    );
 
     if (!response.ok) {
       throw new Error(`GET ${pathname} failed with ${response.status}`);
@@ -102,14 +135,16 @@ async function apiGetAbsolute(pathname: string): Promise<Response> {
     .find((entry) => entry.startsWith("MMCSRF="))
     ?.split("=")[1];
 
-  return await fetch(pathname, {
-    credentials: "include",
-    headers: {
-      Accept: "application/json",
-      "X-Requested-With": "XMLHttpRequest",
-      ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
-    },
-  });
+  return await scheduleApiRequest(async () =>
+    await fetch(pathname, {
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+        ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
+      },
+    }),
+  );
 }
 
 async function apiPost<T>(pathname: string, body: unknown): Promise<T> {
@@ -118,17 +153,19 @@ async function apiPost<T>(pathname: string, body: unknown): Promise<T> {
     .find((entry) => entry.startsWith("MMCSRF="))
     ?.split("=")[1];
 
-  const response = await fetch(`/api/v4${pathname}`, {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      "X-Requested-With": "XMLHttpRequest",
-      ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
-    },
-    body: JSON.stringify(body),
-  });
+  const response = await scheduleApiRequest(async () =>
+    await fetch(`/api/v4${pathname}`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+        ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
+      },
+      body: JSON.stringify(body),
+    }),
+  );
 
   if (!response.ok) {
     throw new Error(`POST ${pathname} failed with ${response.status}`);
@@ -183,6 +220,14 @@ export async function getChannelsForCurrentUser(teamId: string): Promise<Matterm
 
 export async function getDirectChannelsForCurrentUser(): Promise<MattermostChannel[]> {
   return await apiGet<MattermostChannel[]>("/users/me/channels");
+}
+
+export async function getChannelMembers(channelId: string): Promise<MattermostChannelMember[]> {
+  return await apiGet<MattermostChannelMember[]>(`/channels/${channelId}/members`);
+}
+
+export async function getChannel(channelId: string): Promise<MattermostChannel> {
+  return await apiGet<MattermostChannel>(`/channels/${channelId}`);
 }
 
 export async function getChannelByName(

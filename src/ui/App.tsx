@@ -1,7 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   checkApiHealth,
+  getChannel,
   getChannelByName,
+  getChannelMembers,
   getChannelsForCurrentUser,
   getCurrentUser,
   getDirectChannelsForCurrentUser,
@@ -13,6 +15,7 @@ import {
   readCurrentRoute,
   searchPostsInTeam,
   type MattermostChannel,
+  type MattermostChannelMember,
   type MattermostPost,
   type MattermostTeam,
   type MattermostUser,
@@ -101,9 +104,11 @@ const COLLAPSED_DRAWER_WIDTH = 52;
 const MAX_RECENT_TARGETS = 6;
 const POSTS_PAGE_SIZE = 20;
 const POSTS_MAX_BUFFER = 100;
+const MIN_MANUAL_REFRESH_MS = 350;
+const MIN_LOAD_MORE_MS = 350;
 const POST_ROW_ESTIMATE = 116;
 const POST_OVERSCAN = 4;
-const POST_VIRTUALIZE_THRESHOLD = 18;
+const POST_VIRTUALIZE_THRESHOLD = 40;
 
 interface RecentChannelTarget {
   teamId: string;
@@ -113,10 +118,27 @@ interface RecentChannelTarget {
 }
 
 function formatPostTime(timestamp: number): string {
-  return new Intl.DateTimeFormat("ja-JP", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(timestamp));
+  const date = new Date(timestamp);
+  const now = new Date();
+  const isToday =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+
+  return new Intl.DateTimeFormat(
+    "ja-JP",
+    isToday
+      ? {
+          hour: "2-digit",
+          minute: "2-digit",
+        }
+      : {
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        },
+  ).format(date);
 }
 
 function summarisePost(message: string): string {
@@ -151,19 +173,25 @@ function isDirectMessageChannel(channel: MattermostChannel): boolean {
 function getChannelLabel(
   channel: MattermostChannel,
   userDirectory: Record<string, MattermostUser>,
+  memberDirectory: Record<string, string[]>,
   currentUserId?: string | null,
 ): string {
   if (channel.type !== "D" && channel.type !== "G") {
     return channel.display_name?.trim() || channel.name;
   }
 
-  const memberIds = channel.name
-    .split("__")
+  const allMemberIds = (memberDirectory[channel.id] ?? channel.name.split("__"))
     .map((part) => part.trim())
-    .filter(Boolean)
-    .filter((part) => part !== currentUserId);
+    .filter(Boolean);
+  const memberIds =
+    allMemberIds.filter((part) => part !== currentUserId).length > 0
+      ? allMemberIds.filter((part) => part !== currentUserId)
+      : allMemberIds;
 
-  const labels = memberIds.map((userId) => getUserLabel(userDirectory[userId], userId));
+  const labels = memberIds.map((userId) => {
+    const label = getUserLabel(userDirectory[userId], userId);
+    return userId === currentUserId ? `${label} (me)` : label;
+  });
   const resolvedLabels = labels.filter(Boolean);
   if (resolvedLabels.length > 0) {
     return resolvedLabels.join(", ");
@@ -240,6 +268,17 @@ function getApiHealthLabel(status: ApiHealthStatus): string {
     default:
       return "Error";
   }
+}
+
+function openMattermostThread(teamName: string, postId: string): void {
+  const nextPath = `/${teamName}/pl/${postId}`;
+  if (window.location.pathname === nextPath) {
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    return;
+  }
+
+  window.history.pushState({}, "", nextPath);
+  window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
 function ChevronIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
@@ -357,8 +396,8 @@ function getAppText(language: DeckLanguage) {
         addDmWatch: "DM / Group",
         choosePane: "追加するペイン",
         loading: "Mattermost データを読み込み中...",
-        sessionExpired: "セッションが切れました。再ログインしてください。",
-        failedToLoad: "データ取得に失敗しました。",
+        sessionExpired: "セッションの有効期限が切れました。再ログインしてください。",
+        failedToLoad: "データの読み込みに失敗しました。",
         column: "column",
         columns: "columns",
       };
@@ -1040,25 +1079,29 @@ function PostList({
   hasMore = false,
   loadingMore = false,
   onLoadMore,
+  renderMeta,
+  onOpenPost,
 }: {
   posts: MattermostPost[];
   userDirectory: Record<string, MattermostUser>;
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
+  renderMeta?: (post: MattermostPost) => React.ReactNode;
+  onOpenPost?: (post: MattermostPost) => void;
 }): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const shouldVirtualize = posts.length > POST_VIRTUALIZE_THRESHOLD;
 
-  useEffect(() => {
-    if (!shouldVirtualize) {
-      return;
-    }
-
+  useLayoutEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) {
+      return;
+    }
+    const column = viewport.closest(".deck-column");
+    if (!(column instanceof HTMLElement)) {
       return;
     }
 
@@ -1072,11 +1115,17 @@ function PostList({
       updateMetrics();
     });
     observer.observe(viewport);
+    observer.observe(column);
+
+    const frame = window.requestAnimationFrame(() => {
+      updateMetrics();
+    });
 
     return () => {
+      window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [shouldVirtualize]);
+  }, [posts, shouldVirtualize]);
 
   const visibleCount = Math.max(1, Math.ceil(viewportHeight / POST_ROW_ESTIMATE) + POST_OVERSCAN * 2);
   const startIndex = Math.max(0, Math.floor(scrollTop / POST_ROW_ESTIMATE) - POST_OVERSCAN);
@@ -1096,11 +1145,16 @@ function PostList({
           <div className="deck-list-spacer" style={{ height: `${Math.max(spacerHeight, viewportHeight)}px` }}>
             <ul className="deck-list deck-list--virtual" style={{ transform: `translateY(${offsetY}px)` }}>
               {visiblePosts.map((post) => (
-                <li key={post.id} className="deck-card deck-card--post">
+                <li
+                  key={post.id}
+                  className={`deck-card deck-card--post${onOpenPost ? " deck-card--clickable" : ""}`}
+                  onClick={onOpenPost ? () => onOpenPost(post) : undefined}
+                >
                   <div className="deck-card-header">
                     <strong>{formatPostTime(post.create_at)}</strong>
                     <span>{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
                   </div>
+                  {renderMeta ? <div className="deck-card-meta">{renderMeta(post)}</div> : null}
                   <p>{summarisePost(post.message)}</p>
                 </li>
               ))}
@@ -1108,14 +1162,19 @@ function PostList({
           </div>
         </div>
       ) : (
-        <div className="deck-list-viewport">
+        <div ref={viewportRef} className="deck-list-viewport">
           <ul className="deck-list">
             {posts.map((post) => (
-              <li key={post.id} className="deck-card deck-card--post">
+              <li
+                key={post.id}
+                className={`deck-card deck-card--post${onOpenPost ? " deck-card--clickable" : ""}`}
+                onClick={onOpenPost ? () => onOpenPost(post) : undefined}
+              >
                 <div className="deck-card-header">
                   <strong>{formatPostTime(post.create_at)}</strong>
                   <span>{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
                 </div>
+                {renderMeta ? <div className="deck-card-meta">{renderMeta(post)}</div> : null}
                 <p>{summarisePost(post.message)}</p>
               </li>
             ))}
@@ -1155,6 +1214,7 @@ function MentionsColumn({
   onMove,
   onUpdate,
   onRemove,
+  onOpenPost,
 }: {
   column: DeckColumn;
   username: string | null;
@@ -1171,7 +1231,10 @@ function MentionsColumn({
   onMove: (id: string, direction: "left" | "right") => void;
   onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId">>) => void;
   onRemove: (id: string) => void;
+  onOpenPost: (post: MattermostPost, teamName?: string) => void;
 }): React.JSX.Element {
+  const teamIds = useMemo(() => (column.teamId ? [column.teamId] : teams.map((team) => team.id)), [column.teamId, teams]);
+  const teamDirectory = useMemo(() => Object.fromEntries(teams.map((team) => [team.id, team])), [teams]);
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
     posts: [],
@@ -1180,20 +1243,56 @@ function MentionsColumn({
     hasMore: false,
     loadingMore: false,
   });
-  const [showControls, setShowControls] = useState(!column.teamId);
+  const [channelDirectory, setChannelDirectory] = useState<Record<string, MattermostChannel>>({});
+  const [memberDirectory, setMemberDirectory] = useState<Record<string, string[]>>({});
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const refreshStartedAtRef = useRef<number | null>(null);
+  const refreshStopTimerRef = useRef<number | null>(null);
+  const [showControls, setShowControls] = useState(false);
   const selectedTeam = teams.find((team) => team.id === column.teamId);
-  const mentionCount = column.teamId
-    ? unreads.find((entry) => entry.team_id === column.teamId)?.mention_count ?? 0
-    : null;
+  const mentionCount = useMemo(
+    () =>
+      column.teamId
+        ? (unreads.find((entry) => entry.team_id === column.teamId)?.mention_count ?? 0)
+        : unreads.reduce((total, entry) => total + entry.mention_count, 0),
+    [column.teamId, unreads],
+  );
+  const teamOptions = useMemo(
+    () => [{ value: "", label: "All teams" }, ...teams.map((team) => ({ value: team.id, label: team.display_name || team.name }))],
+    [teams],
+  );
+
+  const finishRefresh = useCallback(() => {
+    if (refreshStartedAtRef.current === null) {
+      setIsRefreshing(false);
+      return;
+    }
+    const elapsed = Date.now() - refreshStartedAtRef.current;
+    const remaining = Math.max(0, MIN_MANUAL_REFRESH_MS - elapsed);
+    if (refreshStopTimerRef.current !== null) {
+      window.clearTimeout(refreshStopTimerRef.current);
+    }
+    refreshStopTimerRef.current = window.setTimeout(() => {
+      setIsRefreshing(false);
+      refreshStartedAtRef.current = null;
+      refreshStopTimerRef.current = null;
+    }, remaining);
+  }, []);
 
   useEffect(() => {
-    setShowControls(!column.teamId);
-  }, [column.teamId]);
+    return () => {
+      if (refreshStopTimerRef.current !== null) {
+        window.clearTimeout(refreshStopTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
-    if (!column.teamId || !username) {
+    if (teamIds.length === 0 || !username) {
+      finishRefresh();
       setPostState({
         status: "idle",
         posts: [],
@@ -1215,16 +1314,26 @@ function MentionsColumn({
       }));
 
       try {
-        const posts = await searchPostsInTeam(column.teamId as string, `@${username}`, 0, POSTS_PAGE_SIZE);
+        const results = await Promise.all(
+          teamIds.map(async (teamId) => ({
+            teamId,
+            posts: await searchPostsInTeam(teamId, `@${username}`, 0, POSTS_PAGE_SIZE),
+          })),
+        );
+        const posts = mergePosts(
+          results.flatMap((entry) => entry.posts),
+          [],
+        );
         if (!cancelled) {
           setPostState((current) => ({
             status: "ready",
             posts: mergePosts(posts, current.posts),
             error: null,
             nextPage: 1,
-            hasMore: posts.length === POSTS_PAGE_SIZE,
+            hasMore: results.some((entry) => entry.posts.length === POSTS_PAGE_SIZE),
             loadingMore: false,
           }));
+          finishRefresh();
           ensureUsers(posts.map((post) => post.user_id));
         }
       } catch (error) {
@@ -1237,6 +1346,7 @@ function MentionsColumn({
             hasMore: false,
             loadingMore: false,
           });
+          finishRefresh();
         }
       }
     };
@@ -1245,7 +1355,7 @@ function MentionsColumn({
     const startTimer = () =>
       window.setInterval(() => {
         void run();
-      }, getSyncInterval(realtimeEnabled, pollingIntervalSeconds));
+      }, column.teamId ? getSyncInterval(realtimeEnabled, pollingIntervalSeconds) : Math.max(getSyncInterval(realtimeEnabled, pollingIntervalSeconds), 120_000));
 
     let timer = startTimer();
     const handleVisibility = () => {
@@ -1259,10 +1369,13 @@ function MentionsColumn({
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [column.teamId, ensureUsers, pollingIntervalSeconds, realtimeEnabled, reconnectNonce, username]);
+  }, [column.teamId, ensureUsers, finishRefresh, pollingIntervalSeconds, realtimeEnabled, reconnectNonce, refreshNonce, teamIds, username]);
 
   useEffect(() => {
-    if (!postedEvent || !column.teamId || postedEvent.teamId !== column.teamId || !postedEvent.mentionsUser) {
+    if (!postedEvent || !postedEvent.mentionsUser) {
+      return;
+    }
+    if (column.teamId && postedEvent.teamId !== column.teamId) {
       return;
     }
 
@@ -1280,22 +1393,112 @@ function MentionsColumn({
     });
   }, [column.teamId, ensureUsers, postedEvent]);
 
+  useEffect(() => {
+    const missingChannelIds = Array.from(
+      new Set(postState.posts.map((post) => post.channel_id).filter((channelId) => channelId && !channelDirectory[channelId])),
+    );
+
+    if (missingChannelIds.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        const channels = await Promise.all(missingChannelIds.map((channelId) => getChannel(channelId)));
+        if (cancelled) {
+          return;
+        }
+
+        setChannelDirectory((current) => {
+          const next = { ...current };
+          for (const channel of channels) {
+            next[channel.id] = channel;
+          }
+          return next;
+        });
+
+        const dmChannels = channels.filter((channel) => channel.type === "D" || channel.type === "G");
+        if (dmChannels.length === 0) {
+          return;
+        }
+
+        const memberEntries = await Promise.all(
+          dmChannels.map(async (channel) => ({
+            channelId: channel.id,
+            members: await getChannelMembers(channel.id),
+          })),
+        );
+        if (cancelled) {
+          return;
+        }
+
+        const nextMemberDirectory = Object.fromEntries(
+          memberEntries.map((entry) => [entry.channelId, entry.members.map((member) => member.user_id)]),
+        );
+        setMemberDirectory((current) => ({ ...current, ...nextMemberDirectory }));
+        await ensureUsers(Object.values(nextMemberDirectory).flat());
+      } catch {
+        return;
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [channelDirectory, ensureUsers, postState.posts]);
+
+  const renderPostMeta = useCallback(
+    (post: MattermostPost) => {
+      const channel = channelDirectory[post.channel_id];
+      if (!channel) {
+        return null;
+      }
+
+      const channelLabel = getChannelLabel(channel, userDirectory, memberDirectory, null);
+      if (channel.type === "D" || channel.type === "G") {
+        return getChannelKindLabel(channel) === "Group DM" ? `Group DM / ${channelLabel}` : `DM / ${channelLabel}`;
+      }
+
+      const teamLabel = channel.team_id ? teamDirectory[channel.team_id]?.display_name || teamDirectory[channel.team_id]?.name : null;
+      return teamLabel ? `${channelLabel} / ${teamLabel}` : channelLabel;
+    },
+    [channelDirectory, memberDirectory, teamDirectory, userDirectory],
+  );
+
   const handleLoadMore = async () => {
-    if (!column.teamId || !username || postState.loadingMore || !postState.hasMore) {
+    if (teamIds.length === 0 || !username || postState.loadingMore || !postState.hasMore) {
       return;
     }
 
     setPostState((current) => ({ ...current, loadingMore: true, error: null }));
 
     try {
-      const posts = await searchPostsInTeam(column.teamId, `@${username}`, postState.nextPage, POSTS_PAGE_SIZE);
+      const [results] = await Promise.all([
+        Promise.all(
+          teamIds.map(async (teamId) => ({
+            teamId,
+            posts: await searchPostsInTeam(teamId, `@${username}`, postState.nextPage, POSTS_PAGE_SIZE),
+          })),
+        ),
+        new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
+      ]);
+      const posts = mergePosts(
+        results.flatMap((entry) => entry.posts),
+        [],
+      );
       ensureUsers(posts.map((post) => post.user_id));
       setPostState((current) => ({
         status: "ready",
         posts: mergePosts(current.posts, posts),
         error: null,
         nextPage: current.nextPage + 1,
-        hasMore: posts.length === POSTS_PAGE_SIZE && current.posts.length + posts.length < POSTS_MAX_BUFFER,
+        hasMore:
+          results.some((entry) => entry.posts.length === POSTS_PAGE_SIZE) &&
+          current.posts.length + posts.length < POSTS_MAX_BUFFER,
         loadingMore: false,
       }));
     } catch (error) {
@@ -1313,13 +1516,13 @@ function MentionsColumn({
       <header className="deck-column-header">
         <div className="deck-column-heading">
           <h2 title="Mentions">Mentions</h2>
-          <p title={selectedTeam ? selectedTeam.display_name || selectedTeam.name : "Pick a team for this column"}>
-            {selectedTeam ? selectedTeam.display_name || selectedTeam.name : "Pick a team for this column"}
+          <p title={selectedTeam ? selectedTeam.display_name || selectedTeam.name : "All teams"}>
+            {selectedTeam ? selectedTeam.display_name || selectedTeam.name : "All teams"}
           </p>
         </div>
         <div className="deck-column-actions">
-          <div className="deck-badge" title="Unread mentions in this team">
-            {mentionCount ?? "--"}
+          <div className="deck-badge" title={column.teamId ? "Unread mentions in this team" : "Unread mentions across all teams"}>
+            {mentionCount}
           </div>
           <button
             type="button"
@@ -1328,14 +1531,6 @@ function MentionsColumn({
             aria-label={showControls ? "Collapse mentions controls" : "Expand mentions controls"}
           >
             <ChevronIcon expanded={showControls} />
-          </button>
-          <button
-            type="button"
-            className="deck-icon-button deck-icon-button--ghost"
-            onClick={() => onRemove(column.id)}
-            aria-label="Remove mentions column"
-          >
-            <CloseIcon />
           </button>
         </div>
       </header>
@@ -1361,36 +1556,62 @@ function MentionsColumn({
             >
               <ArrowIcon direction="right" />
             </button>
+            <button
+              type="button"
+              className="deck-icon-button deck-icon-button--ghost"
+              onClick={() => {
+                refreshStartedAtRef.current = Date.now();
+                setIsRefreshing(true);
+                setRefreshNonce((current) => current + 1);
+              }}
+              aria-label="Reload mentions column"
+              disabled={isRefreshing}
+            >
+              <RefreshIcon spinning={isRefreshing} />
+            </button>
+            <button
+              type="button"
+              className="deck-icon-button deck-icon-button--ghost"
+              onClick={() => onRemove(column.id)}
+              aria-label="Remove mentions column"
+            >
+              <CloseIcon />
+            </button>
           </div>
           <div className="deck-controls">
-            <TeamSelect
-              teams={teams}
-              teamId={column.teamId}
-              onChange={(teamId) => onUpdate(column.id, { teamId: teamId || undefined })}
-            />
+            <label className="deck-field">
+              <span>Team</span>
+              <CustomSelect
+                options={teamOptions}
+                value={column.teamId ?? ""}
+                placeholder="All teams"
+                onChange={(teamId) => onUpdate(column.id, { teamId: teamId || undefined })}
+              />
+            </label>
           </div>
 
+          <article className="deck-card">
+            <strong>Scope</strong>
+            <p>{selectedTeam ? selectedTeam.display_name || selectedTeam.name : "All teams"}</p>
+          </article>
+          <article className="deck-card">
+            <strong>Mentions</strong>
+            <p>
+              {column.teamId
+                ? `${mentionCount} unread mention(s) in this team`
+                : `${mentionCount} unread mention(s) across all teams`}
+            </p>
+          </article>
           {!column.teamId ? (
-            <article className="deck-card">
-              <strong>Select a team</strong>
-              <p>This mentions pane stays pinned to the team you choose here.</p>
+            <article className="deck-card deck-card--muted">
+              <strong>All teams</strong>
+              <p>This mode polls each joined team sequentially with a slower interval to reduce API load.</p>
             </article>
-          ) : (
-            <>
-              <article className="deck-card">
-                <strong>Team</strong>
-                <p>{selectedTeam?.display_name || selectedTeam?.name || "Unknown team"}</p>
-              </article>
-              <article className="deck-card">
-                <strong>Mentions</strong>
-                <p>{mentionCount === null ? "Loading..." : `${mentionCount} unread mention(s) in this team`}</p>
-              </article>
-            </>
-          )}
+          ) : null}
         </div>
       )}
 
-      {!column.teamId ? null : postState.status === "error" ? (
+      {postState.status === "error" ? (
         <article className="deck-card">
           <strong>Failed to load mentions</strong>
           <p>{postState.error ?? "Unknown error"}</p>
@@ -1407,6 +1628,12 @@ function MentionsColumn({
           hasMore={postState.hasMore}
           loadingMore={postState.loadingMore}
           onLoadMore={handleLoadMore}
+          renderMeta={renderPostMeta}
+          onOpenPost={(post) => {
+            const channel = channelDirectory[post.channel_id];
+            const teamName = channel?.team_id ? teamDirectory[channel.team_id]?.name : selectedTeam?.name;
+            onOpenPost(post, teamName);
+          }}
         />
       )}
     </section>
@@ -1430,6 +1657,7 @@ function ChannelWatchColumn({
   onRememberTarget,
   onUpdate,
   onRemove,
+  onOpenPost,
 }: {
   column: DeckColumn;
   mode: "channel" | "dm";
@@ -1447,6 +1675,7 @@ function ChannelWatchColumn({
   onRememberTarget: (target: RecentChannelTarget) => void;
   onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId">>) => void;
   onRemove: (id: string) => void;
+  onOpenPost: (post: MattermostPost, teamName?: string) => void;
 }): React.JSX.Element {
   const [channelState, setChannelState] = useState<ChannelState>({
     status: "idle",
@@ -1461,27 +1690,59 @@ function ChannelWatchColumn({
     hasMore: false,
     loadingMore: false,
   });
+  const [memberDirectory, setMemberDirectory] = useState<Record<string, string[]>>({});
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const refreshStartedAtRef = useRef<number | null>(null);
+  const refreshStopTimerRef = useRef<number | null>(null);
   const [showControls, setShowControls] = useState(!(column.teamId && column.channelId));
 
   const selectedTeam = teams.find((team) => team.id === column.teamId);
   const selectedChannel = channelState.channels.find((channel) => channel.id === column.channelId);
   const selectedChannelKindLabel = getChannelKindLabel(selectedChannel);
   const selectedTeamLabel = selectedTeam ? selectedTeam.display_name || selectedTeam.name : null;
-  const selectedChannelLabel = selectedChannel ? getChannelLabel(selectedChannel, userDirectory, currentUserId) : null;
+  const selectedChannelLabel = selectedChannel
+    ? getChannelLabel(selectedChannel, userDirectory, memberDirectory, currentUserId)
+    : null;
   const channelOptions = useMemo(
     () =>
       channelState.channels
         .filter(mode === "dm" ? isDirectMessageChannel : isStandardChannel)
         .map((channel) => ({
           value: channel.id,
-          label: getChannelLabel(channel, userDirectory, currentUserId),
+          label: getChannelLabel(channel, userDirectory, memberDirectory, currentUserId),
         })),
-    [channelState.channels, currentUserId, mode, userDirectory],
+    [channelState.channels, currentUserId, memberDirectory, mode, userDirectory],
   );
+
+  const finishRefresh = useCallback(() => {
+    if (refreshStartedAtRef.current === null) {
+      setIsRefreshing(false);
+      return;
+    }
+    const elapsed = Date.now() - refreshStartedAtRef.current;
+    const remaining = Math.max(0, MIN_MANUAL_REFRESH_MS - elapsed);
+    if (refreshStopTimerRef.current !== null) {
+      window.clearTimeout(refreshStopTimerRef.current);
+    }
+    refreshStopTimerRef.current = window.setTimeout(() => {
+      setIsRefreshing(false);
+      refreshStartedAtRef.current = null;
+      refreshStopTimerRef.current = null;
+    }, remaining);
+  }, []);
 
   useEffect(() => {
     setShowControls(mode === "dm" ? !column.channelId : !(column.teamId && column.channelId));
   }, [column.channelId, column.teamId, mode]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshStopTimerRef.current !== null) {
+        window.clearTimeout(refreshStopTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!selectedChannel || !selectedTeam || mode === "dm") {
@@ -1492,9 +1753,9 @@ function ChannelWatchColumn({
       teamId: selectedTeam.id,
       teamLabel: selectedTeam.display_name || selectedTeam.name,
       channelId: selectedChannel.id,
-      channelLabel: getChannelLabel(selectedChannel, userDirectory, currentUserId),
+      channelLabel: getChannelLabel(selectedChannel, userDirectory, memberDirectory, currentUserId),
     });
-  }, [currentUserId, mode, onRememberTarget, selectedChannel, selectedTeam, userDirectory]);
+  }, [currentUserId, memberDirectory, mode, onRememberTarget, selectedChannel, selectedTeam, userDirectory]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1523,13 +1784,27 @@ function ChannelWatchColumn({
             ? (await getDirectChannelsForCurrentUser()).filter(isDirectMessageChannel)
             : (await getChannelsForCurrentUser(column.teamId as string)).filter(isStandardChannel);
         if (!cancelled) {
-          const dmMemberIds = channels
-            .filter((channel) => channel.type === "D" || channel.type === "G")
-            .flatMap((channel) => channel.name.split("__"))
-            .map((part) => part.trim())
-            .filter(Boolean)
+          const dmChannels = channels.filter((channel) => channel.type === "D" || channel.type === "G");
+          const dmMemberEntries =
+            dmChannels.length > 0
+              ? await Promise.all(
+                  dmChannels.map(async (channel) => ({
+                    channelId: channel.id,
+                    members: await getChannelMembers(channel.id),
+                  })),
+                )
+              : [];
+          const nextMemberDirectory = Object.fromEntries(
+            dmMemberEntries.map((entry) => [
+              entry.channelId,
+              entry.members.map((member: MattermostChannelMember) => member.user_id),
+            ]),
+          );
+          const dmMemberIds = Object.values(nextMemberDirectory)
+            .flat()
             .filter((userId) => userId !== currentUserId);
           await ensureUsers(dmMemberIds);
+          setMemberDirectory(nextMemberDirectory);
           setChannelState({
             status: "ready",
             channels,
@@ -1562,6 +1837,7 @@ function ChannelWatchColumn({
     let cancelled = false;
 
     if (!column.channelId) {
+      finishRefresh();
       setPostState({
         status: "idle",
         posts: [],
@@ -1593,6 +1869,7 @@ function ChannelWatchColumn({
             hasMore: posts.length === POSTS_PAGE_SIZE,
             loadingMore: false,
           }));
+          finishRefresh();
           ensureUsers(posts.map((post) => post.user_id));
         }
       } catch (error) {
@@ -1605,6 +1882,7 @@ function ChannelWatchColumn({
             hasMore: false,
             loadingMore: false,
           });
+          finishRefresh();
         }
       }
     };
@@ -1627,7 +1905,7 @@ function ChannelWatchColumn({
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [column.channelId, ensureUsers, pollingIntervalSeconds, realtimeEnabled, reconnectNonce]);
+  }, [column.channelId, ensureUsers, pollingIntervalSeconds, realtimeEnabled, reconnectNonce, refreshNonce]);
 
   useEffect(() => {
     if (!postedEvent || !column.channelId || postedEvent.channelId !== column.channelId) {
@@ -1656,7 +1934,10 @@ function ChannelWatchColumn({
     setPostState((current) => ({ ...current, loadingMore: true, error: null }));
 
     try {
-      const posts = await getRecentPosts(column.channelId, postState.nextPage, POSTS_PAGE_SIZE);
+      const [posts] = await Promise.all([
+        getRecentPosts(column.channelId, postState.nextPage, POSTS_PAGE_SIZE),
+        new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
+      ]);
       ensureUsers(posts.map((post) => post.user_id));
       setPostState((current) => ({
         status: "ready",
@@ -1712,14 +1993,6 @@ function ChannelWatchColumn({
           >
             <ChevronIcon expanded={showControls} />
           </button>
-          <button
-            type="button"
-            className="deck-icon-button deck-icon-button--ghost"
-            onClick={() => onRemove(column.id)}
-            aria-label="Remove channel watch column"
-          >
-            <CloseIcon />
-          </button>
         </div>
       </header>
 
@@ -1743,6 +2016,27 @@ function ChannelWatchColumn({
               disabled={!canMoveRight}
             >
               <ArrowIcon direction="right" />
+            </button>
+            <button
+              type="button"
+              className="deck-icon-button deck-icon-button--ghost"
+              onClick={() => {
+                refreshStartedAtRef.current = Date.now();
+                setIsRefreshing(true);
+                setRefreshNonce((current) => current + 1);
+              }}
+              aria-label={mode === "dm" ? "Reload direct message column" : "Reload channel watch column"}
+              disabled={isRefreshing}
+            >
+              <RefreshIcon spinning={isRefreshing} />
+            </button>
+            <button
+              type="button"
+              className="deck-icon-button deck-icon-button--ghost"
+              onClick={() => onRemove(column.id)}
+              aria-label={mode === "dm" ? "Remove direct message column" : "Remove channel watch column"}
+            >
+              <CloseIcon />
             </button>
           </div>
           <div className="deck-controls">
@@ -1806,6 +2100,7 @@ function ChannelWatchColumn({
           hasMore={postState.hasMore}
           loadingMore={postState.loadingMore}
           onLoadMore={handleLoadMore}
+          onOpenPost={(post) => onOpenPost(post, selectedTeam?.name)}
         />
       )}
     </section>
@@ -1813,6 +2108,7 @@ function ChannelWatchColumn({
 }
 
 export function App({ routeKey }: AppProps): React.JSX.Element {
+  const currentRoute = useMemo(() => readCurrentRoute(), [routeKey]);
   const [reconnectNonce, setReconnectNonce] = useState(0);
   const [postedEvent, setPostedEvent] = useState<PostedEvent | null>(null);
   const [userDirectory, setUserDirectory] = useState<Record<string, MattermostUser>>({});
@@ -1830,6 +2126,8 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [isCompactHeader, setIsCompactHeader] = useState(false);
   const shellRef = useRef<HTMLElement | null>(null);
+  const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const previousColumnRectsRef = useRef<Record<string, DOMRect>>({});
   const addMenuRef = useRef<HTMLDivElement | null>(null);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const resizeStateRef = useRef<{ pointerId: number } | null>(null);
@@ -1852,6 +2150,28 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
   useEffect(() => {
     userDirectoryRef.current = userDirectory;
   }, [userDirectory]);
+
+  useEffect(() => {
+    if (!state.userId || !state.username) {
+      return;
+    }
+    const userId = state.userId;
+    const username = state.username;
+
+    setUserDirectory((current) => {
+      if (current[userId]) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [userId]: {
+          id: userId,
+          username,
+        },
+      };
+    });
+  }, [state.userId, state.username]);
 
   const ensureUsers = useCallback(
     async (userIds: string[]) => {
@@ -1891,6 +2211,16 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
 
   const modeLabel = realtimeEnabled ? getWebSocketStatusLabel(wsStatus) : "Polling";
   const syncStatusLabel = `${getApiHealthLabel(apiHealthStatus)} / ${modeLabel}`;
+  const handleOpenPost = useCallback(
+    (post: MattermostPost, teamName?: string) => {
+      const targetTeam = teamName ?? currentRoute.teamName;
+      if (!targetTeam) {
+        return;
+      }
+      openMattermostThread(targetTeam, post.id);
+    },
+    [currentRoute.teamName],
+  );
 
   useEffect(() => {
     document.body.classList.toggle("mattermost-deck-resizing", isResizing);
@@ -1917,7 +2247,63 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
     };
   }, [drawerOpen, isResizing]);
 
+  useLayoutEffect(() => {
+    const currentColumns = columns ?? [];
+    const nextRects: Record<string, DOMRect> = {};
+    const animated: HTMLDivElement[] = [];
+
+    for (const column of currentColumns) {
+      const element = columnRefs.current[column.id];
+      if (!element) {
+        continue;
+      }
+
+      const nextRect = element.getBoundingClientRect();
+      nextRects[column.id] = nextRect;
+      const previousRect = previousColumnRectsRef.current[column.id];
+      if (!previousRect) {
+        continue;
+      }
+
+      const deltaX = previousRect.left - nextRect.left;
+      const deltaY = previousRect.top - nextRect.top;
+      if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) {
+        continue;
+      }
+
+      element.style.transition = "none";
+      element.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+      animated.push(element);
+    }
+
+    previousColumnRectsRef.current = nextRects;
+
+    if (animated.length === 0) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      for (const element of animated) {
+        element.style.transition = "transform 160ms ease, opacity 160ms ease";
+        element.style.transform = "translate(0, 0)";
+      }
+    });
+
+    const cleanupTimer = window.setTimeout(() => {
+      for (const element of animated) {
+        element.style.transition = "";
+        element.style.transform = "";
+      }
+    }, 220);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(cleanupTimer);
+    };
+  }, [columns]);
+
   useEffect(() => {
+    const hasAllMentionsColumn = (columns ?? []).some((column) => column.type === "mentions" && !column.teamId);
     const mentionTeamIds = new Set(
       (columns ?? [])
         .filter((column) => column.type === "mentions" && column.teamId)
@@ -1937,7 +2323,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
       },
       onPosted: (event) => {
         setPostedEvent(event);
-        if (event.mentionsUser && event.teamId && mentionTeamIds.has(event.teamId)) {
+        if (event.mentionsUser && (hasAllMentionsColumn || (event.teamId && mentionTeamIds.has(event.teamId)))) {
           setReconnectNonce((current) => current + 1);
         }
       },
@@ -2246,78 +2632,85 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
             <main
               className="deck-columns"
               style={{
-                minWidth: Math.max(
+                minWidth:
                   (columns?.length ?? 1) * (normalisePreferredColumnWidth(deckSettings.preferredColumnWidth) + 20) + 32,
-                  railWidth - 24,
-                ),
               }}
             >
               {(columns ?? []).map((column, index, allColumns) => {
+                const setColumnRef = (element: HTMLDivElement | null) => {
+                  columnRefs.current[column.id] = element;
+                };
                 switch (column.type) {
                   case "mentions":
                     return (
-                      <MentionsColumn
-                        key={column.id}
-                        column={column}
-                        username={state.username}
-                        realtimeEnabled={realtimeEnabled}
-                        teams={state.teams}
-                        unreads={state.unreads}
-                        userDirectory={userDirectory}
-                        ensureUsers={ensureUsers}
-                        postedEvent={postedEvent}
-                        reconnectNonce={reconnectNonce}
-                        pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
-                        canMoveLeft={index > 0}
-                        canMoveRight={index < allColumns.length - 1}
-                        onMove={moveColumn}
-                        onUpdate={updateColumn}
-                        onRemove={removeColumn}
-                      />
+                      <div key={column.id} ref={setColumnRef} className="deck-column-motion">
+                        <MentionsColumn
+                          column={column}
+                          username={state.username}
+                          realtimeEnabled={realtimeEnabled}
+                          teams={state.teams}
+                          unreads={state.unreads}
+                          userDirectory={userDirectory}
+                          ensureUsers={ensureUsers}
+                          postedEvent={postedEvent}
+                          reconnectNonce={reconnectNonce}
+                          pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
+                          canMoveLeft={index > 0}
+                          canMoveRight={index < allColumns.length - 1}
+                          onMove={moveColumn}
+                          onUpdate={updateColumn}
+                          onRemove={removeColumn}
+                          onOpenPost={handleOpenPost}
+                        />
+                      </div>
                     );
                   case "channelWatch":
                     return (
-                      <ChannelWatchColumn
-                        key={column.id}
-                        column={column}
-                        mode="channel"
-                        currentUserId={state.userId}
-                        realtimeEnabled={realtimeEnabled}
-                        teams={state.teams}
-                        userDirectory={userDirectory}
-                        ensureUsers={ensureUsers}
-                        postedEvent={postedEvent}
-                        reconnectNonce={reconnectNonce}
-                        pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
-                        canMoveLeft={index > 0}
-                        canMoveRight={index < allColumns.length - 1}
-                        onMove={moveColumn}
-                        onRememberTarget={rememberRecentTarget}
-                        onUpdate={updateColumn}
-                        onRemove={removeColumn}
-                      />
+                      <div key={column.id} ref={setColumnRef} className="deck-column-motion">
+                        <ChannelWatchColumn
+                          column={column}
+                          mode="channel"
+                          currentUserId={state.userId}
+                          realtimeEnabled={realtimeEnabled}
+                          teams={state.teams}
+                          userDirectory={userDirectory}
+                          ensureUsers={ensureUsers}
+                          postedEvent={postedEvent}
+                          reconnectNonce={reconnectNonce}
+                          pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
+                          canMoveLeft={index > 0}
+                          canMoveRight={index < allColumns.length - 1}
+                          onMove={moveColumn}
+                          onRememberTarget={rememberRecentTarget}
+                          onUpdate={updateColumn}
+                          onRemove={removeColumn}
+                          onOpenPost={handleOpenPost}
+                        />
+                      </div>
                     );
                   case "dmWatch":
                     return (
-                      <ChannelWatchColumn
-                        key={column.id}
-                        column={column}
-                        mode="dm"
-                        currentUserId={state.userId}
-                        realtimeEnabled={realtimeEnabled}
-                        teams={state.teams}
-                        userDirectory={userDirectory}
-                        ensureUsers={ensureUsers}
-                        postedEvent={postedEvent}
-                        reconnectNonce={reconnectNonce}
-                        pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
-                        canMoveLeft={index > 0}
-                        canMoveRight={index < allColumns.length - 1}
-                        onMove={moveColumn}
-                        onRememberTarget={rememberRecentTarget}
-                        onUpdate={updateColumn}
-                        onRemove={removeColumn}
-                      />
+                      <div key={column.id} ref={setColumnRef} className="deck-column-motion">
+                        <ChannelWatchColumn
+                          column={column}
+                          mode="dm"
+                          currentUserId={state.userId}
+                          realtimeEnabled={realtimeEnabled}
+                          teams={state.teams}
+                          userDirectory={userDirectory}
+                          ensureUsers={ensureUsers}
+                          postedEvent={postedEvent}
+                          reconnectNonce={reconnectNonce}
+                          pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
+                          canMoveLeft={index > 0}
+                          canMoveRight={index < allColumns.length - 1}
+                          onMove={moveColumn}
+                          onRememberTarget={rememberRecentTarget}
+                          onUpdate={updateColumn}
+                          onRemove={removeColumn}
+                          onOpenPost={handleOpenPost}
+                        />
+                      </div>
                     );
                 }
               })}

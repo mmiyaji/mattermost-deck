@@ -493,7 +493,10 @@ export const railCssText = `
   }
 
   .deck-scroll-wrap {
+    display: flex;
+    flex-direction: column;
     flex: 1 1 auto;
+    min-height: 0;
     overflow-x: auto;
     overflow-y: hidden;
     padding: 16px 14px 18px 14px;
@@ -594,14 +597,26 @@ export const railCssText = `
   .deck-columns {
     display: flex;
     align-items: stretch;
+    flex: 1 1 auto;
     gap: 12px;
     height: 100%;
+    min-height: 0;
+  }
+
+  .deck-column-motion {
+    display: flex;
+    flex: none;
+    height: 100%;
+    min-height: 0;
+    will-change: transform;
   }
 
   .deck-column {
     display: flex;
+    flex: 1 1 auto;
     flex-direction: column;
     gap: 10px;
+    height: 100%;
     min-height: 0;
     width: var(--deck-column-width);
     min-width: var(--deck-column-width);
@@ -864,11 +879,20 @@ export const railCssText = `
     gap: 10px;
   }
 
+  .deck-post-list--content-fit {
+    flex: 0 0 auto;
+  }
+
   .deck-list-viewport {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
     padding-right: 2px;
+  }
+
+  .deck-list-viewport--content-fit {
+    flex: 0 0 auto;
+    overflow-y: auto;
   }
 
   .deck-list-spacer {
@@ -943,6 +967,24 @@ export const railCssText = `
 
   .deck-card--post p {
     margin-top: 8px;
+  }
+
+  .deck-card--clickable {
+    cursor: pointer;
+  }
+
+  .deck-card--clickable:hover {
+    border-color: color-mix(in srgb, var(--deck-border) 52%, var(--deck-accent) 48%);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--deck-accent) 18%, transparent);
+  }
+
+  .deck-card-meta {
+    margin-top: 6px;
+    font-size: calc(11px * var(--deck-font-scale));
+    color: var(--deck-text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .deck-card-header {
