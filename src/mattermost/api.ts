@@ -44,26 +44,56 @@ export interface CurrentRoute {
   channelName: string | null;
 }
 
+const GET_BURST_GUARD_TTL_MS = 1_000;
+const inflightGetRequests = new Map<string, Promise<unknown>>();
+const recentGetResponses = new Map<string, { expiresAt: number; value: unknown }>();
+
 async function apiGet<T>(pathname: string): Promise<T> {
+  const now = Date.now();
+  const cached = recentGetResponses.get(pathname);
+  if (cached && cached.expiresAt > now) {
+    return cached.value as T;
+  }
+
+  const inflight = inflightGetRequests.get(pathname);
+  if (inflight) {
+    return (await inflight) as T;
+  }
+
   const csrfToken = document.cookie
     .split("; ")
     .find((entry) => entry.startsWith("MMCSRF="))
     ?.split("=")[1];
 
-  const response = await fetch(`/api/v4${pathname}`, {
-    credentials: "include",
-    headers: {
-      Accept: "application/json",
-      "X-Requested-With": "XMLHttpRequest",
-      ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
-    },
-  });
+  const request = (async () => {
+    const response = await fetch(`/api/v4${pathname}`, {
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+        ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
+      },
+    });
 
-  if (!response.ok) {
-    throw new Error(`GET ${pathname} failed with ${response.status}`);
+    if (!response.ok) {
+      throw new Error(`GET ${pathname} failed with ${response.status}`);
+    }
+
+    const payload = (await response.json()) as T;
+    recentGetResponses.set(pathname, {
+      expiresAt: Date.now() + GET_BURST_GUARD_TTL_MS,
+      value: payload,
+    });
+    return payload;
+  })();
+
+  inflightGetRequests.set(pathname, request as Promise<unknown>);
+
+  try {
+    return await request;
+  } finally {
+    inflightGetRequests.delete(pathname);
   }
-
-  return (await response.json()) as T;
 }
 
 async function apiPost<T>(pathname: string, body: unknown): Promise<T> {
@@ -137,9 +167,9 @@ export async function getChannelByName(
   return await apiGet<MattermostChannel>(`/teams/${teamId}/channels/name/${channelName}`);
 }
 
-export async function getRecentPosts(channelId: string, perPage = 15): Promise<MattermostPost[]> {
+export async function getRecentPosts(channelId: string, page = 0, perPage = 20): Promise<MattermostPost[]> {
   const payload = await apiGet<MattermostPostList>(
-    `/channels/${channelId}/posts?page=0&per_page=${perPage}`,
+    `/channels/${channelId}/posts?page=${page}&per_page=${perPage}`,
   );
 
   return payload.order

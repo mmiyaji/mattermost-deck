@@ -63,6 +63,9 @@ interface PostState {
   status: "idle" | "loading" | "ready" | "error";
   posts: MattermostPost[];
   error: string | null;
+  nextPage: number;
+  hasMore: boolean;
+  loadingMore: boolean;
 }
 
 interface WsLogEntry {
@@ -83,12 +86,22 @@ const MAX_RAIL_WIDTH = 1400;
 const DEFAULT_RAIL_WIDTH = 720;
 const COLLAPSED_DRAWER_WIDTH = 52;
 const MAX_RECENT_TARGETS = 6;
+const POSTS_PAGE_SIZE = 20;
+const POSTS_MAX_BUFFER = 100;
+const POST_ROW_ESTIMATE = 116;
+const POST_OVERSCAN = 4;
+const POST_VIRTUALIZE_THRESHOLD = 18;
 
 interface RecentChannelTarget {
   teamId: string;
   teamLabel: string;
   channelId: string;
   channelLabel: string;
+}
+
+interface SelectOption {
+  value: string;
+  label: string;
 }
 
 function formatPostTime(timestamp: number): string {
@@ -120,6 +133,19 @@ function getUserLabel(user: MattermostUser | undefined, fallbackId: string): str
   return user.nickname?.trim() || `@${user.username}`;
 }
 
+function mergePosts(primary: MattermostPost[], secondary: MattermostPost[], limit = POSTS_MAX_BUFFER): MattermostPost[] {
+  const deduped = new Map<string, MattermostPost>();
+  for (const post of [...primary, ...secondary]) {
+    if (!deduped.has(post.id)) {
+      deduped.set(post.id, post);
+    }
+  }
+
+  return [...deduped.values()]
+    .sort((left, right) => right.create_at - left.create_at)
+    .slice(0, limit);
+}
+
 function getWebSocketStatusLabel(status: WebSocketStatus): string {
   switch (status) {
     case "connected":
@@ -135,6 +161,27 @@ function getWebSocketStatusLabel(status: WebSocketStatus): string {
     default:
       return "Idle";
   }
+}
+
+function ChevronIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
+  return (
+    <svg
+      className={`deck-chevron${expanded ? " deck-chevron--expanded" : ""}`}
+      viewBox="0 0 12 12"
+      aria-hidden="true"
+    >
+      <path d="M4 2.5L7.5 6L4 9.5" />
+    </svg>
+  );
+}
+
+function CloseIcon(): React.JSX.Element {
+  return (
+    <svg className="deck-close-icon" viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M3 3L9 9" />
+      <path d="M9 3L3 9" />
+    </svg>
+  );
 }
 
 function getAppText(language: DeckLanguage) {
@@ -484,35 +531,38 @@ function useDeckLayout(): [
     };
   }, []);
 
-  const persist = (nextColumns: DeckColumn[]): void => {
+  const persist = useCallback((nextColumns: DeckColumn[]): void => {
     setColumns(nextColumns);
     void saveDeckLayout(STORAGE_KEY, nextColumns);
-  };
+  }, []);
 
-  const persistFromCurrent = (transform: (current: DeckColumn[]) => DeckColumn[]): void => {
+  const persistFromCurrent = useCallback((transform: (current: DeckColumn[]) => DeckColumn[]): void => {
     setColumns((current) => {
       const base = current ?? createDefaultLayout();
       const next = transform(base);
       void saveDeckLayout(STORAGE_KEY, next);
       return next;
     });
-  };
+  }, []);
 
-  const addColumn = (
-    type: DeckColumnType,
-    defaults: Partial<Pick<DeckColumn, "teamId" | "channelId">> = {},
-  ): void => {
-    persistFromCurrent((current) => [...current, createColumn(type, defaults)]);
-  };
+  const addColumn = useCallback(
+    (
+      type: DeckColumnType,
+      defaults: Partial<Pick<DeckColumn, "teamId" | "channelId">> = {},
+    ): void => {
+      persistFromCurrent((current) => [...current, createColumn(type, defaults)]);
+    },
+    [persistFromCurrent],
+  );
 
-  const removeColumn = (id: string): void => {
+  const removeColumn = useCallback((id: string): void => {
     persistFromCurrent((current) => {
       const nextColumns = current.filter((column) => column.id !== id);
       return nextColumns.length > 0 ? nextColumns : [createColumn("mentions")];
     });
-  };
+  }, [persistFromCurrent]);
 
-  const updateColumn = (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId">>): void => {
+  const updateColumn = useCallback((id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId">>): void => {
     persistFromCurrent((current) =>
       current.map((column) =>
         column.id === id
@@ -523,7 +573,7 @@ function useDeckLayout(): [
           : column,
       ),
     );
-  };
+  }, [persistFromCurrent]);
 
   return [columns, addColumn, removeColumn, updateColumn, persist];
 }
@@ -695,40 +745,230 @@ function TeamSelect({
   teamId?: string;
   onChange: (teamId: string) => void;
 }): React.JSX.Element {
+  const options = teams.map((team) => ({
+    value: team.id,
+    label: team.display_name || team.name,
+  }));
+
   return (
     <label className="deck-field">
       <span>Team</span>
-      <select className="deck-select" value={teamId ?? ""} onChange={(event) => onChange(event.target.value)}>
-        <option value="">Select team</option>
-        {teams.map((team) => (
-          <option key={team.id} value={team.id}>
-            {team.display_name || team.name}
-          </option>
-        ))}
-      </select>
+      <CustomSelect
+        options={options}
+        value={teamId ?? ""}
+        placeholder="Select team"
+        onChange={onChange}
+      />
     </label>
+  );
+}
+
+function CustomSelect({
+  options,
+  value,
+  placeholder,
+  disabled = false,
+  onChange,
+}: {
+  options: SelectOption[];
+  value: string;
+  placeholder: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const selected = options.find((option) => option.value === value);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const root = rootRef.current;
+      if (!root) {
+        return;
+      }
+
+      const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+      if (!path.includes(root)) {
+        setOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) {
+      setOpen(false);
+    }
+  }, [disabled]);
+
+  return (
+    <div ref={rootRef} className={`deck-select-shell${open ? " deck-select-shell--open" : ""}`}>
+      <button
+        type="button"
+        className="deck-select-button"
+        onClick={() => {
+          if (!disabled) {
+            setOpen((current) => !current);
+          }
+        }}
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className={`deck-select-button-label${selected ? "" : " deck-select-button-label--placeholder"}`}>
+          {selected?.label ?? placeholder}
+        </span>
+        <ChevronIcon expanded={open} />
+      </button>
+      {open ? (
+        <div className="deck-select-menu" role="listbox">
+          <button
+            type="button"
+            className={`deck-select-option${value === "" ? " deck-select-option--selected" : ""}`}
+            onClick={() => {
+              onChange("");
+              setOpen(false);
+            }}
+          >
+            {placeholder}
+          </button>
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={`deck-select-option${option.value === value ? " deck-select-option--selected" : ""}`}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
 function PostList({
   posts,
   userDirectory,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
 }: {
   posts: MattermostPost[];
   userDirectory: Record<string, MattermostUser>;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }): React.JSX.Element {
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [scrollTop, setScrollTop] = useState(0);
+  const shouldVirtualize = posts.length > POST_VIRTUALIZE_THRESHOLD;
+
+  useEffect(() => {
+    if (!shouldVirtualize) {
+      return;
+    }
+
+    const viewport = viewportRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    const updateMetrics = () => {
+      setViewportHeight(viewport.clientHeight);
+    };
+
+    updateMetrics();
+
+    const observer = new ResizeObserver(() => {
+      updateMetrics();
+    });
+    observer.observe(viewport);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [shouldVirtualize]);
+
+  const visibleCount = Math.max(1, Math.ceil(viewportHeight / POST_ROW_ESTIMATE) + POST_OVERSCAN * 2);
+  const startIndex = Math.max(0, Math.floor(scrollTop / POST_ROW_ESTIMATE) - POST_OVERSCAN);
+  const endIndex = Math.min(posts.length, startIndex + visibleCount);
+  const visiblePosts = posts.slice(startIndex, endIndex);
+  const offsetY = startIndex * POST_ROW_ESTIMATE;
+  const spacerHeight = posts.length * POST_ROW_ESTIMATE;
+
   return (
-    <ul className="deck-list">
-      {posts.map((post) => (
-        <li key={post.id} className="deck-card deck-card--post">
-          <div className="deck-card-header">
-            <strong>{formatPostTime(post.create_at)}</strong>
-            <span>{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
+    <div className="deck-post-list">
+      {shouldVirtualize ? (
+        <div
+          ref={viewportRef}
+          className="deck-list-viewport"
+          onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+        >
+          <div className="deck-list-spacer" style={{ height: `${Math.max(spacerHeight, viewportHeight)}px` }}>
+            <ul className="deck-list deck-list--virtual" style={{ transform: `translateY(${offsetY}px)` }}>
+              {visiblePosts.map((post) => (
+                <li key={post.id} className="deck-card deck-card--post">
+                  <div className="deck-card-header">
+                    <strong>{formatPostTime(post.create_at)}</strong>
+                    <span>{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
+                  </div>
+                  <p>{summarisePost(post.message)}</p>
+                </li>
+              ))}
+            </ul>
           </div>
-          <p>{summarisePost(post.message)}</p>
-        </li>
-      ))}
-    </ul>
+        </div>
+      ) : (
+        <div className="deck-list-viewport">
+          <ul className="deck-list">
+            {posts.map((post) => (
+              <li key={post.id} className="deck-card deck-card--post">
+                <div className="deck-card-header">
+                  <strong>{formatPostTime(post.create_at)}</strong>
+                  <span>{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
+                </div>
+                <p>{summarisePost(post.message)}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {hasMore || loadingMore ? (
+        <div className="deck-list-footer">
+          <button
+            type="button"
+            className="deck-load-more"
+            onClick={() => onLoadMore?.()}
+            disabled={!hasMore || loadingMore}
+          >
+            {loadingMore ? "Loading..." : "Load more"}
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -761,6 +1001,9 @@ function MentionsColumn({
     status: "idle",
     posts: [],
     error: null,
+    nextPage: 1,
+    hasMore: false,
+    loadingMore: false,
   });
   const [showControls, setShowControls] = useState(!column.teamId);
   const selectedTeam = teams.find((team) => team.id === column.teamId);
@@ -780,6 +1023,9 @@ function MentionsColumn({
         status: "idle",
         posts: [],
         error: null,
+        nextPage: 1,
+        hasMore: false,
+        loadingMore: false,
       });
       return () => {
         cancelled = true;
@@ -794,13 +1040,16 @@ function MentionsColumn({
       }));
 
       try {
-        const posts = await searchPostsInTeam(column.teamId as string, `@${username}`, 0, 20);
+        const posts = await searchPostsInTeam(column.teamId as string, `@${username}`, 0, POSTS_PAGE_SIZE);
         if (!cancelled) {
-          setPostState({
+          setPostState((current) => ({
             status: "ready",
-            posts,
+            posts: mergePosts(posts, current.posts),
             error: null,
-          });
+            nextPage: 1,
+            hasMore: posts.length === POSTS_PAGE_SIZE,
+            loadingMore: false,
+          }));
           ensureUsers(posts.map((post) => post.user_id));
         }
       } catch (error) {
@@ -809,6 +1058,9 @@ function MentionsColumn({
             status: "error",
             posts: [],
             error: error instanceof Error ? error.message : "Failed to load mentions.",
+            nextPage: 1,
+            hasMore: false,
+            loadingMore: false,
           });
         }
       }
@@ -845,10 +1097,41 @@ function MentionsColumn({
       return {
         status: "ready",
         error: null,
-        posts: [postedEvent.post, ...posts].slice(0, 20),
+        posts: mergePosts([postedEvent.post], posts),
+        nextPage: current.nextPage,
+        hasMore: current.hasMore,
+        loadingMore: false,
       };
     });
   }, [column.teamId, ensureUsers, postedEvent]);
+
+  const handleLoadMore = async () => {
+    if (!column.teamId || !username || postState.loadingMore || !postState.hasMore) {
+      return;
+    }
+
+    setPostState((current) => ({ ...current, loadingMore: true, error: null }));
+
+    try {
+      const posts = await searchPostsInTeam(column.teamId, `@${username}`, postState.nextPage, POSTS_PAGE_SIZE);
+      ensureUsers(posts.map((post) => post.user_id));
+      setPostState((current) => ({
+        status: "ready",
+        posts: mergePosts(current.posts, posts),
+        error: null,
+        nextPage: current.nextPage + 1,
+        hasMore: posts.length === POSTS_PAGE_SIZE && current.posts.length + posts.length < POSTS_MAX_BUFFER,
+        loadingMore: false,
+      }));
+    } catch (error) {
+      setPostState((current) => ({
+        ...current,
+        status: "error",
+        error: error instanceof Error ? error.message : "Failed to load more mentions.",
+        loadingMore: false,
+      }));
+    }
+  };
 
   return (
     <section className="deck-column">
@@ -864,16 +1147,18 @@ function MentionsColumn({
             onClick={() => setShowControls((current) => !current)}
             aria-label={showControls ? "Collapse mentions controls" : "Expand mentions controls"}
           >
-            {showControls ? "-" : "+"}
+            <ChevronIcon expanded={showControls} />
           </button>
-          <div className="deck-badge">{mentionCount ?? "--"}</div>
+          <div className="deck-badge" title="Unread mentions in this team">
+            {mentionCount ?? "--"}
+          </div>
           <button
             type="button"
             className="deck-icon-button deck-icon-button--ghost"
             onClick={() => onRemove(column.id)}
             aria-label="Remove mentions column"
           >
-            x
+            <CloseIcon />
           </button>
         </div>
       </header>
@@ -919,7 +1204,13 @@ function MentionsColumn({
           <p>Matching mention posts will appear here after initial sync or realtime updates.</p>
         </article>
       ) : (
-        <PostList posts={postState.posts} userDirectory={userDirectory} />
+        <PostList
+          posts={postState.posts}
+          userDirectory={userDirectory}
+          hasMore={postState.hasMore}
+          loadingMore={postState.loadingMore}
+          onLoadMore={handleLoadMore}
+        />
       )}
     </section>
   );
@@ -957,11 +1248,22 @@ function ChannelWatchColumn({
     status: "idle",
     posts: [],
     error: null,
+    nextPage: 1,
+    hasMore: false,
+    loadingMore: false,
   });
   const [showControls, setShowControls] = useState(!(column.teamId && column.channelId));
 
   const selectedTeam = teams.find((team) => team.id === column.teamId);
   const selectedChannel = channelState.channels.find((channel) => channel.id === column.channelId);
+  const channelOptions = useMemo(
+    () =>
+      channelState.channels.map((channel) => ({
+        value: channel.id,
+        label: channel.display_name || channel.name,
+      })),
+    [channelState.channels],
+  );
 
   useEffect(() => {
     setShowControls(!(column.teamId && column.channelId));
@@ -1040,6 +1342,9 @@ function ChannelWatchColumn({
         status: "idle",
         posts: [],
         error: null,
+        nextPage: 1,
+        hasMore: false,
+        loadingMore: false,
       });
       return () => {
         cancelled = true;
@@ -1054,13 +1359,16 @@ function ChannelWatchColumn({
       }));
 
       try {
-        const posts = await getRecentPosts(column.channelId as string);
+        const posts = await getRecentPosts(column.channelId as string, 0, POSTS_PAGE_SIZE);
         if (!cancelled) {
-          setPostState({
+          setPostState((current) => ({
             status: "ready",
-            posts,
+            posts: mergePosts(posts, current.posts),
             error: null,
-          });
+            nextPage: 1,
+            hasMore: posts.length === POSTS_PAGE_SIZE,
+            loadingMore: false,
+          }));
           ensureUsers(posts.map((post) => post.user_id));
         }
       } catch (error) {
@@ -1069,6 +1377,9 @@ function ChannelWatchColumn({
             status: "error",
             posts: [],
             error: error instanceof Error ? error.message : "Failed to load posts.",
+            nextPage: 1,
+            hasMore: false,
+            loadingMore: false,
           });
         }
       }
@@ -1105,10 +1416,41 @@ function ChannelWatchColumn({
       return {
         status: "ready",
         error: null,
-        posts: [postedEvent.post, ...posts].slice(0, 15),
+        posts: mergePosts([postedEvent.post], posts),
+        nextPage: current.nextPage,
+        hasMore: current.hasMore,
+        loadingMore: false,
       };
     });
   }, [column.channelId, ensureUsers, postedEvent]);
+
+  const handleLoadMore = async () => {
+    if (!column.channelId || postState.loadingMore || !postState.hasMore) {
+      return;
+    }
+
+    setPostState((current) => ({ ...current, loadingMore: true, error: null }));
+
+    try {
+      const posts = await getRecentPosts(column.channelId, postState.nextPage, POSTS_PAGE_SIZE);
+      ensureUsers(posts.map((post) => post.user_id));
+      setPostState((current) => ({
+        status: "ready",
+        posts: mergePosts(current.posts, posts),
+        error: null,
+        nextPage: current.nextPage + 1,
+        hasMore: posts.length === POSTS_PAGE_SIZE && current.posts.length + posts.length < POSTS_MAX_BUFFER,
+        loadingMore: false,
+      }));
+    } catch (error) {
+      setPostState((current) => ({
+        ...current,
+        status: "error",
+        error: error instanceof Error ? error.message : "Failed to load more posts.",
+        loadingMore: false,
+      }));
+    }
+  };
 
   return (
     <section className="deck-column">
@@ -1124,7 +1466,7 @@ function ChannelWatchColumn({
             onClick={() => setShowControls((current) => !current)}
             aria-label={showControls ? "Collapse channel controls" : "Expand channel controls"}
           >
-            {showControls ? "-" : "+"}
+            <ChevronIcon expanded={showControls} />
           </button>
           <button
             type="button"
@@ -1132,7 +1474,7 @@ function ChannelWatchColumn({
             onClick={() => onRemove(column.id)}
             aria-label="Remove channel watch column"
           >
-            x
+            <CloseIcon />
           </button>
         </div>
       </header>
@@ -1147,19 +1489,13 @@ function ChannelWatchColumn({
             />
             <label className="deck-field">
               <span>Channel</span>
-              <select
-                className="deck-select"
+              <CustomSelect
+                options={channelOptions}
                 value={column.channelId ?? ""}
                 disabled={!column.teamId || channelState.status === "loading"}
-                onChange={(event) => onUpdate(column.id, { channelId: event.target.value || undefined })}
-              >
-                <option value="">Select channel</option>
-                {channelState.channels.map((channel) => (
-                  <option key={channel.id} value={channel.id}>
-                    {channel.display_name || channel.name}
-                  </option>
-                ))}
-              </select>
+                placeholder="Select channel"
+                onChange={(channelId) => onUpdate(column.id, { channelId: channelId || undefined })}
+              />
             </label>
           </div>
 
@@ -1196,7 +1532,13 @@ function ChannelWatchColumn({
           <p>This pinned channel does not have recent posts to show.</p>
         </article>
       ) : (
-        <PostList posts={postState.posts.slice(0, 8)} userDirectory={userDirectory} />
+        <PostList
+          posts={postState.posts}
+          userDirectory={userDirectory}
+          hasMore={postState.hasMore}
+          loadingMore={postState.loadingMore}
+          onLoadMore={handleLoadMore}
+        />
       )}
     </section>
   );
@@ -1217,8 +1559,14 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
   const [railWidth, setRailWidth] = useRailWidth(drawerOpen);
   const [isResizing, setIsResizing] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const [isCompactHeader, setIsCompactHeader] = useState(false);
+  const shellRef = useRef<HTMLElement | null>(null);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
+  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const resizeStateRef = useRef<{ pointerId: number } | null>(null);
+  const resizeFrameRef = useRef<number | null>(null);
+  const pendingWidthRef = useRef<number | null>(null);
   const wsStatus = useWebSocketStatus();
   const wsLogs = useWebSocketLogs();
   const mattermostThemeStyle = useMattermostThemeStyle(deckSettings.theme, routeKey);
@@ -1272,6 +1620,24 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
   }, [isResizing]);
 
   useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell || isResizing) {
+      return;
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? shell.clientWidth;
+      setIsCompactHeader(width < 520);
+    });
+
+    observer.observe(shell);
+    setIsCompactHeader(shell.clientWidth < 520);
+    return () => {
+      observer.disconnect();
+    };
+  }, [drawerOpen, isResizing]);
+
+  useEffect(() => {
     const mentionTeamIds = new Set(
       (columns ?? [])
         .filter((column) => column.type === "mentions" && column.teamId)
@@ -1299,23 +1665,6 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
   }, [columns, deckSettings.wsPat, realtimeEnabled, state.username]);
 
   useEffect(() => {
-    if (!showAddMenu) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (addMenuRef.current && !addMenuRef.current.contains(event.target as Node)) {
-        setShowAddMenu(false);
-      }
-    };
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-    };
-  }, [showAddMenu]);
-
-  useEffect(() => {
     if (!isResizing || !drawerOpen) {
       return;
     }
@@ -1325,7 +1674,18 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
         return;
       }
 
-      setRailWidth(window.innerWidth - event.clientX);
+      pendingWidthRef.current = window.innerWidth - event.clientX;
+      if (resizeFrameRef.current !== null) {
+        return;
+      }
+
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeFrameRef.current = null;
+        if (pendingWidthRef.current !== null) {
+          setRailWidth(pendingWidthRef.current);
+          pendingWidthRef.current = null;
+        }
+      });
     };
 
     const finishResize = (event: PointerEvent) => {
@@ -1335,6 +1695,14 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
 
       resizeStateRef.current = null;
       setIsResizing(false);
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
+      }
+      if (pendingWidthRef.current !== null) {
+        setRailWidth(pendingWidthRef.current);
+        pendingWidthRef.current = null;
+      }
     };
 
     window.addEventListener("pointermove", handlePointerMove);
@@ -1345,6 +1713,11 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", finishResize);
       window.removeEventListener("pointercancel", finishResize);
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
+      }
+      pendingWidthRef.current = null;
     };
   }, [drawerOpen, isResizing, setRailWidth]);
 
@@ -1371,8 +1744,18 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
     }
   };
 
+  const handleAddColumn = (
+    type: DeckColumnType,
+    defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId">>,
+  ) => {
+    addColumn(type, defaults);
+    setShowAddMenu(false);
+    setShowActionsMenu(false);
+  };
+
   return (
     <aside
+      ref={shellRef}
       className={`deck-shell${drawerOpen ? "" : " deck-shell--collapsed"}`}
       aria-label="Mattermost Deck"
       data-theme={deckSettings.theme === "mattermost" ? "mattermost" : resolveTheme(deckSettings.theme)}
@@ -1400,11 +1783,10 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
 
       {drawerOpen ? (
         <>
-          <header className="deck-topbar">
+          <header className={`deck-topbar deck-topbar--compact${isCompactHeader ? " deck-topbar--collapsed" : ""}`}>
             <div className="deck-topbar-copy">
-              <p className="deck-eyebrow">Mattermost Deck</p>
               <h1>{text.title}</h1>
-              <p className="deck-meta">
+              <p className="deck-meta deck-meta--compact">
                 {state.username ? `${text.signedInAs} @${state.username}` : text.usingSession}
               </p>
             </div>
@@ -1422,7 +1804,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                 <span className="deck-status-badge-dot" />
                 <span>{realtimeLabel}</span>
               </div>
-              <div className="deck-status-inline">
+              <div className={`deck-status-inline${isCompactHeader ? " deck-status-inline--hidden" : ""}`}>
                 <span className="deck-dot" />
                 <span>{statusText}</span>
               </div>
@@ -1473,6 +1855,61 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                               });
                               setShowAddMenu(false);
                             }}
+                            title={`${target.teamLabel} / ${target.channelLabel}`}
+                          >
+                            <span>{target.channelLabel}</span>
+                            <small>{target.teamLabel}</small>
+                          </button>
+                        ))}
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+              <div className="deck-add-wrap deck-actions-wrap" ref={actionsMenuRef}>
+                <button
+                  type="button"
+                  className="deck-icon-button deck-icon-button--ghost deck-actions-button"
+                  onClick={() => setShowActionsMenu((current) => !current)}
+                  aria-label="Open menu"
+                  disabled={columns === null || state.status === "loading"}
+                >
+                  ☰
+                </button>
+                {showActionsMenu ? (
+                  <div className="deck-add-menu deck-add-menu--compact">
+                    <div className="deck-add-menu-title">{statusText}</div>
+                    <button
+                      type="button"
+                      className="deck-add-item"
+                      onClick={() => {
+                        handleOpenSettings();
+                        setShowActionsMenu(false);
+                      }}
+                    >
+                      {text.settingsButton}
+                    </button>
+                    <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.choosePane}</div>
+                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("mentions")}>
+                      {text.addMentions}
+                    </button>
+                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("channelWatch")}>
+                      {text.addChannelWatch}
+                    </button>
+                    {recentTargets.length > 0 ? (
+                      <>
+                        <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.recentLabel}</div>
+                        {recentTargets.map((target) => (
+                          <button
+                            key={`${target.teamId}:${target.channelId}`}
+                            type="button"
+                            className="deck-add-item deck-add-item--recent"
+                            onClick={() =>
+                              handleAddColumn("channelWatch", {
+                                teamId: target.teamId,
+                                channelId: target.channelId,
+                              })
+                            }
                             title={`${target.teamLabel} / ${target.channelLabel}`}
                           >
                             <span>{target.channelLabel}</span>
