@@ -1,4 +1,4 @@
-export type DeckColumnType = "mentions" | "channelWatch";
+export type DeckColumnType = "mentions" | "channelWatch" | "dmWatch";
 
 export interface DeckColumn {
   id: string;
@@ -33,5 +33,7 @@ export function getColumnTitle(type: DeckColumnType): string {
       return "Mentions";
     case "channelWatch":
       return "Channel Watch";
+    case "dmWatch":
+      return "DM / Group";
   }
 }

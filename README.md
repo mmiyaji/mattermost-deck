@@ -9,8 +9,10 @@ Chrome extension that adds a TweetDeck-style right rail to the Mattermost web ap
 - Supplemental columns such as mentions, watched channels, DMs, and threads are rendered inside the rail.
 - REST uses the current browser session.
 - WebSocket is optional and can be enabled by saving a Mattermost PAT in the extension UI.
-- PAT, theme, and language are managed from the extension Options page.
-- The PAT is currently stored locally in `chrome.storage.local` without encryption, so use a low-privilege token when possible.
+- On first install, the extension opens its Options page so you can set the target Mattermost server URL and optional team slug.
+- Server URL, optional team slug, PAT, polling interval, theme, and language are managed from the extension Options page.
+- Advanced settings allow overriding the allowed route kinds and the health-check API endpoint used before the deck renders.
+- The PAT is stored locally with client-side encryption. This is better than plain text, but it is not a complete security boundary because the client can still decrypt it.
 - Data for supplemental columns comes from Mattermost REST APIs and optional WebSocket events, not from reimplementing the full Mattermost app shell.
 
 ## Development

@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "../ui/App";
+import { DEFAULT_SETTINGS, loadDeckSettings, subscribeDeckSettings, type DeckSettings } from "../ui/settings";
 import { railCssText } from "../ui/styles";
 
 const ROOT_ID = "mattermost-deck-root";
@@ -10,14 +11,99 @@ const BODY_CLASS = "mattermost-deck-body-offset";
 const RAIL_WIDTH_VAR = "--mattermost-deck-rail-width";
 const OFFSET_WIDTH_VAR = "--mattermost-deck-offset-width";
 const ROOT_WIDTH_EXPR = "clamp(320px, 32vw, 420px)";
+const MATTERMOST_GUARD_SUCCESS_TTL_MS = 30_000;
+const MATTERMOST_GUARD_FAILURE_TTL_MS = 10_000;
 
 let appRoot: ReturnType<typeof createRoot> | null = null;
 let routePoller: number | null = null;
 let lastRouteKey = "";
+let currentSettings: DeckSettings = DEFAULT_SETTINGS;
+let settingsLoaded = false;
+let guardCache:
+  | {
+      origin: string;
+      expiresAt: number;
+      ok: boolean;
+    }
+  | null = null;
+let guardInflight: Promise<boolean> | null = null;
 
-function shouldActivate(): boolean {
+function matchesConfiguredRoute(): boolean {
+  if (!settingsLoaded) {
+    return false;
+  }
+
+  if (!currentSettings.serverUrl || window.location.origin !== currentSettings.serverUrl) {
+    return false;
+  }
+
   const route = `${window.location.pathname}${window.location.hash}`;
-  return /\/(?:channels|messages)\//.test(route);
+  const allowedKinds = currentSettings.allowedRouteKinds
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const routePattern = new RegExp(`/(?:${allowedKinds.join("|")})/`);
+  if (!routePattern.test(route)) {
+    return false;
+  }
+
+  if (!currentSettings.teamSlug) {
+    return true;
+  }
+
+  return route.includes(`/${currentSettings.teamSlug}/`);
+}
+
+async function verifyMattermostSession(): Promise<boolean> {
+  if (!currentSettings.serverUrl || window.location.origin !== currentSettings.serverUrl) {
+    return false;
+  }
+
+  const now = Date.now();
+  if (guardCache && guardCache.origin === window.location.origin && guardCache.expiresAt > now) {
+    return guardCache.ok;
+  }
+
+  if (guardInflight) {
+    return await guardInflight;
+  }
+
+  guardInflight = (async () => {
+    const csrfToken = document.cookie
+      .split("; ")
+      .find((entry) => entry.startsWith("MMCSRF="))
+      ?.split("=")[1];
+
+    try {
+      const response = await fetch(currentSettings.healthCheckPath, {
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+          ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
+        },
+      });
+
+      const ok = response.ok;
+      guardCache = {
+        origin: window.location.origin,
+        expiresAt: Date.now() + (ok ? MATTERMOST_GUARD_SUCCESS_TTL_MS : MATTERMOST_GUARD_FAILURE_TTL_MS),
+        ok,
+      };
+      return ok;
+    } catch {
+      guardCache = {
+        origin: window.location.origin,
+        expiresAt: Date.now() + MATTERMOST_GUARD_FAILURE_TTL_MS,
+        ok: false,
+      };
+      return false;
+    } finally {
+      guardInflight = null;
+    }
+  })();
+
+  return await guardInflight;
 }
 
 function ensureStyle(): void {
@@ -102,15 +188,25 @@ function cleanup(): void {
   }
 }
 
-function render(): void {
+async function render(): Promise<void> {
   if (!(document.body instanceof HTMLBodyElement)) {
     return;
   }
 
-  lastRouteKey = `${window.location.pathname}${window.location.hash}`;
+  const routeKey = `${window.location.pathname}${window.location.hash}`;
+  lastRouteKey = routeKey;
 
-  if (!shouldActivate()) {
+  if (!matchesConfiguredRoute()) {
     cleanup();
+    return;
+  }
+
+  if (!(await verifyMattermostSession())) {
+    cleanup();
+    return;
+  }
+
+  if (routeKey !== `${window.location.pathname}${window.location.hash}`) {
     return;
   }
 
@@ -151,7 +247,9 @@ function installRouteWatcher(): void {
       return;
     }
 
-    window.requestAnimationFrame(() => render());
+    window.requestAnimationFrame(() => {
+      void render();
+    });
   };
 
   window.history.pushState = function pushStatePatched(...args) {
@@ -173,12 +271,32 @@ if (document.readyState === "loading") {
   document.addEventListener(
     "DOMContentLoaded",
     () => {
+      void loadDeckSettings().then((settings) => {
+        currentSettings = settings;
+        settingsLoaded = true;
+        void render();
+      });
+      subscribeDeckSettings((settings) => {
+        currentSettings = settings;
+        settingsLoaded = true;
+        guardCache = null;
+        void render();
+      });
       installRouteWatcher();
-      render();
     },
     { once: true },
   );
 } else {
+  void loadDeckSettings().then((settings) => {
+    currentSettings = settings;
+    settingsLoaded = true;
+    void render();
+  });
+  subscribeDeckSettings((settings) => {
+    currentSettings = settings;
+    settingsLoaded = true;
+    guardCache = null;
+    void render();
+  });
   installRouteWatcher();
-  render();
 }

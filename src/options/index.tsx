@@ -1,8 +1,21 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { CustomSelect, type CustomSelectOption } from "../ui/CustomSelect";
 import {
   DEFAULT_SETTINGS,
+  MAX_FONT_SCALE_PERCENT,
+  MAX_PREFERRED_COLUMN_WIDTH,
+  MAX_PREFERRED_RAIL_WIDTH,
+  MIN_POLLING_INTERVAL_SECONDS,
+  MIN_FONT_SCALE_PERCENT,
+  MIN_PREFERRED_COLUMN_WIDTH,
+  MIN_PREFERRED_RAIL_WIDTH,
   loadDeckSettings,
+  normaliseFontScalePercent,
+  normalisePollingIntervalSeconds,
+  normalisePreferredColumnWidth,
+  normalisePreferredRailWidth,
+  normaliseServerUrl,
   resolveTheme,
   saveDeckSettings,
   type DeckLanguage,
@@ -10,18 +23,52 @@ import {
   type DeckTheme,
 } from "../ui/settings";
 
+const REPO_URL = "https://github.com/mmiyaji/mattermost-deck";
+const PRIVACY_URL = "https://github.com/mmiyaji/mattermost-deck/blob/main/PRIVACY.md";
+const TERMS_URL = "https://github.com/mmiyaji/mattermost-deck/blob/main/TERMS.md";
+const PAT_ENABLE_URL = "https://docs.mattermost.com/administration-guide/configure/integrations-configuration-settings.html";
+const PAT_GUIDE_URL = "https://docs.mattermost.com/agents/mcpserver/README.html";
+const AUTHOR_NAME = "@mmiyaji";
+const COPYRIGHT_YEAR = "2026";
+
 type OptionsText = {
   title: string;
   subtitle: string;
+  version: string;
+  targetTitle: string;
+  targetBody: string;
+  serverUrlLabel: string;
+  serverUrlPlaceholder: string;
+  teamSlugLabel: string;
+  teamSlugPlaceholder: string;
+  targetHint: string;
+  advanced: string;
+  routeKindsLabel: string;
+  routeKindsHint: string;
+  healthCheckLabel: string;
+  healthCheckHint: string;
   realtimeTitle: string;
   realtimeBody: string;
   patLabel: string;
   patPlaceholder: string;
+  patHelp: string;
+  patEnableLink: string;
+  patGuideLink: string;
+  pollingLabel: string;
+  pollingHint: string;
   show: string;
   hide: string;
   appearanceTitle: string;
+  appearanceBody: string;
+  appearanceAdvanced: string;
   themeLabel: string;
   languageLabel: string;
+  fontScaleLabel: string;
+  fontScaleHint: string;
+  paneWidthLabel: string;
+  paneWidthHint: string;
+  columnWidthLabel: string;
+  columnWidthHint: string;
   themeSystem: string;
   themeMattermost: string;
   themeDark: string;
@@ -31,24 +78,55 @@ type OptionsText = {
   save: string;
   saving: string;
   saved: string;
+  invalidServerUrl: string;
   securityTitle: string;
   securityBody: string;
   securityBody2: string;
+  securityBody3: string;
+  privacyPolicy: string;
+  termsOfUse: string;
+  github: string;
 };
 
 const TEXT: Record<DeckLanguage, OptionsText> = {
   ja: {
     title: "Mattermost Deck Settings",
-    subtitle: "右側デッキの接続設定と表示設定を管理します。",
+    subtitle: "対象 URL、チーム、詳細ガード、見た目、リアルタイム設定を管理します。",
+    version: "Version",
+    targetTitle: "Target",
+    targetBody: "拡張は設定した Mattermost Server URL 上でのみ有効です。team slug を空にすると全チーム、指定するとそのチーム配下だけで有効になります。",
+    serverUrlLabel: "Mattermost Server URL",
+    serverUrlPlaceholder: "https://mattermost.example.com",
+    teamSlugLabel: "Team Slug",
+    teamSlugPlaceholder: "myteam",
+    targetHint: "通常は Server URL だけ設定すれば十分です。",
+    advanced: "詳細設定",
+    routeKindsLabel: "Allowed Route Kinds",
+    routeKindsHint: "既定は channels,messages です。拡張はこの URL パターンでのみ有効化されます。",
+    healthCheckLabel: "Health Check API Path",
+    healthCheckHint: "既定は /api/v4/users/me です。描画前にこの API が正常応答するか確認します。",
     realtimeTitle: "Realtime",
-    realtimeBody: "サーバーURLは現在の Mattermost ページから自動判定します。PAT を保存したときだけ WebSocket を使います。",
+    realtimeBody: "PAT を保存したときだけ WebSocket を有効にします。未設定時は REST ポーリングで更新します。",
     patLabel: "Mattermost PAT",
-    patPlaceholder: "Personal Access Token を貼り付け",
+    patPlaceholder: "Personal Access Token を入力",
+    patHelp: "作成場所: User Settings > Security > Personal Access Tokens。管理者側で PAT が有効になっている必要があります。",
+    patEnableLink: "PAT の有効化",
+    patGuideLink: "取得方法の公式案内",
+    pollingLabel: "Polling Interval (seconds)",
+    pollingHint: `Realtime 無効時の取得間隔です。下限は ${MIN_POLLING_INTERVAL_SECONDS} 秒です。`,
     show: "表示",
     hide: "非表示",
     appearanceTitle: "Appearance",
+    appearanceBody: "Mattermost を選ぶと、現在開いている Mattermost 本体の配色に右ペインを寄せます。",
+    appearanceAdvanced: "詳細設定",
     themeLabel: "Theme",
     languageLabel: "Language",
+    fontScaleLabel: "Font Size (%)",
+    fontScaleHint: `${MIN_FONT_SCALE_PERCENT}% 〜 ${MAX_FONT_SCALE_PERCENT}% で設定します。`,
+    paneWidthLabel: "Pane Width (px)",
+    paneWidthHint: `${MIN_PREFERRED_RAIL_WIDTH}px 〜 ${MAX_PREFERRED_RAIL_WIDTH}px で設定します。保存済みの手動リサイズ幅がない場合の初期値として使われます。`,
+    columnWidthLabel: "Column Width (px)",
+    columnWidthHint: `${MIN_PREFERRED_COLUMN_WIDTH}px 〜 ${MAX_PREFERRED_COLUMN_WIDTH}px で設定します。`,
     themeSystem: "System",
     themeMattermost: "Mattermost",
     themeDark: "Dark",
@@ -58,22 +136,53 @@ const TEXT: Record<DeckLanguage, OptionsText> = {
     save: "保存",
     saving: "保存中...",
     saved: "保存しました",
+    invalidServerUrl: "Mattermost Server URL を正しい origin 形式で入力してください。",
     securityTitle: "Security",
-    securityBody: "PAT はこのブラウザの拡張ストレージにローカル保存されます。現在は暗号化していません。",
-    securityBody2: "高権限トークンは避け、可能なら専用の低権限トークンを使ってください。",
+    securityBody: "PAT は平文ではなく、拡張内で復号可能なクライアント側暗号化を施して保存します。",
+    securityBody2: "ただし鍵もクライアント側にあるため、これは最低限の秘匿化です。完全な保護ではありません。",
+    securityBody3: "高権限トークンは避け、可能なら専用の低権限トークンを使ってください。",
+    privacyPolicy: "プライバシーポリシー",
+    termsOfUse: "利用規約",
+    github: "GitHub",
   },
   en: {
     title: "Mattermost Deck Settings",
-    subtitle: "Manage realtime access and appearance for the right-side deck.",
+    subtitle: "Manage the target URL, team, detailed guards, appearance, and realtime behavior.",
+    version: "Version",
+    targetTitle: "Target",
+    targetBody: "The extension runs only on the configured Mattermost Server URL. Leave team slug blank to enable on all teams, or set it to scope activation to one team.",
+    serverUrlLabel: "Mattermost Server URL",
+    serverUrlPlaceholder: "https://mattermost.example.com",
+    teamSlugLabel: "Team Slug",
+    teamSlugPlaceholder: "myteam",
+    targetHint: "In most cases, configuring the Server URL is enough.",
+    advanced: "Advanced",
+    routeKindsLabel: "Allowed Route Kinds",
+    routeKindsHint: "Default is channels,messages. The extension activates only on these URL patterns.",
+    healthCheckLabel: "Health Check API Path",
+    healthCheckHint: "Default is /api/v4/users/me. The extension confirms this endpoint before rendering.",
     realtimeTitle: "Realtime",
-    realtimeBody: "The server URL is inferred from the current Mattermost page. WebSocket is enabled only when a PAT is saved.",
+    realtimeBody: "WebSocket is enabled only when a PAT is saved. Without a PAT, the deck updates via REST polling.",
     patLabel: "Mattermost PAT",
     patPlaceholder: "Paste a personal access token",
+    patHelp: "Create it from User Settings > Security > Personal Access Tokens. Personal access tokens must also be enabled by an administrator.",
+    patEnableLink: "Enable PATs",
+    patGuideLink: "Official setup guide",
+    pollingLabel: "Polling Interval (seconds)",
+    pollingHint: `Used only when realtime is off. The minimum is ${MIN_POLLING_INTERVAL_SECONDS} seconds.`,
     show: "Show",
     hide: "Hide",
     appearanceTitle: "Appearance",
+    appearanceBody: "When set to Mattermost, the right rail follows the colors of the currently open Mattermost page.",
+    appearanceAdvanced: "Advanced",
     themeLabel: "Theme",
     languageLabel: "Language",
+    fontScaleLabel: "Font Size (%)",
+    fontScaleHint: `Configurable from ${MIN_FONT_SCALE_PERCENT}% to ${MAX_FONT_SCALE_PERCENT}%.`,
+    paneWidthLabel: "Pane Width (px)",
+    paneWidthHint: `Configurable from ${MIN_PREFERRED_RAIL_WIDTH}px to ${MAX_PREFERRED_RAIL_WIDTH}px. Used as the initial width when no saved manual resize exists.`,
+    columnWidthLabel: "Column Width (px)",
+    columnWidthHint: `Configurable from ${MIN_PREFERRED_COLUMN_WIDTH}px to ${MAX_PREFERRED_COLUMN_WIDTH}px.`,
     themeSystem: "System",
     themeMattermost: "Mattermost",
     themeDark: "Dark",
@@ -83,9 +192,14 @@ const TEXT: Record<DeckLanguage, OptionsText> = {
     save: "Save",
     saving: "Saving...",
     saved: "Saved",
+    invalidServerUrl: "Enter the Mattermost Server URL as a valid origin.",
     securityTitle: "Security",
-    securityBody: "The PAT is stored locally in this browser's extension storage. It is not encrypted in the current implementation.",
-    securityBody2: "Avoid high-privilege tokens. Prefer a dedicated lower-privilege token when possible.",
+    securityBody: "The PAT is no longer stored as plain text. It is saved using client-side encryption that the extension can decrypt locally.",
+    securityBody2: "Because the key also lives on the client, this is only a minimum layer of protection and not a complete security boundary.",
+    securityBody3: "Avoid high-privilege tokens. Prefer a dedicated lower-privilege token when possible.",
+    privacyPolicy: "Privacy Policy",
+    termsOfUse: "Terms of Use",
+    github: "GitHub",
   },
 };
 
@@ -112,15 +226,49 @@ const pageCss = `
   }
 
   .options-shell {
-    max-width: 900px;
+    max-width: 960px;
     margin: 0 auto;
     padding: 40px 24px 56px;
+  }
+
+  .options-header,
+  .options-section {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(123, 178, 255, 0.16);
+    border-radius: 18px;
+  }
+
+  body[data-theme="light"] .options-header,
+  body[data-theme="light"] .options-section {
+    background: rgba(255, 255, 255, 0.78);
+    border-color: rgba(84, 120, 168, 0.14);
+  }
+
+  .options-header {
+    padding: 24px;
+  }
+
+  .options-header-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .options-version {
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(123, 178, 255, 0.12);
+    color: #8facd5;
+    font-size: 12px;
+    white-space: nowrap;
   }
 
   .options-header h1,
   .options-header p,
   .options-section h2,
-  .options-section p {
+  .options-section p,
+  .options-footer-meta p {
     margin: 0;
   }
 
@@ -131,7 +279,10 @@ const pageCss = `
 
   body[data-theme="light"] .options-header p,
   body[data-theme="light"] .options-section p,
-  body[data-theme="light"] .options-label {
+  body[data-theme="light"] .options-label,
+  body[data-theme="light"] .options-status,
+  body[data-theme="light"] .options-version,
+  body[data-theme="light"] .options-footer-meta p {
     color: #496583;
   }
 
@@ -139,19 +290,11 @@ const pageCss = `
     display: flex;
     flex-direction: column;
     gap: 18px;
-    margin-top: 28px;
+    margin-top: 24px;
   }
 
   .options-section {
     padding: 20px;
-    border-radius: 18px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(123, 178, 255, 0.16);
-  }
-
-  body[data-theme="light"] .options-section {
-    background: rgba(255, 255, 255, 0.7);
-    border-color: rgba(84, 120, 168, 0.14);
   }
 
   .options-section p {
@@ -162,7 +305,7 @@ const pageCss = `
 
   .options-grid {
     display: grid;
-    grid-template-columns: 1fr 220px 220px;
+    grid-template-columns: 1fr 220px;
     gap: 14px;
     margin-top: 18px;
   }
@@ -179,7 +322,6 @@ const pageCss = `
   }
 
   .options-input,
-  .options-select,
   .options-button {
     min-height: 42px;
     border-radius: 14px;
@@ -188,14 +330,12 @@ const pageCss = `
     font: inherit;
   }
 
-  .options-input,
-  .options-select {
+  .options-input {
     background: rgba(255, 255, 255, 0.04);
     color: inherit;
   }
 
-  body[data-theme="light"] .options-input,
-  body[data-theme="light"] .options-select {
+  body[data-theme="light"] .options-input {
     background: rgba(255, 255, 255, 0.88);
   }
 
@@ -218,6 +358,23 @@ const pageCss = `
     border: 1px solid rgba(123, 178, 255, 0.18);
   }
 
+  .options-details {
+    margin-top: 16px;
+    border-top: 1px solid rgba(123, 178, 255, 0.12);
+    padding-top: 14px;
+  }
+
+  .options-details summary {
+    cursor: pointer;
+    color: #a7c0e4;
+    font-size: 13px;
+    user-select: none;
+  }
+
+  .options-details[open] summary {
+    margin-bottom: 12px;
+  }
+
   .options-footer {
     display: flex;
     align-items: center;
@@ -231,6 +388,132 @@ const pageCss = `
     color: #8facd5;
   }
 
+  .options-footer-meta {
+    margin-top: 18px;
+    padding: 8px 0 0;
+    text-align: center;
+  }
+
+  .options-footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-top: 12px;
+    justify-content: center;
+  }
+
+  .options-footer-links a {
+    color: #7bb2ff;
+    text-decoration: none;
+  }
+
+  .options-footer-links a:hover {
+    text-decoration: underline;
+  }
+
+  .options-inline-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 8px;
+  }
+
+  .options-inline-links a {
+    color: #7bb2ff;
+    text-decoration: none;
+  }
+
+  .options-inline-links a:hover {
+    text-decoration: underline;
+  }
+
+  .options-shell .mm-custom-select {
+    position: relative;
+  }
+
+  .options-shell .mm-custom-select-button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    min-height: 42px;
+    padding: 10px 12px;
+    border: 1px solid rgba(123, 178, 255, 0.18);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.04);
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  body[data-theme="light"] .options-shell .mm-custom-select-button {
+    background: rgba(255, 255, 255, 0.88);
+  }
+
+  .options-shell .mm-custom-select-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .options-shell .mm-custom-select-label--placeholder {
+    color: #8facd5;
+  }
+
+  .options-shell .mm-custom-select-chevron {
+    width: 12px;
+    height: 12px;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transform: rotate(90deg);
+    transition: transform 140ms ease;
+  }
+
+  .options-shell .mm-custom-select-chevron--expanded {
+    transform: rotate(-90deg);
+  }
+
+  .options-shell .mm-custom-select-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 6px;
+    border: 1px solid rgba(123, 178, 255, 0.18);
+    border-radius: 14px;
+    background: #152235;
+    box-shadow: 0 18px 32px rgba(4, 10, 20, 0.28);
+    z-index: 10;
+  }
+
+  body[data-theme="light"] .options-shell .mm-custom-select-menu {
+    background: #ffffff;
+  }
+
+  .options-shell .mm-custom-select-option {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .options-shell .mm-custom-select-option:hover,
+  .options-shell .mm-custom-select-option--selected {
+    background: rgba(123, 178, 255, 0.14);
+  }
+
   @media (max-width: 820px) {
     .options-grid {
       grid-template-columns: 1fr;
@@ -240,8 +523,20 @@ const pageCss = `
       flex-direction: column;
       align-items: stretch;
     }
+
+    .options-header-top {
+      flex-direction: column;
+    }
   }
 `;
+
+function getManifestVersion(): string {
+  try {
+    return chrome.runtime.getManifest().version;
+  } catch {
+    return "0.0.0";
+  }
+}
 
 function OptionsApp(): React.JSX.Element {
   const [settings, setSettings] = useState<DeckSettings>(DEFAULT_SETTINGS);
@@ -249,6 +544,7 @@ function OptionsApp(): React.JSX.Element {
   const [showPat, setShowPat] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     const style = document.createElement("style");
@@ -282,24 +578,33 @@ function OptionsApp(): React.JSX.Element {
   }, [settings.language, settings.theme]);
 
   const text = useMemo(() => TEXT[settings.language], [settings.language]);
-
-  const handleThemeChange = (theme: DeckTheme) => {
-    setSettings((current) => ({
-      ...current,
-      theme,
-    }));
-  };
-
-  const handleLanguageChange = (language: DeckLanguage) => {
-    setSettings((current) => ({
-      ...current,
-      language,
-    }));
-  };
+  const version = useMemo(() => getManifestVersion(), []);
+  const themeOptions = useMemo<CustomSelectOption[]>(
+    () => [
+      { value: "system", label: text.themeSystem },
+      { value: "mattermost", label: text.themeMattermost },
+      { value: "dark", label: text.themeDark },
+      { value: "light", label: text.themeLight },
+    ],
+    [text],
+  );
+  const languageOptions = useMemo<CustomSelectOption[]>(
+    () => [
+      { value: "ja", label: text.languageJa },
+      { value: "en", label: text.languageEn },
+    ],
+    [text],
+  );
 
   const handleSave = async () => {
+    if (!normaliseServerUrl(settings.serverUrl)) {
+      setSaveError(text.invalidServerUrl);
+      return;
+    }
+
     setSaving(true);
     setSavedNotice(false);
+    setSaveError(null);
     try {
       await saveDeckSettings(settings);
       setSavedNotice(true);
@@ -312,16 +617,94 @@ function OptionsApp(): React.JSX.Element {
   return (
     <div className="options-shell">
       <header className="options-header">
-        <h1>{text.title}</h1>
-        <p>{text.subtitle}</p>
+        <div className="options-header-top">
+          <div>
+            <h1>{text.title}</h1>
+            <p>{text.subtitle}</p>
+          </div>
+          <div className="options-version">
+            {text.version} {version}
+          </div>
+        </div>
       </header>
 
       <div className="options-stack">
         <section className="options-section">
+          <h2>{text.targetTitle}</h2>
+          <p>{text.targetBody}</p>
+          <div className="options-grid">
+            <label className="options-field">
+              <span className="options-label">{text.serverUrlLabel}</span>
+              <input
+                className="options-input"
+                type="url"
+                placeholder={text.serverUrlPlaceholder}
+                value={settings.serverUrl}
+                onChange={(event) => setSettings((current) => ({ ...current, serverUrl: event.target.value }))}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            <label className="options-field">
+              <span className="options-label">{text.teamSlugLabel}</span>
+              <input
+                className="options-input"
+                type="text"
+                placeholder={text.teamSlugPlaceholder}
+                value={settings.teamSlug}
+                onChange={(event) => setSettings((current) => ({ ...current, teamSlug: event.target.value }))}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+          </div>
+          <p>{text.targetHint}</p>
+
+          <details className="options-details">
+            <summary>{text.advanced}</summary>
+            <div className="options-grid">
+              <label className="options-field">
+                <span className="options-label">{text.routeKindsLabel}</span>
+                <input
+                  className="options-input"
+                  type="text"
+                  value={settings.allowedRouteKinds}
+                  onChange={(event) => setSettings((current) => ({ ...current, allowedRouteKinds: event.target.value }))}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <p>{text.routeKindsHint}</p>
+              </label>
+              <label className="options-field">
+                <span className="options-label">{text.healthCheckLabel}</span>
+                <input
+                  className="options-input"
+                  type="text"
+                  value={settings.healthCheckPath}
+                  onChange={(event) => setSettings((current) => ({ ...current, healthCheckPath: event.target.value }))}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <p>{text.healthCheckHint}</p>
+              </label>
+            </div>
+          </details>
+        </section>
+
+        <section className="options-section">
           <h2>{text.realtimeTitle}</h2>
           <p>{text.realtimeBody}</p>
+          <p>{text.patHelp}</p>
+          <div className="options-inline-links">
+            <a href={PAT_ENABLE_URL} target="_blank" rel="noreferrer">
+              {text.patEnableLink}
+            </a>
+            <a href={PAT_GUIDE_URL} target="_blank" rel="noreferrer">
+              {text.patGuideLink}
+            </a>
+          </div>
           <div className="options-grid">
-            <label className="options-field" style={{ gridColumn: "1 / -1" }}>
+            <label className="options-field">
               <span className="options-label">{text.patLabel}</span>
               <div className="options-inline">
                 <input
@@ -329,12 +712,7 @@ function OptionsApp(): React.JSX.Element {
                   type={showPat ? "text" : "password"}
                   placeholder={text.patPlaceholder}
                   value={settings.wsPat}
-                  onChange={(event) =>
-                    setSettings((current) => ({
-                      ...current,
-                      wsPat: event.target.value,
-                    }))
-                  }
+                  onChange={(event) => setSettings((current) => ({ ...current, wsPat: event.target.value }))}
                   autoComplete="off"
                   spellCheck={false}
                 />
@@ -343,46 +721,142 @@ function OptionsApp(): React.JSX.Element {
                 </button>
               </div>
             </label>
+            <label className="options-field">
+              <span className="options-label">{text.pollingLabel}</span>
+              <input
+                className="options-input"
+                type="number"
+                min={MIN_POLLING_INTERVAL_SECONDS}
+                max={300}
+                step={1}
+                value={settings.pollingIntervalSeconds}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    pollingIntervalSeconds: normalisePollingIntervalSeconds(event.target.value),
+                  }))
+                }
+              />
+              <p>{text.pollingHint}</p>
+            </label>
           </div>
         </section>
 
         <section className="options-section">
           <h2>{text.appearanceTitle}</h2>
+          <p>{text.appearanceBody}</p>
           <div className="options-grid">
             <label className="options-field">
               <span className="options-label">{text.themeLabel}</span>
-              <select className="options-select" value={settings.theme} onChange={(event) => handleThemeChange(event.target.value as DeckTheme)}>
-                <option value="system">{text.themeSystem}</option>
-                <option value="mattermost">{text.themeMattermost}</option>
-                <option value="dark">{text.themeDark}</option>
-                <option value="light">{text.themeLight}</option>
-              </select>
+              <CustomSelect
+                options={themeOptions}
+                value={settings.theme}
+                placeholder={text.themeSystem}
+                onChange={(value) => setSettings((current) => ({ ...current, theme: value as DeckTheme }))}
+              />
             </label>
             <label className="options-field">
               <span className="options-label">{text.languageLabel}</span>
-              <select className="options-select" value={settings.language} onChange={(event) => handleLanguageChange(event.target.value as DeckLanguage)}>
-                <option value="ja">{text.languageJa}</option>
-                <option value="en">{text.languageEn}</option>
-              </select>
+              <CustomSelect
+                options={languageOptions}
+                value={settings.language}
+                placeholder={text.languageJa}
+                onChange={(value) => setSettings((current) => ({ ...current, language: value as DeckLanguage }))}
+              />
             </label>
           </div>
+          <details className="options-details">
+            <summary>{text.appearanceAdvanced}</summary>
+            <div className="options-grid">
+              <label className="options-field">
+                <span className="options-label">{text.fontScaleLabel}</span>
+                <input
+                  className="options-input"
+                  type="number"
+                  min={MIN_FONT_SCALE_PERCENT}
+                  max={MAX_FONT_SCALE_PERCENT}
+                  step={1}
+                  value={settings.fontScalePercent}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      fontScalePercent: normaliseFontScalePercent(event.target.value),
+                    }))
+                  }
+                />
+                <p>{text.fontScaleHint}</p>
+              </label>
+              <label className="options-field">
+                <span className="options-label">{text.paneWidthLabel}</span>
+                <input
+                  className="options-input"
+                  type="number"
+                  min={MIN_PREFERRED_RAIL_WIDTH}
+                  max={MAX_PREFERRED_RAIL_WIDTH}
+                  step={10}
+                  value={settings.preferredRailWidth}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      preferredRailWidth: normalisePreferredRailWidth(event.target.value),
+                    }))
+                  }
+                />
+                <p>{text.paneWidthHint}</p>
+              </label>
+              <label className="options-field">
+                <span className="options-label">{text.columnWidthLabel}</span>
+                <input
+                  className="options-input"
+                  type="number"
+                  min={MIN_PREFERRED_COLUMN_WIDTH}
+                  max={MAX_PREFERRED_COLUMN_WIDTH}
+                  step={10}
+                  value={settings.preferredColumnWidth}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      preferredColumnWidth: normalisePreferredColumnWidth(event.target.value),
+                    }))
+                  }
+                />
+                <p>{text.columnWidthHint}</p>
+              </label>
+            </div>
+          </details>
         </section>
 
         <section className="options-section">
           <h2>{text.securityTitle}</h2>
           <p>{text.securityBody}</p>
           <p>{text.securityBody2}</p>
+          <p>{text.securityBody3}</p>
         </section>
       </div>
 
       <footer className="options-footer">
-        <div className="options-status">
-          {loaded ? (savedNotice ? text.saved : "") : text.saving}
-        </div>
+        <div className="options-status">{loaded ? saveError ?? (savedNotice ? text.saved : "") : text.saving}</div>
         <button type="button" className="options-button" onClick={handleSave} disabled={!loaded || saving}>
           {saving ? text.saving : text.save}
         </button>
       </footer>
+
+      <section className="options-footer-meta">
+        <p>
+          {COPYRIGHT_YEAR} {AUTHOR_NAME}
+        </p>
+        <div className="options-footer-links">
+          <a href={PRIVACY_URL} target="_blank" rel="noreferrer">
+            {text.privacyPolicy}
+          </a>
+          <a href={TERMS_URL} target="_blank" rel="noreferrer">
+            {text.termsOfUse}
+          </a>
+          <a href={REPO_URL} target="_blank" rel="noreferrer">
+            {text.github}
+          </a>
+        </div>
+      </section>
     </div>
   );
 }

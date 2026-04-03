@@ -96,6 +96,22 @@ async function apiGet<T>(pathname: string): Promise<T> {
   }
 }
 
+async function apiGetAbsolute(pathname: string): Promise<Response> {
+  const csrfToken = document.cookie
+    .split("; ")
+    .find((entry) => entry.startsWith("MMCSRF="))
+    ?.split("=")[1];
+
+  return await fetch(pathname, {
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
+    },
+  });
+}
+
 async function apiPost<T>(pathname: string, body: unknown): Promise<T> {
   const csrfToken = document.cookie
     .split("; ")
@@ -140,6 +156,11 @@ export async function getCurrentUser(): Promise<MattermostUser> {
   return await apiGet<MattermostUser>("/users/me");
 }
 
+export async function checkApiHealth(pathname: string): Promise<boolean> {
+  const response = await apiGetAbsolute(pathname);
+  return response.ok;
+}
+
 export async function getUsersByIds(userIds: string[]): Promise<MattermostUser[]> {
   if (userIds.length === 0) {
     return [];
@@ -158,6 +179,10 @@ export async function getTeamByName(teamName: string): Promise<MattermostTeam> {
 
 export async function getChannelsForCurrentUser(teamId: string): Promise<MattermostChannel[]> {
   return await apiGet<MattermostChannel[]>(`/users/me/teams/${teamId}/channels`);
+}
+
+export async function getDirectChannelsForCurrentUser(): Promise<MattermostChannel[]> {
+  return await apiGet<MattermostChannel[]>("/users/me/channels");
 }
 
 export async function getChannelByName(

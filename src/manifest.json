@@ -5,12 +5,15 @@
   "description": "Adds a TweetDeck-style right rail to Mattermost Web.",
   "permissions": ["storage"],
   "options_page": "options.html",
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
-      "matches": ["http://127.0.0.1:8065/*", "http://localhost:8065/*"],
+      "matches": ["http://*/*", "https://*/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
   ],
-  "host_permissions": ["http://127.0.0.1:8065/*", "http://localhost:8065/*"]
+  "host_permissions": ["http://*/*", "https://*/*"]
 }

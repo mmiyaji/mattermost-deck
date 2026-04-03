@@ -14,6 +14,7 @@ await fs.copyFile(path.join(srcDir, "options", "index.html"), path.join(distDir,
 
 const ctx = await esbuild.context({
   entryPoints: {
+    background: path.join(srcDir, "background.ts"),
     content: path.join(srcDir, "content", "index.tsx"),
     options: path.join(srcDir, "options", "index.tsx"),
   },

@@ -16,6 +16,10 @@ export const railCssText = `
     --deck-text: #f2f6fc;
     --deck-text-soft: #b8c7db;
     --deck-text-faint: #8fa4c1;
+    --deck-topbar-text: var(--deck-text);
+    --deck-topbar-text-soft: var(--deck-text-soft);
+    --deck-font-scale: 1;
+    --deck-column-width: 320px;
     --deck-accent: #1c58d9;
     --deck-accent-strong: #166de0;
     --deck-accent-soft: rgba(28, 88, 217, 0.18);
@@ -35,7 +39,7 @@ export const railCssText = `
     gap: 0;
     height: 100vh;
     padding: 0;
-    background: linear-gradient(180deg, var(--deck-bg), #18273d);
+    background: var(--deck-bg);
     border-left: 1px solid var(--deck-border);
     font-family: "Segoe UI", "Noto Sans JP", sans-serif;
     color: var(--deck-text);
@@ -60,9 +64,7 @@ export const railCssText = `
     --deck-accent-strong: #166de0;
     --deck-accent-soft: rgba(28, 88, 217, 0.1);
     --deck-shadow: 0 10px 24px rgba(31, 45, 61, 0.08);
-    background:
-      linear-gradient(180deg, rgba(239, 245, 251, 0.98), rgba(225, 235, 246, 0.98)),
-      radial-gradient(circle at top, rgba(61, 117, 190, 0.1), transparent 30%);
+    background: var(--deck-bg);
     color: var(--deck-text);
     border-left-color: var(--deck-border);
   }
@@ -113,7 +115,7 @@ export const railCssText = `
 
   .deck-topbar-copy h1,
   .deck-topbar--compact .deck-topbar-copy h1 {
-    font-size: 16px;
+    font-size: calc(16px * var(--deck-font-scale));
     line-height: 1.1;
   }
 
@@ -156,7 +158,7 @@ export const railCssText = `
 
   .deck-add-menu-title {
     padding: 4px 6px 2px;
-    font-size: 11px;
+    font-size: calc(11px * var(--deck-font-scale));
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--deck-text-faint);
@@ -189,7 +191,19 @@ export const railCssText = `
     gap: 2px;
   }
 
+  .deck-add-item--recent span {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .deck-add-item--recent small {
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--deck-text-faint);
   }
 
@@ -199,25 +213,43 @@ export const railCssText = `
     gap: 8px;
     padding: 8px 10px;
     border-radius: 999px;
-    font-size: 12px;
+    font-size: calc(12px * var(--deck-font-scale));
     border: 1px solid var(--deck-border);
     background: var(--deck-accent-soft);
-    color: var(--deck-text);
+    color: var(--deck-topbar-text);
+  }
+
+  .deck-status-badge--action {
+    cursor: pointer;
+  }
+
+  .deck-status-badge--action:hover {
+    border-color: color-mix(in srgb, var(--deck-border) 45%, var(--deck-accent) 55%);
+  }
+
+  .deck-status-badge--action:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--deck-accent) 22%, transparent);
   }
 
   .deck-status-badge-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--deck-text-faint);
+    background: var(--deck-topbar-text-soft);
   }
 
   .deck-status-badge--connected .deck-status-badge-dot {
     background: var(--deck-success);
   }
 
+  .deck-status-badge--healthy .deck-status-badge-dot {
+    background: var(--deck-success);
+  }
+
   .deck-status-badge--connecting .deck-status-badge-dot,
-  .deck-status-badge--reconnecting .deck-status-badge-dot {
+  .deck-status-badge--reconnecting .deck-status-badge-dot,
+  .deck-status-badge--degraded .deck-status-badge-dot {
     background: var(--deck-warn);
   }
 
@@ -240,7 +272,7 @@ export const railCssText = `
   }
 
   .deck-topbar h1 {
-    color: var(--deck-text);
+    color: var(--deck-topbar-text);
   }
 
   .deck-shell[data-theme="light"] .deck-topbar h1,
@@ -251,7 +283,7 @@ export const railCssText = `
   }
 
   .deck-eyebrow {
-    font-size: 11px;
+    font-size: calc(11px * var(--deck-font-scale));
     text-transform: uppercase;
     letter-spacing: 0.16em;
     color: var(--deck-text-faint);
@@ -267,15 +299,27 @@ export const railCssText = `
 
   .deck-button,
   .deck-icon-button {
-    background: linear-gradient(180deg, var(--deck-accent-strong), var(--deck-accent));
+    background: var(--deck-accent);
     color: white;
     cursor: pointer;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
 
   .deck-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     padding: 10px 16px;
     font-weight: 600;
+  }
+
+  .deck-plus-icon {
+    width: 12px;
+    height: 12px;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    fill: none;
+    stroke-linecap: round;
   }
 
   .deck-button:disabled,
@@ -316,18 +360,90 @@ export const railCssText = `
     stroke-linecap: round;
   }
 
+  .deck-arrow-icon {
+    width: 12px;
+    height: 12px;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .deck-arrow-icon--left {
+    transform: rotate(180deg);
+    transform-origin: 50% 50%;
+  }
+
+  .deck-settings-icon {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .deck-hamburger-icon {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    fill: none;
+    stroke-linecap: round;
+  }
+
+  .deck-refresh-icon {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex: none;
+  }
+
+  .deck-refresh-icon--spinning {
+    animation: deck-spin 0.9s linear infinite;
+  }
+
+  .deck-drawer-icon {
+    width: 12px;
+    height: 12px;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transform: rotate(180deg);
+    transform-origin: 50% 50%;
+  }
+
+  .deck-drawer-icon--open {
+    transform: none;
+  }
+
   .deck-icon-button--ghost {
     background: rgba(255, 255, 255, 0.08);
-    color: var(--deck-text-soft);
+    color: var(--deck-topbar-text);
     box-shadow: none;
     border: 1px solid var(--deck-border);
   }
 
+  .deck-icon-button--plain {
+    background: transparent;
+    color: var(--deck-topbar-text);
+    box-shadow: none;
+    border: 0;
+  }
+
   .deck-meta {
     margin-top: 2px;
-    font-size: 11px;
+    font-size: calc(11px * var(--deck-font-scale));
     line-height: 1.15;
-    color: var(--deck-text-soft);
+    color: var(--deck-topbar-text-soft);
   }
 
   .deck-meta--compact {
@@ -347,14 +463,14 @@ export const railCssText = `
   .deck-status-inline {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     min-width: 0;
     max-width: 180px;
-    padding: 10px 12px;
+    padding: 8px 10px;
     border-radius: 999px;
     background: var(--deck-bg-soft);
     border: 1px solid var(--deck-border);
-    font-size: 12px;
+    font-size: calc(12px * var(--deck-font-scale));
     color: var(--deck-text-soft);
   }
 
@@ -487,19 +603,19 @@ export const railCssText = `
     flex-direction: column;
     gap: 10px;
     min-height: 0;
-    width: 320px;
-    min-width: 320px;
-    max-width: 320px;
+    width: var(--deck-column-width);
+    min-width: var(--deck-column-width);
+    max-width: var(--deck-column-width);
     padding: 12px;
     border-radius: 10px;
-    background: linear-gradient(180deg, var(--deck-panel), var(--deck-panel-2));
+    background: var(--deck-panel);
     border: 1px solid var(--deck-border);
     box-shadow: var(--deck-shadow);
     overflow: hidden;
   }
 
   .deck-shell[data-theme="light"] .deck-column {
-    background: linear-gradient(180deg, var(--deck-panel), var(--deck-panel-2));
+    background: var(--deck-panel);
     border-color: var(--deck-border);
   }
 
@@ -509,11 +625,22 @@ export const railCssText = `
     margin-bottom: 4px;
   }
 
+  .deck-inline-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
   .deck-column-header {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
     gap: 12px;
+  }
+
+  .deck-column-heading {
+    min-width: 0;
+    flex: 1 1 auto;
   }
 
   .deck-column-actions {
@@ -523,15 +650,21 @@ export const railCssText = `
   }
 
   .deck-column-header h2 {
-    font-size: 16px;
+    font-size: calc(16px * var(--deck-font-scale));
     line-height: 1.2;
     color: var(--deck-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .deck-column-header p {
     margin-top: 4px;
-    font-size: 12px;
+    font-size: calc(12px * var(--deck-font-scale));
     color: var(--deck-text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .deck-controls {
@@ -544,7 +677,7 @@ export const railCssText = `
     display: flex;
     flex-direction: column;
     gap: 6px;
-    font-size: 12px;
+    font-size: calc(12px * var(--deck-font-scale));
     color: var(--deck-text-soft);
   }
 
@@ -552,11 +685,11 @@ export const railCssText = `
     min-width: 280px;
   }
 
-  .deck-select-shell {
+  .deck-shell .mm-custom-select {
     position: relative;
   }
 
-  .deck-select-button {
+  .deck-shell .mm-custom-select-button {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -574,33 +707,49 @@ export const railCssText = `
     transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
   }
 
-  .deck-select-button:hover {
+  .deck-shell .mm-custom-select-button:hover {
     border-color: color-mix(in srgb, var(--deck-border) 56%, var(--deck-accent) 44%);
   }
 
-  .deck-select-button:focus-visible {
+  .deck-shell .mm-custom-select-button:focus-visible {
     outline: none;
     border-color: color-mix(in srgb, var(--deck-border) 40%, var(--deck-accent) 60%);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--deck-accent) 22%, transparent);
   }
 
-  .deck-select-button:disabled {
+  .deck-shell .mm-custom-select-button:disabled {
     opacity: 0.55;
     cursor: default;
   }
 
-  .deck-select-button-label {
+  .deck-shell .mm-custom-select-label {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .deck-select-button-label--placeholder {
+  .deck-shell .mm-custom-select-label--placeholder {
     color: var(--deck-text-faint);
   }
 
-  .deck-select-menu {
+  .deck-shell .mm-custom-select-chevron {
+    width: 12px;
+    height: 12px;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transform: rotate(90deg);
+    transition: transform 140ms ease;
+  }
+
+  .deck-shell .mm-custom-select-chevron--expanded {
+    transform: rotate(-90deg);
+  }
+
+  .deck-shell .mm-custom-select-menu {
     position: absolute;
     top: calc(100% + 8px);
     left: 0;
@@ -610,7 +759,7 @@ export const railCssText = `
     padding: 6px;
     border: 1px solid var(--deck-border-strong);
     border-radius: 12px;
-    background: linear-gradient(180deg, var(--deck-panel), color-mix(in srgb, var(--deck-panel-2) 88%, black 12%));
+    background: var(--deck-panel);
     box-shadow:
       var(--deck-shadow),
       inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -618,7 +767,7 @@ export const railCssText = `
     z-index: 8;
   }
 
-  .deck-select-option {
+  .deck-shell .mm-custom-select-option {
     display: block;
     width: 100%;
     padding: 10px 12px;
@@ -631,28 +780,28 @@ export const railCssText = `
     transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
   }
 
-  .deck-select-option:hover {
+  .deck-shell .mm-custom-select-option:hover {
     background: color-mix(in srgb, var(--deck-card) 76%, var(--deck-accent) 24%);
     border-color: color-mix(in srgb, var(--deck-border) 54%, var(--deck-accent) 46%);
   }
 
-  .deck-select-option:focus-visible {
+  .deck-shell .mm-custom-select-option:focus-visible {
     outline: none;
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--deck-accent) 22%, transparent);
     border-color: color-mix(in srgb, var(--deck-border) 40%, var(--deck-accent) 60%);
   }
 
-  .deck-select-option--selected {
+  .deck-shell .mm-custom-select-option--selected {
     background: color-mix(in srgb, var(--deck-card) 68%, var(--deck-accent) 32%);
     border-color: color-mix(in srgb, var(--deck-border) 44%, var(--deck-accent) 56%);
   }
 
-  .deck-shell[data-theme="light"] .deck-select-button {
+  .deck-shell[data-theme="light"] .mm-custom-select-button {
     background: var(--deck-card);
   }
 
-  .deck-shell[data-theme="light"] .deck-select-menu {
-    background: linear-gradient(180deg, var(--deck-panel), color-mix(in srgb, var(--deck-panel-2) 90%, black 10%));
+  .deck-shell[data-theme="light"] .mm-custom-select-menu {
+    background: var(--deck-panel);
   }
 
   .deck-select {
@@ -740,6 +889,10 @@ export const railCssText = `
   }
 
   .deck-load-more {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     min-width: 120px;
     height: 34px;
     padding: 0 14px;
@@ -755,18 +908,27 @@ export const railCssText = `
     cursor: default;
   }
 
+  @keyframes deck-spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
   .deck-card {
     padding: 12px;
     border-radius: 10px;
-    background: linear-gradient(180deg, var(--deck-card), var(--deck-card-soft));
+    background: var(--deck-card);
     border: 1px solid var(--deck-border);
-    font-size: 13px;
+    font-size: calc(13px * var(--deck-font-scale));
     line-height: 1.45;
     color: var(--deck-text);
   }
 
   .deck-shell[data-theme="light"] .deck-card {
-    background: linear-gradient(180deg, var(--deck-card), var(--deck-card-soft));
+    background: var(--deck-card);
     border-color: var(--deck-border);
   }
 
@@ -788,7 +950,7 @@ export const railCssText = `
     justify-content: space-between;
     gap: 12px;
     color: var(--deck-text-faint);
-    font-size: 12px;
+    font-size: calc(12px * var(--deck-font-scale));
   }
 
   .deck-shell[data-theme="light"] .deck-card-header {
@@ -803,7 +965,7 @@ export const railCssText = `
     height: 36px;
     padding: 0 10px;
     border-radius: 999px;
-    background: linear-gradient(180deg, var(--deck-accent-strong), var(--deck-accent));
+    background: var(--deck-accent);
     color: white;
     font-weight: 700;
   }
@@ -845,15 +1007,19 @@ export const railCssText = `
 
   .deck-drawer-toggle {
     position: absolute;
-    top: 14px;
+    top: 20px;
     left: 12px;
     z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 28px;
     height: 28px;
     border: 0;
     border-radius: 999px;
     background: var(--deck-panel);
     color: var(--deck-text-soft);
+    line-height: 1;
     cursor: pointer;
     border: 1px solid var(--deck-border);
   }
