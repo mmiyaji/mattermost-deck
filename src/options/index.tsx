@@ -28,7 +28,7 @@ const PRIVACY_URL = "https://github.com/mmiyaji/mattermost-deck/blob/main/PRIVAC
 const TERMS_URL = "https://github.com/mmiyaji/mattermost-deck/blob/main/TERMS.md";
 const PAT_ENABLE_URL = "https://docs.mattermost.com/administration-guide/configure/integrations-configuration-settings.html";
 const PAT_GUIDE_URL = "https://docs.mattermost.com/agents/mcpserver/README.html";
-const AUTHOR_NAME = "@mmiyaji";
+const AUTHOR_NAME = "mmiyaji";
 const COPYRIGHT_YEAR = "2026";
 
 type OptionsText = {
@@ -253,6 +253,20 @@ const pageCss = `
     align-items: flex-start;
     justify-content: space-between;
     gap: 16px;
+  }
+
+  .options-title {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+  }
+
+  .options-title img {
+    width: 48px;
+    height: 48px;
+    flex: none;
+    border-radius: 6px;
   }
 
   .options-version {
@@ -618,9 +632,12 @@ function OptionsApp(): React.JSX.Element {
     <div className="options-shell">
       <header className="options-header">
         <div className="options-header-top">
-          <div>
+          <div className="options-title">
+            <img src="assets/icons/icon-48.png" alt="" width="48" height="48" />
+            <div>
             <h1>{text.title}</h1>
             <p>{text.subtitle}</p>
+            </div>
           </div>
           <div className="options-version">
             {text.version} {version}
@@ -843,7 +860,7 @@ function OptionsApp(): React.JSX.Element {
 
       <section className="options-footer-meta">
         <p>
-          {COPYRIGHT_YEAR} {AUTHOR_NAME}
+          © {COPYRIGHT_YEAR} {AUTHOR_NAME}
         </p>
         <div className="options-footer-links">
           <a href={PRIVACY_URL} target="_blank" rel="noreferrer">

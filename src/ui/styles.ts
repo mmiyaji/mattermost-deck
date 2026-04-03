@@ -115,8 +115,19 @@ export const railCssText = `
 
   .deck-topbar-copy h1,
   .deck-topbar--compact .deck-topbar-copy h1 {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
     font-size: calc(16px * var(--deck-font-scale));
     line-height: 1.1;
+  }
+
+  .deck-version {
+    font-size: calc(11px * var(--deck-font-scale));
+    font-weight: 500;
+    color: var(--deck-topbar-text-soft);
+    opacity: 0.78;
+    letter-spacing: 0.02em;
   }
 
   .deck-topbar-actions {
@@ -869,6 +880,31 @@ export const railCssText = `
     margin: 0;
     padding: 0;
     list-style: none;
+  }
+
+  .deck-list-separator {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 2px 0 0;
+    color: var(--deck-text-faint);
+    font-size: calc(11px * var(--deck-font-scale));
+    line-height: 1;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    list-style: none;
+  }
+
+  .deck-list-separator::before,
+  .deck-list-separator::after {
+    content: "";
+    flex: 1 1 auto;
+    height: 1px;
+    background: var(--deck-border);
+  }
+
+  .deck-list-separator span {
+    flex: none;
   }
 
   .deck-post-list {

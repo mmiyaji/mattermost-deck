@@ -3,7 +3,20 @@
   "name": "Mattermost Deck",
   "version": "0.1.0",
   "description": "Adds a TweetDeck-style right rail to Mattermost Web.",
+  "icons": {
+    "16": "assets/icons/icon-16.png",
+    "32": "assets/icons/icon-32.png",
+    "48": "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
+  },
   "permissions": ["storage"],
+  "action": {
+    "default_icon": {
+      "16": "assets/icons/icon-16.png",
+      "32": "assets/icons/icon-32.png",
+      "48": "assets/icons/icon-48.png"
+    }
+  },
   "options_page": "options.html",
   "background": {
     "service_worker": "background.js"

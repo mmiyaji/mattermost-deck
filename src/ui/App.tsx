@@ -38,6 +38,7 @@ import {
   saveStoredJson,
   saveStoredNumber,
 } from "./storage";
+import { APP_VERSION } from "../version";
 import { CustomSelect, type CustomSelectOption } from "./CustomSelect";
 import {
   DEFAULT_SETTINGS,
@@ -106,9 +107,23 @@ const POSTS_PAGE_SIZE = 20;
 const POSTS_MAX_BUFFER = 100;
 const MIN_MANUAL_REFRESH_MS = 350;
 const MIN_LOAD_MORE_MS = 350;
+const IDLE_AUTOSCROLL_MS = 8_000;
 const POST_ROW_ESTIMATE = 116;
+const POST_SEPARATOR_ESTIMATE = 32;
 const POST_OVERSCAN = 4;
 const POST_VIRTUALIZE_THRESHOLD = 40;
+
+type PostListEntry =
+  | {
+      type: "separator";
+      key: string;
+      label: string;
+    }
+  | {
+      type: "post";
+      key: string;
+      post: MattermostPost;
+    };
 
 interface RecentChannelTarget {
   teamId: string;
@@ -139,6 +154,73 @@ function formatPostTime(timestamp: number): string {
           minute: "2-digit",
         },
   ).format(date);
+}
+
+function isSameCalendarDay(left: number, right: number): boolean {
+  const leftDate = new Date(left);
+  const rightDate = new Date(right);
+  return (
+    leftDate.getFullYear() === rightDate.getFullYear() &&
+    leftDate.getMonth() === rightDate.getMonth() &&
+    leftDate.getDate() === rightDate.getDate()
+  );
+}
+
+function getPostDayLabel(timestamp: number): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const isToday =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+
+  if (isToday) {
+    return "Today";
+  }
+
+  return new Intl.DateTimeFormat("ja-JP", {
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function buildPostListEntries(posts: MattermostPost[]): PostListEntry[] {
+  const entries: PostListEntry[] = [];
+
+  posts.forEach((post, index) => {
+    const previous = posts[index - 1];
+    if (previous && !isSameCalendarDay(previous.create_at, post.create_at)) {
+      entries.push({
+        type: "separator",
+        key: `separator:${post.id}`,
+        label: getPostDayLabel(previous.create_at),
+      });
+    }
+
+    entries.push({
+      type: "post",
+      key: post.id,
+      post,
+    });
+  });
+
+  return entries;
+}
+
+function binarySearchOffsets(offsets: number[], value: number): number {
+  let low = 0;
+  let high = offsets.length - 1;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (offsets[mid] <= value) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return Math.max(0, low - 1);
 }
 
 function summarisePost(message: string): string {
@@ -1093,7 +1175,14 @@ function PostList({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
+  const lastInteractionAtRef = useRef(Date.now());
+  const previousTopPostIdRef = useRef<string | null>(posts[0]?.id ?? null);
+  const entries = useMemo(() => buildPostListEntries(posts), [posts]);
   const shouldVirtualize = posts.length > POST_VIRTUALIZE_THRESHOLD;
+
+  const markInteraction = useCallback(() => {
+    lastInteractionAtRef.current = Date.now();
+  }, []);
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -1127,12 +1216,76 @@ function PostList({
     };
   }, [posts, shouldVirtualize]);
 
-  const visibleCount = Math.max(1, Math.ceil(viewportHeight / POST_ROW_ESTIMATE) + POST_OVERSCAN * 2);
-  const startIndex = Math.max(0, Math.floor(scrollTop / POST_ROW_ESTIMATE) - POST_OVERSCAN);
-  const endIndex = Math.min(posts.length, startIndex + visibleCount);
-  const visiblePosts = posts.slice(startIndex, endIndex);
-  const offsetY = startIndex * POST_ROW_ESTIMATE;
-  const spacerHeight = posts.length * POST_ROW_ESTIMATE;
+  useEffect(() => {
+    const nextTopPostId = posts[0]?.id ?? null;
+    const previousTopPostId = previousTopPostIdRef.current;
+    previousTopPostIdRef.current = nextTopPostId;
+
+    if (!nextTopPostId || !previousTopPostId || nextTopPostId === previousTopPostId) {
+      return;
+    }
+
+    if (Date.now() - lastInteractionAtRef.current < IDLE_AUTOSCROLL_MS) {
+      return;
+    }
+
+    const viewport = viewportRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    viewport.scrollTo({ top: 0, behavior: "smooth" });
+    setScrollTop(0);
+  }, [posts]);
+
+  const rowHeights = useMemo(
+    () => entries.map((entry) => (entry.type === "separator" ? POST_SEPARATOR_ESTIMATE : POST_ROW_ESTIMATE)),
+    [entries],
+  );
+  const offsets = useMemo(() => {
+    const values: number[] = new Array(entries.length);
+    let total = 0;
+    for (let index = 0; index < entries.length; index += 1) {
+      values[index] = total;
+      total += rowHeights[index] ?? 0;
+    }
+    return values;
+  }, [entries, rowHeights]);
+  const totalHeight = useMemo(() => rowHeights.reduce((sum, height) => sum + height, 0), [rowHeights]);
+  const startIndex = shouldVirtualize ? Math.max(0, binarySearchOffsets(offsets, scrollTop) - POST_OVERSCAN) : 0;
+  const endBoundary = scrollTop + viewportHeight;
+  const endIndex = shouldVirtualize
+    ? Math.min(entries.length, binarySearchOffsets(offsets, endBoundary) + POST_OVERSCAN + 2)
+    : entries.length;
+  const visibleEntries = entries.slice(startIndex, endIndex);
+  const offsetY = offsets[startIndex] ?? 0;
+  const spacerHeight = totalHeight;
+
+  const renderEntry = (entry: PostListEntry): React.ReactNode => {
+    if (entry.type === "separator") {
+      return (
+        <li key={entry.key} className="deck-list-separator" aria-hidden="true">
+          <span>{entry.label}</span>
+        </li>
+      );
+    }
+
+    const { post } = entry;
+    return (
+      <li
+        key={entry.key}
+        className={`deck-card deck-card--post${onOpenPost ? " deck-card--clickable" : ""}`}
+        onClick={onOpenPost ? () => onOpenPost(post) : undefined}
+      >
+        <div className="deck-card-header">
+          <strong>{formatPostTime(post.create_at)}</strong>
+          <span>{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
+        </div>
+        {renderMeta ? <div className="deck-card-meta">{renderMeta(post)}</div> : null}
+        <p>{summarisePost(post.message)}</p>
+      </li>
+    );
+  };
 
   return (
     <div className="deck-post-list">
@@ -1140,45 +1293,28 @@ function PostList({
         <div
           ref={viewportRef}
           className="deck-list-viewport"
-          onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+          onScroll={(event) => {
+            setScrollTop(event.currentTarget.scrollTop);
+            markInteraction();
+          }}
+          onWheel={markInteraction}
+          onPointerDown={markInteraction}
         >
           <div className="deck-list-spacer" style={{ height: `${Math.max(spacerHeight, viewportHeight)}px` }}>
             <ul className="deck-list deck-list--virtual" style={{ transform: `translateY(${offsetY}px)` }}>
-              {visiblePosts.map((post) => (
-                <li
-                  key={post.id}
-                  className={`deck-card deck-card--post${onOpenPost ? " deck-card--clickable" : ""}`}
-                  onClick={onOpenPost ? () => onOpenPost(post) : undefined}
-                >
-                  <div className="deck-card-header">
-                    <strong>{formatPostTime(post.create_at)}</strong>
-                    <span>{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
-                  </div>
-                  {renderMeta ? <div className="deck-card-meta">{renderMeta(post)}</div> : null}
-                  <p>{summarisePost(post.message)}</p>
-                </li>
-              ))}
+              {visibleEntries.map((entry) => renderEntry(entry))}
             </ul>
           </div>
         </div>
       ) : (
-        <div ref={viewportRef} className="deck-list-viewport">
-          <ul className="deck-list">
-            {posts.map((post) => (
-              <li
-                key={post.id}
-                className={`deck-card deck-card--post${onOpenPost ? " deck-card--clickable" : ""}`}
-                onClick={onOpenPost ? () => onOpenPost(post) : undefined}
-              >
-                <div className="deck-card-header">
-                  <strong>{formatPostTime(post.create_at)}</strong>
-                  <span>{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
-                </div>
-                {renderMeta ? <div className="deck-card-meta">{renderMeta(post)}</div> : null}
-                <p>{summarisePost(post.message)}</p>
-              </li>
-            ))}
-          </ul>
+        <div
+          ref={viewportRef}
+          className="deck-list-viewport"
+          onScroll={markInteraction}
+          onWheel={markInteraction}
+          onPointerDown={markInteraction}
+        >
+          <ul className="deck-list">{entries.map((entry) => renderEntry(entry))}</ul>
         </div>
       )}
       {hasMore || loadingMore ? (
@@ -2450,7 +2586,10 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
         <>
           <header className={`deck-topbar deck-topbar--compact${isCompactHeader ? " deck-topbar--collapsed" : ""}`}>
             <div className="deck-topbar-copy">
-              <h1>{text.title}</h1>
+              <h1>
+                <span>{text.title}</span>
+                <span className="deck-version">v{APP_VERSION}</span>
+              </h1>
               <p className="deck-meta deck-meta--compact">
                 {state.username ? `${text.signedInAs} @${state.username}` : text.usingSession}
               </p>

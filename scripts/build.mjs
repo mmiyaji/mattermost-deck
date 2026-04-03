@@ -11,6 +11,7 @@ await fs.rm(distDir, { recursive: true, force: true });
 await fs.mkdir(distDir, { recursive: true });
 await fs.copyFile(path.join(srcDir, "manifest.json"), path.join(distDir, "manifest.json"));
 await fs.copyFile(path.join(srcDir, "options", "index.html"), path.join(distDir, "options.html"));
+await fs.cp(path.join(srcDir, "assets"), path.join(distDir, "assets"), { recursive: true });
 
 const ctx = await esbuild.context({
   entryPoints: {
