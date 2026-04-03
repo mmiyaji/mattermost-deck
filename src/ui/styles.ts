@@ -1,6 +1,28 @@
 export const railCssText = `
   :host {
-    color-scheme: light;
+    color-scheme: dark;
+  }
+
+  :host {
+    --deck-bg: #1f2f4a;
+    --deck-bg-elevated: #22334f;
+    --deck-bg-soft: #19283f;
+    --deck-panel: #20334f;
+    --deck-panel-2: #1b2c45;
+    --deck-card: #223650;
+    --deck-card-soft: #21344e;
+    --deck-border: rgba(255, 255, 255, 0.08);
+    --deck-border-strong: rgba(255, 255, 255, 0.12);
+    --deck-text: #f2f6fc;
+    --deck-text-soft: #b8c7db;
+    --deck-text-faint: #8fa4c1;
+    --deck-accent: #1c58d9;
+    --deck-accent-strong: #166de0;
+    --deck-accent-soft: rgba(28, 88, 217, 0.18);
+    --deck-success: #1ca675;
+    --deck-warn: #f0b429;
+    --deck-danger: #d24b4e;
+    --deck-shadow: 0 12px 28px rgba(7, 16, 30, 0.28);
   }
 
   * {
@@ -13,14 +35,40 @@ export const railCssText = `
     gap: 0;
     height: 100vh;
     padding: 0;
-    background:
-      linear-gradient(180deg, rgba(17, 29, 45, 0.98), rgba(13, 23, 36, 0.98)),
-      radial-gradient(circle at top, rgba(61, 117, 190, 0.18), transparent 30%);
-    border-left: 1px solid rgba(24, 39, 75, 0.12);
-    font-family: "Segoe UI", sans-serif;
-    color: #dce8f8;
+    background: linear-gradient(180deg, var(--deck-bg), #18273d);
+    border-left: 1px solid var(--deck-border);
+    font-family: "Segoe UI", "Noto Sans JP", sans-serif;
+    color: var(--deck-text);
     position: relative;
     overflow: hidden;
+  }
+
+  .deck-shell[data-theme="light"] {
+    --deck-bg: #eef3f9;
+    --deck-bg-elevated: #f8fbff;
+    --deck-bg-soft: #e6edf6;
+    --deck-panel: #ffffff;
+    --deck-panel-2: #f8fbff;
+    --deck-card: #ffffff;
+    --deck-card-soft: #f7faff;
+    --deck-border: rgba(63, 91, 129, 0.12);
+    --deck-border-strong: rgba(63, 91, 129, 0.18);
+    --deck-text: #1f2d3d;
+    --deck-text-soft: #51657d;
+    --deck-text-faint: #6b7f98;
+    --deck-accent: #1c58d9;
+    --deck-accent-strong: #166de0;
+    --deck-accent-soft: rgba(28, 88, 217, 0.1);
+    --deck-shadow: 0 10px 24px rgba(31, 45, 61, 0.08);
+    background:
+      linear-gradient(180deg, rgba(239, 245, 251, 0.98), rgba(225, 235, 246, 0.98)),
+      radial-gradient(circle at top, rgba(61, 117, 190, 0.1), transparent 30%);
+    color: var(--deck-text);
+    border-left-color: var(--deck-border);
+  }
+
+  .deck-shell--collapsed {
+    border-left-color: var(--deck-border-strong);
   }
 
   .deck-topbar {
@@ -28,10 +76,26 @@ export const railCssText = `
     justify-content: space-between;
     align-items: center;
     gap: 16px;
-    padding: 14px 18px 12px 22px;
-    border-bottom: 1px solid rgba(110, 154, 219, 0.16);
-    background: linear-gradient(180deg, rgba(14, 24, 36, 0.96), rgba(10, 18, 29, 0.9));
+    padding: 14px 18px 12px 54px;
+    border-bottom: 1px solid var(--deck-border);
+    background: var(--deck-bg-elevated);
     min-height: 76px;
+  }
+
+  .deck-shell[data-theme="light"] .deck-topbar {
+    background: var(--deck-bg-elevated);
+    border-bottom-color: var(--deck-border);
+  }
+
+  .deck-collapsed-banner {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    margin: auto;
+    padding: 12px 0;
+    color: var(--deck-text-faint);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
   }
 
   .deck-topbar-copy {
@@ -43,6 +107,104 @@ export const railCssText = `
     align-items: center;
     gap: 12px;
     min-width: 0;
+  }
+
+  .deck-add-wrap {
+    position: relative;
+    flex: none;
+  }
+
+  .deck-add-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 220px;
+    max-width: 280px;
+    padding: 8px;
+    border-radius: 10px;
+    background: var(--deck-panel);
+    border: 1px solid var(--deck-border-strong);
+    box-shadow: var(--deck-shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 5;
+  }
+
+  .deck-add-menu-title {
+    padding: 4px 6px 2px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--deck-text-faint);
+  }
+
+  .deck-add-menu-title--secondary {
+    margin-top: 4px;
+    border-top: 1px solid var(--deck-border);
+    padding-top: 8px;
+  }
+
+  .deck-add-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--deck-border);
+    border-radius: 8px;
+    background: var(--deck-card);
+    color: var(--deck-text);
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .deck-add-item--recent {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .deck-add-item--recent small {
+    color: var(--deck-text-faint);
+  }
+
+  .deck-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    border: 1px solid var(--deck-border);
+    background: var(--deck-accent-soft);
+    color: var(--deck-text);
+  }
+
+  .deck-status-badge-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--deck-text-faint);
+  }
+
+  .deck-status-badge--connected .deck-status-badge-dot {
+    background: var(--deck-success);
+  }
+
+  .deck-status-badge--connecting .deck-status-badge-dot,
+  .deck-status-badge--reconnecting .deck-status-badge-dot {
+    background: var(--deck-warn);
+  }
+
+  .deck-status-badge--idle .deck-status-badge-dot {
+    background: var(--deck-text-faint);
+  }
+
+  .deck-status-badge--offline .deck-status-badge-dot,
+  .deck-status-badge--error .deck-status-badge-dot {
+    background: var(--deck-danger);
   }
 
   .deck-topbar h1,
@@ -57,14 +219,21 @@ export const railCssText = `
   .deck-topbar h1 {
     font-size: 22px;
     line-height: 1.2;
-    color: #f3f7ff;
+    color: var(--deck-text);
+  }
+
+  .deck-shell[data-theme="light"] .deck-topbar h1,
+  .deck-shell[data-theme="light"] .deck-column-header h2,
+  .deck-shell[data-theme="light"] .deck-card,
+  .deck-shell[data-theme="light"] .deck-log-text {
+    color: var(--deck-text);
   }
 
   .deck-eyebrow {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.16em;
-    color: #7bb2ff;
+    color: var(--deck-text-faint);
   }
 
   .deck-button,
@@ -76,10 +245,10 @@ export const railCssText = `
 
   .deck-button,
   .deck-icon-button {
-    background: linear-gradient(180deg, #1f9dff, #0f71d7);
+    background: linear-gradient(180deg, var(--deck-accent-strong), var(--deck-accent));
     color: white;
     cursor: pointer;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
 
   .deck-button {
@@ -101,15 +270,24 @@ export const railCssText = `
   }
 
   .deck-icon-button--ghost {
-    background: rgba(123, 178, 255, 0.12);
-    color: #c4dcff;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--deck-text-soft);
     box-shadow: none;
+    border: 1px solid var(--deck-border);
   }
 
   .deck-meta {
     margin-top: 6px;
     font-size: 12px;
-    color: #88a6cf;
+    color: var(--deck-text-soft);
+  }
+
+  .deck-shell[data-theme="light"] .deck-meta,
+  .deck-shell[data-theme="light"] .deck-column-header p,
+  .deck-shell[data-theme="light"] .deck-log-time,
+  .deck-shell[data-theme="light"] .deck-settings-copy p,
+  .deck-shell[data-theme="light"] .deck-field {
+    color: var(--deck-text-soft);
   }
 
   .deck-status-inline {
@@ -117,13 +295,13 @@ export const railCssText = `
     align-items: center;
     gap: 10px;
     min-width: 0;
-    max-width: 420px;
+    max-width: 180px;
     padding: 10px 12px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(123, 178, 255, 0.12);
+    background: var(--deck-bg-soft);
+    border: 1px solid var(--deck-border);
     font-size: 12px;
-    color: #c7dbf8;
+    color: var(--deck-text-soft);
   }
 
   .deck-status-inline span:last-child {
@@ -136,7 +314,7 @@ export const railCssText = `
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #2dc26b;
+    background: var(--deck-success);
     flex: none;
   }
 
@@ -145,13 +323,104 @@ export const railCssText = `
     overflow-x: auto;
     overflow-y: hidden;
     padding: 16px 14px 18px 14px;
-    scrollbar-color: rgba(125, 166, 221, 0.38) transparent;
+    scrollbar-color: rgba(143, 164, 193, 0.45) transparent;
+  }
+
+  .deck-settings-panel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0 0 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--deck-panel);
+    border: 1px solid var(--deck-border);
+  }
+
+  .deck-settings-copy {
+    min-width: 0;
+  }
+
+  .deck-settings-copy strong,
+  .deck-settings-copy p {
+    margin: 0;
+  }
+
+  .deck-settings-copy p {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #88a6cf;
+  }
+
+  .deck-settings-controls {
+    display: flex;
+    align-items: end;
+    gap: 10px;
+    flex-wrap: wrap;
+    flex: none;
+  }
+
+  .deck-log-panel {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: var(--deck-panel);
+    border: 1px solid var(--deck-border);
+    color: var(--deck-text);
+  }
+
+  .deck-shell[data-theme="light"] .deck-log-panel,
+  .deck-shell[data-theme="light"] .deck-settings-panel {
+    background: var(--deck-panel);
+    border-color: var(--deck-border);
+  }
+
+  .deck-log-title {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--deck-text-faint);
+    margin-bottom: 8px;
+  }
+
+  .deck-log-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .deck-log-entry {
+    display: flex;
+    gap: 10px;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .deck-log-entry--warn .deck-log-text {
+    color: #d99a1e;
+  }
+
+  .deck-log-entry--error .deck-log-text {
+    color: var(--deck-danger);
+  }
+
+  .deck-log-time {
+    flex: none;
+    color: var(--deck-text-faint);
+  }
+
+  .deck-log-text {
+    color: var(--deck-text);
   }
 
   .deck-columns {
     display: flex;
     align-items: stretch;
-    gap: 14px;
+    gap: 12px;
     height: 100%;
   }
 
@@ -163,12 +432,23 @@ export const railCssText = `
     width: 320px;
     min-width: 320px;
     max-width: 320px;
-    padding: 14px;
-    border-radius: 14px;
-    background: linear-gradient(180deg, rgba(18, 33, 51, 0.98), rgba(14, 26, 41, 0.98));
-    border: 1px solid rgba(127, 168, 222, 0.14);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.28);
+    padding: 12px;
+    border-radius: 10px;
+    background: linear-gradient(180deg, var(--deck-panel), var(--deck-panel-2));
+    border: 1px solid var(--deck-border);
+    box-shadow: var(--deck-shadow);
     overflow-y: auto;
+  }
+
+  .deck-shell[data-theme="light"] .deck-column {
+    background: linear-gradient(180deg, var(--deck-panel), var(--deck-panel-2));
+    border-color: var(--deck-border);
+  }
+
+  .deck-stack--controls {
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--deck-border);
+    margin-bottom: 4px;
   }
 
   .deck-column-header {
@@ -187,13 +467,13 @@ export const railCssText = `
   .deck-column-header h2 {
     font-size: 16px;
     line-height: 1.2;
-    color: #eff6ff;
+    color: var(--deck-text);
   }
 
   .deck-column-header p {
     margin-top: 4px;
     font-size: 12px;
-    color: #84a4cf;
+    color: var(--deck-text-faint);
   }
 
   .deck-controls {
@@ -207,40 +487,82 @@ export const railCssText = `
     flex-direction: column;
     gap: 6px;
     font-size: 12px;
-    color: #90afda;
+    color: var(--deck-text-soft);
+  }
+
+  .deck-field--inline {
+    min-width: 280px;
   }
 
   .deck-select {
     width: 100%;
     padding: 10px 12px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(122, 167, 226, 0.18);
-    color: #eff6ff;
-    border-radius: 14px;
-    appearance: none;
+    background: var(--deck-bg-soft);
+    border: 1px solid var(--deck-border);
+    color: var(--deck-text);
+    border-radius: 8px;
+    appearance: auto;
+    color-scheme: dark;
+  }
+
+  .deck-shell[data-theme="light"] .deck-select,
+  .deck-shell[data-theme="light"] .deck-input {
+    background: var(--deck-bg-elevated);
+    color: var(--deck-text);
+    border-color: var(--deck-border);
+    color-scheme: light;
+  }
+
+  .deck-select option {
+    background: var(--deck-panel);
+    color: var(--deck-text);
+  }
+
+  .deck-shell[data-theme="light"] .deck-select option {
+    background: var(--deck-panel);
+    color: var(--deck-text);
+  }
+
+  .deck-input {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--deck-bg-soft);
+    border: 1px solid var(--deck-border);
+    color: var(--deck-text);
+    border-radius: 8px;
+    outline: none;
+  }
+
+  .deck-input::placeholder {
+    color: var(--deck-text-faint);
   }
 
   .deck-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     margin: 0;
     padding: 0;
     list-style: none;
   }
 
   .deck-card {
-    padding: 12px 14px;
-    border-radius: 16px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.03));
-    border: 1px solid rgba(126, 167, 221, 0.12);
+    padding: 12px;
+    border-radius: 10px;
+    background: linear-gradient(180deg, var(--deck-card), var(--deck-card-soft));
+    border: 1px solid var(--deck-border);
     font-size: 13px;
-    line-height: 1.5;
-    color: #d9e8fb;
+    line-height: 1.45;
+    color: var(--deck-text);
+  }
+
+  .deck-shell[data-theme="light"] .deck-card {
+    background: linear-gradient(180deg, var(--deck-card), var(--deck-card-soft));
+    border-color: var(--deck-border);
   }
 
   .deck-card--muted {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--deck-bg-soft);
   }
 
   .deck-card strong {
@@ -256,8 +578,12 @@ export const railCssText = `
     display: flex;
     justify-content: space-between;
     gap: 12px;
-    color: #88a6cf;
+    color: var(--deck-text-faint);
     font-size: 12px;
+  }
+
+  .deck-shell[data-theme="light"] .deck-card-header {
+    color: var(--deck-text-faint);
   }
 
   .deck-badge {
@@ -268,7 +594,7 @@ export const railCssText = `
     height: 36px;
     padding: 0 10px;
     border-radius: 999px;
-    background: linear-gradient(180deg, #1f9dff, #0f71d7);
+    background: linear-gradient(180deg, var(--deck-accent-strong), var(--deck-accent));
     color: white;
     font-weight: 700;
   }
@@ -300,12 +626,27 @@ export const railCssText = `
     width: 4px;
     height: 84px;
     border-radius: 999px;
-    background: rgba(143, 184, 235, 0.36);
+    background: rgba(255, 255, 255, 0.14);
   }
 
   .deck-resizer--active span,
   .deck-resizer:hover span {
-    background: rgba(77, 159, 255, 0.82);
+    background: rgba(28, 88, 217, 0.8);
+  }
+
+  .deck-drawer-toggle {
+    position: absolute;
+    top: 14px;
+    left: 12px;
+    z-index: 3;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--deck-panel);
+    color: var(--deck-text-soft);
+    cursor: pointer;
+    border: 1px solid var(--deck-border);
   }
 
   @media (max-width: 1100px) {
@@ -321,6 +662,19 @@ export const railCssText = `
 
     .deck-status-inline {
       max-width: none;
+    }
+
+    .deck-settings-panel {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .deck-settings-controls {
+      align-items: stretch;
+    }
+
+    .deck-field--inline {
+      min-width: 0;
     }
   }
 `;

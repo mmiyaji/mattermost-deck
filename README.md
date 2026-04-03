@@ -7,7 +7,11 @@ Chrome extension that adds a TweetDeck-style right rail to the Mattermost web ap
 - Mattermost remains the primary UI for team and channel switching.
 - The extension injects a fixed right rail into the existing page.
 - Supplemental columns such as mentions, watched channels, DMs, and threads are rendered inside the rail.
-- Data for supplemental columns will come from Mattermost REST APIs and WebSocket events, not from reimplementing the full Mattermost app shell.
+- REST uses the current browser session.
+- WebSocket is optional and can be enabled by saving a Mattermost PAT in the extension UI.
+- PAT, theme, and language are managed from the extension Options page.
+- The PAT is currently stored locally in `chrome.storage.local` without encryption, so use a low-privilege token when possible.
+- Data for supplemental columns comes from Mattermost REST APIs and optional WebSocket events, not from reimplementing the full Mattermost app shell.
 
 ## Development
 
@@ -34,9 +38,14 @@ The bootstrap step creates test users and stores credentials in `..\chat-agent-b
 ## Current scope
 
 - Inject a right rail via content script
-- Reserve layout space by adding a body offset
-- Render placeholder deck columns in a Shadow DOM
+- Reserve layout space by shrinking Mattermost and exposing a resizable drawer
+- Render mentions and watched-channel columns in a Shadow DOM
+- Reuse current session for REST and optional PAT for realtime WebSocket
 - Verify injection against local Mattermost with Playwright
+
+## Design Notes
+
+- Detailed design guidance: [docs/design-guidelines.md](docs/design-guidelines.md)
 
 ## Next steps
 

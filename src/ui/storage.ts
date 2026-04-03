@@ -115,3 +115,82 @@ export async function saveStoredNumber(storageKey: string, value: number): Promi
     window.localStorage.setItem(storageKey, String(value));
   }
 }
+
+export async function loadStoredString(storageKey: string): Promise<string | null> {
+  if (!chrome.storage?.local) {
+    const raw = window.localStorage.getItem(storageKey);
+    return raw && raw.length > 0 ? raw : null;
+  }
+
+  try {
+    const payload = await chrome.storage.local.get(storageKey);
+    const value = payload[storageKey];
+    return typeof value === "string" && value.length > 0 ? value : null;
+  } catch {
+    const raw = window.localStorage.getItem(storageKey);
+    return raw && raw.length > 0 ? raw : null;
+  }
+}
+
+export async function saveStoredString(storageKey: string, value: string): Promise<void> {
+  const normalized = value.trim();
+  if (!chrome.storage?.local) {
+    if (normalized) {
+      window.localStorage.setItem(storageKey, normalized);
+    } else {
+      window.localStorage.removeItem(storageKey);
+    }
+    return;
+  }
+
+  try {
+    if (normalized) {
+      await chrome.storage.local.set({ [storageKey]: normalized });
+    } else {
+      await chrome.storage.local.remove(storageKey);
+    }
+  } catch {
+    if (normalized) {
+      window.localStorage.setItem(storageKey, normalized);
+    } else {
+      window.localStorage.removeItem(storageKey);
+    }
+  }
+}
+
+export async function loadStoredJson<T>(storageKey: string, fallback: T): Promise<T> {
+  if (!chrome.storage?.local) {
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      return raw ? (JSON.parse(raw) as T) : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  try {
+    const payload = await chrome.storage.local.get(storageKey);
+    const value = payload[storageKey];
+    return value !== undefined ? (value as T) : fallback;
+  } catch {
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      return raw ? (JSON.parse(raw) as T) : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+}
+
+export async function saveStoredJson<T>(storageKey: string, value: T): Promise<void> {
+  if (!chrome.storage?.local) {
+    window.localStorage.setItem(storageKey, JSON.stringify(value));
+    return;
+  }
+
+  try {
+    await chrome.storage.local.set({ [storageKey]: value });
+  } catch {
+    window.localStorage.setItem(storageKey, JSON.stringify(value));
+  }
+}

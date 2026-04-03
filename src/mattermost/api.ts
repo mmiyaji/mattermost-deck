@@ -1,6 +1,9 @@
 export interface MattermostUser {
   id: string;
   username: string;
+  nickname?: string;
+  first_name?: string;
+  last_name?: string;
 }
 
 export interface MattermostTeam {
@@ -22,6 +25,7 @@ export interface MattermostPost {
   channel_id: string;
   create_at: number;
   message: string;
+  root_id?: string;
 }
 
 interface MattermostPostList {
@@ -41,15 +45,47 @@ export interface CurrentRoute {
 }
 
 async function apiGet<T>(pathname: string): Promise<T> {
+  const csrfToken = document.cookie
+    .split("; ")
+    .find((entry) => entry.startsWith("MMCSRF="))
+    ?.split("=")[1];
+
   const response = await fetch(`/api/v4${pathname}`, {
     credentials: "include",
     headers: {
       Accept: "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
     },
   });
 
   if (!response.ok) {
     throw new Error(`GET ${pathname} failed with ${response.status}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+async function apiPost<T>(pathname: string, body: unknown): Promise<T> {
+  const csrfToken = document.cookie
+    .split("; ")
+    .find((entry) => entry.startsWith("MMCSRF="))
+    ?.split("=")[1];
+
+  const response = await fetch(`/api/v4${pathname}`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new Error(`POST ${pathname} failed with ${response.status}`);
   }
 
   return (await response.json()) as T;
@@ -72,6 +108,14 @@ export function readCurrentRoute(): CurrentRoute {
 
 export async function getCurrentUser(): Promise<MattermostUser> {
   return await apiGet<MattermostUser>("/users/me");
+}
+
+export async function getUsersByIds(userIds: string[]): Promise<MattermostUser[]> {
+  if (userIds.length === 0) {
+    return [];
+  }
+
+  return await apiPost<MattermostUser[]>("/users/ids", userIds);
 }
 
 export async function getTeamsForCurrentUser(): Promise<MattermostTeam[]> {
@@ -105,4 +149,30 @@ export async function getRecentPosts(channelId: string, perPage = 15): Promise<M
 
 export async function getTeamUnread(userId: string): Promise<TeamUnread[]> {
   return await apiGet<TeamUnread[]>(`/users/${userId}/teams/unread`);
+}
+
+export async function searchPostsInTeam(
+  teamId: string,
+  terms: string,
+  page = 0,
+  perPage = 20,
+): Promise<MattermostPost[]> {
+  const payload = await apiPost<MattermostPostList>(
+    `/teams/${teamId}/posts/search?page=${page}&per_page=${perPage}`,
+    {
+      terms,
+      is_or_search: false,
+      include_deleted_channels: false,
+    },
+  );
+
+  return payload.order
+    .map((postId) => payload.posts[postId])
+    .filter((post): post is MattermostPost => Boolean(post));
+}
+
+export function getWebSocketUrl(): string {
+  const url = new URL("/api/v4/websocket", window.location.origin);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
 }

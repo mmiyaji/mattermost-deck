@@ -8,10 +8,12 @@ const STYLE_ID = "mattermost-deck-page-style";
 const REACT_ROOT_ID = "mattermost-deck-react-root";
 const BODY_CLASS = "mattermost-deck-body-offset";
 const RAIL_WIDTH_VAR = "--mattermost-deck-rail-width";
+const OFFSET_WIDTH_VAR = "--mattermost-deck-offset-width";
 const ROOT_WIDTH_EXPR = "clamp(320px, 32vw, 420px)";
 
 let appRoot: ReturnType<typeof createRoot> | null = null;
 let routePoller: number | null = null;
+let lastRouteKey = "";
 
 function shouldActivate(): boolean {
   const route = `${window.location.pathname}${window.location.hash}`;
@@ -28,6 +30,7 @@ function ensureStyle(): void {
   style.textContent = `
     :root {
       ${RAIL_WIDTH_VAR}: ${ROOT_WIDTH_EXPR};
+      ${OFFSET_WIDTH_VAR}: var(${RAIL_WIDTH_VAR});
     }
 
     body.${BODY_CLASS} {
@@ -35,8 +38,8 @@ function ensureStyle(): void {
     }
 
     body.${BODY_CLASS} #root {
-      width: calc(100vw - var(${RAIL_WIDTH_VAR})) !important;
-      max-width: calc(100vw - var(${RAIL_WIDTH_VAR})) !important;
+      width: calc(100vw - var(${OFFSET_WIDTH_VAR})) !important;
+      max-width: calc(100vw - var(${OFFSET_WIDTH_VAR})) !important;
     }
 
     body.${BODY_CLASS} #root .app__content {
@@ -84,7 +87,7 @@ function ensureRoot(): HTMLDivElement {
   root.style.top = "0";
   root.style.right = "0";
   root.style.height = "100vh";
-  root.style.width = `var(${RAIL_WIDTH_VAR})`;
+  root.style.width = `var(${OFFSET_WIDTH_VAR})`;
   root.style.zIndex = "2147483646";
   document.body.append(root);
   return root;
@@ -103,6 +106,8 @@ function render(): void {
   if (!(document.body instanceof HTMLBodyElement)) {
     return;
   }
+
+  lastRouteKey = `${window.location.pathname}${window.location.hash}`;
 
   if (!shouldActivate()) {
     cleanup();
@@ -141,6 +146,11 @@ function installRouteWatcher(): void {
 
   const { pushState, replaceState } = window.history;
   const notify = (): void => {
+    const routeKey = `${window.location.pathname}${window.location.hash}`;
+    if (routeKey === lastRouteKey) {
+      return;
+    }
+
     window.requestAnimationFrame(() => render());
   };
 

@@ -10,11 +10,15 @@ const distDir = path.join(root, "dist");
 await fs.rm(distDir, { recursive: true, force: true });
 await fs.mkdir(distDir, { recursive: true });
 await fs.copyFile(path.join(srcDir, "manifest.json"), path.join(distDir, "manifest.json"));
+await fs.copyFile(path.join(srcDir, "options", "index.html"), path.join(distDir, "options.html"));
 
 const ctx = await esbuild.context({
-  entryPoints: [path.join(srcDir, "content", "index.tsx")],
+  entryPoints: {
+    content: path.join(srcDir, "content", "index.tsx"),
+    options: path.join(srcDir, "options", "index.tsx"),
+  },
   bundle: true,
-  outfile: path.join(distDir, "content.js"),
+  outdir: distDir,
   format: "iife",
   target: "chrome120",
   sourcemap: true,

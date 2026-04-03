@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "Adds a TweetDeck-style right rail to Mattermost Web.",
   "permissions": ["storage"],
+  "options_page": "options.html",
   "content_scripts": [
     {
       "matches": ["http://127.0.0.1:8065/*", "http://localhost:8065/*"],
