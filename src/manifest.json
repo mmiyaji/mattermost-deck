@@ -9,7 +9,8 @@
     "48": "assets/icons/icon-48.png",
     "128": "assets/icons/icon-128.png"
   },
-  "permissions": ["storage"],
+  "permissions": ["storage", "scripting"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "action": {
     "default_icon": {
       "16": "assets/icons/icon-16.png",
@@ -20,13 +21,5 @@
   "options_page": "options.html",
   "background": {
     "service_worker": "background.js"
-  },
-  "content_scripts": [
-    {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ],
-  "host_permissions": ["http://*/*", "https://*/*"]
+  }
 }

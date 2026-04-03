@@ -30,6 +30,7 @@ Mattermost の Web 画面に TweetDeck 風の右ペインを追加する Chrome 
 - 拡張は Shadow DOM 上の右ペインだけを描画する
 - データ取得は Mattermost REST API と任意の WebSocket を使う
 - 描画前に設定済みの対象 URL とヘルスチェック API を確認する
+- content script は、ユーザーが明示的に許可した Mattermost origin に対してのみ注入する
 
 ## セットアップ
 
@@ -46,6 +47,17 @@ npm run build
 - 任意の team slug 制限
 - リアルタイム用の任意 PAT
 - ポーリング間隔や見た目の設定
+
+Server URL を保存すると、その Mattermost origin に対する Chrome 権限を要求します。既定では全サイトに注入しません。
+
+## セキュリティ
+
+- PAT はクライアント側で暗号化して保存します
+- 既定では session-only 保存です
+- 再起動後も保持したい場合だけ永続保存を選べます
+- 平文保存よりは安全ですが、完全な秘匿境界ではありません
+- クライアント自身が復号できるため、可能であれば権限を絞ったトークンを使ってください
+- ヘルスチェック API は設定済み Mattermost origin 上の `/api/v4/...` に制限されます
 
 ## 開発
 
@@ -71,12 +83,6 @@ npm run capture:readme
 - `dist/` を `mattermost-deck-<tag>.zip` に圧縮
 - GitHub Release を作成し、zip を asset として添付
 
-## セキュリティ
-
-- PAT はローカルにクライアント側暗号化して保存します
-- 平文保存よりは安全ですが、完全な秘匿境界ではありません
-- クライアント自身が復号できるため、可能であれば権限を絞ったトークンを使ってください
-
 ## ライセンス
 
 MIT ライセンスです。詳細は [LICENSE](./LICENSE) を参照してください。
@@ -91,4 +97,4 @@ MIT ライセンスです。詳細は [LICENSE](./LICENSE) を参照してくだ
 
 ## 設計メモ
 
-- 詳細設計: [docs/design-guidelines.md](./docs/design-guidelines.md)
+- 詳細設計: [docs/design-guidelines.ja.md](./docs/design-guidelines.ja.md)

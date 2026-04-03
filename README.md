@@ -30,6 +30,7 @@ Dark theme:
 - The extension renders supplemental panes inside a Shadow DOM right rail
 - Data comes from Mattermost REST APIs and optional WebSocket events
 - The extension validates the configured target URL and health-check endpoint before rendering
+- Content script injection is limited to the configured Mattermost origin after explicit Chrome permission is granted
 
 ## Setup
 
@@ -46,6 +47,17 @@ On first install, the extension opens its Options page so you can configure:
 - Optional team slug restriction
 - Optional PAT for realtime mode
 - Polling interval and appearance settings
+
+Saving the server URL also requests Chrome permission for that Mattermost origin. The extension does not inject itself into every site by default.
+
+## Security Notes
+
+- The PAT is encrypted client-side before storage
+- Session-only PAT storage is the default
+- Persistent PAT storage is optional and should be used only when needed
+- This is better than plain-text storage, but it is not a complete security boundary
+- The client can still decrypt the stored token, so use a minimally scoped token when possible
+- Health-check paths are restricted to `/api/v4/...` on the configured Mattermost origin
 
 ## Development
 
@@ -70,12 +82,6 @@ Push a tag in `v` format such as `v0.1.0` to trigger GitHub Actions.
 - The workflow runs `npm ci`, `npm run check`, and `npm run build`
 - It packages `dist/` as `mattermost-deck-<tag>.zip`
 - It creates a GitHub Release and uploads the zip as a release asset
-
-## Security Notes
-
-- The PAT is stored locally with client-side encryption
-- This is better than plain-text storage, but it is not a complete security boundary
-- The client can still decrypt the stored token, so use a minimally scoped token when possible
 
 ## License
 

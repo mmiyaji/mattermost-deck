@@ -7,6 +7,7 @@ export interface DeckSettings {
   serverUrl: string;
   teamSlug: string;
   wsPat: string;
+  persistPat: boolean;
   pollingIntervalSeconds: number;
   allowedRouteKinds: string;
   healthCheckPath: string;
@@ -21,6 +22,7 @@ export const SETTINGS_KEYS = {
   serverUrl: "mattermostDeck.serverUrl.v1",
   teamSlug: "mattermostDeck.teamSlug.v1",
   wsPat: "mattermostDeck.wsPat.v1",
+  persistPat: "mattermostDeck.persistPat.v1",
   pollingIntervalSeconds: "mattermostDeck.pollingIntervalSeconds.v1",
   allowedRouteKinds: "mattermostDeck.allowedRouteKinds.v1",
   healthCheckPath: "mattermostDeck.healthCheckPath.v1",
@@ -35,6 +37,7 @@ export const DEFAULT_SETTINGS: DeckSettings = {
   serverUrl: "",
   teamSlug: "",
   wsPat: "",
+  persistPat: false,
   pollingIntervalSeconds: 45,
   allowedRouteKinds: "channels,messages",
   healthCheckPath: "/api/v4/users/me",
@@ -131,7 +134,27 @@ export function normaliseHealthCheckPath(value: string | null): string {
     return DEFAULT_SETTINGS.healthCheckPath;
   }
 
-  return raw.startsWith("/") ? raw : `/${raw}`;
+  try {
+    const parsed = raw.startsWith("http://") || raw.startsWith("https://") ? new URL(raw) : null;
+    const candidate = parsed ? parsed.pathname : raw;
+    const path = candidate.startsWith("/") ? candidate : `/${candidate}`;
+    return /^\/api\/v4(?:\/|$)/.test(path) ? path : DEFAULT_SETTINGS.healthCheckPath;
+  } catch {
+    return DEFAULT_SETTINGS.healthCheckPath;
+  }
+}
+
+function normalisePersistPat(value: unknown): boolean {
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+export function originToPermissionPattern(origin: string): string | null {
+  const normalized = normaliseServerUrl(origin);
+  if (!normalized) {
+    return null;
+  }
+
+  return `${normalized}/*`;
 }
 
 function normaliseTheme(value: string | null): DeckTheme {
@@ -148,7 +171,9 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
   const [
     serverUrl,
     teamSlug,
-    wsPatEncrypted,
+    wsPatPersistent,
+    wsPatSession,
+    persistPat,
     pollingIntervalSeconds,
     allowedRouteKinds,
     healthCheckPath,
@@ -161,7 +186,9 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
     await Promise.all([
     loadStoredString(SETTINGS_KEYS.serverUrl),
     loadStoredString(SETTINGS_KEYS.teamSlug),
-    loadStoredEncryptedString(SETTINGS_KEYS.wsPat),
+    loadStoredEncryptedString(SETTINGS_KEYS.wsPat, "local"),
+    loadStoredEncryptedString(SETTINGS_KEYS.wsPat, "session"),
+    loadStoredString(SETTINGS_KEYS.persistPat),
     loadStoredString(SETTINGS_KEYS.pollingIntervalSeconds),
     loadStoredString(SETTINGS_KEYS.allowedRouteKinds),
     loadStoredString(SETTINGS_KEYS.healthCheckPath),
@@ -175,7 +202,8 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
   return {
     serverUrl: normaliseServerUrl(serverUrl),
     teamSlug: normaliseTeamSlug(teamSlug),
-    wsPat: wsPatEncrypted ?? DEFAULT_SETTINGS.wsPat,
+    wsPat: (normalisePersistPat(persistPat) ? wsPatPersistent : wsPatSession) ?? DEFAULT_SETTINGS.wsPat,
+    persistPat: normalisePersistPat(persistPat),
     pollingIntervalSeconds: normalisePollingIntervalSeconds(pollingIntervalSeconds),
     allowedRouteKinds: normaliseAllowedRouteKinds(allowedRouteKinds),
     healthCheckPath: normaliseHealthCheckPath(healthCheckPath),
@@ -188,10 +216,16 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
 }
 
 export async function saveDeckSettings(settings: DeckSettings): Promise<void> {
+  const normalizedServerUrl = normaliseServerUrl(settings.serverUrl);
+  const normalizedPat = settings.wsPat.trim();
+  const persistPat = normalisePersistPat(settings.persistPat);
+
   await Promise.all([
-    saveStoredString(SETTINGS_KEYS.serverUrl, normaliseServerUrl(settings.serverUrl)),
+    saveStoredString(SETTINGS_KEYS.serverUrl, normalizedServerUrl),
     saveStoredString(SETTINGS_KEYS.teamSlug, normaliseTeamSlug(settings.teamSlug)),
-    saveStoredEncryptedString(SETTINGS_KEYS.wsPat, settings.wsPat),
+    saveStoredString(SETTINGS_KEYS.persistPat, persistPat ? "true" : "false"),
+    saveStoredEncryptedString(SETTINGS_KEYS.wsPat, persistPat ? normalizedPat : "", "local"),
+    saveStoredEncryptedString(SETTINGS_KEYS.wsPat, persistPat ? "" : normalizedPat, "session"),
     saveStoredString(SETTINGS_KEYS.pollingIntervalSeconds, String(normalisePollingIntervalSeconds(settings.pollingIntervalSeconds))),
     saveStoredString(SETTINGS_KEYS.allowedRouteKinds, normaliseAllowedRouteKinds(settings.allowedRouteKinds)),
     saveStoredString(SETTINGS_KEYS.healthCheckPath, normaliseHealthCheckPath(settings.healthCheckPath)),
@@ -209,22 +243,26 @@ export function subscribeDeckSettings(listener: (settings: DeckSettings) => void
   }
 
   const handleChange = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
-    if (areaName !== "local") {
+    if (areaName !== "local" && areaName !== "session") {
       return;
     }
 
     if (
-      !(SETTINGS_KEYS.serverUrl in changes) &&
-      !(SETTINGS_KEYS.teamSlug in changes) &&
       !(SETTINGS_KEYS.wsPat in changes) &&
-      !(SETTINGS_KEYS.pollingIntervalSeconds in changes) &&
-      !(SETTINGS_KEYS.allowedRouteKinds in changes) &&
-      !(SETTINGS_KEYS.healthCheckPath in changes) &&
-      !(SETTINGS_KEYS.theme in changes) &&
-      !(SETTINGS_KEYS.language in changes) &&
-      !(SETTINGS_KEYS.fontScalePercent in changes) &&
-      !(SETTINGS_KEYS.preferredRailWidth in changes) &&
-      !(SETTINGS_KEYS.preferredColumnWidth in changes)
+      (areaName === "session" ||
+        !(
+          SETTINGS_KEYS.serverUrl in changes ||
+          SETTINGS_KEYS.teamSlug in changes ||
+          SETTINGS_KEYS.persistPat in changes ||
+          SETTINGS_KEYS.pollingIntervalSeconds in changes ||
+          SETTINGS_KEYS.allowedRouteKinds in changes ||
+          SETTINGS_KEYS.healthCheckPath in changes ||
+          SETTINGS_KEYS.theme in changes ||
+          SETTINGS_KEYS.language in changes ||
+          SETTINGS_KEYS.fontScalePercent in changes ||
+          SETTINGS_KEYS.preferredRailWidth in changes ||
+          SETTINGS_KEYS.preferredColumnWidth in changes
+        ))
     ) {
       return;
     }

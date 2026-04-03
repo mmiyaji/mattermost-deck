@@ -12,10 +12,12 @@ import {
   MIN_PREFERRED_RAIL_WIDTH,
   loadDeckSettings,
   normaliseFontScalePercent,
+  normaliseHealthCheckPath,
   normalisePollingIntervalSeconds,
   normalisePreferredColumnWidth,
   normalisePreferredRailWidth,
   normaliseServerUrl,
+  originToPermissionPattern,
   resolveTheme,
   saveDeckSettings,
   type DeckLanguage,
@@ -358,6 +360,21 @@ const pageCss = `
     gap: 10px;
   }
 
+  .options-choice-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+
+  .options-choice {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: inherit;
+    font-size: 13px;
+  }
+
   .options-button {
     background: linear-gradient(180deg, #1f9dff, #0f71d7);
     color: #fff;
@@ -554,6 +571,7 @@ function getManifestVersion(): string {
 
 function OptionsApp(): React.JSX.Element {
   const [settings, setSettings] = useState<DeckSettings>(DEFAULT_SETTINGS);
+  const [initialServerUrl, setInitialServerUrl] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [showPat, setShowPat] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -576,6 +594,7 @@ function OptionsApp(): React.JSX.Element {
       const next = await loadDeckSettings();
       if (!cancelled) {
         setSettings(next);
+        setInitialServerUrl(next.serverUrl);
         setLoaded(true);
       }
     };
@@ -593,6 +612,12 @@ function OptionsApp(): React.JSX.Element {
 
   const text = useMemo(() => TEXT[settings.language], [settings.language]);
   const version = useMemo(() => getManifestVersion(), []);
+  const patStorageSessionLabel = settings.language === "ja" ? "Session only" : "Session only";
+  const patStoragePersistentLabel = settings.language === "ja" ? "Persist across restarts" : "Persist across restarts";
+  const patStorageHint =
+    settings.language === "ja"
+      ? "既定は session only です。ブラウザ再起動後も保持したい場合だけ persist を選んでください。"
+      : "Use session-only storage by default. Choose persistent storage only if you want the token kept across browser restarts.";
   const themeOptions = useMemo<CustomSelectOption[]>(
     () => [
       { value: "system", label: text.themeSystem },
@@ -611,7 +636,8 @@ function OptionsApp(): React.JSX.Element {
   );
 
   const handleSave = async () => {
-    if (!normaliseServerUrl(settings.serverUrl)) {
+    const normalizedServerUrl = normaliseServerUrl(settings.serverUrl);
+    if (!normalizedServerUrl) {
       setSaveError(text.invalidServerUrl);
       return;
     }
@@ -620,7 +646,33 @@ function OptionsApp(): React.JSX.Element {
     setSavedNotice(false);
     setSaveError(null);
     try {
-      await saveDeckSettings(settings);
+      const requestedOrigin = originToPermissionPattern(normalizedServerUrl);
+      if (!requestedOrigin) {
+        setSaveError(text.invalidServerUrl);
+        return;
+      }
+
+      const granted = await chrome.permissions.request({ origins: [requestedOrigin] });
+      if (!granted) {
+        setSaveError(
+          settings.language === "ja"
+            ? "Mattermost origin の Chrome 権限が許可されませんでした。"
+            : "Chrome permission for the configured Mattermost origin was denied.",
+        );
+        return;
+      }
+
+      const previousOrigin = originToPermissionPattern(initialServerUrl);
+      await saveDeckSettings({
+        ...settings,
+        serverUrl: normalizedServerUrl,
+        healthCheckPath: normaliseHealthCheckPath(settings.healthCheckPath),
+      });
+      if (previousOrigin && previousOrigin !== requestedOrigin) {
+        await chrome.permissions.remove({ origins: [previousOrigin] }).catch(() => undefined);
+      }
+      await chrome.runtime.sendMessage({ type: "mattermost-deck:sync-content-script" }).catch(() => undefined);
+      setInitialServerUrl(normalizedServerUrl);
       setSavedNotice(true);
       window.setTimeout(() => setSavedNotice(false), 2500);
     } finally {
@@ -737,6 +789,27 @@ function OptionsApp(): React.JSX.Element {
                   {showPat ? text.hide : text.show}
                 </button>
               </div>
+              <div className="options-choice-row" role="radiogroup" aria-label="PAT Storage">
+                <label className="options-choice">
+                  <input
+                    type="radio"
+                    name="pat-storage"
+                    checked={!settings.persistPat}
+                    onChange={() => setSettings((current) => ({ ...current, persistPat: false }))}
+                  />
+                  <span>{patStorageSessionLabel}</span>
+                </label>
+                <label className="options-choice">
+                  <input
+                    type="radio"
+                    name="pat-storage"
+                    checked={settings.persistPat}
+                    onChange={() => setSettings((current) => ({ ...current, persistPat: true }))}
+                  />
+                  <span>{patStoragePersistentLabel}</span>
+                </label>
+              </div>
+              <p>{patStorageHint}</p>
             </label>
             <label className="options-field">
               <span className="options-label">{text.pollingLabel}</span>

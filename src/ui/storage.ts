@@ -7,6 +7,7 @@ interface LayoutPayload {
 const ENCRYPTION_PREFIX = "enc:v1:";
 const STORAGE_SALT = "mattermost-deck.local-storage.v1";
 let cachedEncryptionKey: Promise<CryptoKey> | null = null;
+type StorageAreaName = "local" | "session";
 
 function isDeckColumn(value: unknown): value is DeckColumn {
   if (!value || typeof value !== "object") {
@@ -68,14 +69,23 @@ function decodeBase64(input: string): Uint8Array {
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
-async function getRawStoredString(storageKey: string): Promise<string | null> {
-  if (!chrome.storage?.local) {
+function getStorageArea(area: StorageAreaName): chrome.storage.StorageArea | null {
+  if (!chrome.storage) {
+    return null;
+  }
+
+  return area === "session" ? chrome.storage.session ?? null : chrome.storage.local ?? null;
+}
+
+async function getRawStoredString(storageKey: string, area: StorageAreaName = "local"): Promise<string | null> {
+  const storageArea = getStorageArea(area);
+  if (!storageArea) {
     const raw = window.localStorage.getItem(storageKey);
     return raw && raw.length > 0 ? raw : null;
   }
 
   try {
-    const payload = await chrome.storage.local.get(storageKey);
+    const payload = await storageArea.get(storageKey);
     const value = payload[storageKey];
     return typeof value === "string" && value.length > 0 ? value : null;
   } catch {
@@ -84,9 +94,10 @@ async function getRawStoredString(storageKey: string): Promise<string | null> {
   }
 }
 
-async function setRawStoredString(storageKey: string, value: string): Promise<void> {
+async function setRawStoredString(storageKey: string, value: string, area: StorageAreaName = "local"): Promise<void> {
   const normalized = value.trim();
-  if (!chrome.storage?.local) {
+  const storageArea = getStorageArea(area);
+  if (!storageArea) {
     if (normalized) {
       window.localStorage.setItem(storageKey, normalized);
     } else {
@@ -97,9 +108,9 @@ async function setRawStoredString(storageKey: string, value: string): Promise<vo
 
   try {
     if (normalized) {
-      await chrome.storage.local.set({ [storageKey]: normalized });
+      await storageArea.set({ [storageKey]: normalized });
     } else {
-      await chrome.storage.local.remove(storageKey);
+      await storageArea.remove(storageKey);
     }
   } catch {
     if (normalized) {
@@ -247,16 +258,16 @@ export async function saveStoredNumber(storageKey: string, value: number): Promi
   }
 }
 
-export async function loadStoredString(storageKey: string): Promise<string | null> {
-  return await getRawStoredString(storageKey);
+export async function loadStoredString(storageKey: string, area: StorageAreaName = "local"): Promise<string | null> {
+  return await getRawStoredString(storageKey, area);
 }
 
-export async function saveStoredString(storageKey: string, value: string): Promise<void> {
-  await setRawStoredString(storageKey, value);
+export async function saveStoredString(storageKey: string, value: string, area: StorageAreaName = "local"): Promise<void> {
+  await setRawStoredString(storageKey, value, area);
 }
 
-export async function loadStoredEncryptedString(storageKey: string): Promise<string | null> {
-  const raw = await getRawStoredString(storageKey);
+export async function loadStoredEncryptedString(storageKey: string, area: StorageAreaName = "local"): Promise<string | null> {
+  const raw = await getRawStoredString(storageKey, area);
   if (!raw) {
     return null;
   }
@@ -264,14 +275,18 @@ export async function loadStoredEncryptedString(storageKey: string): Promise<str
   return await decryptString(raw);
 }
 
-export async function saveStoredEncryptedString(storageKey: string, value: string): Promise<void> {
+export async function saveStoredEncryptedString(
+  storageKey: string,
+  value: string,
+  area: StorageAreaName = "local",
+): Promise<void> {
   const normalized = value.trim();
   if (!normalized) {
-    await setRawStoredString(storageKey, "");
+    await setRawStoredString(storageKey, "", area);
     return;
   }
 
-  await setRawStoredString(storageKey, await encryptString(normalized));
+  await setRawStoredString(storageKey, await encryptString(normalized), area);
 }
 
 export async function loadStoredJson<T>(storageKey: string, fallback: T): Promise<T> {
