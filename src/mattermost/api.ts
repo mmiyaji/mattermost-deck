@@ -358,6 +358,13 @@ export async function getChannelByName(
   return await apiGet<MattermostChannel>(`/teams/${teamId}/channels/name/${channelName}`);
 }
 
+export async function getChannelsByIds(channelIds: string[]): Promise<MattermostChannel[]> {
+  if (channelIds.length === 0) {
+    return [];
+  }
+  return await apiPost<MattermostChannel[]>("/channels/ids", channelIds);
+}
+
 export async function getRecentPosts(channelId: string, page = 0, perPage = 20): Promise<MattermostPost[]> {
   const payload = await apiGet<MattermostPostList>(
     `/channels/${channelId}/posts?page=${page}&per_page=${perPage}`,

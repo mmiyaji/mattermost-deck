@@ -2,9 +2,9 @@
 import {
   checkApiHealth,
   fetchPostFileInfos,
-  getChannel,
   getChannelByName,
   getChannelMembers,
+  getChannelsByIds,
   getChannelsForCurrentUser,
   getCurrentUser,
   getDirectChannelsForCurrentUser,
@@ -18,7 +18,6 @@ import {
   readCurrentRoute,
   searchPostsInTeam,
   type MattermostChannel,
-  type MattermostChannelMember,
   type MattermostFileInfo,
   type MattermostPost,
   type MattermostTeam,
@@ -646,25 +645,67 @@ function formatRate(value: number): string {
 function Sparkline({
   values,
   ariaLabel,
+  formatValue = (v) => v.toFixed(1),
 }: {
   values: number[];
   ariaLabel: string;
+  formatValue?: (v: number) => string;
 }): React.JSX.Element {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const width = 160;
   const height = 36;
   const safeValues = values.length > 0 ? values : [0];
   const maxValue = Math.max(...safeValues, 1);
-  const points = safeValues
-    .map((value, index) => {
-      const x = safeValues.length === 1 ? width / 2 : (index / (safeValues.length - 1)) * width;
-      const y = height - (value / maxValue) * (height - 4) - 2;
-      return `${x},${y}`;
-    })
-    .join(" ");
+
+  const coords = safeValues.map((value, index) => {
+    const x = safeValues.length === 1 ? width / 2 : (index / (safeValues.length - 1)) * width;
+    const y = height - (value / maxValue) * (height - 4) - 2;
+    return { x, y, value };
+  });
+
+  const points = coords.map(({ x, y }) => `${x},${y}`).join(" ");
+
+  const handleMouseMove = (event: React.MouseEvent<SVGSVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const mouseX = ((event.clientX - rect.left) / rect.width) * width;
+    let nearest = 0;
+    let nearestDist = Infinity;
+    coords.forEach(({ x }, i) => {
+      const dist = Math.abs(x - mouseX);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearest = i;
+      }
+    });
+    setHoverIndex(nearest);
+  };
+
+  const hovered = hoverIndex !== null ? coords[hoverIndex] : null;
 
   return (
-    <svg className="deck-sparkline" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
+    <svg
+      className="deck-sparkline"
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label={ariaLabel}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={() => setHoverIndex(null)}
+    >
       <polyline className="deck-sparkline-line" points={points} />
+      {hovered ? (
+        <>
+          <line className="deck-sparkline-hover-line" x1={hovered.x} y1={0} x2={hovered.x} y2={height} />
+          <circle className="deck-sparkline-hover-dot" cx={hovered.x} cy={hovered.y} r={3} />
+          <text
+            className="deck-sparkline-hover-label"
+            x={Math.min(Math.max(hovered.x, 18), width - 18)}
+            y={Math.max(hovered.y - 6, 9)}
+            textAnchor="middle"
+          >
+            {formatValue(hovered.value)}
+          </text>
+        </>
+      ) : null}
     </svg>
   );
 }
@@ -1190,6 +1231,14 @@ function isLikelyDirectChannelRouteName(channelName: string | null): boolean {
   }
 
   return channelName.startsWith("@") || channelName.includes("__");
+}
+
+function parseDmChannelUserIds(channel: MattermostChannel): string[] {
+  if (channel.type !== "D") {
+    return [];
+  }
+  const parts = channel.name.split("__");
+  return parts.length === 2 ? parts.filter(Boolean) : [];
 }
 
 async function loadAppState(): Promise<Omit<AppState, "status" | "error">> {
@@ -1802,8 +1851,49 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function ImageLightbox({ src, name, onClose }: { src: string; name: string; onClose: () => void }): React.JSX.Element {
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="deck-lightbox-backdrop"
+      onClick={onClose}
+      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={name}
+    >
+      <div className="deck-lightbox-content" onClick={(e) => e.stopPropagation()}>
+        <img src={src} alt={name} className="deck-lightbox-img" />
+        <div className="deck-lightbox-footer">
+          <span className="deck-lightbox-name">{name}</span>
+          <a
+            className="deck-lightbox-download"
+            href={src}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            開く
+          </a>
+          <button type="button" className="deck-lightbox-close" onClick={onClose} aria-label="閉じる">
+            ✕
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PostFileAttachments({ fileIds, postId }: { fileIds: string[]; postId: string }): React.JSX.Element | null {
   const [fileInfos, setFileInfos] = useState<MattermostFileInfo[]>([]);
+  const [lightboxSrc, setLightboxSrc] = useState<{ src: string; name: string } | null>(null);
 
   useEffect(() => {
     void fetchPostFileInfos(postId).then(setFileInfos).catch(() => undefined);
@@ -1812,38 +1902,52 @@ function PostFileAttachments({ fileIds, postId }: { fileIds: string[]; postId: s
   if (fileInfos.length === 0) return null;
 
   return (
-    <div className="deck-post-files">
-      {fileInfos.map((info) => {
-        const isImage = info.mime_type.startsWith("image/");
-        return isImage ? (
-          <div key={info.id} className="deck-file-thumb-wrap">
-            <img
-              className="deck-file-thumb"
-              src={`/api/v4/files/${info.id}/thumbnail`}
-              alt={info.name}
-              loading="lazy"
-            />
-            <div className="deck-file-preview-popup">
-              <img src={`/api/v4/files/${info.id}/preview`} alt={info.name} loading="lazy" />
-              <span className="deck-file-preview-name">{info.name}</span>
-            </div>
-          </div>
-        ) : (
-          <a
-            key={info.id}
-            className="deck-file-card"
-            href={`/api/v4/files/${info.id}`}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <span className="deck-file-ext">{(info.extension || "file").toUpperCase()}</span>
-            <span className="deck-file-name" title={info.name}>{info.name}</span>
-            <span className="deck-file-size">{formatFileSize(info.size)}</span>
-          </a>
-        );
-      })}
-    </div>
+    <>
+      <div className="deck-post-files">
+        {fileInfos.map((info) => {
+          const isImage = info.mime_type.startsWith("image/");
+          return isImage ? (
+            <button
+              key={info.id}
+              type="button"
+              className="deck-file-thumb-wrap"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLightboxSrc({ src: `/api/v4/files/${info.id}`, name: info.name });
+              }}
+              aria-label={`画像を拡大: ${info.name}`}
+            >
+              <img
+                className="deck-file-thumb"
+                src={`/api/v4/files/${info.id}/thumbnail`}
+                alt={info.name}
+                loading="lazy"
+              />
+            </button>
+          ) : (
+            <a
+              key={info.id}
+              className="deck-file-card"
+              href={`/api/v4/files/${info.id}`}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span className="deck-file-ext">{(info.extension || "file").toUpperCase()}</span>
+              <span className="deck-file-name" title={info.name}>{info.name}</span>
+              <span className="deck-file-size">{formatFileSize(info.size)}</span>
+            </a>
+          );
+        })}
+      </div>
+      {lightboxSrc ? (
+        <ImageLightbox
+          src={lightboxSrc.src}
+          name={lightboxSrc.name}
+          onClose={() => setLightboxSrc(null)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -2326,7 +2430,7 @@ function MentionsColumn({
     let cancelled = false;
     const run = async () => {
       try {
-        const channels = await Promise.all(missingChannelIds.map((channelId) => getChannel(channelId)));
+        const channels = await getChannelsByIds(missingChannelIds);
         if (cancelled) {
           return;
         }
@@ -2343,18 +2447,30 @@ function MentionsColumn({
         if (dmChannels.length === 0) {
           return;
         }
-        const memberEntries = await Promise.all(
-          dmChannels.map(async (channel) => ({
-            channelId: channel.id,
-            members: await getChannelMembers(channel.id),
-          })),
-        );
-        if (cancelled) {
-          return;
+
+        const nextMemberDirectory: Record<string, string[]> = {};
+        for (const channel of dmChannels) {
+          if (channel.type === "D") {
+            nextMemberDirectory[channel.id] = parseDmChannelUserIds(channel);
+          }
         }
-        const nextMemberDirectory = Object.fromEntries(
-          memberEntries.map((entry) => [entry.channelId, entry.members.map((member) => member.user_id)]),
-        );
+
+        const groupChannels = dmChannels.filter((channel) => channel.type === "G");
+        if (groupChannels.length > 0) {
+          const groupEntries = await Promise.all(
+            groupChannels.map(async (channel) => ({
+              channelId: channel.id,
+              userIds: (await getChannelMembers(channel.id)).map((m) => m.user_id),
+            })),
+          );
+          if (cancelled) {
+            return;
+          }
+          for (const entry of groupEntries) {
+            nextMemberDirectory[entry.channelId] = entry.userIds;
+          }
+        }
+
         setMemberDirectory((current) => ({ ...current, ...nextMemberDirectory }));
         void ensureUsers(Object.values(nextMemberDirectory).flat());
       } catch {
@@ -2715,20 +2831,29 @@ function ChannelWatchColumn({
         }
 
         if (mode === "dm") {
-          const memberEntries = await Promise.all(
-            channels
-              .filter((channel) => channel.type === "D" || channel.type === "G")
-              .map(async (channel) => ({
-                channelId: channel.id,
-                members: await getChannelMembers(channel.id),
-              })),
-          );
-          if (cancelled) {
-            return;
+          const nextMemberDirectory: Record<string, string[]> = {};
+          for (const channel of channels) {
+            if (channel.type === "D") {
+              nextMemberDirectory[channel.id] = parseDmChannelUserIds(channel);
+            }
           }
-          const nextMemberDirectory = Object.fromEntries(
-            memberEntries.map((entry) => [entry.channelId, entry.members.map((member) => member.user_id)]),
-          );
+
+          const groupChannels = channels.filter((channel) => channel.type === "G");
+          if (groupChannels.length > 0) {
+            const groupEntries = await Promise.all(
+              groupChannels.map(async (channel) => ({
+                channelId: channel.id,
+                userIds: (await getChannelMembers(channel.id)).map((m) => m.user_id),
+              })),
+            );
+            if (cancelled) {
+              return;
+            }
+            for (const entry of groupEntries) {
+              nextMemberDirectory[entry.channelId] = entry.userIds;
+            }
+          }
+
           setMemberDirectory(nextMemberDirectory);
           void ensureUsers(Object.values(nextMemberDirectory).flat());
         }
@@ -3617,7 +3742,6 @@ function DiagnosticsColumn({
   wsStatus,
   syncLogs,
   apiHealthStatus,
-  pollingIntervalSeconds,
   realtimeEnabled,
   runtimeMetrics,
   canMoveLeft,
@@ -3630,7 +3754,6 @@ function DiagnosticsColumn({
   wsStatus: WebSocketStatus;
   syncLogs: SyncLogEntry[];
   apiHealthStatus: ApiHealthStatus;
-  pollingIntervalSeconds: number;
   realtimeEnabled: boolean;
   runtimeMetrics: RuntimePerformanceSnapshot;
   canMoveLeft: boolean;
@@ -3670,18 +3793,6 @@ function DiagnosticsColumn({
         </div>
       ) : null}
       <div className="deck-stack">
-        <article className="deck-card deck-card--muted">
-          <strong>Sync</strong>
-          <p>{getApiHealthLabel(apiHealthStatus)} / {realtimeEnabled ? getWebSocketStatusLabel(wsStatus) : "Polling"}</p>
-        </article>
-        <article className="deck-card deck-card--muted">
-          <strong>Polling interval</strong>
-          <p>{pollingIntervalSeconds}s</p>
-        </article>
-        <article className="deck-card deck-card--muted">
-          <strong>API burst control</strong>
-          <p>Queued requests with 120ms minimum spacing and 1000ms GET dedupe cache.</p>
-        </article>
         <div className="deck-metric-grid">
           <article className="deck-card deck-card--metric">
             <strong>DOM nodes</strong>
@@ -3724,14 +3835,14 @@ function DiagnosticsColumn({
             <strong>Request rate</strong>
             <span>{formatMetricNumber(runtimeMetrics.api.recentRequestsPerMinute)} req/min</span>
           </div>
-          <Sparkline values={runtimeMetrics.api.tpsSeries} ariaLabel="Recent API request rate" />
+          <Sparkline values={runtimeMetrics.api.tpsSeries} ariaLabel="Recent API request rate" formatValue={(v) => `${v.toFixed(1)} req/s`} />
         </article>
         <article className="deck-card">
           <div className="deck-metric-chart-header">
             <strong>Latency</strong>
             <span>p95 {formatLatency(runtimeMetrics.api.p95LatencyMs)}</span>
           </div>
-          <Sparkline values={runtimeMetrics.api.latencySeries} ariaLabel="Recent API latency" />
+          <Sparkline values={runtimeMetrics.api.latencySeries} ariaLabel="Recent API latency" formatValue={formatLatency} />
           <p className="deck-card-caption">Last {formatLatency(runtimeMetrics.api.lastLatencyMs)}</p>
         </article>
         <article className="deck-card">
@@ -4847,7 +4958,6 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           wsStatus={wsStatus}
                           syncLogs={syncLogs}
                           apiHealthStatus={apiHealthStatus}
-                          pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
                           realtimeEnabled={realtimeEnabled}
                           runtimeMetrics={runtimeMetrics}
                           canMoveLeft={index > 0}

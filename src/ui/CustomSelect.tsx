@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 export interface CustomSelectOption {
   value: string;
@@ -10,22 +10,37 @@ export function CustomSelect({
   value,
   placeholder,
   disabled = false,
+  allowClear = true,
   onChange,
 }: {
   options: CustomSelectOption[];
   value: string;
   placeholder: string;
   disabled?: boolean;
+  allowClear?: boolean;
   onChange: (value: string) => void;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const selected = options.find((option) => option.value === value);
 
+  const filteredOptions = useMemo(() => {
+    if (!search.trim()) {
+      return options;
+    }
+    const lower = search.trim().toLowerCase();
+    return options.filter((o) => o.label.toLowerCase().includes(lower));
+  }, [options, search]);
+
   useEffect(() => {
     if (!open) {
+      setSearch("");
       return;
     }
+
+    window.setTimeout(() => searchRef.current?.focus(), 0);
 
     const handlePointerDown = (event: PointerEvent) => {
       const root = rootRef.current;
@@ -95,7 +110,25 @@ export function CustomSelect({
             </span>
           </div>
           <div className="mm-custom-select-divider" aria-hidden="true" />
-          {options.map((option) => (
+          <div className="mm-custom-select-search">
+            <input
+              ref={searchRef}
+              type="text"
+              className="mm-custom-select-search-input"
+              placeholder="絞り込み..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Escape") {
+                  setOpen(false);
+                }
+              }}
+            />
+          </div>
+          {filteredOptions.map((option) => (
             <button
               key={option.value}
               type="button"
@@ -108,7 +141,10 @@ export function CustomSelect({
               {option.label}
             </button>
           ))}
-          {value !== "" ? (
+          {filteredOptions.length === 0 ? (
+            <div className="mm-custom-select-empty">一致なし</div>
+          ) : null}
+          {allowClear && value !== "" ? (
             <>
               <div className="mm-custom-select-divider" aria-hidden="true" />
               <button

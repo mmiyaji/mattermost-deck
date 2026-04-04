@@ -5,7 +5,7 @@ import path from "node:path";
 const watch = process.argv.includes("--watch");
 const inGithubActions = process.env.GITHUB_ACTIONS === "true";
 const storeBuild = process.env.STORE_BUILD === "true";
-const sourcemap = watch || !inGithubActions;
+const sourcemap = watch || (!storeBuild && !inGithubActions);
 
 const root = process.cwd();
 const srcDir = path.join(root, "src");
@@ -33,6 +33,10 @@ if (storeBuild && Array.isArray(manifest.content_scripts)) {
       };
     })
     .filter((entry) => Array.isArray(entry.matches) && entry.matches.length > 0);
+
+  if (manifest.content_scripts.length === 0) {
+    delete manifest.content_scripts;
+  }
 }
 
 await fs.writeFile(

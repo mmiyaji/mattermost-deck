@@ -1122,6 +1122,34 @@ export const railCssText = `
     color: var(--deck-text-faint);
   }
 
+  .deck-shell .mm-custom-select-search {
+    padding: 4px 6px 6px;
+  }
+
+  .deck-shell .mm-custom-select-search-input {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--deck-border);
+    border-radius: 7px;
+    background: var(--deck-bg-soft);
+    color: var(--deck-text);
+    font-size: calc(12px * var(--deck-font-scale));
+    outline: none;
+    box-sizing: border-box;
+  }
+
+  .deck-shell .mm-custom-select-search-input:focus {
+    border-color: color-mix(in srgb, var(--deck-border) 40%, var(--deck-accent) 60%);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--deck-accent) 22%, transparent);
+  }
+
+  .deck-shell .mm-custom-select-empty {
+    padding: 10px 12px;
+    color: var(--deck-text-faint);
+    font-size: calc(12px * var(--deck-font-scale));
+    text-align: center;
+  }
+
   .deck-shell[data-theme="light"] .mm-custom-select-button {
     background: var(--deck-card);
   }
@@ -1365,6 +1393,28 @@ export const railCssText = `
     stroke-linejoin: round;
   }
 
+  .deck-sparkline-hover-line {
+    stroke: var(--deck-text-muted);
+    stroke-width: 1;
+    stroke-dasharray: 2 2;
+    pointer-events: none;
+  }
+
+  .deck-sparkline-hover-dot {
+    fill: var(--deck-accent);
+    stroke: var(--deck-card);
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+
+  .deck-sparkline-hover-label {
+    fill: var(--deck-text);
+    font-size: 9px;
+    font-family: var(--deck-font);
+    pointer-events: none;
+    dominant-baseline: auto;
+  }
+
   .deck-shell[data-theme="light"] .deck-card {
     background: var(--deck-card);
     border-color: var(--deck-border);
@@ -1462,9 +1512,17 @@ export const railCssText = `
   }
 
   .deck-file-thumb-wrap {
-    position: relative;
     display: inline-block;
     cursor: zoom-in;
+    background: none;
+    border: none;
+    padding: 0;
+    border-radius: 6px;
+    transition: opacity 0.12s;
+  }
+
+  .deck-file-thumb-wrap:hover {
+    opacity: 0.85;
   }
 
   .deck-file-thumb {
@@ -1476,44 +1534,80 @@ export const railCssText = `
     background: var(--deck-border);
   }
 
-  .deck-file-preview-popup {
-    display: none;
+  .deck-lightbox-backdrop {
     position: fixed;
-    z-index: 9999;
-    bottom: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
+    inset: 0;
+    z-index: 2147483647;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-out;
+  }
+
+  .deck-lightbox-content {
+    display: flex;
+    flex-direction: column;
+    max-width: min(90vw, 900px);
+    max-height: 90vh;
     background: var(--deck-panel);
-    border: 1px solid var(--deck-border);
-    border-radius: 8px;
-    padding: 6px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-    pointer-events: none;
-    max-width: 320px;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 16px 64px rgba(0, 0, 0, 0.6);
+    cursor: default;
   }
 
-  .deck-file-thumb-wrap:hover .deck-file-preview-popup {
+  .deck-lightbox-img {
     display: block;
-  }
-
-  .deck-file-preview-popup img {
-    display: block;
-    max-width: 308px;
-    max-height: 260px;
+    max-width: 100%;
+    max-height: calc(90vh - 44px);
     object-fit: contain;
-    border-radius: 4px;
   }
 
-  .deck-file-preview-name {
-    display: block;
-    margin-top: 4px;
-    font-size: calc(11px * var(--deck-font-scale));
-    color: var(--deck-text-faint);
-    text-align: center;
-    max-width: 308px;
+  .deck-lightbox-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--deck-border);
+    min-height: 44px;
+  }
+
+  .deck-lightbox-name {
+    flex: 1;
+    font-size: calc(12px * var(--deck-font-scale));
+    color: var(--deck-text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .deck-lightbox-download {
+    flex: none;
+    font-size: calc(12px * var(--deck-font-scale));
+    color: var(--deck-accent);
+    text-decoration: none;
+  }
+
+  .deck-lightbox-download:hover {
+    text-decoration: underline;
+  }
+
+  .deck-lightbox-close {
+    flex: none;
+    background: none;
+    border: none;
+    color: var(--deck-text-muted);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    line-height: 1;
+    transition: color 0.12s;
+  }
+
+  .deck-lightbox-close:hover {
+    color: var(--deck-text);
   }
 
   .deck-file-card {

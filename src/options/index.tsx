@@ -698,6 +698,34 @@ const pageCss = `
     background: rgba(123, 178, 255, 0.14);
   }
 
+  .options-shell .mm-custom-select-search {
+    padding: 4px 6px 6px;
+  }
+
+  .options-shell .mm-custom-select-search-input {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.07);
+    color: inherit;
+    font-size: 13px;
+    outline: none;
+    box-sizing: border-box;
+  }
+
+  .options-shell .mm-custom-select-search-input:focus {
+    border-color: rgba(123, 178, 255, 0.6);
+    box-shadow: 0 0 0 2px rgba(123, 178, 255, 0.18);
+  }
+
+  .options-shell .mm-custom-select-empty {
+    padding: 10px 12px;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 13px;
+    text-align: center;
+  }
+
   @media (max-width: 820px) {
     .options-grid {
       grid-template-columns: 1fr;
@@ -1044,6 +1072,7 @@ function OptionsApp(): React.JSX.Element {
                 options={themeOptions}
                 value={settings.theme}
                 placeholder={text.themeSystem}
+                allowClear={false}
                 onChange={(value) => setSettings((current) => ({ ...current, theme: value as DeckTheme }))}
               />
             </label>
@@ -1053,6 +1082,7 @@ function OptionsApp(): React.JSX.Element {
                 options={languageOptions}
                 value={settings.language}
                 placeholder={text.languageJa}
+                allowClear={false}
                 onChange={(value) => setSettings((current) => ({ ...current, language: value as DeckLanguage }))}
               />
             </label>
@@ -1136,6 +1166,7 @@ function OptionsApp(): React.JSX.Element {
                   options={postClickActionOptions}
                   value={settings.postClickAction}
                   placeholder="Navigate"
+                  allowClear={false}
                   onChange={(value) =>
                     setSettings((current) => ({
                       ...current,
