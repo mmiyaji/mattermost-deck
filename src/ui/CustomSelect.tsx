@@ -61,7 +61,13 @@ export function CustomSelect({
   }, [disabled]);
 
   return (
-    <div ref={rootRef} className={`mm-custom-select${open ? " mm-custom-select--open" : ""}`}>
+    <div
+      ref={rootRef}
+      className={`mm-custom-select${open ? " mm-custom-select--open" : ""}`}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+    >
       <button
         type="button"
         className="mm-custom-select-button"

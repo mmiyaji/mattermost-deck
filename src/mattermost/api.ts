@@ -247,6 +247,14 @@ export async function getRecentPosts(channelId: string, page = 0, perPage = 20):
     .filter((post): post is MattermostPost => Boolean(post));
 }
 
+export async function getFlaggedPosts(page = 0, perPage = 20): Promise<MattermostPost[]> {
+  const payload = await apiGet<MattermostPostList>(`/users/me/posts/flagged?page=${page}&per_page=${perPage}`);
+
+  return payload.order
+    .map((postId) => payload.posts[postId])
+    .filter((post): post is MattermostPost => Boolean(post));
+}
+
 export async function getTeamUnread(userId: string): Promise<TeamUnread[]> {
   return await apiGet<TeamUnread[]>(`/users/${userId}/teams/unread`);
 }

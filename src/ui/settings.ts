@@ -2,6 +2,17 @@ import { loadStoredEncryptedString, loadStoredString, saveStoredEncryptedString,
 
 export type DeckTheme = "system" | "dark" | "light" | "mattermost";
 export type DeckLanguage = "ja" | "en";
+export type ColumnIdentityMode = "icon" | "color";
+export type ColumnColorKey =
+  | "mentions"
+  | "channelWatch"
+  | "dmWatch"
+  | "keywordWatch"
+  | "search"
+  | "saved"
+  | "diagnostics";
+
+export type ColumnColorSettings = Record<ColumnColorKey, string>;
 
 export interface DeckSettings {
   serverUrl: string;
@@ -16,6 +27,9 @@ export interface DeckSettings {
   fontScalePercent: number;
   preferredRailWidth: number;
   preferredColumnWidth: number;
+  compactMode: boolean;
+  columnIdentityMode: ColumnIdentityMode;
+  columnColors: ColumnColorSettings;
 }
 
 export const SETTINGS_KEYS = {
@@ -31,7 +45,20 @@ export const SETTINGS_KEYS = {
   fontScalePercent: "mattermostDeck.fontScalePercent.v1",
   preferredRailWidth: "mattermostDeck.preferredRailWidth.v1",
   preferredColumnWidth: "mattermostDeck.preferredColumnWidth.v1",
+  compactMode: "mattermostDeck.compactMode.v1",
+  columnIdentityMode: "mattermostDeck.columnIdentityMode.v1",
+  columnColors: "mattermostDeck.columnColors.v1",
 } as const;
+
+export const DEFAULT_COLUMN_COLORS: ColumnColorSettings = {
+  mentions: "#2f6fed",
+  channelWatch: "#1f9d7a",
+  dmWatch: "#8b5cf6",
+  keywordWatch: "#d97706",
+  search: "#0891b2",
+  saved: "#c2410c",
+  diagnostics: "#64748b",
+};
 
 export const DEFAULT_SETTINGS: DeckSettings = {
   serverUrl: "",
@@ -46,6 +73,9 @@ export const DEFAULT_SETTINGS: DeckSettings = {
   fontScalePercent: 100,
   preferredRailWidth: 720,
   preferredColumnWidth: 320,
+  compactMode: false,
+  columnIdentityMode: "icon",
+  columnColors: DEFAULT_COLUMN_COLORS,
 };
 export const MIN_POLLING_INTERVAL_SECONDS = 15;
 export const MAX_POLLING_INTERVAL_SECONDS = 300;
@@ -148,6 +178,46 @@ function normalisePersistPat(value: unknown): boolean {
   return value === true || value === "true" || value === 1 || value === "1";
 }
 
+function normaliseBoolean(value: unknown, fallback = false): boolean {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function isHexColor(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value.trim());
+}
+
+function normaliseColumnColors(value: unknown): ColumnColorSettings {
+  const next = { ...DEFAULT_COLUMN_COLORS };
+  if (!value || typeof value !== "object") {
+    return next;
+  }
+
+  for (const key of Object.keys(DEFAULT_COLUMN_COLORS) as ColumnColorKey[]) {
+    const candidate = (value as Record<string, unknown>)[key];
+    if (isHexColor(candidate)) {
+      next[key] = candidate.trim();
+    }
+  }
+
+  return next;
+}
+
+function parseJsonObject(value: string | null): unknown {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
 export function originToPermissionPattern(origin: string): string | null {
   const normalized = normaliseServerUrl(origin);
   if (!normalized) {
@@ -167,6 +237,10 @@ function normaliseLanguage(value: string | null): DeckLanguage {
   return value === "ja" || value === "en" ? value : DEFAULT_SETTINGS.language;
 }
 
+function normaliseColumnIdentityMode(value: string | null): ColumnIdentityMode {
+  return value === "color" || value === "icon" ? value : DEFAULT_SETTINGS.columnIdentityMode;
+}
+
 export async function loadDeckSettings(): Promise<DeckSettings> {
   const [
     serverUrl,
@@ -182,6 +256,9 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
     fontScalePercent,
     preferredRailWidth,
     preferredColumnWidth,
+    compactMode,
+    columnIdentityMode,
+    columnColors,
   ] =
     await Promise.all([
     loadStoredString(SETTINGS_KEYS.serverUrl),
@@ -197,6 +274,9 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
     loadStoredString(SETTINGS_KEYS.fontScalePercent),
     loadStoredString(SETTINGS_KEYS.preferredRailWidth),
     loadStoredString(SETTINGS_KEYS.preferredColumnWidth),
+    loadStoredString(SETTINGS_KEYS.compactMode),
+    loadStoredString(SETTINGS_KEYS.columnIdentityMode),
+    loadStoredString(SETTINGS_KEYS.columnColors),
     ]);
 
   return {
@@ -212,6 +292,9 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
     fontScalePercent: normaliseFontScalePercent(fontScalePercent),
     preferredRailWidth: normalisePreferredRailWidth(preferredRailWidth),
     preferredColumnWidth: normalisePreferredColumnWidth(preferredColumnWidth),
+    compactMode: normaliseBoolean(compactMode, DEFAULT_SETTINGS.compactMode),
+    columnIdentityMode: normaliseColumnIdentityMode(columnIdentityMode),
+    columnColors: normaliseColumnColors(parseJsonObject(columnColors)),
   };
 }
 
@@ -234,6 +317,9 @@ export async function saveDeckSettings(settings: DeckSettings): Promise<void> {
     saveStoredString(SETTINGS_KEYS.fontScalePercent, String(normaliseFontScalePercent(settings.fontScalePercent))),
     saveStoredString(SETTINGS_KEYS.preferredRailWidth, String(normalisePreferredRailWidth(settings.preferredRailWidth))),
     saveStoredString(SETTINGS_KEYS.preferredColumnWidth, String(normalisePreferredColumnWidth(settings.preferredColumnWidth))),
+    saveStoredString(SETTINGS_KEYS.compactMode, settings.compactMode ? "true" : "false"),
+    saveStoredString(SETTINGS_KEYS.columnIdentityMode, normaliseColumnIdentityMode(settings.columnIdentityMode)),
+    saveStoredString(SETTINGS_KEYS.columnColors, JSON.stringify(normaliseColumnColors(settings.columnColors))),
   ]);
 }
 
@@ -261,7 +347,10 @@ export function subscribeDeckSettings(listener: (settings: DeckSettings) => void
           SETTINGS_KEYS.language in changes ||
           SETTINGS_KEYS.fontScalePercent in changes ||
           SETTINGS_KEYS.preferredRailWidth in changes ||
-          SETTINGS_KEYS.preferredColumnWidth in changes
+          SETTINGS_KEYS.preferredColumnWidth in changes ||
+          SETTINGS_KEYS.compactMode in changes ||
+          SETTINGS_KEYS.columnIdentityMode in changes ||
+          SETTINGS_KEYS.columnColors in changes
         ))
     ) {
       return;

@@ -16,7 +16,7 @@ const MATTERMOST_GUARD_FAILURE_TTL_MS = 10_000;
 
 let appRoot: ReturnType<typeof createRoot> | null = null;
 let routePoller: number | null = null;
-let lastRouteKey = "";
+let lastRenderKey = "";
 let currentSettings: DeckSettings = DEFAULT_SETTINGS;
 let settingsLoaded = false;
 let guardCache:
@@ -52,6 +52,27 @@ function matchesConfiguredRoute(): boolean {
   }
 
   return route.includes(`/${currentSettings.teamSlug}/`);
+}
+
+function hasBlockingDialog(): boolean {
+  const candidates = document.querySelectorAll<HTMLElement>(
+    [
+      "[role='dialog'][aria-modal='true']",
+      "[role='dialog']",
+      ".modal-dialog",
+      ".Modal_dialog",
+      ".modal",
+    ].join(", "),
+  );
+
+  return Array.from(candidates).some((element) => {
+    if (element.closest(`#${ROOT_ID}`)) {
+      return false;
+    }
+
+    const style = window.getComputedStyle(element);
+    return style.display !== "none" && style.visibility !== "hidden" && element.offsetParent !== null;
+  });
 }
 
 async function verifyMattermostSession(): Promise<boolean> {
@@ -194,9 +215,15 @@ async function render(): Promise<void> {
   }
 
   const routeKey = `${window.location.pathname}${window.location.hash}`;
-  lastRouteKey = routeKey;
+  const renderKey = `${routeKey}|dialog:${hasBlockingDialog() ? "open" : "closed"}`;
+  lastRenderKey = renderKey;
 
   if (!matchesConfiguredRoute()) {
+    cleanup();
+    return;
+  }
+
+  if (hasBlockingDialog()) {
     cleanup();
     return;
   }
@@ -243,7 +270,8 @@ function installRouteWatcher(): void {
   const { pushState, replaceState } = window.history;
   const notify = (): void => {
     const routeKey = `${window.location.pathname}${window.location.hash}`;
-    if (routeKey === lastRouteKey) {
+    const renderKey = `${routeKey}|dialog:${hasBlockingDialog() ? "open" : "closed"}`;
+    if (renderKey === lastRenderKey) {
       return;
     }
 

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CustomSelect, type CustomSelectOption } from "../ui/CustomSelect";
 import {
+  DEFAULT_COLUMN_COLORS,
   DEFAULT_SETTINGS,
   MAX_FONT_SCALE_PERCENT,
   MAX_PREFERRED_COLUMN_WIDTH,
@@ -20,6 +21,8 @@ import {
   originToPermissionPattern,
   resolveTheme,
   saveDeckSettings,
+  type ColumnColorKey,
+  type ColumnIdentityMode,
   type DeckLanguage,
   type DeckSettings,
   type DeckTheme,
@@ -634,6 +637,13 @@ function OptionsApp(): React.JSX.Element {
     ],
     [text],
   );
+  const identityModeOptions = useMemo<CustomSelectOption[]>(
+    () => [
+      { value: "icon", label: "Icon" },
+      { value: "color", label: "Color Accent" },
+    ],
+    [],
+  );
 
   const handleSave = async () => {
     const normalizedServerUrl = normaliseServerUrl(settings.serverUrl);
@@ -912,6 +922,58 @@ function OptionsApp(): React.JSX.Element {
                 />
                 <p>{text.columnWidthHint}</p>
               </label>
+              <label className="options-field">
+                <span className="options-label">Compact Mode</span>
+                <label className="options-choice">
+                  <input
+                    type="checkbox"
+                    checked={settings.compactMode}
+                    onChange={(event) =>
+                      setSettings((current) => ({
+                        ...current,
+                        compactMode: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>Use denser cards and tighter spacing in the deck.</span>
+                </label>
+              </label>
+              <label className="options-field">
+                <span className="options-label">Pane Identity</span>
+                <CustomSelect
+                  options={identityModeOptions}
+                  value={settings.columnIdentityMode}
+                  placeholder="Icon"
+                  onChange={(value) =>
+                    setSettings((current) => ({
+                      ...current,
+                      columnIdentityMode: value as ColumnIdentityMode,
+                    }))
+                  }
+                />
+                <p>Choose whether pane type is shown with title icons or with top accent colors.</p>
+              </label>
+            </div>
+            <div className="options-grid">
+              {(Object.keys(DEFAULT_COLUMN_COLORS) as ColumnColorKey[]).map((key) => (
+                <label key={key} className="options-field">
+                  <span className="options-label">{key}</span>
+                  <input
+                    className="options-input"
+                    type="color"
+                    value={settings.columnColors[key]}
+                    onChange={(event) =>
+                      setSettings((current) => ({
+                        ...current,
+                        columnColors: {
+                          ...current.columnColors,
+                          [key]: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+              ))}
             </div>
           </details>
         </section>

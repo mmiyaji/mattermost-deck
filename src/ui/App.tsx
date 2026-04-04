@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   checkApiHealth,
   getChannel,
@@ -7,6 +7,7 @@ import {
   getChannelsForCurrentUser,
   getCurrentUser,
   getDirectChannelsForCurrentUser,
+  getFlaggedPosts,
   getRecentPosts,
   getTeamByName,
   getTeamUnread,
@@ -41,12 +42,16 @@ import {
 import { APP_VERSION } from "../version";
 import { CustomSelect, type CustomSelectOption } from "./CustomSelect";
 import {
+  DEFAULT_COLUMN_COLORS,
   DEFAULT_SETTINGS,
   loadDeckSettings,
   normalisePreferredColumnWidth,
   normalisePreferredRailWidth,
   resolveTheme,
   subscribeDeckSettings,
+  type ColumnColorKey,
+  type ColumnColorSettings,
+  type ColumnIdentityMode,
   type DeckLanguage,
   type DeckTheme,
 } from "./settings";
@@ -98,6 +103,7 @@ const AVAILABLE_COLUMN_TYPES: DeckColumnType[] = ["mentions", "channelWatch", "d
 const RAIL_WIDTH_STORAGE_KEY = "mattermostDeck.railWidth.v1";
 const DRAWER_OPEN_STORAGE_KEY = "mattermostDeck.drawerOpen.v1";
 const RECENT_TARGETS_STORAGE_KEY = "mattermostDeck.recentTargets.v1";
+const SAVED_VIEWS_STORAGE_KEY = "mattermostDeck.savedViews.v1";
 const MIN_RAIL_WIDTH = 360;
 const MAX_RAIL_WIDTH = 1400;
 const DEFAULT_RAIL_WIDTH = 720;
@@ -112,6 +118,8 @@ const POST_ROW_ESTIMATE = 116;
 const POST_SEPARATOR_ESTIMATE = 32;
 const POST_OVERSCAN = 4;
 const POST_VIRTUALIZE_THRESHOLD = 40;
+const SEARCH_SYNC_INTERVAL_FLOOR_MS = 120_000;
+const MAX_SAVED_VIEWS = 8;
 
 type PostListEntry =
   | {
@@ -126,10 +134,17 @@ type PostListEntry =
     };
 
 interface RecentChannelTarget {
+  type: "channelWatch" | "dmWatch";
   teamId: string;
   teamLabel: string;
   channelId: string;
   channelLabel: string;
+}
+
+interface SavedDeckView {
+  id: string;
+  name: string;
+  columns: DeckColumn[];
 }
 
 function formatPostTime(timestamp: number): string {
@@ -311,6 +326,34 @@ function getUserLabel(user: MattermostUser | undefined, fallbackId: string): str
   return user.nickname?.trim() || `@${user.username}`;
 }
 
+function getRecentTargetLabel(
+  label: string,
+  userDirectory: Record<string, MattermostUser>,
+  currentUserId?: string | null,
+): string {
+  const parts = label
+    .split("__")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const looksLikeRawIds =
+    parts.length > 0 &&
+    parts.every((part) => /^[a-z0-9]{20,}$/i.test(part) || Boolean(userDirectory[part]));
+
+  if (!looksLikeRawIds) {
+    return label;
+  }
+
+  const visibleParts = parts.filter((part) => part !== currentUserId);
+  const source = visibleParts.length > 0 ? visibleParts : parts;
+  return source
+    .map((userId) => {
+      const resolved = getUserLabel(userDirectory[userId], userId);
+      return source.length === 1 && userId === currentUserId ? `${resolved} (me)` : resolved;
+    })
+    .join(", ");
+}
+
 function mergePosts(primary: MattermostPost[], secondary: MattermostPost[], limit = POSTS_MAX_BUFFER): MattermostPost[] {
   const deduped = new Map<string, MattermostPost>();
   for (const post of [...primary, ...secondary]) {
@@ -322,6 +365,36 @@ function mergePosts(primary: MattermostPost[], secondary: MattermostPost[], limi
   return [...deduped.values()]
     .sort((left, right) => right.create_at - left.create_at)
     .slice(0, limit);
+}
+
+function getColumnColorKey(type: DeckColumnType): ColumnColorKey {
+  switch (type) {
+    case "mentions":
+      return "mentions";
+    case "channelWatch":
+      return "channelWatch";
+    case "dmWatch":
+      return "dmWatch";
+    case "keywordWatch":
+      return "keywordWatch";
+    case "search":
+      return "search";
+    case "saved":
+      return "saved";
+    case "diagnostics":
+      return "diagnostics";
+  }
+}
+
+function getColumnAccentStyle(type: DeckColumnType, columnColors: ColumnColorSettings): React.CSSProperties {
+  const accent = columnColors[getColumnColorKey(type)] ?? DEFAULT_COLUMN_COLORS[getColumnColorKey(type)];
+  return {
+    "--deck-column-accent": accent,
+  } as React.CSSProperties;
+}
+
+function stopDeckInputPropagation(event: React.SyntheticEvent): void {
+  event.stopPropagation();
 }
 
 function getWebSocketStatusLabel(status: WebSocketStatus): string {
@@ -418,6 +491,119 @@ function PlusIcon(): React.JSX.Element {
   );
 }
 
+function ViewsIcon(): React.JSX.Element {
+  return (
+    <svg className="deck-views-icon" viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="2.2" y="2.2" width="4.2" height="4.2" rx="1" />
+      <rect x="9.6" y="2.2" width="4.2" height="4.2" rx="1" />
+      <rect x="2.2" y="9.6" width="4.2" height="4.2" rx="1" />
+      <rect x="9.6" y="9.6" width="4.2" height="4.2" rx="1" />
+    </svg>
+  );
+}
+
+function getColumnGlyph(type: DeckColumnType): string {
+  switch (type) {
+    case "mentions":
+      return "mentions";
+    case "channelWatch":
+      return "channel";
+    case "dmWatch":
+      return "dm";
+    case "keywordWatch":
+    case "search":
+      return "search";
+    case "saved":
+      return "saved";
+    case "diagnostics":
+      return "diagnostics";
+  }
+}
+
+function ColumnTypeIcon({ type }: { type: DeckColumnType }): React.JSX.Element {
+  switch (type) {
+    case "mentions":
+      return (
+        <span className="deck-type-glyph" aria-hidden="true">
+          @
+        </span>
+      );
+    case "channelWatch":
+      return (
+        <svg className="deck-type-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M5.1 2.5L3.9 13.5" />
+          <path d="M10.5 2.5L9.3 13.5" />
+          <path d="M2.3 6.1H12.9" />
+          <path d="M1.7 9.9H12.3" />
+        </svg>
+      );
+    case "dmWatch":
+      return (
+        <svg className="deck-type-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="6" cy="5.2" r="2.1" />
+          <path d="M2.9 11.9C3.4 9.9 5 8.8 6 8.8s2.6 1.1 3.1 3.1" />
+          <circle cx="11.2" cy="6.3" r="1.5" />
+          <path d="M9.5 11.4C9.8 10.2 10.8 9.4 11.5 9.4c.7 0 1.7.8 2 2" />
+        </svg>
+      );
+    case "keywordWatch":
+    case "search":
+      return (
+        <svg className="deck-type-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.2" />
+          <path d="M10.2 10.2L13.4 13.4" />
+        </svg>
+      );
+    case "saved":
+      return (
+        <svg className="deck-type-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M4 2.7h8a1 1 0 0 1 1 1v9.6l-5-2.6-5 2.6V3.7a1 1 0 0 1 1-1Z" />
+        </svg>
+      );
+    case "diagnostics":
+      return (
+        <svg className="deck-type-icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2.7 11.8h10.6" />
+          <path d="M4.2 10.3V7.8" />
+          <path d="M7.1 10.3V5.7" />
+          <path d="M10 10.3V3.8" />
+          <path d="M12.9 10.3V6.6" />
+        </svg>
+      );
+  }
+}
+
+function ColumnViewTarget({ type, title, subtitle }: { type: DeckColumnType; title: string; subtitle?: string }): React.JSX.Element {
+  return (
+    <span className="deck-view-target">
+      <span className={`deck-view-target-glyph deck-view-target-glyph--${getColumnGlyph(type)}`}>
+        <ColumnTypeIcon type={type} />
+      </span>
+      <span className="deck-view-target-copy">
+        <span>{title}</span>
+        {subtitle ? <small>{subtitle}</small> : null}
+      </span>
+    </span>
+  );
+}
+
+function ColumnTypeBadge({ type }: { type: DeckColumnType }): React.JSX.Element {
+  return (
+    <span className={`deck-title-type-glyph deck-title-type-glyph--${getColumnGlyph(type)}`}>
+      <ColumnTypeIcon type={type} />
+    </span>
+  );
+}
+
+function ColumnMenuLabel({ type, label }: { type: DeckColumnType; label: string }): React.JSX.Element {
+  return (
+    <span className="deck-menu-label">
+      <ColumnTypeBadge type={type} />
+      <span>{label}</span>
+    </span>
+  );
+}
+
 function HamburgerIcon(): React.JSX.Element {
   return (
     <svg className="deck-hamburger-icon" viewBox="0 0 16 16" aria-hidden="true">
@@ -445,28 +631,8 @@ function getAppText(language: DeckLanguage) {
   return language === "en"
     ? {
         title: "Mattermost Deck",
-        signedInAs: "Signed in as",
-        usingSession: "Using current Mattermost session",
-        realtimeOff: "Realtime Off",
-        settingsHint: "Open extension settings",
-        settingsButton: "Open settings",
-        connectionLog: "Connection Log",
-        recentLabel: "Recent",
-        addLabel: "Add",
-        addMentions: "Mentions",
-        addChannelWatch: "Channel Watch",
-        addDmWatch: "DM / Group",
-        choosePane: "Choose pane",
-        loading: "Loading Mattermost data...",
-        sessionExpired: "Session expired. Log in again.",
-        failedToLoad: "Failed to load data.",
-        column: "column",
-        columns: "columns",
-      }
-    : {
-        title: "Mattermost Deck",
         signedInAs: "ログイン中",
-        usingSession: "現在の Mattermost セッションを使用",
+        usingSession: "現在の Mattermost セッションを利用",
         realtimeOff: "Realtime Off",
         settingsHint: "拡張機能の設定を開く",
         settingsButton: "設定を開く",
@@ -478,8 +644,28 @@ function getAppText(language: DeckLanguage) {
         addDmWatch: "DM / Group",
         choosePane: "追加するペイン",
         loading: "Mattermost データを読み込み中...",
-        sessionExpired: "セッションの有効期限が切れました。再ログインしてください。",
-        failedToLoad: "データの読み込みに失敗しました。",
+        sessionExpired: "Session expired. Log in again.",
+        failedToLoad: "Failed to load data.",
+        column: "column",
+        columns: "columns",
+      }
+    : {
+        title: "Mattermost Deck",
+        signedInAs: "ログイン中",
+        usingSession: "現在の Mattermost セッションを利用",
+        realtimeOff: "Realtime Off",
+        settingsHint: "拡張機能の設定を開く",
+        settingsButton: "設定を開く",
+        connectionLog: "接続ログ",
+        recentLabel: "最近のチャンネル",
+        addLabel: "追加",
+        addMentions: "Mentions",
+        addChannelWatch: "Channel Watch",
+        addDmWatch: "DM / Group",
+        choosePane: "追加するペイン",
+        loading: "Mattermost データを読み込み中...",
+        sessionExpired: "Session expired. Log in again.",
+        failedToLoad: "Failed to load data.",
         column: "column",
         columns: "columns",
       };
@@ -779,9 +965,9 @@ function useWebSocketLogs(): WsLogEntry[] {
 
 function useDeckLayout(): [
   DeckColumn[] | null,
-  (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId">>) => void,
+  (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => string,
   (id: string) => void,
-  (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId">>) => void,
+  (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void,
   (id: string, direction: "left" | "right") => void,
   (nextColumns: DeckColumn[]) => void,
 ] {
@@ -821,9 +1007,11 @@ function useDeckLayout(): [
   const addColumn = useCallback(
     (
       type: DeckColumnType,
-      defaults: Partial<Pick<DeckColumn, "teamId" | "channelId">> = {},
-    ): void => {
-      persistFromCurrent((current) => [...current, createColumn(type, defaults)]);
+      defaults: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">> = {},
+    ): string => {
+      const nextColumn = createColumn(type, defaults);
+      persistFromCurrent((current) => [...current, nextColumn]);
+      return nextColumn.id;
     },
     [persistFromCurrent],
   );
@@ -835,7 +1023,7 @@ function useDeckLayout(): [
     });
   }, [persistFromCurrent]);
 
-  const updateColumn = useCallback((id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId">>): void => {
+  const updateColumn = useCallback((id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>): void => {
     persistFromCurrent((current) =>
       current.map((column) =>
         column.id === id
@@ -884,6 +1072,7 @@ function useRecentTargets(): [RecentChannelTarget[], (target: RecentChannelTarge
             ? stored.filter(
                 (entry) =>
                   Boolean(entry) &&
+                  (entry.type === "channelWatch" || entry.type === "dmWatch") &&
                   typeof entry.teamId === "string" &&
                   typeof entry.teamLabel === "string" &&
                   typeof entry.channelId === "string" &&
@@ -914,6 +1103,69 @@ function useRecentTargets(): [RecentChannelTarget[], (target: RecentChannelTarge
   }, []);
 
   return [targets, remember];
+}
+
+function isSavedView(value: unknown): value is SavedDeckView {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<SavedDeckView>;
+  return typeof candidate.id === "string" && typeof candidate.name === "string" && Array.isArray(candidate.columns);
+}
+
+function useSavedViews(): [
+  SavedDeckView[],
+  (name: string, columns: DeckColumn[]) => void,
+  (id: string) => void,
+  (id: string) => SavedDeckView | undefined,
+] {
+  const [views, setViews] = useState<SavedDeckView[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      const stored = await loadStoredJson<SavedDeckView[]>(SAVED_VIEWS_STORAGE_KEY, []);
+      if (!cancelled) {
+        setViews(Array.isArray(stored) ? stored.filter(isSavedView).slice(0, MAX_SAVED_VIEWS) : []);
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const saveView = useCallback((name: string, columns: DeckColumn[]) => {
+    const normalized = name.trim();
+    if (!normalized) {
+      return;
+    }
+
+    setViews((current) => {
+      const existing = current.find((entry) => entry.name.toLowerCase() === normalized.toLowerCase());
+      const nextEntry: SavedDeckView = existing
+        ? { ...existing, columns }
+        : { id: crypto.randomUUID(), name: normalized, columns };
+      const next = [nextEntry, ...current.filter((entry) => entry.id !== nextEntry.id)].slice(0, MAX_SAVED_VIEWS);
+      void saveStoredJson(SAVED_VIEWS_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
+
+  const removeView = useCallback((id: string) => {
+    setViews((current) => {
+      const next = current.filter((entry) => entry.id !== id);
+      void saveStoredJson(SAVED_VIEWS_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
+
+  const getView = useCallback((id: string) => views.find((entry) => entry.id === id), [views]);
+
+  return [views, saveView, removeView, getView];
 }
 
 function clampRailWidth(nextWidth: number): number {
@@ -957,6 +1209,9 @@ function useDeckSettingsState(): {
   preferredRailWidth: number;
   preferredColumnWidth: number;
   healthCheckPath: string;
+  compactMode: boolean;
+  columnIdentityMode: ColumnIdentityMode;
+  columnColors: ColumnColorSettings;
 } {
   const [settings, setSettings] = useState<{
     loaded: boolean;
@@ -968,6 +1223,9 @@ function useDeckSettingsState(): {
     preferredRailWidth: number;
     preferredColumnWidth: number;
     healthCheckPath: string;
+    compactMode: boolean;
+    columnIdentityMode: ColumnIdentityMode;
+    columnColors: ColumnColorSettings;
   }>({
     loaded: false,
     wsPat: "",
@@ -978,6 +1236,9 @@ function useDeckSettingsState(): {
     preferredRailWidth: DEFAULT_SETTINGS.preferredRailWidth,
     preferredColumnWidth: DEFAULT_SETTINGS.preferredColumnWidth,
     healthCheckPath: DEFAULT_SETTINGS.healthCheckPath,
+    compactMode: DEFAULT_SETTINGS.compactMode,
+    columnIdentityMode: DEFAULT_SETTINGS.columnIdentityMode,
+    columnColors: DEFAULT_COLUMN_COLORS,
   });
 
   useEffect(() => {
@@ -1158,6 +1419,7 @@ function TeamSelect({
 function PostList({
   posts,
   userDirectory,
+  compactMode = false,
   hasMore = false,
   loadingMore = false,
   onLoadMore,
@@ -1166,6 +1428,7 @@ function PostList({
 }: {
   posts: MattermostPost[];
   userDirectory: Record<string, MattermostUser>;
+  compactMode?: boolean;
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
@@ -1175,8 +1438,10 @@ function PostList({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
+  const [newPostCount, setNewPostCount] = useState(0);
   const lastInteractionAtRef = useRef(Date.now());
   const previousTopPostIdRef = useRef<string | null>(posts[0]?.id ?? null);
+  const previousPostCountRef = useRef(posts.length);
   const entries = useMemo(() => buildPostListEntries(posts), [posts]);
   const shouldVirtualize = posts.length > POST_VIRTUALIZE_THRESHOLD;
 
@@ -1219,23 +1484,28 @@ function PostList({
   useEffect(() => {
     const nextTopPostId = posts[0]?.id ?? null;
     const previousTopPostId = previousTopPostIdRef.current;
+    const previousCount = previousPostCountRef.current;
     previousTopPostIdRef.current = nextTopPostId;
+    previousPostCountRef.current = posts.length;
 
     if (!nextTopPostId || !previousTopPostId || nextTopPostId === previousTopPostId) {
       return;
     }
 
-    if (Date.now() - lastInteractionAtRef.current < IDLE_AUTOSCROLL_MS) {
+    const viewport = viewportRef.current;
+    const isNearTop = !viewport || viewport.scrollTop < 24;
+
+    if (Date.now() - lastInteractionAtRef.current < IDLE_AUTOSCROLL_MS && !isNearTop) {
+      setNewPostCount((current) => current + Math.max(1, posts.length - previousCount));
       return;
     }
-
-    const viewport = viewportRef.current;
     if (!viewport) {
       return;
     }
 
     viewport.scrollTo({ top: 0, behavior: "smooth" });
     setScrollTop(0);
+    setNewPostCount(0);
   }, [posts]);
 
   const rowHeights = useMemo(
@@ -1274,7 +1544,7 @@ function PostList({
     return (
       <li
         key={entry.key}
-        className={`deck-card deck-card--post${onOpenPost ? " deck-card--clickable" : ""}`}
+        className={`deck-card deck-card--post${compactMode ? " deck-card--post-compact" : ""}${onOpenPost ? " deck-card--clickable" : ""}`}
         onClick={onOpenPost ? () => onOpenPost(post) : undefined}
       >
         <div className="deck-card-header">
@@ -1289,12 +1559,35 @@ function PostList({
 
   return (
     <div className="deck-post-list">
+      {newPostCount > 0 ? (
+        <div className="deck-list-floating-action">
+          <button
+            type="button"
+            className="deck-new-posts-button"
+            onClick={() => {
+              const viewport = viewportRef.current;
+              if (!viewport) {
+                return;
+              }
+              viewport.scrollTo({ top: 0, behavior: "smooth" });
+              setScrollTop(0);
+              setNewPostCount(0);
+              markInteraction();
+            }}
+          >
+            {newPostCount} new
+          </button>
+        </div>
+      ) : null}
       {shouldVirtualize ? (
         <div
           ref={viewportRef}
           className="deck-list-viewport"
           onScroll={(event) => {
             setScrollTop(event.currentTarget.scrollTop);
+            if (event.currentTarget.scrollTop < 24) {
+              setNewPostCount(0);
+            }
             markInteraction();
           }}
           onWheel={markInteraction}
@@ -1310,7 +1603,12 @@ function PostList({
         <div
           ref={viewportRef}
           className="deck-list-viewport"
-          onScroll={markInteraction}
+          onScroll={(event) => {
+            if (event.currentTarget.scrollTop < 24) {
+              setNewPostCount(0);
+            }
+            markInteraction();
+          }}
           onWheel={markInteraction}
           onPointerDown={markInteraction}
         >
@@ -1351,6 +1649,8 @@ function MentionsColumn({
   onUpdate,
   onRemove,
   onOpenPost,
+  compactMode,
+  columnColors,
 }: {
   column: DeckColumn;
   username: string | null;
@@ -1365,9 +1665,11 @@ function MentionsColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, teamName?: string) => void;
+  compactMode: boolean;
+  columnColors: ColumnColorSettings;
 }): React.JSX.Element {
   const teamIds = useMemo(() => (column.teamId ? [column.teamId] : teams.map((team) => team.id)), [column.teamId, teams]);
   const teamDirectory = useMemo(() => Object.fromEntries(teams.map((team) => [team.id, team])), [teams]);
@@ -1383,9 +1685,9 @@ function MentionsColumn({
   const [memberDirectory, setMemberDirectory] = useState<Record<string, string[]>>({});
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showControls, setShowControls] = useState(false);
   const refreshStartedAtRef = useRef<number | null>(null);
   const refreshStopTimerRef = useRef<number | null>(null);
-  const [showControls, setShowControls] = useState(false);
   const selectedTeam = teams.find((team) => team.id === column.teamId);
   const mentionCount = useMemo(
     () =>
@@ -1394,7 +1696,11 @@ function MentionsColumn({
         : unreads.reduce((total, entry) => total + entry.mention_count, 0),
     [column.teamId, unreads],
   );
-  const teamOptions = useMemo(
+  const visiblePosts = useMemo(
+    () => (column.unreadOnly ? postState.posts.slice(0, Math.max(0, mentionCount)) : postState.posts),
+    [column.unreadOnly, mentionCount, postState.posts],
+  );
+  const teamOptions = useMemo<CustomSelectOption[]>(
     () => [{ value: "", label: "All teams" }, ...teams.map((team) => ({ value: team.id, label: team.display_name || team.name }))],
     [teams],
   );
@@ -1428,7 +1734,6 @@ function MentionsColumn({
     let cancelled = false;
 
     if (teamIds.length === 0 || !username) {
-      finishRefresh();
       setPostState({
         status: "idle",
         posts: [],
@@ -1437,6 +1742,7 @@ function MentionsColumn({
         hasMore: false,
         loadingMore: false,
       });
+      finishRefresh();
       return () => {
         cancelled = true;
       };
@@ -1456,47 +1762,48 @@ function MentionsColumn({
             posts: await searchPostsInTeam(teamId, `@${username}`, 0, POSTS_PAGE_SIZE),
           })),
         );
-        const posts = mergePosts(
-          results.flatMap((entry) => entry.posts),
-          [],
-        );
-        if (!cancelled) {
-          setPostState((current) => ({
-            status: "ready",
-            posts: mergePosts(posts, current.posts),
-            error: null,
-            nextPage: 1,
-            hasMore: results.some((entry) => entry.posts.length === POSTS_PAGE_SIZE),
-            loadingMore: false,
-          }));
-          finishRefresh();
-          ensureUsers(posts.map((post) => post.user_id));
+        if (cancelled) {
+          return;
         }
+        const posts = mergePosts(results.flatMap((entry) => entry.posts), []);
+        void ensureUsers(posts.map((post) => post.user_id));
+        setPostState({
+          status: "ready",
+          posts,
+          error: null,
+          nextPage: 1,
+          hasMore: results.some((entry) => entry.posts.length === POSTS_PAGE_SIZE),
+          loadingMore: false,
+        });
+        finishRefresh();
       } catch (error) {
-        if (!cancelled) {
-          setPostState({
-            status: "error",
-            posts: [],
-            error: error instanceof Error ? error.message : "Failed to load mentions.",
-            nextPage: 1,
-            hasMore: false,
-            loadingMore: false,
-          });
-          finishRefresh();
+        if (cancelled) {
+          return;
         }
+        setPostState({
+          status: "error",
+          posts: [],
+          error: error instanceof Error ? error.message : "Failed to load mentions.",
+          nextPage: 1,
+          hasMore: false,
+          loadingMore: false,
+        });
+        finishRefresh();
       }
     };
 
     void run();
-    const startTimer = () =>
-      window.setInterval(() => {
-        void run();
-      }, column.teamId ? getSyncInterval(realtimeEnabled, pollingIntervalSeconds) : Math.max(getSyncInterval(realtimeEnabled, pollingIntervalSeconds), 120_000));
-
-    let timer = startTimer();
+    const intervalMs = column.teamId
+      ? getSyncInterval(realtimeEnabled, pollingIntervalSeconds)
+      : Math.max(getSyncInterval(realtimeEnabled, pollingIntervalSeconds), 120_000);
+    let timer = window.setInterval(() => {
+      void run();
+    }, intervalMs);
     const handleVisibility = () => {
       window.clearInterval(timer);
-      timer = startTimer();
+      timer = window.setInterval(() => {
+        void run();
+      }, intervalMs);
     };
     document.addEventListener("visibilitychange", handleVisibility);
 
@@ -1515,31 +1822,24 @@ function MentionsColumn({
       return;
     }
 
-    ensureUsers([postedEvent.post.user_id]);
-    setPostState((current) => {
-      const posts = current.posts.filter((post) => post.id !== postedEvent.post.id);
-      return {
-        status: "ready",
-        error: null,
-        posts: mergePosts([postedEvent.post], posts),
-        nextPage: current.nextPage,
-        hasMore: current.hasMore,
-        loadingMore: false,
-      };
-    });
+    void ensureUsers([postedEvent.post.user_id]);
+    setPostState((current) => ({
+      ...current,
+      status: "ready",
+      error: null,
+      posts: mergePosts([postedEvent.post], current.posts),
+    }));
   }, [column.teamId, ensureUsers, postedEvent]);
 
   useEffect(() => {
     const missingChannelIds = Array.from(
       new Set(postState.posts.map((post) => post.channel_id).filter((channelId) => channelId && !channelDirectory[channelId])),
     );
-
     if (missingChannelIds.length === 0) {
       return;
     }
 
     let cancelled = false;
-
     const run = async () => {
       try {
         const channels = await Promise.all(missingChannelIds.map((channelId) => getChannel(channelId)));
@@ -1559,7 +1859,6 @@ function MentionsColumn({
         if (dmChannels.length === 0) {
           return;
         }
-
         const memberEntries = await Promise.all(
           dmChannels.map(async (channel) => ({
             channelId: channel.id,
@@ -1569,19 +1868,17 @@ function MentionsColumn({
         if (cancelled) {
           return;
         }
-
         const nextMemberDirectory = Object.fromEntries(
           memberEntries.map((entry) => [entry.channelId, entry.members.map((member) => member.user_id)]),
         );
         setMemberDirectory((current) => ({ ...current, ...nextMemberDirectory }));
-        await ensureUsers(Object.values(nextMemberDirectory).flat());
+        void ensureUsers(Object.values(nextMemberDirectory).flat());
       } catch {
         return;
       }
     };
 
     void run();
-
     return () => {
       cancelled = true;
     };
@@ -1596,7 +1893,8 @@ function MentionsColumn({
 
       const channelLabel = getChannelLabel(channel, userDirectory, memberDirectory, null);
       if (channel.type === "D" || channel.type === "G") {
-        return getChannelKindLabel(channel) === "Group DM" ? `Group DM / ${channelLabel}` : `DM / ${channelLabel}`;
+        const kindLabel = getChannelKindLabel(channel);
+        return kindLabel === "Group DM" ? `Group DM / ${channelLabel}` : `DM / ${channelLabel}`;
       }
 
       const teamLabel = channel.team_id ? teamDirectory[channel.team_id]?.display_name || teamDirectory[channel.team_id]?.name : null;
@@ -1622,19 +1920,14 @@ function MentionsColumn({
         ),
         new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
       ]);
-      const posts = mergePosts(
-        results.flatMap((entry) => entry.posts),
-        [],
-      );
-      ensureUsers(posts.map((post) => post.user_id));
+      const posts = mergePosts(results.flatMap((entry) => entry.posts), []);
+      void ensureUsers(posts.map((post) => post.user_id));
       setPostState((current) => ({
         status: "ready",
         posts: mergePosts(current.posts, posts),
         error: null,
         nextPage: current.nextPage + 1,
-        hasMore:
-          results.some((entry) => entry.posts.length === POSTS_PAGE_SIZE) &&
-          current.posts.length + posts.length < POSTS_MAX_BUFFER,
+        hasMore: results.some((entry) => entry.posts.length === POSTS_PAGE_SIZE) && current.posts.length + posts.length < POSTS_MAX_BUFFER,
         loadingMore: false,
       }));
     } catch (error) {
@@ -1648,10 +1941,15 @@ function MentionsColumn({
   };
 
   return (
-    <section className="deck-column">
+    <section className="deck-column deck-column--mentions" style={getColumnAccentStyle(column.type, columnColors)}>
       <header className="deck-column-header">
         <div className="deck-column-heading">
-          <h2 title="Mentions">Mentions</h2>
+          <h2 title="Mentions">
+            <span className="deck-title-with-icon">
+              <ColumnTypeBadge type="mentions" />
+              <span>Mentions</span>
+            </span>
+          </h2>
           <p title={selectedTeam ? selectedTeam.display_name || selectedTeam.name : "All teams"}>
             {selectedTeam ? selectedTeam.display_name || selectedTeam.name : "All teams"}
           </p>
@@ -1671,25 +1969,13 @@ function MentionsColumn({
         </div>
       </header>
 
-      {showControls && (
+      {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button
-              type="button"
-              className="deck-icon-button deck-icon-button--ghost"
-              onClick={() => onMove(column.id, "left")}
-              aria-label="Move column left"
-              disabled={!canMoveLeft}
-            >
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button
-              type="button"
-              className="deck-icon-button deck-icon-button--ghost"
-              onClick={() => onMove(column.id, "right")}
-              aria-label="Move column right"
-              disabled={!canMoveRight}
-            >
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
             <button
@@ -1700,17 +1986,11 @@ function MentionsColumn({
                 setIsRefreshing(true);
                 setRefreshNonce((current) => current + 1);
               }}
-              aria-label="Reload mentions column"
               disabled={isRefreshing}
             >
               <RefreshIcon spinning={isRefreshing} />
             </button>
-            <button
-              type="button"
-              className="deck-icon-button deck-icon-button--ghost"
-              onClick={() => onRemove(column.id)}
-              aria-label="Remove mentions column"
-            >
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -1724,51 +2004,61 @@ function MentionsColumn({
                 onChange={(teamId) => onUpdate(column.id, { teamId: teamId || undefined })}
               />
             </label>
+            <label className="deck-toggle">
+              <input
+                type="checkbox"
+                checked={Boolean(column.unreadOnly)}
+                onChange={(event) => onUpdate(column.id, { unreadOnly: event.currentTarget.checked })}
+              />
+              <span>Unread only</span>
+            </label>
           </div>
 
-          <article className="deck-card">
+          <article className="deck-card deck-card--muted">
             <strong>Scope</strong>
             <p>{selectedTeam ? selectedTeam.display_name || selectedTeam.name : "All teams"}</p>
           </article>
-          <article className="deck-card">
+          <article className="deck-card deck-card--muted">
             <strong>Mentions</strong>
-            <p>
-              {column.teamId
-                ? `${mentionCount} unread mention(s) in this team`
-                : `${mentionCount} unread mention(s) across all teams`}
-            </p>
+            <p>{mentionCount} unread mention(s){column.teamId ? " in this team" : " across all teams"}</p>
           </article>
-          {!column.teamId ? (
+          {column.unreadOnly ? (
             <article className="deck-card deck-card--muted">
+              <strong>Unread only</strong>
+              <p>Showing the latest unread mentions based on the current unread count.</p>
+            </article>
+          ) : null}
+          {!column.teamId ? (
+            <article className="deck-card">
               <strong>All teams</strong>
-              <p>This mode polls each joined team sequentially with a slower interval to reduce API load.</p>
+              <p>This mode aggregates mentions across every joined team and uses a slower polling interval.</p>
             </article>
           ) : null}
         </div>
-      )}
+      ) : null}
 
       {postState.status === "error" ? (
         <article className="deck-card">
           <strong>Failed to load mentions</strong>
           <p>{postState.error ?? "Unknown error"}</p>
         </article>
-      ) : postState.posts.length === 0 ? (
+      ) : visiblePosts.length === 0 ? (
         <article className="deck-card">
-          <strong>No mentions found</strong>
-          <p>Matching mention posts will appear here after initial sync or realtime updates.</p>
+          <strong>No mentions</strong>
+          <p>{column.unreadOnly ? "No unread mentions are currently available." : "Mentions will appear here."}</p>
         </article>
       ) : (
         <PostList
-          posts={postState.posts}
+          posts={visiblePosts}
           userDirectory={userDirectory}
+          compactMode={compactMode}
           hasMore={postState.hasMore}
           loadingMore={postState.loadingMore}
           onLoadMore={handleLoadMore}
           renderMeta={renderPostMeta}
           onOpenPost={(post) => {
-            const channel = channelDirectory[post.channel_id];
-            const teamName = channel?.team_id ? teamDirectory[channel.team_id]?.name : selectedTeam?.name;
-            onOpenPost(post, teamName);
+            const teamId = channelDirectory[post.channel_id]?.team_id;
+            onOpenPost(post, teamId ? teamDirectory[teamId]?.name : selectedTeam?.name);
           }}
         />
       )}
@@ -1794,6 +2084,8 @@ function ChannelWatchColumn({
   onUpdate,
   onRemove,
   onOpenPost,
+  compactMode,
+  columnColors,
 }: {
   column: DeckColumn;
   mode: "channel" | "dm";
@@ -1809,15 +2101,13 @@ function ChannelWatchColumn({
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
   onRememberTarget: (target: RecentChannelTarget) => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, teamName?: string) => void;
+  compactMode: boolean;
+  columnColors: ColumnColorSettings;
 }): React.JSX.Element {
-  const [channelState, setChannelState] = useState<ChannelState>({
-    status: "idle",
-    channels: [],
-    error: null,
-  });
+  const [channelState, setChannelState] = useState<ChannelState>({ status: "idle", channels: [], error: null });
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
     posts: [],
@@ -1829,27 +2119,12 @@ function ChannelWatchColumn({
   const [memberDirectory, setMemberDirectory] = useState<Record<string, string[]>>({});
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const hasConfiguredTarget = mode === "dm" ? Boolean(column.channelId) : Boolean(column.teamId && column.channelId);
+  const [showControls, setShowControls] = useState(!hasConfiguredTarget);
   const refreshStartedAtRef = useRef<number | null>(null);
   const refreshStopTimerRef = useRef<number | null>(null);
-  const [showControls, setShowControls] = useState(!(column.teamId && column.channelId));
-
-  const selectedTeam = teams.find((team) => team.id === column.teamId);
-  const selectedChannel = channelState.channels.find((channel) => channel.id === column.channelId);
-  const selectedChannelKindLabel = getChannelKindLabel(selectedChannel);
-  const selectedTeamLabel = selectedTeam ? selectedTeam.display_name || selectedTeam.name : null;
-  const selectedChannelLabel = selectedChannel
-    ? getChannelLabel(selectedChannel, userDirectory, memberDirectory, currentUserId)
-    : null;
-  const channelOptions = useMemo(
-    () =>
-      channelState.channels
-        .filter(mode === "dm" ? isDirectMessageChannel : isStandardChannel)
-        .map((channel) => ({
-          value: channel.id,
-          label: getChannelLabel(channel, userDirectory, memberDirectory, currentUserId),
-        })),
-    [channelState.channels, currentUserId, memberDirectory, mode, userDirectory],
-  );
+  const teamDirectory = useMemo(() => Object.fromEntries(teams.map((team) => [team.id, team])), [teams]);
+  const selectedTeam = column.teamId ? teamDirectory[column.teamId] : undefined;
 
   const finishRefresh = useCallback(() => {
     if (refreshStartedAtRef.current === null) {
@@ -1869,10 +2144,6 @@ function ChannelWatchColumn({
   }, []);
 
   useEffect(() => {
-    setShowControls(mode === "dm" ? !column.channelId : !(column.teamId && column.channelId));
-  }, [column.channelId, column.teamId, mode]);
-
-  useEffect(() => {
     return () => {
       if (refreshStopTimerRef.current !== null) {
         window.clearTimeout(refreshStopTimerRef.current);
@@ -1881,99 +2152,14 @@ function ChannelWatchColumn({
   }, []);
 
   useEffect(() => {
-    if (!selectedChannel || !selectedTeam || mode === "dm") {
-      return;
-    }
-
-    onRememberTarget({
-      teamId: selectedTeam.id,
-      teamLabel: selectedTeam.display_name || selectedTeam.name,
-      channelId: selectedChannel.id,
-      channelLabel: getChannelLabel(selectedChannel, userDirectory, memberDirectory, currentUserId),
-    });
-  }, [currentUserId, memberDirectory, mode, onRememberTarget, selectedChannel, selectedTeam, userDirectory]);
+    setShowControls(mode === "dm" ? !column.channelId : !(column.teamId && column.channelId));
+  }, [column.channelId, column.teamId, mode]);
 
   useEffect(() => {
     let cancelled = false;
 
     if (mode === "channel" && !column.teamId) {
-      setChannelState({
-        status: "idle",
-        channels: [],
-        error: null,
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const run = async () => {
-      setChannelState((current) => ({
-        ...current,
-        status: "loading",
-        error: null,
-      }));
-
-      try {
-        const channels =
-          mode === "dm"
-            ? (await getDirectChannelsForCurrentUser()).filter(isDirectMessageChannel)
-            : (await getChannelsForCurrentUser(column.teamId as string)).filter(isStandardChannel);
-        if (!cancelled) {
-          const dmChannels = channels.filter((channel) => channel.type === "D" || channel.type === "G");
-          const dmMemberEntries =
-            dmChannels.length > 0
-              ? await Promise.all(
-                  dmChannels.map(async (channel) => ({
-                    channelId: channel.id,
-                    members: await getChannelMembers(channel.id),
-                  })),
-                )
-              : [];
-          const nextMemberDirectory = Object.fromEntries(
-            dmMemberEntries.map((entry) => [
-              entry.channelId,
-              entry.members.map((member: MattermostChannelMember) => member.user_id),
-            ]),
-          );
-          const dmMemberIds = Object.values(nextMemberDirectory)
-            .flat()
-            .filter((userId) => userId !== currentUserId);
-          await ensureUsers(dmMemberIds);
-          setMemberDirectory(nextMemberDirectory);
-          setChannelState({
-            status: "ready",
-            channels,
-            error: null,
-          });
-
-          if (column.channelId && !channels.some((channel) => channel.id === column.channelId)) {
-            onUpdate(column.id, { channelId: undefined });
-          }
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setChannelState({
-            status: "error",
-            channels: [],
-            error: error instanceof Error ? error.message : "Failed to load channels.",
-          });
-        }
-      }
-    };
-
-    void run();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [column.channelId, column.id, column.teamId, currentUserId, ensureUsers, mode, onUpdate]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!column.channelId) {
-      finishRefresh();
+      setChannelState({ status: "idle", channels: [], error: null });
       setPostState({
         status: "idle",
         posts: [],
@@ -1982,6 +2168,111 @@ function ChannelWatchColumn({
         hasMore: false,
         loadingMore: false,
       });
+      finishRefresh();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const run = async () => {
+      setChannelState((current) => ({ ...current, status: "loading", error: null }));
+      try {
+        const channels =
+          mode === "dm"
+            ? (await getDirectChannelsForCurrentUser()).filter(isDirectMessageChannel)
+            : (await getChannelsForCurrentUser(column.teamId as string)).filter(isStandardChannel);
+        if (cancelled) {
+          return;
+        }
+
+        if (mode === "dm") {
+          const memberEntries = await Promise.all(
+            channels
+              .filter((channel) => channel.type === "D" || channel.type === "G")
+              .map(async (channel) => ({
+                channelId: channel.id,
+                members: await getChannelMembers(channel.id),
+              })),
+          );
+          if (cancelled) {
+            return;
+          }
+          const nextMemberDirectory = Object.fromEntries(
+            memberEntries.map((entry) => [entry.channelId, entry.members.map((member) => member.user_id)]),
+          );
+          setMemberDirectory(nextMemberDirectory);
+          void ensureUsers(Object.values(nextMemberDirectory).flat());
+        }
+
+        setChannelState({ status: "ready", channels, error: null });
+        if (column.channelId && !channels.some((channel) => channel.id === column.channelId)) {
+          onUpdate(column.id, { channelId: undefined });
+        }
+        finishRefresh();
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setChannelState({
+          status: "error",
+          channels: [],
+          error: error instanceof Error ? error.message : "Failed to load channels.",
+        });
+        finishRefresh();
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [column.channelId, column.id, column.teamId, ensureUsers, finishRefresh, mode, onUpdate, refreshNonce]);
+
+  const channelOptions = useMemo<CustomSelectOption[]>(
+    () =>
+      channelState.channels.map((channel) => ({
+        value: channel.id,
+        label: getChannelLabel(channel, userDirectory, memberDirectory, currentUserId),
+      })),
+    [channelState.channels, currentUserId, memberDirectory, userDirectory],
+  );
+
+  const selectedChannel = useMemo(
+    () => channelState.channels.find((entry) => entry.id === column.channelId),
+    [channelState.channels, column.channelId],
+  );
+  const selectedChannelLabel = selectedChannel
+    ? getChannelLabel(selectedChannel, userDirectory, memberDirectory, currentUserId)
+    : undefined;
+  const selectedChannelKindLabel = getChannelKindLabel(selectedChannel);
+  const selectedTeamLabel = selectedTeam ? selectedTeam.display_name || selectedTeam.name : undefined;
+
+  useEffect(() => {
+    if (!selectedChannel) {
+      return;
+    }
+    onRememberTarget({
+      type: mode === "dm" ? "dmWatch" : "channelWatch",
+      teamId: selectedTeam?.id ?? "",
+      teamLabel: selectedTeam ? selectedTeam.display_name || selectedTeam.name : selectedChannelKindLabel ?? "Direct message",
+      channelId: selectedChannel.id,
+      channelLabel: selectedChannelLabel ?? (selectedChannel.display_name || selectedChannel.name),
+    });
+  }, [mode, onRememberTarget, selectedChannel, selectedChannelKindLabel, selectedChannelLabel, selectedTeam]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if ((mode === "channel" && !column.teamId) || !column.channelId) {
+      setPostState({
+        status: "idle",
+        posts: [],
+        error: null,
+        nextPage: 1,
+        hasMore: false,
+        loadingMore: false,
+      });
+      finishRefresh();
       return () => {
         cancelled = true;
       };
@@ -1993,73 +2284,58 @@ function ChannelWatchColumn({
         status: current.posts.length > 0 ? current.status : "loading",
         error: null,
       }));
-
       try {
         const posts = await getRecentPosts(column.channelId as string, 0, POSTS_PAGE_SIZE);
-        if (!cancelled) {
-          setPostState((current) => ({
-            status: "ready",
-            posts: mergePosts(posts, current.posts),
-            error: null,
-            nextPage: 1,
-            hasMore: posts.length === POSTS_PAGE_SIZE,
-            loadingMore: false,
-          }));
-          finishRefresh();
-          ensureUsers(posts.map((post) => post.user_id));
+        if (cancelled) {
+          return;
         }
+        void ensureUsers(posts.map((post) => post.user_id));
+        setPostState({
+          status: "ready",
+          posts,
+          error: null,
+          nextPage: 1,
+          hasMore: posts.length === POSTS_PAGE_SIZE,
+          loadingMore: false,
+        });
+        finishRefresh();
       } catch (error) {
-        if (!cancelled) {
-          setPostState({
-            status: "error",
-            posts: [],
-            error: error instanceof Error ? error.message : "Failed to load posts.",
-            nextPage: 1,
-            hasMore: false,
-            loadingMore: false,
-          });
-          finishRefresh();
+        if (cancelled) {
+          return;
         }
+        setPostState({
+          status: "error",
+          posts: [],
+          error: error instanceof Error ? error.message : "Failed to load posts.",
+          nextPage: 1,
+          hasMore: false,
+          loadingMore: false,
+        });
+        finishRefresh();
       }
     };
 
     void run();
-    const startTimer = () =>
-      window.setInterval(() => {
-        void run();
-      }, getSyncInterval(realtimeEnabled, pollingIntervalSeconds));
-
-    let timer = startTimer();
-    const handleVisibility = () => {
-      window.clearInterval(timer);
-      timer = startTimer();
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-
+    const timer = window.setInterval(() => {
+      void run();
+    }, getSyncInterval(realtimeEnabled, pollingIntervalSeconds));
     return () => {
       cancelled = true;
       window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [column.channelId, ensureUsers, pollingIntervalSeconds, realtimeEnabled, reconnectNonce, refreshNonce]);
+  }, [column.channelId, column.teamId, ensureUsers, finishRefresh, mode, pollingIntervalSeconds, realtimeEnabled, reconnectNonce, refreshNonce]);
 
   useEffect(() => {
-    if (!postedEvent || !column.channelId || postedEvent.channelId !== column.channelId) {
+    if (!postedEvent || postedEvent.channelId !== column.channelId) {
       return;
     }
-
-    ensureUsers([postedEvent.post.user_id]);
-    setPostState((current) => {
-      const posts = current.posts.filter((post) => post.id !== postedEvent.post.id);
-      return {
-        status: "ready",
-        error: null,
-        posts: mergePosts([postedEvent.post], posts),
-        nextPage: current.nextPage,
-        hasMore: current.hasMore,
-        loadingMore: false,
-      };
-    });
+    void ensureUsers([postedEvent.post.user_id]);
+    setPostState((current) => ({
+      ...current,
+      status: "ready",
+      error: null,
+      posts: mergePosts([postedEvent.post], current.posts),
+    }));
   }, [column.channelId, ensureUsers, postedEvent]);
 
   const handleLoadMore = async () => {
@@ -2068,13 +2344,12 @@ function ChannelWatchColumn({
     }
 
     setPostState((current) => ({ ...current, loadingMore: true, error: null }));
-
     try {
       const [posts] = await Promise.all([
         getRecentPosts(column.channelId, postState.nextPage, POSTS_PAGE_SIZE),
         new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
       ]);
-      ensureUsers(posts.map((post) => post.user_id));
+      void ensureUsers(posts.map((post) => post.user_id));
       setPostState((current) => ({
         status: "ready",
         posts: mergePosts(current.posts, posts),
@@ -2094,15 +2369,18 @@ function ChannelWatchColumn({
   };
 
   return (
-    <section className="deck-column">
+    <section className={`deck-column deck-column--${mode === "dm" ? "dm" : "channel"}`} style={getColumnAccentStyle(column.type, columnColors)}>
       <header className="deck-column-header">
         <div className="deck-column-heading">
           <h2 title={selectedChannelLabel ?? (mode === "dm" ? "DM / Group" : "Channel Watch")}>
-            {selectedChannelLabel ?? (mode === "dm" ? "DM / Group" : "Channel Watch")}
+            <span className="deck-title-with-icon">
+              <ColumnTypeBadge type={column.type} />
+              <span>{selectedChannelLabel ?? (mode === "dm" ? "DM / Group" : "Channel Watch")}</span>
+            </span>
           </h2>
           <p
             title={
-              selectedChannelLabel
+              selectedChannel
                 ? mode === "dm"
                   ? selectedChannelKindLabel ?? "Direct message"
                   : selectedTeamLabel ?? "Unknown team"
@@ -2111,7 +2389,7 @@ function ChannelWatchColumn({
                   : "Pick a team and channel"
             }
           >
-            {selectedChannelLabel
+            {selectedChannel
               ? mode === "dm"
                 ? selectedChannelKindLabel ?? "Direct message"
                 : selectedTeamLabel ?? "Unknown team"
@@ -2125,32 +2403,20 @@ function ChannelWatchColumn({
             type="button"
             className="deck-icon-button deck-icon-button--ghost"
             onClick={() => setShowControls((current) => !current)}
-            aria-label={showControls ? "Collapse channel controls" : "Expand channel controls"}
+            aria-label={showControls ? "Collapse controls" : "Expand controls"}
           >
             <ChevronIcon expanded={showControls} />
           </button>
         </div>
       </header>
 
-      {showControls && (
+      {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button
-              type="button"
-              className="deck-icon-button deck-icon-button--ghost"
-              onClick={() => onMove(column.id, "left")}
-              aria-label="Move column left"
-              disabled={!canMoveLeft}
-            >
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button
-              type="button"
-              className="deck-icon-button deck-icon-button--ghost"
-              onClick={() => onMove(column.id, "right")}
-              aria-label="Move column right"
-              disabled={!canMoveRight}
-            >
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
             <button
@@ -2161,17 +2427,11 @@ function ChannelWatchColumn({
                 setIsRefreshing(true);
                 setRefreshNonce((current) => current + 1);
               }}
-              aria-label={mode === "dm" ? "Reload direct message column" : "Reload channel watch column"}
               disabled={isRefreshing}
             >
               <RefreshIcon spinning={isRefreshing} />
             </button>
-            <button
-              type="button"
-              className="deck-icon-button deck-icon-button--ghost"
-              onClick={() => onRemove(column.id)}
-              aria-label={mode === "dm" ? "Remove direct message column" : "Remove channel watch column"}
-            >
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -2217,7 +2477,7 @@ function ChannelWatchColumn({
             </article>
           ) : null}
         </div>
-      )}
+      ) : null}
 
       {mode === "channel" && !column.teamId ? null : !column.channelId ? null : postState.status === "error" ? (
         <article className="deck-card">
@@ -2227,18 +2487,605 @@ function ChannelWatchColumn({
       ) : postState.posts.length === 0 ? (
         <article className="deck-card">
           <strong>No posts yet</strong>
-          <p>This pinned channel does not have recent posts to show.</p>
+          <p>{mode === "dm" ? "This direct message does not have recent posts to show." : "This pinned channel does not have recent posts to show."}</p>
         </article>
       ) : (
         <PostList
           posts={postState.posts}
           userDirectory={userDirectory}
+          compactMode={compactMode}
           hasMore={postState.hasMore}
           loadingMore={postState.loadingMore}
           onLoadMore={handleLoadMore}
           onOpenPost={(post) => onOpenPost(post, selectedTeam?.name)}
         />
       )}
+    </section>
+  );
+}
+function SearchIcon(): React.JSX.Element {
+  return (
+    <svg className="deck-search-icon" viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="7" cy="7" r="4.5" />
+      <path d="M10.5 10.5L14 14" />
+    </svg>
+  );
+}
+
+function SearchLikeColumn({
+  column,
+  teams,
+  userDirectory,
+  ensureUsers,
+  pollingIntervalSeconds,
+  reconnectNonce,
+  canMoveLeft,
+  canMoveRight,
+  onMove,
+  onUpdate,
+  onRemove,
+  onOpenPost,
+  compactMode,
+  columnColors,
+}: {
+  column: DeckColumn;
+  teams: MattermostTeam[];
+  userDirectory: Record<string, MattermostUser>;
+  ensureUsers: (userIds: string[]) => Promise<void>;
+  pollingIntervalSeconds: number;
+  reconnectNonce: number;
+  canMoveLeft: boolean;
+  canMoveRight: boolean;
+  onMove: (id: string, direction: "left" | "right") => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void;
+  onRemove: (id: string) => void;
+  onOpenPost: (post: MattermostPost, teamName?: string) => void;
+  compactMode: boolean;
+  columnColors: ColumnColorSettings;
+}): React.JSX.Element {
+  const [postState, setPostState] = useState<PostState>({
+    status: "idle",
+    posts: [],
+    error: null,
+    nextPage: 1,
+    hasMore: false,
+    loadingMore: false,
+  });
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [showControls, setShowControls] = useState(!(column.teamId && column.query?.trim()));
+  const [draftQuery, setDraftQuery] = useState(column.query ?? "");
+  const refreshStartedAtRef = useRef<number | null>(null);
+  const refreshStopTimerRef = useRef<number | null>(null);
+  const selectedTeam = teams.find((team) => team.id === column.teamId);
+  const query = column.query?.trim() ?? "";
+  const ready = Boolean(column.teamId && query);
+  const title = query || "Search";
+
+  const finishRefresh = useCallback(() => {
+    if (refreshStartedAtRef.current === null) {
+      setIsRefreshing(false);
+      return;
+    }
+    const elapsed = Date.now() - refreshStartedAtRef.current;
+    const remaining = Math.max(0, MIN_MANUAL_REFRESH_MS - elapsed);
+    if (refreshStopTimerRef.current !== null) {
+      window.clearTimeout(refreshStopTimerRef.current);
+    }
+    refreshStopTimerRef.current = window.setTimeout(() => {
+      setIsRefreshing(false);
+      refreshStartedAtRef.current = null;
+      refreshStopTimerRef.current = null;
+    }, remaining);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (refreshStopTimerRef.current !== null) {
+        window.clearTimeout(refreshStopTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    setShowControls(!(column.teamId && column.query?.trim()));
+  }, [column.query, column.teamId]);
+
+  useEffect(() => {
+    setDraftQuery(column.query ?? "");
+  }, [column.query]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!ready) {
+      setPostState({
+        status: "idle",
+        posts: [],
+        error: null,
+        nextPage: 1,
+        hasMore: false,
+        loadingMore: false,
+      });
+      finishRefresh();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const run = async () => {
+      setPostState((current) => ({
+        ...current,
+        status: current.posts.length > 0 ? current.status : "loading",
+        error: null,
+      }));
+
+      try {
+        const posts = await searchPostsInTeam(column.teamId as string, query, 0, POSTS_PAGE_SIZE);
+        if (cancelled) {
+          return;
+        }
+        ensureUsers(posts.map((post) => post.user_id));
+        setPostState({
+          status: "ready",
+          posts,
+          error: null,
+          nextPage: 1,
+          hasMore: posts.length === POSTS_PAGE_SIZE,
+          loadingMore: false,
+        });
+        finishRefresh();
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setPostState({
+          status: "error",
+          posts: [],
+          error: error instanceof Error ? error.message : "Failed to load search results.",
+          nextPage: 1,
+          hasMore: false,
+          loadingMore: false,
+        });
+        finishRefresh();
+      }
+    };
+
+    void run();
+    const timer = window.setInterval(() => {
+      void run();
+    }, Math.max(getSyncInterval(false, pollingIntervalSeconds), SEARCH_SYNC_INTERVAL_FLOOR_MS));
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [column.teamId, ensureUsers, finishRefresh, pollingIntervalSeconds, query, ready, reconnectNonce, refreshNonce]);
+
+  const handleLoadMore = async () => {
+    if (!ready || postState.loadingMore || !postState.hasMore) {
+      return;
+    }
+
+    setPostState((current) => ({ ...current, loadingMore: true, error: null }));
+    try {
+      const [posts] = await Promise.all([
+        searchPostsInTeam(column.teamId as string, query, postState.nextPage, POSTS_PAGE_SIZE),
+        new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
+      ]);
+      ensureUsers(posts.map((post) => post.user_id));
+      setPostState((current) => ({
+        status: "ready",
+        posts: mergePosts(current.posts, posts),
+        error: null,
+        nextPage: current.nextPage + 1,
+        hasMore: posts.length === POSTS_PAGE_SIZE && current.posts.length + posts.length < POSTS_MAX_BUFFER,
+        loadingMore: false,
+      }));
+    } catch (error) {
+      setPostState((current) => ({
+        ...current,
+        status: "error",
+        error: error instanceof Error ? error.message : "Failed to load more results.",
+        loadingMore: false,
+      }));
+    }
+  };
+
+  const handleApplyQuery = () => {
+    onUpdate(column.id, { query: draftQuery.trim() || undefined });
+  };
+
+  return (
+    <section className="deck-column deck-column--search" style={getColumnAccentStyle(column.type, columnColors)}>
+      <header className="deck-column-header">
+        <div className="deck-column-heading">
+          <h2 title={title}>
+            <span className="deck-title-with-icon">
+              <ColumnTypeBadge type={column.type} />
+              <span>{title}</span>
+            </span>
+          </h2>
+          <p title={selectedTeam ? selectedTeam.display_name || selectedTeam.name : "Pick a team"}>
+            {selectedTeam ? selectedTeam.display_name || selectedTeam.name : "Pick a team"}
+          </p>
+        </div>
+        <div className="deck-column-actions">
+          <button
+            type="button"
+            className="deck-icon-button deck-icon-button--ghost"
+            onClick={() => setShowControls((current) => !current)}
+            aria-label={showControls ? "Collapse search controls" : "Expand search controls"}
+          >
+            <ChevronIcon expanded={showControls} />
+          </button>
+        </div>
+      </header>
+
+      {showControls ? (
+        <div className="deck-stack deck-stack--controls">
+          <div className="deck-inline-actions">
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+              <ArrowIcon direction="left" />
+            </button>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+              <ArrowIcon direction="right" />
+            </button>
+            <button
+              type="button"
+              className="deck-icon-button deck-icon-button--ghost"
+              onClick={() => {
+                refreshStartedAtRef.current = Date.now();
+                setIsRefreshing(true);
+                setRefreshNonce((current) => current + 1);
+              }}
+              disabled={isRefreshing || !ready}
+            >
+              <RefreshIcon spinning={isRefreshing} />
+            </button>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onRemove(column.id)}>
+              <CloseIcon />
+            </button>
+          </div>
+          <div className="deck-controls">
+            <TeamSelect teams={teams} teamId={column.teamId} onChange={(teamId) => onUpdate(column.id, { teamId: teamId || undefined })} />
+            <label className="deck-field">
+              <span>Query</span>
+              <input
+                className="deck-input"
+                value={draftQuery}
+                placeholder="Search terms"
+                onChange={(event) => setDraftQuery(event.target.value)}
+                onFocus={stopDeckInputPropagation}
+                onClick={stopDeckInputPropagation}
+                onPointerDown={stopDeckInputPropagation}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleApplyQuery();
+                  }
+                }}
+                onKeyUp={stopDeckInputPropagation}
+              />
+            </label>
+            <div className="deck-inline-actions">
+              <button type="button" className="deck-load-more" onClick={handleApplyQuery}>
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {!ready ? (
+        <article className="deck-card">
+          <strong>Set a search</strong>
+          <p>Choose a team and enter a query. The pane refreshes automatically after you apply it.</p>
+        </article>
+      ) : postState.status === "error" ? (
+        <article className="deck-card">
+          <strong>Failed to load results</strong>
+          <p>{postState.error ?? "Unknown error"}</p>
+        </article>
+      ) : postState.posts.length === 0 ? (
+        <article className="deck-card">
+          <strong>No results</strong>
+          <p>No matching posts found for this query.</p>
+        </article>
+      ) : (
+        <PostList
+          posts={postState.posts}
+          userDirectory={userDirectory}
+          compactMode={compactMode}
+          hasMore={postState.hasMore}
+          loadingMore={postState.loadingMore}
+          onLoadMore={handleLoadMore}
+          renderMeta={() => (selectedTeam ? selectedTeam.display_name || selectedTeam.name : null)}
+          onOpenPost={(post) => onOpenPost(post, selectedTeam?.name)}
+        />
+      )}
+    </section>
+  );
+}
+
+function SavedPostsColumn({
+  column,
+  userDirectory,
+  ensureUsers,
+  canMoveLeft,
+  canMoveRight,
+  onMove,
+  onRemove,
+  onOpenPost,
+  compactMode,
+  columnColors,
+}: {
+  column: DeckColumn;
+  userDirectory: Record<string, MattermostUser>;
+  ensureUsers: (userIds: string[]) => Promise<void>;
+  canMoveLeft: boolean;
+  canMoveRight: boolean;
+  onMove: (id: string, direction: "left" | "right") => void;
+  onRemove: (id: string) => void;
+  onOpenPost: (post: MattermostPost, teamName?: string) => void;
+  compactMode: boolean;
+  columnColors: ColumnColorSettings;
+}): React.JSX.Element {
+  const [postState, setPostState] = useState<PostState>({
+    status: "idle",
+    posts: [],
+    error: null,
+    nextPage: 1,
+    hasMore: false,
+    loadingMore: false,
+  });
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [showControls, setShowControls] = useState(false);
+  const refreshStartedAtRef = useRef<number | null>(null);
+  const refreshStopTimerRef = useRef<number | null>(null);
+
+  const finishRefresh = useCallback(() => {
+    if (refreshStartedAtRef.current === null) {
+      setIsRefreshing(false);
+      return;
+    }
+    const elapsed = Date.now() - refreshStartedAtRef.current;
+    const remaining = Math.max(0, MIN_MANUAL_REFRESH_MS - elapsed);
+    if (refreshStopTimerRef.current !== null) {
+      window.clearTimeout(refreshStopTimerRef.current);
+    }
+    refreshStopTimerRef.current = window.setTimeout(() => {
+      setIsRefreshing(false);
+      refreshStartedAtRef.current = null;
+      refreshStopTimerRef.current = null;
+    }, remaining);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (refreshStopTimerRef.current !== null) {
+        window.clearTimeout(refreshStopTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      setPostState((current) => ({ ...current, status: current.posts.length > 0 ? current.status : "loading", error: null }));
+      try {
+        const posts = await getFlaggedPosts(0, POSTS_PAGE_SIZE);
+        if (cancelled) {
+          return;
+        }
+        ensureUsers(posts.map((post) => post.user_id));
+        setPostState({
+          status: "ready",
+          posts,
+          error: null,
+          nextPage: 1,
+          hasMore: posts.length === POSTS_PAGE_SIZE,
+          loadingMore: false,
+        });
+        finishRefresh();
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setPostState({
+          status: "error",
+          posts: [],
+          error: error instanceof Error ? error.message : "Failed to load saved posts.",
+          nextPage: 1,
+          hasMore: false,
+          loadingMore: false,
+        });
+        finishRefresh();
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [ensureUsers, finishRefresh, refreshNonce]);
+
+  const handleLoadMore = async () => {
+    if (postState.loadingMore || !postState.hasMore) {
+      return;
+    }
+
+    setPostState((current) => ({ ...current, loadingMore: true, error: null }));
+    try {
+      const [posts] = await Promise.all([
+        getFlaggedPosts(postState.nextPage, POSTS_PAGE_SIZE),
+        new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
+      ]);
+      ensureUsers(posts.map((post) => post.user_id));
+      setPostState((current) => ({
+        status: "ready",
+        posts: mergePosts(current.posts, posts),
+        error: null,
+        nextPage: current.nextPage + 1,
+        hasMore: posts.length === POSTS_PAGE_SIZE && current.posts.length + posts.length < POSTS_MAX_BUFFER,
+        loadingMore: false,
+      }));
+    } catch (error) {
+      setPostState((current) => ({
+        ...current,
+        status: "error",
+        error: error instanceof Error ? error.message : "Failed to load more saved posts.",
+        loadingMore: false,
+      }));
+    }
+  };
+
+  return (
+    <section className="deck-column deck-column--saved" style={getColumnAccentStyle(column.type, columnColors)}>
+      <header className="deck-column-header">
+        <div className="deck-column-heading">
+          <h2><span className="deck-title-with-icon"><ColumnTypeBadge type="saved" /><span>Saved</span></span></h2>
+          <p>Flagged posts</p>
+        </div>
+        <div className="deck-column-actions">
+          <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => setShowControls((current) => !current)}>
+            <ChevronIcon expanded={showControls} />
+          </button>
+        </div>
+      </header>
+      {showControls ? (
+        <div className="deck-stack deck-stack--controls">
+          <div className="deck-inline-actions">
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+              <ArrowIcon direction="left" />
+            </button>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+              <ArrowIcon direction="right" />
+            </button>
+            <button
+              type="button"
+              className="deck-icon-button deck-icon-button--ghost"
+              onClick={() => {
+                refreshStartedAtRef.current = Date.now();
+                setIsRefreshing(true);
+                setRefreshNonce((current) => current + 1);
+              }}
+              disabled={isRefreshing}
+            >
+              <RefreshIcon spinning={isRefreshing} />
+            </button>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onRemove(column.id)}>
+              <CloseIcon />
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {postState.status === "error" ? (
+        <article className="deck-card">
+          <strong>Failed to load saved posts</strong>
+          <p>{postState.error ?? "Unknown error"}</p>
+        </article>
+      ) : postState.posts.length === 0 ? (
+        <article className="deck-card">
+          <strong>No saved posts</strong>
+          <p>Flagged posts will appear here.</p>
+        </article>
+      ) : (
+        <PostList
+          posts={postState.posts}
+          userDirectory={userDirectory}
+          compactMode={compactMode}
+          hasMore={postState.hasMore}
+          loadingMore={postState.loadingMore}
+          onLoadMore={handleLoadMore}
+          onOpenPost={(post) => onOpenPost(post)}
+        />
+      )}
+    </section>
+  );
+}
+
+function DiagnosticsColumn({
+  column,
+  wsStatus,
+  wsLogs,
+  apiHealthStatus,
+  pollingIntervalSeconds,
+  realtimeEnabled,
+  canMoveLeft,
+  canMoveRight,
+  onMove,
+  onRemove,
+  columnColors,
+}: {
+  column: DeckColumn;
+  wsStatus: WebSocketStatus;
+  wsLogs: WsLogEntry[];
+  apiHealthStatus: ApiHealthStatus;
+  pollingIntervalSeconds: number;
+  realtimeEnabled: boolean;
+  canMoveLeft: boolean;
+  canMoveRight: boolean;
+  onMove: (id: string, direction: "left" | "right") => void;
+  onRemove: (id: string) => void;
+  columnColors: ColumnColorSettings;
+}): React.JSX.Element {
+  const [showControls, setShowControls] = useState(false);
+
+  return (
+    <section className="deck-column deck-column--diagnostics" style={getColumnAccentStyle(column.type, columnColors)}>
+      <header className="deck-column-header">
+        <div className="deck-column-heading">
+          <h2><span className="deck-title-with-icon"><ColumnTypeBadge type="diagnostics" /><span>Diagnostics</span></span></h2>
+          <p>Sync and request diagnostics</p>
+        </div>
+        <div className="deck-column-actions">
+          <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => setShowControls((current) => !current)}>
+            <ChevronIcon expanded={showControls} />
+          </button>
+        </div>
+      </header>
+      {showControls ? (
+        <div className="deck-stack deck-stack--controls">
+          <div className="deck-inline-actions">
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+              <ArrowIcon direction="left" />
+            </button>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+              <ArrowIcon direction="right" />
+            </button>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onRemove(column.id)}>
+              <CloseIcon />
+            </button>
+          </div>
+        </div>
+      ) : null}
+      <div className="deck-stack">
+        <article className="deck-card deck-card--muted">
+          <strong>Sync</strong>
+          <p>{getApiHealthLabel(apiHealthStatus)} / {realtimeEnabled ? getWebSocketStatusLabel(wsStatus) : "Polling"}</p>
+        </article>
+        <article className="deck-card deck-card--muted">
+          <strong>Polling interval</strong>
+          <p>{pollingIntervalSeconds}s</p>
+        </article>
+        <article className="deck-card deck-card--muted">
+          <strong>API burst control</strong>
+          <p>Queued requests with 120ms minimum spacing and 1000ms GET dedupe cache.</p>
+        </article>
+        <article className="deck-card">
+          <strong>Recent connection log</strong>
+          <ul className="deck-log-list">
+            {wsLogs.slice(0, 6).map((entry) => (
+              <li key={`${entry.timestamp}-${entry.message}`} className={`deck-log-entry deck-log-entry--${entry.level}`}>
+                <span className="deck-log-time">{formatPostTime(entry.timestamp)}</span>
+                <span className="deck-log-text">{entry.message}</span>
+              </li>
+            ))}
+          </ul>
+        </article>
+      </div>
     </section>
   );
 }
@@ -2256,15 +3103,19 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
   const state = useDeckState(routeKey, reconnectNonce, realtimeEnabled, deckSettings.pollingIntervalSeconds);
   const [columns, addColumn, removeColumn, updateColumn, moveColumn, replaceColumns] = useDeckLayout();
   const [recentTargets, rememberRecentTarget] = useRecentTargets();
+  const [savedViews, saveView, removeView, getView] = useSavedViews();
   const [railWidth, setRailWidth] = useRailWidth(drawerOpen, deckSettings.preferredRailWidth);
   const [isResizing, setIsResizing] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [showViewsMenu, setShowViewsMenu] = useState(false);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [isCompactHeader, setIsCompactHeader] = useState(false);
+  const [pendingScrollColumnId, setPendingScrollColumnId] = useState<string | null>(null);
   const shellRef = useRef<HTMLElement | null>(null);
   const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const previousColumnRectsRef = useRef<Record<string, DOMRect>>({});
   const addMenuRef = useRef<HTMLDivElement | null>(null);
+  const viewsMenuRef = useRef<HTMLDivElement | null>(null);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const resizeStateRef = useRef<{ pointerId: number } | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
@@ -2279,8 +3130,9 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
         ...mattermostThemeStyle,
         ["--deck-font-scale"]: String(deckSettings.fontScalePercent / 100),
         ["--deck-column-width"]: `${normalisePreferredColumnWidth(deckSettings.preferredColumnWidth)}px`,
+        ["--deck-density-scale"]: deckSettings.compactMode ? "0.86" : "1",
       }) as MattermostThemeStyle,
-    [deckSettings.fontScalePercent, deckSettings.preferredColumnWidth, mattermostThemeStyle],
+    [deckSettings.compactMode, deckSettings.fontScalePercent, deckSettings.preferredColumnWidth, mattermostThemeStyle],
   );
 
   useEffect(() => {
@@ -2344,6 +3196,20 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
     const layoutText = columns.length === 1 ? `1 ${text.column}` : `${columns.length} ${text.columns}`;
     return layoutText;
   }, [columns, state.error, state.sessionExpired, state.status, text]);
+  const formatRecentTargetLabel = useCallback(
+    (target: RecentChannelTarget) => getRecentTargetLabel(target.channelLabel, userDirectory, state.userId),
+    [state.userId, userDirectory],
+  );
+
+  const getColumnViewMeta = useCallback((column: DeckColumn) => {
+    const root = columnRefs.current[column.id];
+    const title = root?.querySelector(".deck-column-heading h2")?.textContent?.replace(/\s+/g, " ").trim();
+    const subtitle = root?.querySelector(".deck-column-heading p")?.textContent?.replace(/\s+/g, " ").trim();
+    return {
+      title: title && title.length > 0 ? title : getColumnTitle(column.type),
+      subtitle: subtitle && subtitle.length > 0 ? subtitle : undefined,
+    };
+  }, []);
 
   const modeLabel = realtimeEnabled ? getWebSocketStatusLabel(wsStatus) : "Polling";
   const syncStatusLabel = `${getApiHealthLabel(apiHealthStatus)} / ${modeLabel}`;
@@ -2547,11 +3413,142 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
 
   const handleAddColumn = (
     type: DeckColumnType,
-    defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId">>,
+    defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>,
   ) => {
-    addColumn(type, defaults);
+    const nextId = addColumn(type, defaults);
+    setPendingScrollColumnId(nextId);
     setShowAddMenu(false);
+    setShowViewsMenu(false);
     setShowActionsMenu(false);
+  };
+
+  useEffect(() => {
+    if (!pendingScrollColumnId) {
+      return;
+    }
+    const element = columnRefs.current[pendingScrollColumnId];
+    if (!element) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      element.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "end" });
+      setPendingScrollColumnId(null);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [columns, pendingScrollColumnId]);
+
+  useEffect(() => {
+    if (!showAddMenu && !showViewsMenu && !showActionsMenu) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setShowAddMenu(false);
+      setShowViewsMenu(false);
+      setShowActionsMenu(false);
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [showActionsMenu, showAddMenu, showViewsMenu]);
+
+  useEffect(() => {
+    if (!showAddMenu && !showViewsMenu && !showActionsMenu) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const path = event.composedPath();
+      const clickedInside =
+        (addMenuRef.current && path.includes(addMenuRef.current)) ||
+        (viewsMenuRef.current && path.includes(viewsMenuRef.current)) ||
+        (actionsMenuRef.current && path.includes(actionsMenuRef.current));
+
+      if (clickedInside) {
+        return;
+      }
+
+      setShowAddMenu(false);
+      setShowViewsMenu(false);
+      setShowActionsMenu(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [showActionsMenu, showAddMenu, showViewsMenu]);
+
+  const handleSaveCurrentView = () => {
+    const currentColumns = columns ?? [];
+    if (currentColumns.length === 0) {
+      return;
+    }
+
+    const name = window.prompt("View name", "");
+    if (!name) {
+      return;
+    }
+
+    saveView(name, currentColumns);
+    setShowViewsMenu(false);
+    setShowActionsMenu(false);
+  };
+
+  const handleLoadSavedView = (id: string) => {
+    const view = getView(id);
+    if (!view) {
+      return;
+    }
+
+    replaceColumns(view.columns);
+    setShowViewsMenu(false);
+    setShowActionsMenu(false);
+  };
+
+  const handleFocusColumn = (id: string) => {
+    const element = columnRefs.current[id];
+    if (!element) {
+      return;
+    }
+
+    element.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" });
+    setShowViewsMenu(false);
+    setShowActionsMenu(false);
+  };
+
+  const handleExportLayout = async () => {
+    const payload = JSON.stringify({ columns: columns ?? [] }, null, 2);
+    await navigator.clipboard.writeText(payload).catch(() => undefined);
+    setShowActionsMenu(false);
+  };
+
+  const handleImportLayout = () => {
+    const raw = window.prompt("Paste deck layout JSON");
+    if (!raw) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as { columns?: DeckColumn[] };
+      if (!Array.isArray(parsed.columns)) {
+        return;
+      }
+      replaceColumns(parsed.columns);
+      setShowActionsMenu(false);
+    } catch {
+      return;
+    }
   };
 
   return (
@@ -2560,6 +3557,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
       className={`deck-shell${drawerOpen ? "" : " deck-shell--collapsed"}`}
       aria-label="Mattermost Deck"
       data-theme={deckSettings.theme === "mattermost" ? "mattermost" : resolveTheme(deckSettings.theme)}
+      data-column-identity-mode={deckSettings.columnIdentityMode}
       style={shellStyle}
     >
       <button
@@ -2595,15 +3593,6 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
               </p>
             </div>
             <div className="deck-topbar-actions">
-              <button
-                type="button"
-                className="deck-icon-button deck-icon-button--plain"
-                onClick={handleOpenSettings}
-                aria-label={text.settingsHint}
-                title={text.settingsHint}
-              >
-                <SettingsIcon />
-              </button>
               {realtimeEnabled ? (
                 <div className={`deck-status-badge deck-status-badge--${apiHealthStatus}`}>
                   <span className="deck-status-badge-dot" />
@@ -2620,73 +3609,117 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                   <span>{syncStatusLabel}</span>
                 </button>
               )}
-              <div className={`deck-status-inline${isCompactHeader ? " deck-status-inline--hidden" : ""}`}>
-                <span className="deck-dot" />
-                <span>{statusText}</span>
-              </div>
               <div className="deck-add-wrap" ref={addMenuRef}>
                 <button
                   type="button"
-                  className="deck-button"
-                  onClick={() => setShowAddMenu((current) => !current)}
+                  className="deck-button deck-topbar-button"
+                  onClick={() => {
+                    setShowAddMenu((current) => {
+                      const next = !current;
+                      if (next) {
+                        setShowViewsMenu(false);
+                        setShowActionsMenu(false);
+                      }
+                      return next;
+                    });
+                  }}
                   disabled={columns === null || state.status === "loading"}
                 >
                   <PlusIcon />
-                  {text.addLabel}
+                  <span className="deck-button-label">{text.addLabel}</span>
                 </button>
                 {showAddMenu ? (
                   <div className="deck-add-menu">
                     <div className="deck-add-menu-title">{text.choosePane}</div>
-                    <button
-                      type="button"
-                      className="deck-add-item"
-                      onClick={() => {
-                        addColumn("mentions");
-                        setShowAddMenu(false);
-                      }}
-                    >
-                      {text.addMentions}
+                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("mentions")}>
+                      <ColumnMenuLabel type="mentions" label={text.addMentions} />
                     </button>
-                    <button
-                      type="button"
-                      className="deck-add-item"
-                      onClick={() => {
-                        addColumn("channelWatch");
-                        setShowAddMenu(false);
-                      }}
-                    >
-                      {text.addChannelWatch}
+                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("channelWatch")}>
+                      <ColumnMenuLabel type="channelWatch" label={text.addChannelWatch} />
                     </button>
-                    <button
-                      type="button"
-                      className="deck-add-item"
-                      onClick={() => {
-                        addColumn("dmWatch");
-                        setShowAddMenu(false);
-                      }}
-                    >
-                      {text.addDmWatch}
+                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("dmWatch")}>
+                      <ColumnMenuLabel type="dmWatch" label={text.addDmWatch} />
+                    </button>
+                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("search")}>
+                      <ColumnMenuLabel type="search" label="Search" />
+                    </button>
+                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("saved")}>
+                      <ColumnMenuLabel type="saved" label="Saved" />
+                    </button>
+                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("diagnostics")}>
+                      <ColumnMenuLabel type="diagnostics" label="Diagnostics" />
                     </button>
                     {recentTargets.length > 0 ? (
                       <>
                         <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.recentLabel}</div>
                         {recentTargets.map((target) => (
                           <button
-                            key={`${target.teamId}:${target.channelId}`}
+                            key={`${target.type}:${target.teamId}:${target.channelId}`}
                             type="button"
                             className="deck-add-item deck-add-item--recent"
-                            onClick={() => {
-                              addColumn("channelWatch", {
-                                teamId: target.teamId,
+                            onClick={() =>
+                              handleAddColumn(target.type, {
+                                teamId: target.teamId || undefined,
                                 channelId: target.channelId,
-                              });
-                              setShowAddMenu(false);
-                            }}
-                            title={`${target.teamLabel} / ${target.channelLabel}`}
+                              })
+                            }
+                            title={`${target.teamLabel} / ${formatRecentTargetLabel(target)}`}
                           >
-                            <span>{target.channelLabel}</span>
+                            <span>{formatRecentTargetLabel(target)}</span>
                             <small>{target.teamLabel}</small>
                           </button>
+                        ))}
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+              <div className="deck-add-wrap deck-views-wrap" ref={viewsMenuRef}>
+                <button
+                  type="button"
+                  className="deck-button deck-button--secondary deck-topbar-button"
+                  onClick={() => {
+                    setShowViewsMenu((current) => {
+                      const next = !current;
+                      if (next) {
+                        setShowAddMenu(false);
+                        setShowActionsMenu(false);
+                      }
+                      return next;
+                    });
+                  }}
+                  disabled={columns === null || state.status === "loading"}
+                >
+                  <ViewsIcon />
+                  <span className="deck-button-label">Views</span>
+                </button>
+                {showViewsMenu ? (
+                  <div className="deck-add-menu deck-add-menu--compact">
+                    <div className="deck-add-menu-title">Views</div>
+                    {(columns ?? []).map((column, index) => {
+                      const meta = getColumnViewMeta(column);
+                      return (
+                        <button key={column.id} type="button" className="deck-add-item" onClick={() => handleFocusColumn(column.id)}>
+                          <ColumnViewTarget type={column.type} title={`${index + 1}. ${meta.title}`} subtitle={meta.subtitle} />
+                        </button>
+                      );
+                    })}
+                    <div className="deck-add-menu-title deck-add-menu-title--secondary">Saved sets</div>
+                    <button type="button" className="deck-add-item" onClick={handleSaveCurrentView}>
+                      Save current set
+                    </button>
+                    {savedViews.length > 0 ? (
+                      <>
+                        {savedViews.map((view) => (
+                          <div key={view.id} className="deck-menu-row">
+                            <button type="button" className="deck-add-item deck-add-item--recent" onClick={() => handleLoadSavedView(view.id)}>
+                              <span>{view.name}</span>
+                              <small>{view.columns.length} columns</small>
+                            </button>
+                            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => removeView(view.id)} aria-label={`Remove ${view.name}`}>
+                              <CloseIcon />
+                            </button>
+                          </div>
                         ))}
                       </>
                     ) : null}
@@ -2697,8 +3730,17 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                 <button
                   type="button"
                   className="deck-icon-button deck-icon-button--ghost deck-actions-button"
-                  onClick={() => setShowActionsMenu((current) => !current)}
-                  aria-label="Open menu"
+                  onClick={() => {
+                    setShowActionsMenu((current) => {
+                      const next = !current;
+                      if (next) {
+                        setShowAddMenu(false);
+                        setShowViewsMenu(false);
+                      }
+                      return next;
+                    });
+                  }}
+                  aria-label="Open more actions"
                   disabled={columns === null || state.status === "loading"}
                 >
                   <HamburgerIcon />
@@ -2706,6 +3748,80 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                 {showActionsMenu ? (
                   <div className="deck-add-menu deck-add-menu--compact">
                     <div className="deck-add-menu-title">{statusText}</div>
+                    {isCompactHeader ? (
+                      <>
+                        <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.choosePane}</div>
+                        <button type="button" className="deck-add-item" onClick={() => handleAddColumn("mentions")}>
+                          <ColumnMenuLabel type="mentions" label={text.addMentions} />
+                        </button>
+                        <button type="button" className="deck-add-item" onClick={() => handleAddColumn("channelWatch")}>
+                          <ColumnMenuLabel type="channelWatch" label={text.addChannelWatch} />
+                        </button>
+                        <button type="button" className="deck-add-item" onClick={() => handleAddColumn("dmWatch")}>
+                          <ColumnMenuLabel type="dmWatch" label={text.addDmWatch} />
+                        </button>
+                        <button type="button" className="deck-add-item" onClick={() => handleAddColumn("search")}>
+                          <ColumnMenuLabel type="search" label="Search" />
+                        </button>
+                        <button type="button" className="deck-add-item" onClick={() => handleAddColumn("saved")}>
+                          <ColumnMenuLabel type="saved" label="Saved" />
+                        </button>
+                        <button type="button" className="deck-add-item" onClick={() => handleAddColumn("diagnostics")}>
+                          <ColumnMenuLabel type="diagnostics" label="Diagnostics" />
+                        </button>
+                        {recentTargets.length > 0 ? (
+                          <>
+                            <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.recentLabel}</div>
+                            {recentTargets.map((target) => (
+                              <button
+                                key={`${target.type}:${target.teamId}:${target.channelId}`}
+                                type="button"
+                                className="deck-add-item deck-add-item--recent"
+                                onClick={() =>
+                                  handleAddColumn(target.type, {
+                                    teamId: target.teamId || undefined,
+                                    channelId: target.channelId,
+                                  })
+                                }
+                                title={`${target.teamLabel} / ${formatRecentTargetLabel(target)}`}
+                              >
+                                <span>{formatRecentTargetLabel(target)}</span>
+                                <small>{target.teamLabel}</small>
+                              </button>
+                            ))}
+                          </>
+                        ) : null}
+                        <div className="deck-add-menu-title deck-add-menu-title--secondary">Views</div>
+                        {(columns ?? []).map((column, index) => {
+                          const meta = getColumnViewMeta(column);
+                          return (
+                            <button key={column.id} type="button" className="deck-add-item" onClick={() => handleFocusColumn(column.id)}>
+                              <ColumnViewTarget type={column.type} title={`${index + 1}. ${meta.title}`} subtitle={meta.subtitle} />
+                            </button>
+                          );
+                        })}
+                        <div className="deck-add-menu-title deck-add-menu-title--secondary">Saved sets</div>
+                        <button type="button" className="deck-add-item" onClick={handleSaveCurrentView}>
+                          Save current set
+                        </button>
+                        {savedViews.length > 0 ? (
+                          <>
+                            {savedViews.map((view) => (
+                              <div key={view.id} className="deck-menu-row">
+                                <button type="button" className="deck-add-item deck-add-item--recent" onClick={() => handleLoadSavedView(view.id)}>
+                                  <span>{view.name}</span>
+                                  <small>{view.columns.length} columns</small>
+                                </button>
+                                <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => removeView(view.id)} aria-label={`Remove ${view.name}`}>
+                                  <CloseIcon />
+                                </button>
+                              </div>
+                            ))}
+                          </>
+                        ) : null}
+                      </>
+                    ) : null}
+                    <div className="deck-add-menu-title deck-add-menu-title--secondary">Menu</div>
                     <button
                       type="button"
                       className="deck-add-item"
@@ -2716,38 +3832,13 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                     >
                       {text.settingsButton}
                     </button>
-                    <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.choosePane}</div>
-                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("mentions")}>
-                      {text.addMentions}
+                    <div className="deck-add-menu-title deck-add-menu-title--secondary">Layout</div>
+                    <button type="button" className="deck-add-item" onClick={handleExportLayout}>
+                      Export layout
                     </button>
-                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("channelWatch")}>
-                      {text.addChannelWatch}
+                    <button type="button" className="deck-add-item" onClick={handleImportLayout}>
+                      Import layout
                     </button>
-                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("dmWatch")}>
-                      {text.addDmWatch}
-                    </button>
-                    {recentTargets.length > 0 ? (
-                      <>
-                        <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.recentLabel}</div>
-                        {recentTargets.map((target) => (
-                          <button
-                            key={`${target.teamId}:${target.channelId}`}
-                            type="button"
-                            className="deck-add-item deck-add-item--recent"
-                            onClick={() =>
-                              handleAddColumn("channelWatch", {
-                                teamId: target.teamId,
-                                channelId: target.channelId,
-                              })
-                            }
-                            title={`${target.teamLabel} / ${target.channelLabel}`}
-                          >
-                            <span>{target.channelLabel}</span>
-                            <small>{target.teamLabel}</small>
-                          </button>
-                        ))}
-                      </>
-                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -2800,6 +3891,8 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           onUpdate={updateColumn}
                           onRemove={removeColumn}
                           onOpenPost={handleOpenPost}
+                          compactMode={deckSettings.compactMode}
+                          columnColors={deckSettings.columnColors}
                         />
                       </div>
                     );
@@ -2824,6 +3917,8 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           onUpdate={updateColumn}
                           onRemove={removeColumn}
                           onOpenPost={handleOpenPost}
+                          compactMode={deckSettings.compactMode}
+                          columnColors={deckSettings.columnColors}
                         />
                       </div>
                     );
@@ -2848,6 +3943,65 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           onUpdate={updateColumn}
                           onRemove={removeColumn}
                           onOpenPost={handleOpenPost}
+                          compactMode={deckSettings.compactMode}
+                          columnColors={deckSettings.columnColors}
+                        />
+                      </div>
+                    );
+                  case "search":
+                  case "keywordWatch":
+                    return (
+                      <div key={column.id} ref={setColumnRef} className="deck-column-motion">
+                        <SearchLikeColumn
+                          column={column}
+                          teams={state.teams}
+                          userDirectory={userDirectory}
+                          ensureUsers={ensureUsers}
+                          pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
+                          reconnectNonce={reconnectNonce}
+                          canMoveLeft={index > 0}
+                          canMoveRight={index < allColumns.length - 1}
+                          onMove={moveColumn}
+                          onUpdate={updateColumn}
+                          onRemove={removeColumn}
+                          onOpenPost={handleOpenPost}
+                          compactMode={deckSettings.compactMode}
+                          columnColors={deckSettings.columnColors}
+                        />
+                      </div>
+                    );
+                  case "saved":
+                    return (
+                      <div key={column.id} ref={setColumnRef} className="deck-column-motion">
+                        <SavedPostsColumn
+                          column={column}
+                          userDirectory={userDirectory}
+                          ensureUsers={ensureUsers}
+                          canMoveLeft={index > 0}
+                          canMoveRight={index < allColumns.length - 1}
+                          onMove={moveColumn}
+                          onRemove={removeColumn}
+                          onOpenPost={handleOpenPost}
+                          compactMode={deckSettings.compactMode}
+                          columnColors={deckSettings.columnColors}
+                        />
+                      </div>
+                    );
+                  case "diagnostics":
+                    return (
+                      <div key={column.id} ref={setColumnRef} className="deck-column-motion">
+                        <DiagnosticsColumn
+                          column={column}
+                          wsStatus={wsStatus}
+                          wsLogs={wsLogs}
+                          apiHealthStatus={apiHealthStatus}
+                          pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
+                          realtimeEnabled={realtimeEnabled}
+                          canMoveLeft={index > 0}
+                          canMoveRight={index < allColumns.length - 1}
+                          onMove={moveColumn}
+                          onRemove={removeColumn}
+                          columnColors={deckSettings.columnColors}
                         />
                       </div>
                     );
@@ -2862,3 +4016,6 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
     </aside>
   );
 }
+
+
+

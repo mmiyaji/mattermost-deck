@@ -17,9 +17,17 @@ function isDeckColumn(value: unknown): value is DeckColumn {
   const candidate = value as Partial<DeckColumn>;
   return (
     typeof candidate.id === "string" &&
-    (candidate.type === "mentions" || candidate.type === "channelWatch" || candidate.type === "dmWatch") &&
+    (candidate.type === "mentions" ||
+      candidate.type === "channelWatch" ||
+      candidate.type === "dmWatch" ||
+      candidate.type === "keywordWatch" ||
+      candidate.type === "search" ||
+      candidate.type === "saved" ||
+      candidate.type === "diagnostics") &&
     (candidate.teamId === undefined || typeof candidate.teamId === "string") &&
-    (candidate.channelId === undefined || typeof candidate.channelId === "string")
+    (candidate.channelId === undefined || typeof candidate.channelId === "string") &&
+    (candidate.query === undefined || typeof candidate.query === "string") &&
+    (candidate.unreadOnly === undefined || typeof candidate.unreadOnly === "boolean")
   );
 }
 
@@ -33,6 +41,8 @@ function normaliseColumns(value: unknown): DeckColumn[] {
     type: column.type,
     teamId: column.teamId,
     channelId: column.channelId,
+    query: column.query,
+    unreadOnly: column.unreadOnly,
   }));
 
   return columns.length > 0 ? columns : createDefaultLayout();
