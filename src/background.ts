@@ -87,8 +87,9 @@ chrome.runtime.onMessage.addListener((message) => {
       chrome.tabs.create({ url }, (tab) => {
         if (!tab.id) return;
         const tabId = tab.id;
-        const cleanup = (id: number, info: chrome.tabs.TabChangeInfo) => {
+        const cleanup: Parameters<typeof chrome.tabs.onUpdated.addListener>[0] = (id, info) => {
           if (id !== tabId || info.status !== "complete") return;
+
           chrome.tabs.onUpdated.removeListener(cleanup);
           void chrome.scripting.unregisterContentScripts({ ids: [INSTALL_SCRIPT_ID] });
         };

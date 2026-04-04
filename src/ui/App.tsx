@@ -1,6 +1,7 @@
 ﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   checkApiHealth,
+  fetchPostFileInfos,
   getChannel,
   getChannelByName,
   getChannelMembers,
@@ -18,6 +19,7 @@ import {
   searchPostsInTeam,
   type MattermostChannel,
   type MattermostChannelMember,
+  type MattermostFileInfo,
   type MattermostPost,
   type MattermostTeam,
   type MattermostUser,
@@ -1792,6 +1794,59 @@ function TeamSelect({
   );
 }
 
+const SAVED_SEARCHES_KEY = "mattermostDeck.savedSearches.v1";
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function PostFileAttachments({ fileIds, postId }: { fileIds: string[]; postId: string }): React.JSX.Element | null {
+  const [fileInfos, setFileInfos] = useState<MattermostFileInfo[]>([]);
+
+  useEffect(() => {
+    void fetchPostFileInfos(postId).then(setFileInfos).catch(() => undefined);
+  }, [postId]);
+
+  if (fileInfos.length === 0) return null;
+
+  return (
+    <div className="deck-post-files">
+      {fileInfos.map((info) => {
+        const isImage = info.mime_type.startsWith("image/");
+        return isImage ? (
+          <div key={info.id} className="deck-file-thumb-wrap">
+            <img
+              className="deck-file-thumb"
+              src={`/api/v4/files/${info.id}/thumbnail`}
+              alt={info.name}
+              loading="lazy"
+            />
+            <div className="deck-file-preview-popup">
+              <img src={`/api/v4/files/${info.id}/preview`} alt={info.name} loading="lazy" />
+              <span className="deck-file-preview-name">{info.name}</span>
+            </div>
+          </div>
+        ) : (
+          <a
+            key={info.id}
+            className="deck-file-card"
+            href={`/api/v4/files/${info.id}`}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="deck-file-ext">{(info.extension || "file").toUpperCase()}</span>
+            <span className="deck-file-name" title={info.name}>{info.name}</span>
+            <span className="deck-file-size">{formatFileSize(info.size)}</span>
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 function PostList({
   posts,
   userDirectory,
@@ -1977,6 +2032,9 @@ function PostList({
         </div>
         {renderMeta ? <div className="deck-card-meta">{renderMeta(post)}</div> : null}
         <p>{renderBody ? renderBody(post) : summarisePost(post.message)}</p>
+        {post.file_ids && post.file_ids.length > 0 && (
+          <PostFileAttachments fileIds={post.file_ids} postId={post.id} />
+        )}
       </li>
     );
   };
@@ -3029,6 +3087,25 @@ function SearchLikeColumn({
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [showControls, setShowControls] = useState(!(column.teamId && column.query?.trim()));
   const [draftQuery, setDraftQuery] = useState(column.query ?? "");
+  const [savedSearches, setSavedSearches] = useState<string[]>([]);
+
+  useEffect(() => {
+    void loadStoredJson<string[]>(SAVED_SEARCHES_KEY, []).then(setSavedSearches);
+  }, []);
+
+  const handleSaveSearch = () => {
+    const q = draftQuery.trim();
+    if (!q || savedSearches.includes(q)) return;
+    const next = [...savedSearches, q];
+    setSavedSearches(next);
+    void saveStoredJson(SAVED_SEARCHES_KEY, next);
+  };
+
+  const handleDeleteSavedSearch = (q: string) => {
+    const next = savedSearches.filter((s) => s !== q);
+    setSavedSearches(next);
+    void saveStoredJson(SAVED_SEARCHES_KEY, next);
+  };
   const refreshStartedAtRef = useRef<number | null>(null);
   const refreshStopTimerRef = useRef<number | null>(null);
   const selectedTeam = teams.find((team) => team.id === column.teamId);
@@ -3247,7 +3324,49 @@ function SearchLikeColumn({
               <button type="button" className="deck-load-more" onClick={handleApplyQuery}>
                 Apply
               </button>
+              <button
+                type="button"
+                className="deck-icon-button deck-icon-button--ghost"
+                onClick={handleSaveSearch}
+                disabled={!draftQuery.trim() || savedSearches.includes(draftQuery.trim())}
+                title="この検索クエリを保存"
+                aria-label="Save search query"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                </svg>
+              </button>
             </div>
+            {savedSearches.length > 0 && (
+              <div className="deck-saved-searches">
+                <span className="deck-saved-searches-label">保存済み</span>
+                <div className="deck-saved-searches-list">
+                  {savedSearches.map((q) => (
+                    <div key={q} className="deck-saved-search-chip">
+                      <button
+                        type="button"
+                        className="deck-saved-search-apply"
+                        onClick={() => {
+                          setDraftQuery(q);
+                          onUpdate(column.id, { query: q });
+                        }}
+                        title={q}
+                      >
+                        {q}
+                      </button>
+                      <button
+                        type="button"
+                        className="deck-saved-search-delete"
+                        onClick={() => handleDeleteSavedSearch(q)}
+                        aria-label={`Remove saved search: ${q}`}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <article className="deck-card deck-card--muted">
             <strong>Search syntax</strong>

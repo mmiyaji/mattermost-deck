@@ -1453,6 +1453,170 @@ export const railCssText = `
     gap: 10px;
   }
 
+  /* ── ファイル添付 ─────────────────────────────── */
+  .deck-post-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .deck-file-thumb-wrap {
+    position: relative;
+    display: inline-block;
+    cursor: zoom-in;
+  }
+
+  .deck-file-thumb {
+    display: block;
+    width: 80px;
+    height: 60px;
+    object-fit: cover;
+    border-radius: 6px;
+    background: var(--deck-border);
+  }
+
+  .deck-file-preview-popup {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--deck-panel);
+    border: 1px solid var(--deck-border);
+    border-radius: 8px;
+    padding: 6px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    pointer-events: none;
+    max-width: 320px;
+  }
+
+  .deck-file-thumb-wrap:hover .deck-file-preview-popup {
+    display: block;
+  }
+
+  .deck-file-preview-popup img {
+    display: block;
+    max-width: 308px;
+    max-height: 260px;
+    object-fit: contain;
+    border-radius: 4px;
+  }
+
+  .deck-file-preview-name {
+    display: block;
+    margin-top: 4px;
+    font-size: calc(11px * var(--deck-font-scale));
+    color: var(--deck-text-faint);
+    text-align: center;
+    max-width: 308px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .deck-file-card {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    background: var(--deck-surface);
+    border: 1px solid var(--deck-border);
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--deck-text);
+    max-width: 180px;
+    font-size: calc(12px * var(--deck-font-scale));
+    transition: background 0.12s;
+  }
+
+  .deck-file-card:hover {
+    background: var(--deck-surface-hover, rgba(255,255,255,0.06));
+  }
+
+  .deck-file-ext {
+    flex: none;
+    font-size: calc(10px * var(--deck-font-scale));
+    font-weight: 700;
+    background: var(--deck-accent-soft);
+    color: var(--deck-accent);
+    padding: 2px 5px;
+    border-radius: 4px;
+  }
+
+  .deck-file-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .deck-file-size {
+    flex: none;
+    font-size: calc(10px * var(--deck-font-scale));
+    color: var(--deck-text-faint);
+  }
+
+  /* ── 保存済み検索 ─────────────────────────────── */
+  .deck-saved-searches {
+    margin-top: 4px;
+  }
+
+  .deck-saved-searches-label {
+    font-size: calc(11px * var(--deck-font-scale));
+    color: var(--deck-text-faint);
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  .deck-saved-searches-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .deck-saved-search-chip {
+    display: flex;
+    align-items: center;
+    background: var(--deck-accent-soft);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .deck-saved-search-apply {
+    padding: 3px 8px 3px 10px;
+    background: none;
+    border: none;
+    color: var(--deck-text);
+    font-size: calc(12px * var(--deck-font-scale));
+    cursor: pointer;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .deck-saved-search-apply:hover {
+    color: var(--deck-accent);
+  }
+
+  .deck-saved-search-delete {
+    padding: 3px 7px 3px 3px;
+    background: none;
+    border: none;
+    color: var(--deck-text-faint);
+    font-size: 14px;
+    cursor: pointer;
+    line-height: 1;
+  }
+
+  .deck-saved-search-delete:hover {
+    color: var(--deck-danger);
+  }
+
   .deck-column--diagnostics .deck-stack {
     flex: 1 1 auto;
     min-height: 0;

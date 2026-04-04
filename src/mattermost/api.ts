@@ -32,6 +32,18 @@ export interface MattermostPost {
   create_at: number;
   message: string;
   root_id?: string;
+  file_ids?: string[];
+}
+
+export interface MattermostFileInfo {
+  id: string;
+  name: string;
+  extension: string;
+  size: number;
+  mime_type: string;
+  width?: number;
+  height?: number;
+  has_preview_image?: boolean;
 }
 
 interface MattermostPostList {
@@ -386,6 +398,11 @@ export async function searchPostsInTeam(
   return payload.order
     .map((postId) => payload.posts[postId])
     .filter((post): post is MattermostPost => Boolean(post));
+}
+
+export async function fetchPostFileInfos(postId: string): Promise<MattermostFileInfo[]> {
+  const payload = await apiGet<{ file_infos: MattermostFileInfo[] }>(`/posts/${postId}/files/info`);
+  return payload.file_infos ?? [];
 }
 
 export function getWebSocketUrl(): string {
