@@ -56,33 +56,6 @@ const SHOWCASE_MESSAGES = [
   },
 ];
 
-const DARK_THEME = {
-  sidebarBg: "#1c2233",
-  sidebarText: "#ffffff",
-  sidebarUnreadText: "#ffffff",
-  sidebarTextHoverBg: "#2a3248",
-  sidebarTextActiveBorder: "#4b8ef7",
-  sidebarTextActiveColor: "#ffffff",
-  sidebarHeaderBg: "#151b28",
-  sidebarTeamBarBg: "#111624",
-  sidebarHeaderTextColor: "#ffffff",
-  onlineIndicator: "#06d6a0",
-  awayIndicator: "#ffbc42",
-  dndIndicator: "#f74343",
-  mentionBg: "#4b8ef7",
-  mentionColor: "#ffffff",
-  centerChannelBg: "#0f1724",
-  centerChannelColor: "#e5edf8",
-  newMessageSeparator: "#f5a524",
-  linkColor: "#4b8ef7",
-  buttonBg: "#2563eb",
-  buttonColor: "#ffffff",
-  errorTextColor: "#ff6b6b",
-  mentionHighlightBg: "#3b2f0f",
-  mentionHighlightLink: "#8ab4ff",
-  codeTheme: "github-dark",
-};
-
 async function readState() {
   return JSON.parse(await fs.readFile(statePath, "utf8"));
 }
@@ -194,27 +167,45 @@ async function createPost(baseUrl, token, channelId, message) {
   });
 }
 
-async function setMattermostTheme(baseUrl, token, userId, themeObject) {
-  const response = await fetch(`${baseUrl}/api/v4/users/${userId}/preferences`, {
-    method: "PUT",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify([
-      {
-        user_id: userId,
-        category: "display_settings",
-        name: "theme",
-        value: JSON.stringify(themeObject),
-      },
-    ]),
+async function prepareDeckView(page) {
+  await page.waitForSelector("#mattermost-deck-root", { timeout: 60_000 });
+  await page.waitForSelector(".deck-column .deck-card--post", { timeout: 60_000 });
+  await page.waitForTimeout(2_000);
+  await page.mouse.click(520, 220);
+  await page.waitForTimeout(300);
+  await page.addStyleTag({
+    content: `
+      .AnnouncementBar,
+      .tour-tip,
+      .toast,
+      [data-testid="channel-toast"],
+      [class*="announcement"] {
+        display: none !important;
+      }
+    `,
   });
+}
 
-  if (!response.ok) {
-    throw new Error(`PUT /users/${userId}/preferences failed with ${response.status}: ${await response.text()}`);
+async function applyMattermostThemeFromSettings(page, themeName) {
+  const settingsButton = page.getByRole("button", { name: "Settings" });
+  await settingsButton.waitFor({ state: "visible", timeout: 30_000 });
+  await settingsButton.click();
+
+  const modal = page.locator(".modal-dialog, .modal-content").filter({ hasText: "Settings" }).first();
+  await modal.waitFor({ state: "visible", timeout: 30_000 });
+  await modal.getByRole("tab", { name: "Display" }).click();
+  await modal.getByRole("button", { name: "Edit" }).first().click();
+  const themeModal = page.locator(".modal-dialog, .modal-content").filter({ hasText: "Display Settings" }).last();
+  await themeModal.waitFor({ state: "visible", timeout: 30_000 });
+  await themeModal.getByText(themeName, { exact: true }).click();
+  await themeModal.getByRole("button", { name: /^Save$/i }).click();
+  await page.waitForTimeout(1200);
+  const closeButton = page.getByRole("button", { name: "Close" }).first();
+  if (await closeButton.isVisible().catch(() => false)) {
+    await closeButton.click();
   }
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(1200);
 }
 
 async function prepareShowcaseData(state) {
@@ -350,24 +341,8 @@ async function captureShowcase() {
       waitUntil: "networkidle",
       timeout: 60_000,
     });
-    await page.reload({ waitUntil: "networkidle", timeout: 60_000 });
-    await page.waitForSelector("#mattermost-deck-root", { timeout: 60_000 });
-    await page.waitForSelector(".deck-column .deck-card--post", { timeout: 60_000 });
-    await page.waitForTimeout(2_000);
-    await page.mouse.click(520, 220);
-    await page.waitForTimeout(300);
-
-    await page.addStyleTag({
-      content: `
-        .AnnouncementBar,
-        .tour-tip,
-        .toast,
-        [data-testid="channel-toast"],
-        [class*="announcement"] {
-          display: none !important;
-        }
-      `,
-    });
+    await applyMattermostThemeFromSettings(page, "Quartz");
+    await prepareDeckView(page);
 
     await fs.mkdir(docsAssetsDir, { recursive: true });
     await page.screenshot({
@@ -380,12 +355,8 @@ async function captureShowcase() {
       },
     });
 
-    await setMattermostTheme(state.serverUrl, state.bridgeUser.token, state.bridgeUser.id, DARK_THEME);
-    await page.reload({ waitUntil: "networkidle", timeout: 60_000 });
-    await page.waitForSelector("#mattermost-deck-root", { timeout: 60_000 });
-    await page.waitForTimeout(2_000);
-    await page.mouse.click(520, 220);
-    await page.waitForTimeout(300);
+    await applyMattermostThemeFromSettings(page, "Onyx");
+    await prepareDeckView(page);
     await page.addStyleTag({
       content: `
         #root,

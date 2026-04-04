@@ -1,225 +1,196 @@
-# Mattermost Deck 設計ガイドライン
+# Mattermost Deck 設計ガイド
 
 [English version](./design-guidelines.md)
 
 ## 目的
 
-Mattermost Web の右側を TweetDeck 風のマルチペイン監視領域にする Chrome 拡張を作る。ただし Mattermost 自体を再実装しない。
-
-この拡張はあくまで補助 UI として位置付ける。
-
-- ログイン、チーム切り替え、チャンネル切り替え、投稿、基本ナビゲーションは Mattermost 本体を正とする
-- 拡張は右側に補助的な監視ペインを追加する
-- 常時表示かつリアルタイム寄りに感じられることは重要だが、Mattermost 内部への強結合や過剰な API 負荷は避ける
+Mattermost Web 自体を作り直さずに、右側へ監視向けのマルチペイン deck を追加する Chrome 拡張機能を実装することです。
 
 ## プロダクト方針
 
-### メイン UI と拡張 UI
+- Mattermost 本体を主 UI とする
+- 拡張機能は監視、横断確認、素早いコンテキスト切り替えに特化した補助 UI とする
+- 常駐感と応答性は重視するが、Mattermost 内部実装への過度な依存は避ける
 
-- 左側と中央は Mattermost 本体の UI をそのまま使う
-- 右側は拡張が管理する deck 領域とする
-- deck 領域は複数カラムを横並びで持つ
-- Mattermost と deck の境界はドラッグでリサイズできる
-- deck 全体は細いドロワーへ折りたためる
+## UI の責務分離
 
-### 拡張がやること
+### Mattermost 本体が担当するもの
 
-- 監視向けペインを表示する
-  - mentions
-  - watched channels
-  - DM / Group DM
-  - 将来的には thread や search
-- 各ペインは現在の表示チャンネルではなく、それぞれ独立した対象を持てる
-- 横に複数並べて同時監視できる
+- ログイン
+- チーム切り替え
+- チャンネル切り替え
+- 投稿と編集
+- 標準のスレッド UI
 
-### 拡張がやらないこと
+### Deck が担当するもの
 
-- Mattermost のチームナビゲーションを作り直さない
-- Mattermost のチャンネルナビゲーションを作り直さない
-- エディタや投稿フローを再実装しない
-- Mattermost の内部 Redux state や壊れやすい private DOM に依存しない
+- マルチペイン監視レイアウト
+- Mentions / Channel Watch / DM / Search / Saved / Diagnostics
+- ペイン構成の永続化
+- 保存済みペインセット
+- 補助的な検索とフィルタ
+- レイアウトのエクスポート / インポート
 
 ## アーキテクチャ
 
-### 注入方針
+### 注入方式
 
-- Manifest V3 の Chrome 拡張として実装する
-- content script は、設定済み Mattermost origin に対してのみ動的登録する
-- Server URL 保存時に、その origin への Chrome 権限を明示的に要求する
-- `body` 配下の Shadow DOM に拡張 UI を描画する
-- オーバーレイではなく、Mattermost 側の幅を縮めて右領域を確保する
-
-理由:
-
-- Shadow DOM により CSS 干渉を抑えられる
-- 本当に右側に増設された UI として見える
-- 動的登録により権限範囲を最小化でき、無関係なサイトへ注入しない
+- Manifest V3 拡張
+- 設定済み Mattermost origin に対する動的登録
+- `body` 直下の Shadow DOM マウント
+- Mattermost 本体の横幅を縮めて右側に deck 領域を確保
 
 ### 描画ガード
 
-拡張は次をすべて満たす時だけ描画する。
+次をすべて満たした時だけ描画します。
 
-- `window.location.origin` が設定済み Mattermost Server URL と一致する
-- route kind が設定で許可されている
-  - 既定値: `channels`, `messages`
-- team slug 制限が設定されている場合、その slug に一致する
-- 設定済み health-check API が成功する
+- `window.location.origin` が設定済み server URL と一致
+- 現在の route kind が許可対象
+- 任意設定の team slug 制限に一致
+- health-check API が成功
 
-Mattermost 固有 DOM の存在判定は、バージョン変更に弱いため主判定には使わない。
+Mattermost 固有 DOM の存在確認を主ガードにはしません。
 
-### Health Check 制約
+## データモデル
 
-- health check は相対 `/api/v4/...` パスだけを許可する
-- ユーザー指定の絶対 URL は使わない
-- 常に設定済み Mattermost origin に対してだけ実行する
+### ペイン種別
 
-## セキュリティ
+- `mentions`
+- `channelWatch`
+- `dmWatch`
+- `search`
+- `saved`
+- `diagnostics`
 
-### PAT 保存
+### 保存対象
 
-PAT は平文では保存しない。
+- ペイン順
+- ペイン設定
+- ドロワー開閉状態
+- ドロワー幅
+- 基準ペイン幅
+- 基準カラム幅
+- 保存済みペインセット
+- 最近使った対象
 
-現在の実装 [`src/ui/storage.ts`](../src/ui/storage.ts):
+## 同期モデル
 
-- prefix: `enc:v1:`
-- 暗号方式: `AES-GCM 256`
-- IV: 書き込みごとにランダム 12 byte
-- 鍵導出:
-  - `PBKDF2`
-  - `SHA-256`
-  - `100_000` iterations
-  - salt: `mattermost-deck.local-storage.v1`
-- 鍵素材:
-  - `chrome.runtime.id`
-  - fallback として `window.location.origin`
+### REST
 
-導出済み `CryptoKey` はメモ化し、毎回 PBKDF2 を回さない。
+- 現在の Mattermost ブラウザセッションを利用
+- 初期表示は REST で取得
+- realtime 無効時は保守的な polling を使う
 
-### PAT の保持ポリシー
+### WebSocket
 
-- 既定保存先: `chrome.storage.session`
-- 任意保存先: `chrome.storage.local`
-- 再起動後も保持する永続保存は、明示 opt-in にする
+- 任意機能
+- PAT が設定されている場合だけ有効
+- 全量再構築ではなく差分反映に利用
 
-これにより、不要に長く PAT がディスクへ残る可能性を下げる。
+### ヘルス
 
-### 暗号化の限界
-
-これはクライアント側での最低限の秘匿化であり、完全な秘密保護ではない。
-
-理由:
-
-- 拡張自身が復号できる必要がある
-- 鍵導出元はクライアント側にある
-- クライアント実行環境が侵害されていれば PAT は回収可能
-
-したがって目的は:
-
-- storage 上の平文露出を避ける
-- 軽微な漏えいや誤露出の耐性を上げる
-- 保存モデルをユーザーへ正しく説明する
-
-## API バースト防止
-
-### 基本方針
-
-複数ペインが同時にデータを必要としても、同一時刻にまとめて API を投げない。
-
-特に重要なのは:
-
-- 複数 watched pane
-- `All teams` mentions
-- reconnect 後の再整合
-- 複数ペインからの manual refresh
-
-### 現在のリクエストキュー
-
-[`src/mattermost/api.ts`](../src/mattermost/api.ts) で実装:
-
-- 全 REST リクエストは `scheduleApiRequest(...)` を通す
-- タブ内では単一キューで逐次実行する
-- 最小リクエスト間隔を保証する
-  - 現在値: `120ms`
-
-### GET の重複排除と短期キャッシュ
-
-- 同一 pathname の inflight GET dedupe
-- GET の短期 TTL キャッシュ
-  - 現在値: `1000ms`
-
-### 必須ルール
-
-- ペインごとに WebSocket を作らない
-- イベントごとに全ペイン全件を再取得しない
-- WebSocket reconnect を tight loop にしない
-- 全チームや全ペインを短周期で poll しない
-- UI だけでなく保存値読み込み時にも polling 下限を強制する
-
-## ポーリング方針
-
-- Realtime 有効:
-  - WebSocket を主とする
-  - REST は初期ロードと限定的な再整合に使う
-- Realtime 無効:
-  - REST ポーリングを主とする
-  - ただし保守的な間隔に保つ
-
-### `All teams` メンション
-
-`All teams` は重いモードとして扱う。
-
-- デフォルトは team 単位
-- `All teams` は UI で警告表示する
-- `All teams` 時は実効ポーリング間隔の下限を引き上げる
-- team ごとの取得も API キューを通して分散する
-
-## データ保持とページング
-
-- 初回取得件数: `20`
-- `Load more` 単位: `20`
-- ペインごとのメモリ保持上限: `100`
-
-DOM を無制限に増やさず、小さな page size と軽量描画を優先する。
-
-## Manual Refresh
-
-- 対象ペインだけ再取得する
-- deck 全体の再ロードにはしない
-- 応答が速くても、押したことが分かるフィードバックを出す
-
-現在の UI 方針:
-
-- 更新アイコンを回転させる
-- 最小表示時間を確保する
-- 実行中はボタンを一時無効化する
-
-## ヘルスモデル
-
-トップバーの状態は、WebSocket の有無だけではなく API の健全性を表すべき。
+ヘルス状態と同期方式は概念的には別ですが、トップバーではまとめて表示します。
 
 例:
 
 - `Healthy / Realtime`
 - `Healthy / Polling`
-- `Degraded / Realtime`
+- `Degraded / Polling`
 - `Error / Polling`
 
-判定方針:
+主信号は既存 REST の成功 / 失敗で、補助信号として設定済み health-check API を使います。
 
-- 主信号は既存 REST 成功/失敗
-- 補助信号として設定済み health-check API path を使う
-- data layer に endpoint を埋め込まない
+## リクエスト制御
 
-## レイアウトガイドライン
+### バースト防止
 
-- deck 幅はユーザーがドラッグで変更できる
-- ドラッグした幅は保存し、再起動後も復元する
-- Options の preferred rail width は初期値として使う
-- preferred column width は基準幅として使う
-- カラム順も保存する
+複数ペインが同時に更新されても、一斉リクエストにならないことを重視します。
 
-## ライセンスと公開
+現行方針:
 
-- ライセンス: MIT
-- 公開方針: 軽量で permissive、無保証
-- `README` と `LICENSE` の記載は常に整合しているべき
+- REST はタブ内 1 本のキューで逐次化
+- 最小リクエスト間隔を強制
+- GET の inflight dedupe を利用
+- 短い TTL キャッシュを利用
+
+### ポーリング
+
+- polling 間隔は保存時と読込時の両方で正規化
+- 0 や極端に短い値はユーザー設定で指定できない
+- `All teams` メンションは重いモードとして扱い、実効下限を長くする
+- Search ペインは通常監視ペインより遅い polling 下限を持つ
+
+## セキュリティ
+
+### PAT 保存
+
+永続保存時の PAT は生の平文では保存しません。
+
+実装概要:
+
+- AES-GCM
+- PBKDF2
+- クライアント側の鍵導出
+- 導出済み鍵のメモ化
+
+これは平文露出を避けるための保護であり、完全な秘密境界ではありません。
+
+### 永続化ポリシー
+
+- 既定値は session-only
+- 永続保存は opt-in
+
+### Health Check 制約
+
+- `/api/v4/...` 配下のみ許可
+- 設定済み Mattermost origin 上のみに限定
+
+## 操作ルール
+
+### 投稿クリック
+
+ユーザー設定で次を選べます。
+
+- 遷移
+- 何もしない
+- 選択して決める
+
+文字選択やドラッグ中は遷移しません。
+
+### 自動スクロール
+
+一定時間ユーザー操作がない場合のみ、新着に合わせて上方向へ戻すことがあります。読んでいる途中に強制ジャンプしないことを優先します。
+
+### ペイン並び替え
+
+- ペイン内の左右移動
+- Views メニュー内の並び替えモード
+- 並び替えアニメーションは順序変更時のみ発火し、通常の内容更新では発火しない
+
+## Search UX
+
+- 専用ハイライトトークンを使う
+- スニペットは先頭固定ではなく最初の一致周辺を優先
+- Mattermost 検索仕様に合わせたヒントを出す
+- 旧 Keyword Watch は Search に統合済み
+
+## レイアウトのエクスポート / インポート
+
+- Export は JSON ファイルとしてダウンロード
+- Import は JSON ファイル選択で読み込み
+- PAT はエクスポート対象に含めない
+
+## テーマ
+
+- 既定テーマは `mattermost`
+- Mattermost テーマ連携は、脆い DOM 推測より CSS 変数を優先する
+- バッジ、ボタン、ハイライト、トップバー文字は別トークンを使い分けてよい
+- ペイン識別アイコンは常時表示
+- ペイン色アクセントは任意設定で、既定ではオフ
+
+## ドキュメントと配布
+
+- ライセンスは MIT
+- README は英語版と日本語版を用意
+- 設計書も英語版と日本語版を用意
+- GitHub Actions によるリリースパッケージングは `v*` タグ push で実行

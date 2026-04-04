@@ -2,7 +2,7 @@
 
 [English README](./README.md)
 
-Mattermost の Web 画面に TweetDeck 風の右ペインを追加する Chrome 拡張です。Mattermost 本体のチーム切り替えやチャンネル操作はそのまま使い、補助的なマルチペインだけを拡張側で描画します。
+Mattermost Deck は、Mattermost Web の右側に TweetDeck 風のマルチペイン領域を追加する Chrome 拡張機能です。Mattermost 本体の UI はそのまま主 UI として使い、監視や横断確認に向いた補助ワークスペースだけを追加します。
 
 ## スクリーンショット
 
@@ -16,21 +16,30 @@ Mattermost の Web 画面に TweetDeck 風の右ペインを追加する Chrome 
 
 ## 主な機能
 
-- Mattermost 本体を主 UI のまま利用
-- 既存画面の右側にリサイズ可能な補助ペインを追加
-- メンション、監視チャンネル、DM / Group DM のカラムを表示
-- REST はログイン済みブラウザセッションを再利用
-- 任意で PAT を設定するとリアルタイム更新を利用可能
-- レイアウト、ドロワー幅、カラム幅、表示設定を保存
-- ペイン上の投稿から Mattermost のスレッド UI を開ける
+- ログイン、ナビゲーション、投稿、編集、スレッド表示は Mattermost 本体を利用
+- 右側にサイズ変更可能なマルチペイン領域を追加
+- 横スクロールする複数ペインを表示
+- 次のペイン種別をサポート
+  - Mentions
+  - Channel Watch
+  - DM / Group
+  - Search
+  - Saved
+  - Diagnostics
+- Views メニューから保存済みペインセットの切り替えが可能
+- ペインの並び替えをペイン内操作と Views メニューの両方で実行可能
+- レイアウトを JSON ファイルとしてエクスポート / インポート可能
+- Mattermost の PAT を使った任意のリアルタイム更新をサポート
+- Mattermost 側のテーマ変数に合わせて色を自動調整
+- ペイン識別色、コンパクト表示、フォント倍率、基準ペイン幅などを設定可能
 
 ## 動作方針
 
-- Mattermost 本体はそのまま使う
-- 拡張は Shadow DOM 上の右ペインだけを描画する
-- データ取得は Mattermost REST API と任意の WebSocket を使う
-- 描画前に設定済みの対象 URL とヘルスチェック API を確認する
-- content script は、ユーザーが明示的に許可した Mattermost origin に対してのみ注入する
+- チーム切り替え、チャンネル切り替え、投稿、スレッド UI は Mattermost 本体を正とします。
+- 拡張機能は Shadow DOM 上に右レールを描画し、そのための横幅を Mattermost 側から確保します。
+- REST API は現在のブラウザセッションを再利用します。
+- 任意の WebSocket realtime モードは Options で設定した PAT を使います。
+- 描画は、設定済み Mattermost origin、許可ルート、任意の team slug、health-check API の結果でガードされます。
 
 ## セットアップ
 
@@ -39,25 +48,25 @@ npm install
 npm run build
 ```
 
-`dist/` を Chrome の「パッケージ化されていない拡張機能」として読み込んでください。
+Chrome で `dist/` を「パッケージ化されていない拡張機能」として読み込んでください。
 
-初回インストール時は Options ページが開き、以下を設定できます。
+初回インストール時には Options ページが開きます。次を設定します。
 
-- Mattermost Server URL
+- Mattermost server URL
 - 任意の team slug 制限
-- リアルタイム用の任意 PAT
-- ポーリング間隔や見た目の設定
+- 任意の realtime 用 PAT
+- polling 間隔と外観設定
 
-Server URL を保存すると、その Mattermost origin に対する Chrome 権限を要求します。既定では全サイトに注入しません。
+Server URL を保存すると、その Mattermost origin に対する Chrome 権限を要求します。全サイトに常駐する設計ではありません。
 
 ## セキュリティ
 
-- PAT はクライアント側で暗号化して保存します
-- 既定では session-only 保存です
-- 再起動後も保持したい場合だけ永続保存を選べます
-- 平文保存よりは安全ですが、完全な秘匿境界ではありません
-- クライアント自身が復号できるため、可能であれば権限を絞ったトークンを使ってください
-- ヘルスチェック API は設定済み Mattermost origin 上の `/api/v4/...` に制限されます
+- PAT 保存先の既定値は `chrome.storage.session`
+- 永続保存は明示 opt-in
+- 永続保存時の PAT はクライアント側で暗号化して保存
+- ただし完全な秘密境界ではなく、平文露出を減らすための最低限の保護です
+- health-check path は設定済み Mattermost origin 上の相対 `/api/v4/...` に制限
+- REST API はタブ内で逐次化され、複数ペイン更新時のバーストを抑制します
 
 ## 開発
 
@@ -67,34 +76,33 @@ npm run build
 npm run test:e2e
 ```
 
-README 用スクリーンショットの生成:
+ローカルブラウザ起動:
+
+```powershell
+npm run open:mattermost
+```
+
+README 用スクリーンショット更新:
 
 ```powershell
 npm run capture:readme
 ```
 
-スクリーンショット生成には、接続可能な Mattermost テスト環境と有効なテスト用認証情報が必要です。
+スクリーンショット生成には、接続可能な Mattermost テスト環境と有効な認証情報が必要です。
 
 ## リリース
 
-`v0.1.0` のような `v` 形式タグを push すると GitHub Actions でリリース用ビルドを実行します。
+`v0.1.0` のような `v` 形式タグを push すると GitHub Actions が起動します。
 
 - `npm ci`, `npm run check`, `npm run build` を実行
-- `dist/` を `mattermost-deck-<tag>.zip` に圧縮
-- GitHub Release を作成し、zip を asset として添付
+- `dist/` を `mattermost-deck-<tag>.zip` として圧縮
+- GitHub Release を作成して zip を asset として添付
 
 ## ライセンス
 
-MIT ライセンスです。詳細は [LICENSE](./LICENSE) を参照してください。
+MIT。詳細は [LICENSE](./LICENSE) を参照してください。
 
-## 現在のスコープ
+## 設計ドキュメント
 
-- content script による右ペイン注入
-- Mattermost 側の表示幅を調整しつつドロワーを表示
-- メンション、監視チャンネル、DM / Group DM を Shadow DOM 上に描画
-- 現在セッションでの REST 利用と、任意 PAT による WebSocket リアルタイム更新
-- Options ベースの対象判定、ヘルスチェック、パッケージング
-
-## 設計メモ
-
-- 詳細設計: [docs/design-guidelines.ja.md](./docs/design-guidelines.ja.md)
+- English design guide: [./docs/design-guidelines.md](./docs/design-guidelines.md)
+- 日本語設計ガイド: [./docs/design-guidelines.ja.md](./docs/design-guidelines.ja.md)

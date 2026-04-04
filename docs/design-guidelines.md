@@ -1,234 +1,198 @@
 # Mattermost Deck Design Guidelines
 
-[日本語版はこちら](./design-guidelines.ja.md)
+[日本語版](./design-guidelines.ja.md)
 
 ## Goal
 
-Build a Chrome extension that turns the right side of Mattermost Web into a TweetDeck-like multi-pane workspace without reimplementing Mattermost itself.
+Build a Chrome extension that adds a monitoring-oriented multi-pane deck to the right side of Mattermost Web without rebuilding Mattermost itself.
 
-The extension is intentionally positioned as a secondary UI layer:
+## Product Positioning
 
-- Mattermost native UI remains the source of truth for login, team switching, channel switching, posting, and general navigation.
-- The extension adds a supplemental pane area on the right for monitoring and parallel reading.
-- The extension should feel persistent and realtime, but it must avoid heavy coupling to Mattermost internals or bursty traffic patterns.
+- Mattermost remains the primary UI.
+- The extension is a secondary workspace optimized for scanning, monitoring, and quick context switching.
+- The deck should feel persistent and responsive, while avoiding tight coupling to Mattermost internals.
 
-## Product Direction
+## UI Scope
 
-### Main UI vs. Extension UI
+### Mattermost Owns
 
-- Left side and center remain Mattermost native UI.
-- Right side is the extension-managed deck area.
-- The deck area supports multiple horizontally arranged columns.
-- The deck area is resizable by dragging the boundary between Mattermost and the deck.
-- The deck can collapse into a narrow drawer.
+- Login
+- Team switching
+- Channel switching
+- Posting and editing
+- Native thread panel
 
-### What the Extension Should Do
+### Deck Owns
 
-- Show monitoring-oriented panes such as:
-  - mentions
-  - watched channels
-  - DM / group DM
-  - later: thread-specific and search panes
-- Let each pane remain pinned to its own target instead of always following the currently open Mattermost page.
-- Preserve a dense, scan-friendly reading workflow.
-
-### What the Extension Should Not Do
-
-- Do not rebuild Mattermost team navigation.
-- Do not rebuild Mattermost channel navigation.
-- Do not reimplement the Mattermost editor or posting flow unless there is a strong reason later.
-- Do not depend on Mattermost internal Redux state or fragile private DOM contracts.
+- Multi-pane monitoring layout
+- Mentions, watched channels, DM/group DM, search, saved, and diagnostics panes
+- Pane persistence
+- Saved pane sets
+- Supplemental search and filtering workflow
+- Layout export and import
 
 ## Architecture
 
-### Injection Strategy
+### Injection Model
 
-- Use a Manifest V3 Chrome extension.
-- Register the content script dynamically only for the configured Mattermost origin.
-- Request host permission explicitly from the user when the server URL is saved.
-- Mount the extension UI into a Shadow DOM root attached to `body`.
-- Reserve screen space by shrinking the Mattermost root width instead of overlaying the deck on top of the main content.
+- Manifest V3 extension
+- Dynamic origin registration for configured Mattermost servers
+- Shadow DOM mount attached to `body`
+- Mattermost layout width is reduced to reserve deck space
 
-Why:
+### Rendering Guard
 
-- Shadow DOM isolates extension styles from Mattermost styles.
-- Shrinking the main app width preserves a true right-side deck layout.
-- Dynamic origin registration reduces unnecessary permission scope and avoids injecting into unrelated sites.
+Render only when all of the following are true:
 
-### Rendering Guardrails
+- `window.location.origin` matches the configured server URL
+- current route kind is allowed
+- optional team slug restriction matches
+- health-check API succeeds
 
-The extension should render only when all of the following are true:
+Do not rely on fragile Mattermost DOM signatures as the primary render guard.
 
-- `window.location.origin` matches the configured Mattermost server URL.
-- The route kind is allowed by settings.
-  - Current default allowed kinds: `channels`, `messages`
-- If a team slug restriction is configured, the current route matches that slug.
-- The configured health-check API endpoint returns a successful response.
+## Data Model
 
-DOM signatures should not be used as a primary guard because they are more likely to break across Mattermost upgrades.
+### Pane Types
 
-### Health Check Constraints
+- `mentions`
+- `channelWatch`
+- `dmWatch`
+- `search`
+- `saved`
+- `diagnostics`
 
-- Health-check paths must be restricted to relative `/api/v4/...` paths.
-- Absolute user-specified URLs should not be used as fetch targets.
-- Health checks must always stay on the configured Mattermost origin.
+### Saved State
 
-## Security Notes
+Persist at least:
 
-### PAT Storage
+- pane order
+- pane configuration
+- drawer open state
+- drawer width
+- preferred pane width
+- preferred column width
+- saved pane sets
+- recent targets
 
-PAT is not stored as raw plain text.
+## Sync Model
 
-Current implementation in [`src/ui/storage.ts`](../src/ui/storage.ts):
+### REST
 
-- Prefix format: `enc:v1:...`
-- Encryption: `AES-GCM 256`
-- Random IV per write: 12 bytes
-- Key derivation:
-  - `PBKDF2`
-  - `SHA-256`
-  - `100_000` iterations
-  - salt: `mattermost-deck.local-storage.v1`
-- Key material source:
-  - `chrome.runtime.id`
-  - fallback to `window.location.origin` if needed
+- Use the active Mattermost browser session
+- Initial loading happens via REST
+- Non-realtime mode uses conservative polling
 
-The derived `CryptoKey` is memoized in memory so repeated encrypt/decrypt operations do not rerun PBKDF2 every time.
+### WebSocket
 
-### PAT Persistence Policy
+- Optional
+- Enabled only when a PAT is configured
+- Used for realtime deltas, not full state rebuilds
 
-- Default storage: `chrome.storage.session`
-- Optional storage: `chrome.storage.local`
-- Persistent storage must be an explicit user choice
+### Health
 
-This reduces the chance that a PAT remains on disk longer than intended.
+Display health separately from sync mode, but present them together in the topbar.
 
-### Encryption Limits
-
-This encryption is intentionally described as client-side protection, not a full secret boundary.
-
-Why:
-
-- The extension itself must be able to decrypt the token.
-- The key derivation source is available on the client.
-- A local attacker with extension execution access can still recover the token.
-
-Therefore the design goal is:
-
-- avoid casual plain-text exposure in storage
-- improve safety against accidental disclosure
-- make the storage model explicit to the user
-
-But not:
-
-- claim hardware-backed secrecy
-- claim protection against a fully compromised client
-
-## API Burst Control
-
-### Design Principle
-
-The extension must not send a burst of same-timestamp requests when multiple panes need data at once.
-
-This matters especially for:
-
-- multiple watched columns
-- `All teams` mention mode
-- reconnect reconciliation
-- manual refresh from several panes
-
-### Current Request Queue
-
-Implemented in [`src/mattermost/api.ts`](../src/mattermost/api.ts):
-
-- all REST requests flow through `scheduleApiRequest(...)`
-- requests are serialized through a single in-tab queue
-- a minimum inter-request gap is enforced
-  - current value: `120ms`
-
-### GET Deduplication and Short TTL Cache
-
-Current implementation also includes:
-
-- inflight GET deduplication by pathname
-- very short response cache for GET requests
-  - current TTL: `1000ms`
-
-### Required Load Rules
-
-- Do not create one WebSocket per pane.
-- Do not refetch all pane datasets after every event.
-- Do not reconnect WebSocket in a tight loop.
-- Do not poll all teams or all panes at short intervals.
-- Do not allow UI settings to reduce polling below the enforced minimum.
-
-## Polling Policy
-
-- Realtime enabled:
-  - WebSocket is primary
-  - REST is used for initial load and limited reconciliation
-- Realtime disabled:
-  - REST polling is primary
-  - interval remains conservative
-
-Polling settings are normalized at load and save time, not only in the UI. This prevents direct storage tampering from forcing `0s` polling.
-
-### `All Teams` Mentions
-
-`All teams` mode is intentionally treated as a heavier mode.
-
-- team-specific mentions are the default
-- `All teams` must carry a clear warning in the UI
-- `All teams` should raise the effective polling interval floor
-- requests across teams must still flow through the serialized API queue
-
-## Data Retention and Pagination
-
-- initial fetch per pane: `20`
-- `Load more` step: `20`
-- per-pane in-memory cap: `100`
-
-Do not allow unbounded DOM growth. Prefer small, predictable page sizes over large one-shot fetches.
-
-## Manual Refresh Behavior
-
-- manual refresh must only reload the affected pane
-- manual refresh should not trigger full-deck reloads
-- manual refresh should provide visible feedback even when the response is very fast
-
-Current UI guidance:
-
-- refresh icon animates while loading
-- animation has a minimum visible duration
-- the button is temporarily disabled while the refresh is active
-
-## Health Model
-
-Health should not be derived from WebSocket mode alone.
-
-Suggested combined states:
+Examples:
 
 - `Healthy / Realtime`
 - `Healthy / Polling`
-- `Degraded / Realtime`
+- `Degraded / Polling`
 - `Error / Polling`
 
-Measurement strategy:
+Use existing REST success and failure as the primary health signal and the configured health-check API as a supplemental signal.
 
-- primary signal: success or failure of existing REST work
-- supplemental signal: configured health-check API path
-- do not hardcode the health endpoint in the data layer
+## Request Control
 
-## Layout Guidelines
+### Burst Avoidance
 
-- Deck width is user-resizable.
-- Dragged width is persisted and restored on restart.
-- Preferred width from settings acts as a default, not as an override of an explicit dragged width.
-- Column order is persisted.
-- Preferred column width acts as the baseline width for panes.
+The extension must avoid synchronized bursts when many panes refresh at once.
 
-## License and Distribution
+Current design:
 
-- Project license: MIT
-- Distribution intent: lightweight, permissive, no-warranty release model
-- Documentation should keep license references aligned between `README` and `LICENSE`
+- all REST requests go through a serialized in-tab queue
+- a minimum request gap is enforced
+- inflight GET deduplication is used
+- a short TTL cache is used for GET requests
+
+### Polling Rules
+
+- polling intervals are normalized at load and save time
+- user settings cannot force zero or near-zero polling
+- `All teams` mentions is treated as a heavier mode with a slower effective floor
+- search panes use a slower polling floor than normal monitoring panes
+
+## Security
+
+### PAT Storage
+
+PATs are not stored as raw plain text when persistence is enabled.
+
+Implementation summary:
+
+- AES-GCM encryption
+- PBKDF2 key derivation
+- client-side key material
+- memoized derived key
+
+This improves resistance to accidental disclosure, but it is not a full secret boundary.
+
+### Persistence Policy
+
+- default: session-only storage
+- persistent storage: explicit opt-in
+
+### Health Check Constraint
+
+- health-check path must stay under `/api/v4/...`
+- requests must stay on the configured Mattermost origin
+
+## Interaction Rules
+
+### Post Click
+
+User-configurable behavior:
+
+- navigate
+- do nothing
+- ask
+
+Dragging or text selection must not trigger navigation.
+
+### Auto-scroll
+
+If the user has been idle long enough, new posts may scroll the pane back toward the top. If the user is actively reading, avoid disruptive jumps.
+
+### Pane Reordering
+
+- direct left and right moves from pane controls
+- additional reorder workflow from the Views menu
+- reorder animation should run only when pane order changes, not on ordinary pane content updates
+
+## Search UX
+
+- search highlighting should use dedicated highlight tokens
+- snippets should prefer the first match neighborhood instead of always truncating from the start
+- search syntax help should reflect Mattermost search behavior
+- Search replaces the earlier separate keyword-watch concept
+
+## Layout Export / Import
+
+- export should create a JSON download
+- import should read from a selected JSON file
+- PATs must not be part of exported layout data
+
+## Theming
+
+- default extension theme is `mattermost`
+- Mattermost theme integration should prefer Mattermost CSS variables over fragile DOM heuristics
+- badge colors, button colors, highlights, and topbar text may use different source variables
+- pane identity icons are always shown
+- pane color accents are optional and disabled by default
+
+## Documentation and Distribution
+
+- project license: MIT
+- README exists in English and Japanese
+- design guide exists in English and Japanese
+- release packaging is triggered by `v*` tags in GitHub Actions

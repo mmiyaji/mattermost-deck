@@ -3471,6 +3471,8 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
   const [showViewsMenu, setShowViewsMenu] = useState(false);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [showRailAddMenu, setShowRailAddMenu] = useState(false);
+  const [viewReorderMode, setViewReorderMode] = useState(false);
+  const [viewReorderDraft, setViewReorderDraft] = useState<DeckColumn[] | null>(null);
   const [railAddMenuPosition, setRailAddMenuPosition] = useState<{ top: number; right: number } | null>(null);
   const [isCompactHeader, setIsCompactHeader] = useState(false);
   const [pendingScrollColumnId, setPendingScrollColumnId] = useState<string | null>(null);
@@ -3484,6 +3486,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
   const railAddMenuRef = useRef<HTMLDivElement | null>(null);
   const railAddButtonRef = useRef<HTMLButtonElement | null>(null);
   const railAddOverlayMenuRef = useRef<HTMLDivElement | null>(null);
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const resizeStateRef = useRef<{ pointerId: number } | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const pendingWidthRef = useRef<number | null>(null);
@@ -3949,20 +3952,79 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
     setShowRailAddMenu(false);
   };
 
-  const handleExportLayout = async () => {
+  const handleStartViewReorder = () => {
+    setViewReorderDraft([...(columns ?? [])]);
+    setViewReorderMode(true);
+  };
+
+  const handleCancelViewReorder = () => {
+    setViewReorderMode(false);
+    setViewReorderDraft(null);
+  };
+
+  const handleApplyViewReorder = () => {
+    if (viewReorderDraft) {
+      replaceColumns(viewReorderDraft);
+    }
+    setViewReorderMode(false);
+    setViewReorderDraft(null);
+  };
+
+  const handleMoveViewDraft = (id: string, direction: "up" | "down") => {
+    setViewReorderDraft((current) => {
+      if (!current) {
+        return current;
+      }
+      const index = current.findIndex((column) => column.id === id);
+      if (index < 0) {
+        return current;
+      }
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= current.length) {
+        return current;
+      }
+      const next = [...current];
+      const [column] = next.splice(index, 1);
+      next.splice(targetIndex, 0, column);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (!showViewsMenu && viewReorderMode) {
+      setViewReorderMode(false);
+      setViewReorderDraft(null);
+    }
+  }, [showViewsMenu, viewReorderMode]);
+
+  const handleExportLayout = () => {
     const payload = JSON.stringify({ columns: columns ?? [] }, null, 2);
-    await navigator.clipboard.writeText(payload).catch(() => undefined);
+    const blob = new Blob([payload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "mattermost-deck-layout.json";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
     setShowActionsMenu(false);
     setShowRailAddMenu(false);
   };
 
   const handleImportLayout = () => {
-    const raw = window.prompt("Paste deck layout JSON");
-    if (!raw) {
+    importFileInputRef.current?.click();
+  };
+
+  const handleImportFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
       return;
     }
 
     try {
+      const raw = await file.text();
       const parsed = JSON.parse(raw) as { columns?: DeckColumn[] };
       if (!Array.isArray(parsed.columns)) {
         return;
@@ -3984,6 +4046,13 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
       data-column-color-enabled={deckSettings.columnColorEnabled ? "true" : "false"}
       style={shellStyle}
     >
+      <input
+        ref={importFileInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="deck-hidden-file-input"
+        onChange={handleImportFileChange}
+      />
       <button
         type="button"
         className={`deck-resizer${isResizing ? " deck-resizer--active" : ""}`}
@@ -4056,21 +4125,60 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                 {showViewsMenu ? (
                   <div className="deck-add-menu deck-add-menu--views">
                     <div className="deck-add-menu-title">Views</div>
-                    {(columns ?? []).map((column, index) => {
+                    <div className="deck-menu-row deck-menu-row--toolbar">
+                      {!viewReorderMode ? (
+                        <button type="button" className="deck-add-item" onClick={handleStartViewReorder}>
+                          Reorder panes
+                        </button>
+                      ) : (
+                        <>
+                          <button type="button" className="deck-add-item" onClick={handleApplyViewReorder}>
+                            Apply order
+                          </button>
+                          <button type="button" className="deck-add-item deck-add-item--secondary" onClick={handleCancelViewReorder}>
+                            Cancel
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    {(viewReorderMode ? viewReorderDraft ?? [] : columns ?? []).map((column, index, source) => {
                       const meta = getColumnViewMeta(column);
                       return (
                         <div key={column.id} className="deck-menu-row deck-menu-row--view">
                           <button type="button" className="deck-add-item" onClick={() => handleFocusColumn(column.id)}>
                             <ColumnViewTarget type={column.type} title={`${index + 1}. ${meta.title}`} subtitle={meta.subtitle} />
                           </button>
-                          <button
-                            type="button"
-                            className="deck-icon-button deck-icon-button--ghost"
-                            onClick={() => handleCloseColumnFromMenu(column.id)}
-                            aria-label={`Close ${meta.title}`}
-                          >
-                            <CloseIcon />
-                          </button>
+                          {viewReorderMode ? (
+                            <div className="deck-inline-actions deck-inline-actions--stack">
+                              <button
+                                type="button"
+                                className="deck-icon-button deck-icon-button--ghost"
+                                onClick={() => handleMoveViewDraft(column.id, "up")}
+                                aria-label={`Move ${meta.title} up`}
+                                disabled={index === 0}
+                              >
+                                <ArrowIcon direction="left" />
+                              </button>
+                              <button
+                                type="button"
+                                className="deck-icon-button deck-icon-button--ghost"
+                                onClick={() => handleMoveViewDraft(column.id, "down")}
+                                aria-label={`Move ${meta.title} down`}
+                                disabled={index === source.length - 1}
+                              >
+                                <ArrowIcon direction="right" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="deck-icon-button deck-icon-button--ghost"
+                              onClick={() => handleCloseColumnFromMenu(column.id)}
+                              aria-label={`Close ${meta.title}`}
+                            >
+                              <CloseIcon />
+                            </button>
+                          )}
                         </div>
                       );
                     })}

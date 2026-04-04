@@ -40,6 +40,10 @@ export const railCssText = `
     box-sizing: border-box;
   }
 
+  .deck-hidden-file-input {
+    display: none;
+  }
+
   .deck-shell {
     display: flex;
     flex-direction: column;
@@ -221,6 +225,18 @@ export const railCssText = `
     color: var(--deck-text);
     cursor: pointer;
     text-align: left;
+  }
+
+  .deck-add-item--secondary {
+    background: var(--deck-panel);
+  }
+
+  .deck-menu-row--toolbar {
+    margin-bottom: 2px;
+  }
+
+  .deck-menu-row--toolbar .deck-add-item {
+    justify-content: center;
   }
 
   .deck-menu-label {
@@ -883,6 +899,17 @@ export const railCssText = `
   .deck-column-actions {
     display: flex;
     align-items: center;
+    gap: 8px;
+  }
+
+  .deck-inline-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .deck-inline-actions--stack {
+    flex-direction: column;
     gap: 8px;
   }
 

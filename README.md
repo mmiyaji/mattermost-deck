@@ -1,8 +1,8 @@
 # Mattermost Deck
 
-[日本語版はこちら](./README.ja.md)
+[日本語 README](./README.ja.md)
 
-Chrome extension that adds a TweetDeck-style right rail to the Mattermost web app while keeping the native Mattermost navigation and main timeline intact.
+Mattermost Deck is a Chrome extension that adds a TweetDeck-style multi-pane workspace to the right side of Mattermost Web while keeping the native Mattermost UI as the primary interface.
 
 ## Screenshots
 
@@ -16,21 +16,29 @@ Dark theme:
 
 ## Features
 
-- Keeps Mattermost as the primary UI for team and channel switching
-- Injects a resizable right rail into the existing page
-- Supports mentions, watched channels, and DM/group DM columns
-- Uses the current browser session for REST access
+- Keeps Mattermost responsible for login, navigation, posting, editing, and the native RHS thread UI
+- Adds a resizable right-side deck with horizontally scrollable panes
+- Supports pane types for:
+  - Mentions
+  - Channel Watch
+  - DM / Group
+  - Search
+  - Saved
+  - Diagnostics
+- Supports saved pane sets from the Views menu
+- Supports pane reordering from pane controls and from the Views menu reorder mode
+- Supports layout export and import as JSON files
 - Supports optional realtime updates with a Mattermost PAT
-- Persists layout, drawer width, column width, and appearance settings
-- Opens threads from the rail inside Mattermost's own UI
+- Adapts deck colors to Mattermost theme variables
+- Supports configurable pane identity colors, compact density, font scale, and pane width defaults
 
 ## How It Works
 
-- Mattermost remains the main application shell
-- The extension renders supplemental panes inside a Shadow DOM right rail
-- Data comes from Mattermost REST APIs and optional WebSocket events
-- The extension validates the configured target URL and health-check endpoint before rendering
-- Content script injection is limited to the configured Mattermost origin after explicit Chrome permission is granted
+- Mattermost remains the source of truth for team switching, channel switching, posting, and thread rendering.
+- The extension mounts a Shadow DOM right rail and reduces the Mattermost root width to reserve deck space.
+- REST requests reuse the current browser session.
+- Optional WebSocket realtime mode uses a PAT supplied in Options.
+- Rendering is guarded by the configured Mattermost origin, allowed route kinds, optional team slug, and a health-check API.
 
 ## Setup
 
@@ -41,23 +49,23 @@ npm run build
 
 Load `dist/` as an unpacked extension in Chrome.
 
-On first install, the extension opens its Options page so you can configure:
+On first install, the extension opens its Options page. Configure:
 
 - Mattermost server URL
 - Optional team slug restriction
 - Optional PAT for realtime mode
 - Polling interval and appearance settings
 
-Saving the server URL also requests Chrome permission for that Mattermost origin. The extension does not inject itself into every site by default.
+Saving the server URL requests Chrome permission for that Mattermost origin. The extension is designed to inject only into configured Mattermost servers, not all websites.
 
 ## Security Notes
 
-- The PAT is encrypted client-side before storage
-- Session-only PAT storage is the default
-- Persistent PAT storage is optional and should be used only when needed
-- This is better than plain-text storage, but it is not a complete security boundary
-- The client can still decrypt the stored token, so use a minimally scoped token when possible
-- Health-check paths are restricted to `/api/v4/...` on the configured Mattermost origin
+- PAT storage defaults to `chrome.storage.session`
+- Persistent PAT storage is opt-in
+- Persistent PAT values are encrypted client-side before being stored
+- This reduces casual plain-text exposure, but it is not a full secret boundary
+- Health-check paths are restricted to relative `/api/v4/...` paths on the configured Mattermost origin
+- REST requests are serialized in-tab to avoid refresh bursts when multiple panes update together
 
 ## Development
 
@@ -67,34 +75,33 @@ npm run build
 npm run test:e2e
 ```
 
-To generate README screenshots:
+Manual local browser startup:
+
+```powershell
+npm run open:mattermost
+```
+
+Refresh README screenshots:
 
 ```powershell
 npm run capture:readme
 ```
 
-The screenshot script expects a reachable Mattermost test environment and valid test credentials.
+The screenshot script requires a reachable Mattermost test environment with valid credentials.
 
 ## Release
 
-Push a tag in `v` format such as `v0.1.0` to trigger GitHub Actions.
+Push a tag in `v` format, such as `v0.1.0`, to trigger GitHub Actions.
 
-- The workflow runs `npm ci`, `npm run check`, and `npm run build`
-- It packages `dist/` as `mattermost-deck-<tag>.zip`
-- It creates a GitHub Release and uploads the zip as a release asset
+- Runs `npm ci`, `npm run check`, and `npm run build`
+- Packages `dist/` as `mattermost-deck-<tag>.zip`
+- Creates a GitHub Release and uploads the zip as an asset
 
 ## License
 
 MIT. See [LICENSE](./LICENSE).
 
-## Current Scope
-
-- Inject a right rail via content script
-- Reserve layout space by shrinking Mattermost and exposing a resizable drawer
-- Render mentions, watched channels, and DM/group DM columns in a Shadow DOM
-- Reuse the current session for REST and optional PAT for realtime WebSocket
-- Support options-driven targeting, health checks, and release packaging
-
 ## Design Notes
 
-- Detailed design guidance: [docs/design-guidelines.md](./docs/design-guidelines.md)
+- English design guide: [./docs/design-guidelines.md](./docs/design-guidelines.md)
+- 日本語設計ガイド: [./docs/design-guidelines.ja.md](./docs/design-guidelines.ja.md)
