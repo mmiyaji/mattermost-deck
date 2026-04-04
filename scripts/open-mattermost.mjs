@@ -10,6 +10,31 @@ const userDataDir = path.resolve("./.tmp-open-browser/profile");
 const state = JSON.parse(await fs.readFile(statePath, "utf8"));
 await fs.mkdir(userDataDir, { recursive: true });
 
+async function getExtensionId(context) {
+  let [serviceWorker] = context.serviceWorkers();
+  if (!serviceWorker) {
+    serviceWorker = await context.waitForEvent("serviceworker");
+  }
+  return new URL(serviceWorker.url()).host;
+}
+
+async function configureExtension(page, extensionId, baseUrl, teamName) {
+  await page.goto(`chrome-extension://${extensionId}/options.html`, {
+    waitUntil: "domcontentloaded",
+    timeout: 60_000,
+  });
+
+  const serverUrlInput = page.locator('input[type="url"]').first();
+  const teamSlugInput = page.locator('input[type="text"]').first();
+  await serverUrlInput.waitFor({ state: "visible", timeout: 30_000 });
+  await serverUrlInput.fill(baseUrl);
+  await teamSlugInput.fill(teamName);
+
+  const saveButton = page.getByRole("button", { name: /save/i }).first();
+  await saveButton.click();
+  await page.waitForTimeout(1_000);
+}
+
 const context = await chromium.launchPersistentContext(userDataDir, {
   channel: "chromium",
   headless: false,
@@ -52,6 +77,13 @@ if ((await page.waitForURL(/channels|messages/, { timeout: 2_000 }).then(() => t
   await page.getByRole("button", { name: /log in/i }).click();
   await page.waitForURL(/channels|messages/, { timeout: 60_000 });
 }
+
+const extensionId = await getExtensionId(context);
+await configureExtension(page, extensionId, baseUrl, state.team.name);
+await page.goto(`${baseUrl}/${state.team.name}/channels/town-square`, {
+  waitUntil: "domcontentloaded",
+  timeout: 60_000,
+});
 await page.waitForTimeout(3_000);
 
 const shutdown = async () => {

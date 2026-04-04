@@ -305,7 +305,7 @@ function renderHighlightedText(text: string, query: string): React.ReactNode {
   const segments = text.split(pattern);
   return segments.map((segment, index) =>
     terms.some((term) => segment.toLowerCase() === term.toLowerCase()) ? (
-      <mark key={`${segment}-${index}`} className="deck-highlight">
+      <mark key={`${segment}-${index}`} className="search-highlight">
         {segment}
       </mark>
     ) : (
@@ -767,6 +767,13 @@ type MattermostThemeStyle = React.CSSProperties & {
   ["--deck-accent"]?: string;
   ["--deck-accent-strong"]?: string;
   ["--deck-accent-soft"]?: string;
+  ["--deck-accent-text"]?: string;
+  ["--deck-button-bg"]?: string;
+  ["--deck-button-text"]?: string;
+  ["--deck-badge-bg"]?: string;
+  ["--deck-badge-text"]?: string;
+  ["--deck-highlight-bg"]?: string;
+  ["--deck-highlight-text"]?: string;
   ["--deck-success"]?: string;
   ["--deck-warn"]?: string;
   ["--deck-danger"]?: string;
@@ -804,6 +811,79 @@ function lightenRgb(color: string, ratio: number): string {
   return `rgb(${mix(r)}, ${mix(g)}, ${mix(b)})`;
 }
 
+function parseCssColor(color: string): [number, number, number] | null {
+  const trimmed = color.trim();
+  const rgbMatch = trimmed.match(/\d+(?:\.\d+)?/g);
+  if (rgbMatch && rgbMatch.length >= 3) {
+    return [Number(rgbMatch[0]), Number(rgbMatch[1]), Number(rgbMatch[2])];
+  }
+
+  const hex = trimmed.replace("#", "");
+  if (/^[0-9a-f]{6}$/i.test(hex)) {
+    return [
+      Number.parseInt(hex.slice(0, 2), 16),
+      Number.parseInt(hex.slice(2, 4), 16),
+      Number.parseInt(hex.slice(4, 6), 16),
+    ];
+  }
+  if (/^[0-9a-f]{3}$/i.test(hex)) {
+    return [
+      Number.parseInt(`${hex[0]}${hex[0]}`, 16),
+      Number.parseInt(`${hex[1]}${hex[1]}`, 16),
+      Number.parseInt(`${hex[2]}${hex[2]}`, 16),
+    ];
+  }
+
+  return null;
+}
+
+function relativeLuminance(color: string): number {
+  const rgb = parseCssColor(color);
+  if (!rgb) {
+    return 0;
+  }
+
+  const channel = (value: number) => {
+    const normalized = value / 255;
+    return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+  };
+
+  const [r, g, b] = rgb.map(channel);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrastRatio(left: string, right: string): number {
+  const lighter = Math.max(relativeLuminance(left), relativeLuminance(right));
+  const darker = Math.min(relativeLuminance(left), relativeLuminance(right));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function pickBestAccent(background: string, candidates: Array<string | undefined>, fallback: string): string {
+  const usable = candidates.filter((candidate): candidate is string => Boolean(candidate && candidate.trim()));
+  if (usable.length === 0) {
+    return fallback;
+  }
+
+  return usable
+    .map((candidate) => ({ candidate, score: contrastRatio(candidate, background) }))
+    .sort((left, right) => right.score - left.score)[0]?.candidate ?? fallback;
+}
+
+function pickReadableForeground(background: string, candidates: Array<string | undefined>, fallback: string): string {
+  return pickBestAccent(background, candidates, fallback);
+}
+
+function colorMixFallback(primary: string, secondary: string, ratio = 0.32): string {
+  const left = parseCssColor(primary);
+  const right = parseCssColor(secondary);
+  if (!left || !right) {
+    return primary;
+  }
+
+  const mix = (a: number, b: number) => Math.round(a * ratio + b * (1 - ratio));
+  return `rgb(${mix(left[0], right[0])}, ${mix(left[1], right[1])}, ${mix(left[2], right[2])})`;
+}
+
 function darkenRgb(color: string, ratio: number): string {
   const match = color.match(/\d+/g);
   if (!match || match.length < 3) {
@@ -815,9 +895,29 @@ function darkenRgb(color: string, ratio: number): string {
   return `rgb(${mix(r)}, ${mix(g)}, ${mix(b)})`;
 }
 
+function readCssVar(style: CSSStyleDeclaration, name: string): string | undefined {
+  const value = style.getPropertyValue(name).trim();
+  return value.length > 0 ? value : undefined;
+}
+
+function readMattermostThemeValue(
+  rootStyle: CSSStyleDeclaration,
+  names: readonly string[],
+  fallback?: string,
+): string {
+  for (const name of names) {
+    const value = readCssVar(rootStyle, name);
+    if (value) {
+      return value;
+    }
+  }
+  return fallback ?? "";
+}
+
 function extractMattermostThemeStyle(): MattermostThemeStyle {
   const rootElement = document.documentElement;
   const sidebar = queryFirst(["#SidebarContainer", ".SidebarContainer", ".sidebar-left-container"]);
+  const sidebarTeamButton = queryFirst(["#sidebarTeamMenuButton"]);
   const appBody = queryFirst([".app__body", ".app__body-center-channel", ".app__content"]);
   const channelHeader = queryFirst([".channel-header", ".channel-header--info", ".center-channel__header"]);
   const postArea = queryFirst([".post-list", ".center-channel", ".app__content"]);
@@ -826,41 +926,152 @@ function extractMattermostThemeStyle(): MattermostThemeStyle {
 
   const rootStyle = getComputedStyle(rootElement);
   const sidebarStyle = sidebar ? getComputedStyle(sidebar) : rootStyle;
+  const sidebarTeamButtonStyle = sidebarTeamButton ? getComputedStyle(sidebarTeamButton) : sidebarStyle;
   const appBodyStyle = appBody ? getComputedStyle(appBody) : rootStyle;
   const channelHeaderStyle = channelHeader ? getComputedStyle(channelHeader) : rootStyle;
   const postAreaStyle = postArea ? getComputedStyle(postArea) : rootStyle;
   const buttonStyle = button ? getComputedStyle(button) : rootStyle;
   const linkStyle = link ? getComputedStyle(link) : rootStyle;
 
-  const sidebarBg = sidebarStyle.backgroundColor || "rgb(20, 93, 191)";
-  const sidebarText = sidebarStyle.color || "rgb(255, 255, 255)";
-  const shellBg = appBodyStyle.backgroundColor || sidebarBg;
-  const centerBg = postAreaStyle.backgroundColor || "rgb(255, 255, 255)";
-  const centerText = postAreaStyle.color || "rgb(61, 60, 64)";
-  const headerBg = channelHeaderStyle.backgroundColor || centerBg;
-  const accent = buttonStyle.backgroundColor || linkStyle.color || "rgb(22, 109, 224)";
+  const sidebarBg = readMattermostThemeValue(
+    rootStyle,
+    ["--sidebar-bg", "--sidebar-header-bg", "--sidebar-bg-rgb"],
+    sidebarStyle.backgroundColor || "rgb(20, 93, 191)",
+  );
+  const sidebarHeaderBg = readMattermostThemeValue(
+    rootStyle,
+    ["--sidebar-header-bg", "--sidebar-bg"],
+    channelHeaderStyle.backgroundColor || sidebarBg,
+  );
+  const sidebarText =
+    sidebarTeamButtonStyle.color ||
+    readMattermostThemeValue(rootStyle, ["--sidebar-text", "--sidebar-header-text-color"], sidebarStyle.color) ||
+    "rgb(255, 255, 255)";
+  const sidebarTextSoft =
+    (sidebarTeamButtonStyle.color ? rgbaFromRgb(sidebarTeamButtonStyle.color, 0.8) : undefined) ||
+    readMattermostThemeValue(rootStyle, ["--sidebar-text-80", "--sidebar-header-text-color-80"], rgbaFromRgb(sidebarText, 0.8));
+  const shellBg = readMattermostThemeValue(
+    rootStyle,
+    ["--sidebar-header-bg", "--sidebar-bg"],
+    appBodyStyle.backgroundColor || sidebarHeaderBg,
+  );
+  const shellBgSoft = readMattermostThemeValue(
+    rootStyle,
+    ["--sidebar-text-08", "--center-channel-bg-08"],
+    lightenRgb(shellBg, 0.03),
+  );
+  const centerBg = readMattermostThemeValue(
+    rootStyle,
+    ["--center-channel-bg", "--center-channel-bg-88"],
+    postAreaStyle.backgroundColor || "rgb(255, 255, 255)",
+  );
+  const centerText = readMattermostThemeValue(
+    rootStyle,
+    ["--center-channel-color", "--center-channel-color-88"],
+    postAreaStyle.color || "rgb(61, 60, 64)",
+  );
+  const centerTextSoft = readMattermostThemeValue(
+    rootStyle,
+    ["--center-channel-color-72", "--center-channel-color-64"],
+    rgbaFromRgb(centerText, 0.72),
+  );
+  const centerTextFaint = readMattermostThemeValue(
+    rootStyle,
+    ["--center-channel-color-56", "--center-channel-color-48"],
+    rgbaFromRgb(centerText, 0.58),
+  );
+  const border = readMattermostThemeValue(
+    rootStyle,
+    ["--center-channel-color-16", "--center-channel-color-24"],
+    rgbaFromRgb(centerText, 0.12),
+  );
+  const borderStrong = readMattermostThemeValue(
+    rootStyle,
+    ["--center-channel-color-24", "--center-channel-color-32"],
+    rgbaFromRgb(centerText, 0.18),
+  );
+  const accent = pickBestAccent(
+    centerBg,
+    [
+      readMattermostThemeValue(rootStyle, ["--button-bg"]),
+      readMattermostThemeValue(rootStyle, ["--link-color"]),
+      readMattermostThemeValue(rootStyle, ["--sidebar-text-active-border"]),
+      readMattermostThemeValue(rootStyle, ["--mention-highlight-link"]),
+      buttonStyle.backgroundColor,
+      linkStyle.color,
+    ],
+    buttonStyle.backgroundColor || linkStyle.color || "rgb(22, 109, 224)",
+  );
+  const accentSoft = rgbaFromRgb(accent, 0.14);
+  const accentText = pickReadableForeground(
+    accent,
+    [
+      readMattermostThemeValue(rootStyle, ["--button-color"]),
+      centerText,
+      "rgb(255, 255, 255)",
+      "rgb(27, 29, 34)",
+    ],
+    "rgb(255, 255, 255)",
+  );
+  const buttonBg = readMattermostThemeValue(rootStyle, ["--button-bg"], accent);
+  const buttonText = readMattermostThemeValue(
+    rootStyle,
+    ["--button-color"],
+    pickReadableForeground(buttonBg, ["rgb(255, 255, 255)", centerText], "rgb(255, 255, 255)"),
+  );
+  const badgeBg = readMattermostThemeValue(rootStyle, ["--mention-bg"], accent);
+  const badgeText = readMattermostThemeValue(
+    rootStyle,
+    ["--mention-color"],
+    pickReadableForeground(badgeBg, [centerText, "rgb(255, 255, 255)", "rgb(27, 29, 34)"], centerText),
+  );
+  const highlightBg = readMattermostThemeValue(
+    rootStyle,
+    ["--mention-highlight-bg"],
+    colorMixFallback(accent, "#ffe082"),
+  );
+  const highlightText = pickReadableForeground(
+    highlightBg,
+    [
+      readMattermostThemeValue(rootStyle, ["--mention-highlight-link"]),
+      centerText,
+      "rgb(27, 29, 34)",
+      "rgb(255, 255, 255)",
+    ],
+    "rgb(27, 29, 34)",
+  );
+  const warn = readMattermostThemeValue(rootStyle, ["--away-indicator"], "rgb(255, 188, 66)");
+  const success = readMattermostThemeValue(rootStyle, ["--online-indicator"], "rgb(6, 214, 160)");
+  const danger = readMattermostThemeValue(rootStyle, ["--error-text", "--error-text-color"], "rgb(247, 67, 67)");
 
   return {
     "--deck-bg": shellBg,
     "--deck-bg-elevated": shellBg,
-    "--deck-bg-soft": lightenRgb(shellBg, 0.03),
+    "--deck-bg-soft": shellBgSoft,
     "--deck-panel": centerBg,
     "--deck-panel-2": centerBg,
     "--deck-card": lightenRgb(centerBg, 0.015),
     "--deck-card-soft": centerBg,
-    "--deck-border": rgbaFromRgb(centerText, 0.12),
-    "--deck-border-strong": rgbaFromRgb(centerText, 0.18),
+    "--deck-border": border,
+    "--deck-border-strong": borderStrong,
     "--deck-text": centerText,
-    "--deck-text-soft": rgbaFromRgb(centerText, 0.72),
-    "--deck-text-faint": rgbaFromRgb(centerText, 0.58),
-    "--deck-topbar-text": lightenRgb(sidebarText, 0.22),
-    "--deck-topbar-text-soft": lightenRgb(rgbaFromRgb(sidebarText, 0.8), 0.12),
+    "--deck-text-soft": centerTextSoft,
+    "--deck-text-faint": centerTextFaint,
+    "--deck-topbar-text": sidebarText,
+    "--deck-topbar-text-soft": sidebarTextSoft,
     "--deck-accent": accent,
     "--deck-accent-strong": darkenRgb(accent, 0.08),
-    "--deck-accent-soft": rgbaFromRgb(accent, 0.14),
-    "--deck-success": rootStyle.getPropertyValue("--online-indicator") || "rgb(6, 214, 160)",
-    "--deck-warn": rootStyle.getPropertyValue("--away-indicator") || "rgb(255, 188, 66)",
-    "--deck-danger": rootStyle.getPropertyValue("--error-text-color") || "rgb(247, 67, 67)",
+    "--deck-accent-soft": accentSoft,
+    "--deck-accent-text": accentText,
+    "--deck-button-bg": buttonBg,
+    "--deck-button-text": buttonText,
+    "--deck-badge-bg": badgeBg,
+    "--deck-badge-text": badgeText,
+    "--deck-highlight-bg": highlightBg,
+    "--deck-highlight-text": highlightText,
+    "--deck-success": success,
+    "--deck-warn": warn,
+    "--deck-danger": danger,
   };
 }
 
@@ -3260,15 +3471,19 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
   const [showViewsMenu, setShowViewsMenu] = useState(false);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [showRailAddMenu, setShowRailAddMenu] = useState(false);
+  const [railAddMenuPosition, setRailAddMenuPosition] = useState<{ top: number; right: number } | null>(null);
   const [isCompactHeader, setIsCompactHeader] = useState(false);
   const [pendingScrollColumnId, setPendingScrollColumnId] = useState<string | null>(null);
   const shellRef = useRef<HTMLElement | null>(null);
   const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const previousColumnRectsRef = useRef<Record<string, DOMRect>>({});
+  const previousColumnOrderRef = useRef<string[]>([]);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
   const viewsMenuRef = useRef<HTMLDivElement | null>(null);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const railAddMenuRef = useRef<HTMLDivElement | null>(null);
+  const railAddButtonRef = useRef<HTMLButtonElement | null>(null);
+  const railAddOverlayMenuRef = useRef<HTMLDivElement | null>(null);
   const resizeStateRef = useRef<{ pointerId: number } | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const pendingWidthRef = useRef<number | null>(null);
@@ -3403,6 +3618,8 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
 
   useLayoutEffect(() => {
     const currentColumns = columns ?? [];
+    const currentOrder = currentColumns.map((column) => column.id);
+    const previousOrder = previousColumnOrderRef.current;
     const nextRects: Record<string, DOMRect> = {};
     const animated: HTMLDivElement[] = [];
 
@@ -3431,8 +3648,16 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
     }
 
     previousColumnRectsRef.current = nextRects;
+    previousColumnOrderRef.current = currentOrder;
 
-    if (animated.length === 0) {
+    const orderChanged =
+      currentOrder.length !== previousOrder.length || currentOrder.some((id, index) => id !== previousOrder[index]);
+
+    if (animated.length === 0 || !orderChanged) {
+      for (const element of animated) {
+        element.style.transition = "";
+        element.style.transform = "";
+      }
       return;
     }
 
@@ -3615,6 +3840,37 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
     };
   }, [showActionsMenu, showAddMenu, showRailAddMenu, showViewsMenu]);
 
+  useLayoutEffect(() => {
+    if (!showRailAddMenu) {
+      setRailAddMenuPosition(null);
+      return;
+    }
+
+    const shell = shellRef.current;
+    const button = railAddButtonRef.current;
+    if (!shell || !button) {
+      return;
+    }
+
+    const updatePosition = () => {
+      const shellRect = shell.getBoundingClientRect();
+      const buttonRect = button.getBoundingClientRect();
+      const estimatedHeight = 360;
+      const margin = 12;
+      const belowTop = buttonRect.bottom - shellRect.top + 8;
+      const aboveTop = buttonRect.top - shellRect.top - estimatedHeight - 8;
+      const top = aboveTop >= margin ? aboveTop : Math.min(Math.max(margin, belowTop), shellRect.height - estimatedHeight - margin);
+      const right = Math.max(margin, shellRect.right - buttonRect.right);
+      setRailAddMenuPosition({ top, right });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [showRailAddMenu]);
+
   useEffect(() => {
     if (!showAddMenu && !showViewsMenu && !showActionsMenu && !showRailAddMenu) {
       return;
@@ -3626,7 +3882,8 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
         (addMenuRef.current && path.includes(addMenuRef.current)) ||
         (viewsMenuRef.current && path.includes(viewsMenuRef.current)) ||
         (actionsMenuRef.current && path.includes(actionsMenuRef.current)) ||
-        (railAddMenuRef.current && path.includes(railAddMenuRef.current));
+        (railAddMenuRef.current && path.includes(railAddMenuRef.current)) ||
+        (railAddOverlayMenuRef.current && path.includes(railAddOverlayMenuRef.current));
 
       if (clickedInside) {
         return;
@@ -4204,9 +4461,11 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
               })}
               <div className="deck-column-tail" ref={railAddMenuRef}>
                 <button
+                  ref={railAddButtonRef}
                   type="button"
                   className="deck-column-add-button"
-                  onClick={() => {
+                  onClick={(event) => {
+                    event.stopPropagation();
                     setShowRailAddMenu((current) => {
                       const next = !current;
                       if (next) {
@@ -4222,32 +4481,36 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                 >
                   <PlusIcon />
                 </button>
-                {showRailAddMenu ? (
-                  <div className="deck-add-menu deck-add-menu--tail">
-                    <div className="deck-add-menu-title">{text.choosePane}</div>
-                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("mentions")}>
-                      <ColumnMenuLabel type="mentions" label={text.addMentions} />
-                    </button>
-                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("channelWatch")}>
-                      <ColumnMenuLabel type="channelWatch" label={text.addChannelWatch} />
-                    </button>
-                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("dmWatch")}>
-                      <ColumnMenuLabel type="dmWatch" label={text.addDmWatch} />
-                    </button>
-                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("search")}>
-                      <ColumnMenuLabel type="search" label="Search" />
-                    </button>
-                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("saved")}>
-                      <ColumnMenuLabel type="saved" label="Saved" />
-                    </button>
-                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("diagnostics")}>
-                      <ColumnMenuLabel type="diagnostics" label="Diagnostics" />
-                    </button>
-                  </div>
-                ) : null}
               </div>
             </main>
           </div>
+          {showRailAddMenu && railAddMenuPosition ? (
+            <div
+              ref={railAddOverlayMenuRef}
+              className="deck-add-menu deck-add-menu--tail"
+              style={{ top: `${railAddMenuPosition.top}px`, right: `${railAddMenuPosition.right}px` }}
+            >
+              <div className="deck-add-menu-title">{text.choosePane}</div>
+              <button type="button" className="deck-add-item" onClick={() => handleAddColumn("mentions")}>
+                <ColumnMenuLabel type="mentions" label={text.addMentions} />
+              </button>
+              <button type="button" className="deck-add-item" onClick={() => handleAddColumn("channelWatch")}>
+                <ColumnMenuLabel type="channelWatch" label={text.addChannelWatch} />
+              </button>
+              <button type="button" className="deck-add-item" onClick={() => handleAddColumn("dmWatch")}>
+                <ColumnMenuLabel type="dmWatch" label={text.addDmWatch} />
+              </button>
+              <button type="button" className="deck-add-item" onClick={() => handleAddColumn("search")}>
+                <ColumnMenuLabel type="search" label="Search" />
+              </button>
+              <button type="button" className="deck-add-item" onClick={() => handleAddColumn("saved")}>
+                <ColumnMenuLabel type="saved" label="Saved" />
+              </button>
+              <button type="button" className="deck-add-item" onClick={() => handleAddColumn("diagnostics")}>
+                <ColumnMenuLabel type="diagnostics" label="Diagnostics" />
+              </button>
+            </div>
+          ) : null}
         </>
       ) : (
         <div className="deck-collapsed-banner">Deck</div>

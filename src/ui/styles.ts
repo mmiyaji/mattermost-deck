@@ -23,6 +23,13 @@ export const railCssText = `
     --deck-accent: #1c58d9;
     --deck-accent-strong: #166de0;
     --deck-accent-soft: rgba(28, 88, 217, 0.18);
+    --deck-accent-text: #ffffff;
+    --deck-button-bg: #1c58d9;
+    --deck-button-text: #ffffff;
+    --deck-badge-bg: #ffffff;
+    --deck-badge-text: #1e325c;
+    --deck-highlight-bg: #ffd470;
+    --deck-highlight-text: #1b1d22;
     --deck-success: #1ca675;
     --deck-warn: #f0b429;
     --deck-danger: #d24b4e;
@@ -63,6 +70,13 @@ export const railCssText = `
     --deck-accent: #1c58d9;
     --deck-accent-strong: #166de0;
     --deck-accent-soft: rgba(28, 88, 217, 0.1);
+    --deck-accent-text: #ffffff;
+    --deck-button-bg: #1c58d9;
+    --deck-button-text: #ffffff;
+    --deck-badge-bg: #ffffff;
+    --deck-badge-text: #1e325c;
+    --deck-highlight-bg: #ffd470;
+    --deck-highlight-text: #1b1d22;
     --deck-shadow: 0 10px 24px rgba(31, 45, 61, 0.08);
     background: var(--deck-bg);
     color: var(--deck-text);
@@ -152,6 +166,9 @@ export const railCssText = `
     right: 0;
     min-width: 220px;
     max-width: 280px;
+    max-height: min(70vh, 560px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 8px;
     border-radius: 10px;
     background: var(--deck-panel);
@@ -173,7 +190,8 @@ export const railCssText = `
   }
 
   .deck-add-menu--tail {
-    right: 0;
+    position: absolute;
+    z-index: 8;
   }
 
   .deck-add-menu-title {
@@ -434,6 +452,10 @@ export const railCssText = `
     gap: 8px;
     padding: 10px 16px;
     font-weight: 600;
+    border-radius: 4px;
+    background: var(--deck-button-bg);
+    color: var(--deck-button-text);
+    box-shadow: none;
   }
 
   .deck-button--secondary {
@@ -769,6 +791,7 @@ export const railCssText = `
     flex: none;
     width: 44px;
     padding-top: 12px;
+    z-index: 1;
   }
 
   .deck-column-add-button {
@@ -782,6 +805,9 @@ export const railCssText = `
     background: var(--deck-panel);
     color: var(--deck-text);
     cursor: pointer;
+    position: relative;
+    z-index: 2;
+    pointer-events: auto;
   }
 
   .deck-column-motion {
@@ -1260,11 +1286,12 @@ export const railCssText = `
     margin-bottom: 4px;
   }
 
-  .deck-highlight {
-    padding: 0 2px;
+  .search-highlight {
+    display: inline-block;
+    padding: 1px 4px;
     border-radius: 4px;
-    background: color-mix(in srgb, var(--deck-accent) 32%, #ffe082 68%);
-    color: inherit;
+    background: var(--deck-highlight-bg);
+    color: var(--deck-highlight-text);
     font-weight: 700;
   }
 
@@ -1316,13 +1343,15 @@ export const railCssText = `
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 36px;
-    height: 36px;
-    padding: 0 10px;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 7px;
     border-radius: 999px;
-    background: var(--deck-accent);
-    color: white;
+    background: var(--deck-badge-bg);
+    color: var(--deck-badge-text);
     font-weight: 700;
+    font-size: calc(12px * var(--deck-font-scale));
+    line-height: 1;
   }
 
   .deck-stack {
