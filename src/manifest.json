@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Mattermost Deck",
   "version": "0.1.0",
-  "description": "Adds a TweetDeck-style right rail to Mattermost Web.",
+  "description": "Add a multi-pane workspace to Mattermost Web for easier tracking of mentions, watched channels, DMs, and search results.",
   "icons": {
     "16": "assets/icons/icon-16.png",
     "32": "assets/icons/icon-32.png",

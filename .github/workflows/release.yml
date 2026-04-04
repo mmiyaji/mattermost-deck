@@ -32,6 +32,7 @@ jobs:
         run: npm run build
         env:
           EXT_VERSION: ${{ github.ref_name }}
+          STORE_BUILD: "true"
 
       - name: Create release archive
         run: |
