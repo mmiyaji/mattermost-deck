@@ -7,6 +7,7 @@ import {
   getChannelsForCurrentUser,
   getCurrentUser,
   getDirectChannelsForCurrentUser,
+  getApiPerformanceSnapshot,
   getFlaggedPosts,
   getRecentPosts,
   getTeamByName,
@@ -93,6 +94,16 @@ interface WsLogEntry {
   level: "info" | "warn" | "error";
   message: string;
   timestamp: number;
+}
+
+type SyncLogEntry = WsLogEntry;
+
+interface RuntimePerformanceSnapshot {
+  domNodeCount: number;
+  memoryUsedMb: number | null;
+  memoryLimitMb: number | null;
+  memoryUsageRatio: number | null;
+  api: ReturnType<typeof getApiPerformanceSnapshot>;
 }
 
 type ApiHealthStatus = "healthy" | "degraded" | "error";
@@ -596,6 +607,64 @@ function getColumnGlyph(type: DeckColumnType): string {
     case "diagnostics":
       return "diagnostics";
   }
+}
+
+function formatMetricNumber(value: number): string {
+  if (value >= 1000) {
+    return value.toLocaleString();
+  }
+  if (value % 1 === 0) {
+    return String(value);
+  }
+  return value.toFixed(1);
+}
+
+function formatLatency(value: number): string {
+  return `${Math.round(value)} ms`;
+}
+
+function formatMemoryValue(value: number | null): string {
+  if (value == null) {
+    return "n/a";
+  }
+  return `${value.toFixed(1)} MB`;
+}
+
+function formatMemoryUsage(value: number | null): string {
+  if (value == null) {
+    return "n/a";
+  }
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatRate(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function Sparkline({
+  values,
+  ariaLabel,
+}: {
+  values: number[];
+  ariaLabel: string;
+}): React.JSX.Element {
+  const width = 160;
+  const height = 36;
+  const safeValues = values.length > 0 ? values : [0];
+  const maxValue = Math.max(...safeValues, 1);
+  const points = safeValues
+    .map((value, index) => {
+      const x = safeValues.length === 1 ? width / 2 : (index / (safeValues.length - 1)) * width;
+      const y = height - (value / maxValue) * (height - 4) - 2;
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  return (
+    <svg className="deck-sparkline" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
+      <polyline className="deck-sparkline-line" points={points} />
+    </svg>
+  );
 }
 
 function ColumnTypeIcon({ type }: { type: DeckColumnType }): React.JSX.Element {
@@ -1113,6 +1182,14 @@ function getSyncInterval(realtimeEnabled: boolean, pollingIntervalSeconds: numbe
   return realtimeEnabled ? FALLBACK_SYNC_INTERVAL_WS_MS : pollingIntervalSeconds * 1_000;
 }
 
+function isLikelyDirectChannelRouteName(channelName: string | null): boolean {
+  if (!channelName) {
+    return false;
+  }
+
+  return channelName.startsWith("@") || channelName.includes("__");
+}
+
 async function loadAppState(): Promise<Omit<AppState, "status" | "error">> {
   const route = readCurrentRoute();
   const user = await getCurrentUser();
@@ -1124,7 +1201,7 @@ async function loadAppState(): Promise<Omit<AppState, "status" | "error">> {
   ]);
 
   const routeChannel =
-    routeTeam && route.channelName
+    routeTeam && route.channelName && !isLikelyDirectChannelRouteName(route.channelName)
       ? await getChannelByName(routeTeam.id, route.channelName).catch(() => null)
       : null;
 
@@ -1234,18 +1311,25 @@ function useWebSocketStatus(): WebSocketStatus {
   return status;
 }
 
-function useWebSocketLogs(): WsLogEntry[] {
-  const [logs, setLogs] = useState<WsLogEntry[]>([]);
+function useSyncLogs(): SyncLogEntry[] {
+  const [logs, setLogs] = useState<SyncLogEntry[]>([]);
 
   useEffect(() => {
-    const handleLog = (event: Event) => {
-      const entry = (event as CustomEvent<WsLogEntry>).detail;
-      setLogs((current) => [entry, ...current].slice(0, 12));
+    const pushEntry = (entry: SyncLogEntry) => {
+      setLogs((current) => [entry, ...current].slice(0, 20));
+    };
+    const handleWsLog = (event: Event) => {
+      pushEntry((event as CustomEvent<SyncLogEntry>).detail);
+    };
+    const handleApiLog = (event: Event) => {
+      pushEntry((event as CustomEvent<SyncLogEntry>).detail);
     };
 
-    window.addEventListener("mattermost-deck-ws-log", handleLog as EventListener);
+    window.addEventListener("mattermost-deck-ws-log", handleWsLog as EventListener);
+    window.addEventListener("mattermost-deck-api-log", handleApiLog as EventListener);
     return () => {
-      window.removeEventListener("mattermost-deck-ws-log", handleLog as EventListener);
+      window.removeEventListener("mattermost-deck-ws-log", handleWsLog as EventListener);
+      window.removeEventListener("mattermost-deck-api-log", handleApiLog as EventListener);
     };
   }, []);
 
@@ -2409,6 +2493,48 @@ function MentionsColumn({
   );
 }
 
+function useRuntimePerformanceSnapshot(): RuntimePerformanceSnapshot {
+  const [snapshot, setSnapshot] = useState<RuntimePerformanceSnapshot>(() => {
+    const api = getApiPerformanceSnapshot();
+    const memory = "memory" in performance ? (performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory : undefined;
+    const memoryUsedMb = memory ? memory.usedJSHeapSize / (1024 * 1024) : null;
+    const memoryLimitMb = memory ? memory.jsHeapSizeLimit / (1024 * 1024) : null;
+    return {
+      domNodeCount: document.getElementsByTagName("*").length,
+      memoryUsedMb,
+      memoryLimitMb,
+      memoryUsageRatio: memory && memory.jsHeapSizeLimit > 0 ? memory.usedJSHeapSize / memory.jsHeapSizeLimit : null,
+      api,
+    };
+  });
+
+  useEffect(() => {
+    const collect = () => {
+      const api = getApiPerformanceSnapshot();
+      const performanceWithMemory = performance as Performance & {
+        memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number };
+      };
+      const memory = performanceWithMemory.memory;
+      const memoryUsedMb = memory ? memory.usedJSHeapSize / (1024 * 1024) : null;
+      const memoryLimitMb = memory ? memory.jsHeapSizeLimit / (1024 * 1024) : null;
+
+      setSnapshot({
+        domNodeCount: document.getElementsByTagName("*").length,
+        memoryUsedMb,
+        memoryLimitMb,
+        memoryUsageRatio: memory && memory.jsHeapSizeLimit > 0 ? memory.usedJSHeapSize / memory.jsHeapSizeLimit : null,
+        api,
+      });
+    };
+
+    collect();
+    const timer = window.setInterval(collect, 2_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return snapshot;
+}
+
 function ChannelWatchColumn({
   column,
   mode,
@@ -3370,10 +3496,11 @@ function SavedPostsColumn({
 function DiagnosticsColumn({
   column,
   wsStatus,
-  wsLogs,
+  syncLogs,
   apiHealthStatus,
   pollingIntervalSeconds,
   realtimeEnabled,
+  runtimeMetrics,
   canMoveLeft,
   canMoveRight,
   onMove,
@@ -3382,10 +3509,11 @@ function DiagnosticsColumn({
 }: {
   column: DeckColumn;
   wsStatus: WebSocketStatus;
-  wsLogs: WsLogEntry[];
+  syncLogs: SyncLogEntry[];
   apiHealthStatus: ApiHealthStatus;
   pollingIntervalSeconds: number;
   realtimeEnabled: boolean;
+  runtimeMetrics: RuntimePerformanceSnapshot;
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
@@ -3435,15 +3563,72 @@ function DiagnosticsColumn({
           <strong>API burst control</strong>
           <p>Queued requests with 120ms minimum spacing and 1000ms GET dedupe cache.</p>
         </article>
+        <div className="deck-metric-grid">
+          <article className="deck-card deck-card--metric">
+            <strong>DOM nodes</strong>
+            <p>{runtimeMetrics.domNodeCount.toLocaleString()}</p>
+          </article>
+          <article className="deck-card deck-card--metric">
+            <strong>API TPS</strong>
+            <p>{runtimeMetrics.api.recentTps.toFixed(1)}</p>
+          </article>
+          <article className="deck-card deck-card--metric">
+            <strong>Avg latency</strong>
+            <p>{formatLatency(runtimeMetrics.api.averageLatencyMs)}</p>
+          </article>
+          <article className="deck-card deck-card--metric">
+            <strong>Queue wait</strong>
+            <p>{formatLatency(runtimeMetrics.api.averageQueueWaitMs)}</p>
+          </article>
+          <article className="deck-card deck-card--metric">
+            <strong>Requests</strong>
+            <p>{runtimeMetrics.api.totalRequests.toLocaleString()}</p>
+          </article>
+          <article className="deck-card deck-card--metric">
+            <strong>Error rate</strong>
+            <p>{formatRate(runtimeMetrics.api.recentErrorRate)}</p>
+            <span>{runtimeMetrics.api.recentFailedRequestsPerMinute} / {runtimeMetrics.api.recentRequestsPerMinute} recent</span>
+          </article>
+          <article className="deck-card deck-card--metric">
+            <strong>Memory</strong>
+            <p>{formatMemoryUsage(runtimeMetrics.memoryUsageRatio)}</p>
+            <span>{formatMemoryValue(runtimeMetrics.memoryUsedMb)} / {formatMemoryValue(runtimeMetrics.memoryLimitMb)}</span>
+          </article>
+          <article className="deck-card deck-card--metric">
+            <strong>In flight</strong>
+            <p>{runtimeMetrics.api.inFlightRequests}</p>
+            <span>{runtimeMetrics.api.totalGetRequests} GET / {runtimeMetrics.api.totalPostRequests} POST / {runtimeMetrics.api.totalFailedRequests} failed</span>
+          </article>
+        </div>
         <article className="deck-card">
-          <strong>Recent connection log</strong>
+          <div className="deck-metric-chart-header">
+            <strong>Request rate</strong>
+            <span>{formatMetricNumber(runtimeMetrics.api.recentRequestsPerMinute)} req/min</span>
+          </div>
+          <Sparkline values={runtimeMetrics.api.tpsSeries} ariaLabel="Recent API request rate" />
+        </article>
+        <article className="deck-card">
+          <div className="deck-metric-chart-header">
+            <strong>Latency</strong>
+            <span>p95 {formatLatency(runtimeMetrics.api.p95LatencyMs)}</span>
+          </div>
+          <Sparkline values={runtimeMetrics.api.latencySeries} ariaLabel="Recent API latency" />
+          <p className="deck-card-caption">Last {formatLatency(runtimeMetrics.api.lastLatencyMs)}</p>
+        </article>
+        <article className="deck-card">
+          <strong>Recent sync log</strong>
           <ul className="deck-log-list">
-            {wsLogs.slice(0, 6).map((entry) => (
+            {syncLogs.length > 0 ? syncLogs.slice(0, 20).map((entry) => (
               <li key={`${entry.timestamp}-${entry.message}`} className={`deck-log-entry deck-log-entry--${entry.level}`}>
                 <span className="deck-log-time">{formatPostTime(entry.timestamp)}</span>
-                <span className="deck-log-text">{entry.message}</span>
+                <span className="deck-log-text" title={entry.message}>{entry.message}</span>
               </li>
-            ))}
+            )) : (
+              <li className="deck-log-entry deck-log-entry--info">
+                <span className="deck-log-time">-</span>
+                <span className="deck-log-text" title="No recent API or WebSocket events">No recent API or WebSocket events</span>
+              </li>
+            )}
           </ul>
         </article>
       </div>
@@ -3491,7 +3676,8 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
   const resizeFrameRef = useRef<number | null>(null);
   const pendingWidthRef = useRef<number | null>(null);
   const wsStatus = useWebSocketStatus();
-  const wsLogs = useWebSocketLogs();
+  const syncLogs = useSyncLogs();
+  const runtimeMetrics = useRuntimePerformanceSnapshot();
   const mattermostThemeStyle = useMattermostThemeStyle(deckSettings.theme, routeKey);
   const apiHealthStatus = useApiHealth(state.status, deckSettings.healthCheckPath, deckSettings.pollingIntervalSeconds);
   const shellStyle = useMemo(
@@ -4401,19 +4587,6 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
           </header>
 
           <div className="deck-scroll-wrap">
-            {wsLogs.length > 0 ? (
-              <section className="deck-log-panel">
-                <div className="deck-log-title">{text.connectionLog}</div>
-                <ul className="deck-log-list">
-                  {wsLogs.slice(0, 4).map((entry) => (
-                    <li key={`${entry.timestamp}-${entry.message}`} className={`deck-log-entry deck-log-entry--${entry.level}`}>
-                      <span className="deck-log-time">{formatPostTime(entry.timestamp)}</span>
-                      <span className="deck-log-text">{entry.message}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
             <main
               className="deck-columns"
               style={{
@@ -4553,10 +4726,11 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                         <DiagnosticsColumn
                           column={column}
                           wsStatus={wsStatus}
-                          wsLogs={wsLogs}
+                          syncLogs={syncLogs}
                           apiHealthStatus={apiHealthStatus}
                           pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
                           realtimeEnabled={realtimeEnabled}
+                          runtimeMetrics={runtimeMetrics}
                           canMoveLeft={index > 0}
                           canMoveRight={index < allColumns.length - 1}
                           onMove={moveColumn}

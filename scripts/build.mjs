@@ -3,6 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const watch = process.argv.includes("--watch");
+const inGithubActions = process.env.GITHUB_ACTIONS === "true";
+const sourcemap = watch || !inGithubActions;
 const root = process.cwd();
 const srcDir = path.join(root, "src");
 const distDir = path.join(root, "dist");
@@ -11,6 +13,7 @@ await fs.rm(distDir, { recursive: true, force: true });
 await fs.mkdir(distDir, { recursive: true });
 await fs.copyFile(path.join(srcDir, "manifest.json"), path.join(distDir, "manifest.json"));
 await fs.copyFile(path.join(srcDir, "options", "index.html"), path.join(distDir, "options.html"));
+await fs.copyFile(path.join(srcDir, "popup", "index.html"), path.join(distDir, "popup.html"));
 await fs.cp(path.join(srcDir, "assets"), path.join(distDir, "assets"), { recursive: true });
 
 const ctx = await esbuild.context({
@@ -18,12 +21,14 @@ const ctx = await esbuild.context({
     background: path.join(srcDir, "background.ts"),
     content: path.join(srcDir, "content", "index.tsx"),
     options: path.join(srcDir, "options", "index.tsx"),
+    popup: path.join(srcDir, "popup", "index.ts"),
+    "pwa-install": path.join(srcDir, "pwa-install", "index.ts"),
   },
   bundle: true,
   outdir: distDir,
   format: "iife",
   target: "chrome120",
-  sourcemap: true,
+  sourcemap,
   loader: {
     ".ts": "ts",
     ".tsx": "tsx",

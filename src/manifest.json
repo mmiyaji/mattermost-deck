@@ -9,7 +9,7 @@
     "48": "assets/icons/icon-48.png",
     "128": "assets/icons/icon-128.png"
   },
-  "permissions": ["storage", "scripting"],
+  "permissions": ["storage", "scripting", "tabs", "windows"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "content_scripts": [
     {
@@ -23,7 +23,8 @@
       "16": "assets/icons/icon-16.png",
       "32": "assets/icons/icon-32.png",
       "48": "assets/icons/icon-48.png"
-    }
+    },
+    "default_popup": "popup.html"
   },
   "options_page": "options.html",
   "background": {

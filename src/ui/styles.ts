@@ -771,6 +771,7 @@ export const railCssText = `
     gap: 10px;
     font-size: 12px;
     line-height: 1.4;
+    min-width: 0;
   }
 
   .deck-log-entry--warn .deck-log-text {
@@ -788,6 +789,11 @@ export const railCssText = `
 
   .deck-log-text {
     color: var(--deck-text);
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .deck-columns {
@@ -873,7 +879,8 @@ export const railCssText = `
   }
 
   .deck-stack--controls {
-    padding-bottom: 4px;
+    flex: 0 0 auto;
+    padding: 6px 0 8px;
     border-bottom: 1px solid var(--deck-border);
     margin-bottom: 4px;
   }
@@ -1299,6 +1306,65 @@ export const railCssText = `
     color: var(--deck-text);
   }
 
+  .deck-card-caption {
+    margin: 8px 0 0;
+    color: var(--deck-text-faint);
+    font-size: calc(11px * var(--deck-font-scale));
+  }
+
+  .deck-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .deck-card--metric strong {
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  .deck-card--metric p {
+    margin: 0;
+    font-size: calc(18px * var(--deck-font-scale));
+    font-weight: 700;
+    line-height: 1.1;
+  }
+
+  .deck-card--metric span {
+    display: block;
+    margin-top: 6px;
+    color: var(--deck-text-faint);
+    font-size: calc(11px * var(--deck-font-scale));
+  }
+
+  .deck-metric-chart-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .deck-metric-chart-header span {
+    color: var(--deck-text-faint);
+    font-size: calc(11px * var(--deck-font-scale));
+  }
+
+  .deck-sparkline {
+    display: block;
+    width: 100%;
+    height: 42px;
+    overflow: visible;
+  }
+
+  .deck-sparkline-line {
+    fill: none;
+    stroke: var(--deck-accent);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
   .deck-shell[data-theme="light"] .deck-card {
     background: var(--deck-card);
     border-color: var(--deck-border);
@@ -1385,6 +1451,19 @@ export const railCssText = `
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+
+  .deck-column--diagnostics .deck-stack {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+
+  .deck-column--diagnostics .deck-stack--controls {
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow-y: visible;
   }
 
   .deck-menu-row {

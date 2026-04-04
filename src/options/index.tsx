@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CustomSelect, type CustomSelectOption } from "../ui/CustomSelect";
 import {
@@ -354,6 +354,38 @@ const pageCss = `
     color: #a7c0e4;
   }
 
+  .options-label--required {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .options-required-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 20px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: rgba(255, 122, 122, 0.14);
+    color: #ff9a9a;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .options-input--required-missing {
+    border-color: rgba(255, 122, 122, 0.72);
+    box-shadow: 0 0 0 1px rgba(255, 122, 122, 0.16);
+  }
+
+  .options-required-hint {
+    margin-top: 8px;
+    color: #ffb0b0;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
   .options-input,
   .options-button {
     min-height: 42px;
@@ -412,6 +444,27 @@ const pageCss = `
     padding-top: 14px;
   }
 
+  .options-callout {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(123, 178, 255, 0.18);
+    background: rgba(123, 178, 255, 0.08);
+    color: inherit;
+  }
+
+  .options-callout strong {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+
+  .options-callout p {
+    margin: 0;
+    color: inherit;
+    line-height: 1.5;
+  }
+
   .options-details summary {
     cursor: pointer;
     color: #a7c0e4;
@@ -421,6 +474,62 @@ const pageCss = `
 
   .options-details[open] summary {
     margin-bottom: 12px;
+  }
+
+  .options-setup-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    background: rgba(217, 119, 6, 0.15);
+    border: 1px solid rgba(217, 119, 6, 0.45);
+    border-radius: 10px;
+    font-size: 13px;
+  }
+
+  .options-setup-banner-icon {
+    font-size: 18px;
+    flex: none;
+  }
+
+  .options-setup-banner p {
+    margin: 0;
+    opacity: 0.9;
+  }
+
+  .options-install-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-top: 24px;
+    padding: 16px 18px;
+    background: rgba(28, 88, 217, 0.18);
+    border: 1px solid rgba(28, 88, 217, 0.4);
+    border-radius: 12px;
+  }
+
+  .options-install-banner-body {
+    min-width: 0;
+  }
+
+  .options-install-banner-body strong {
+    display: block;
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+
+  .options-install-banner-body p {
+    font-size: 13px;
+    opacity: 0.75;
+    margin: 0;
+  }
+
+  .options-install-banner-actions {
+    display: flex;
+    gap: 8px;
+    flex: none;
   }
 
   .options-footer {
@@ -621,6 +730,14 @@ function OptionsApp(): React.JSX.Element {
   const [saving, setSaving] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const installBannerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (showInstallBanner) {
+      installBannerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [showInstallBanner]);
 
   useEffect(() => {
     const style = document.createElement("style");
@@ -654,6 +771,7 @@ function OptionsApp(): React.JSX.Element {
     document.documentElement.lang = settings.language;
   }, [settings.language, settings.theme]);
 
+
   const text = useMemo(() => TEXT[settings.language], [settings.language]);
   const version = useMemo(() => getManifestVersion(), []);
   const patStorageSessionLabel = settings.language === "ja" ? "Session only" : "Session only";
@@ -686,6 +804,7 @@ function OptionsApp(): React.JSX.Element {
     ],
     [settings.language],
   );
+  const serverUrlMissing = settings.serverUrl.trim().length === 0;
 
   const handleSave = async () => {
     const normalizedServerUrl = normaliseServerUrl(settings.serverUrl);
@@ -694,6 +813,7 @@ function OptionsApp(): React.JSX.Element {
       return;
     }
 
+    const isFirstSave = !initialServerUrl;
     setSaving(true);
     setSavedNotice(false);
     setSaveError(null);
@@ -708,8 +828,8 @@ function OptionsApp(): React.JSX.Element {
       if (!granted) {
         setSaveError(
           settings.language === "ja"
-            ? "Mattermost origin の Chrome 権限が許可されませんでした。"
-            : "Chrome permission for the configured Mattermost origin was denied.",
+            ? "Mattermost origin への Chrome 権限が拒否されたため、有効化できませんでした。もう一度 Save を押すと再度許可ダイアログを表示できます。"
+            : "Chrome permission for the configured Mattermost origin was denied, so the extension could not be activated. Press Save again to show the permission dialog again.",
         );
         return;
       }
@@ -726,6 +846,7 @@ function OptionsApp(): React.JSX.Element {
       await chrome.runtime.sendMessage({ type: "mattermost-deck:sync-content-script" }).catch(() => undefined);
       setInitialServerUrl(normalizedServerUrl);
       setSavedNotice(true);
+      if (isFirstSave) setShowInstallBanner(true);
       window.setTimeout(() => setSavedNotice(false), 2500);
     } finally {
       setSaving(false);
@@ -750,14 +871,28 @@ function OptionsApp(): React.JSX.Element {
       </header>
 
       <div className="options-stack">
+        {loaded && !initialServerUrl && (
+          <div className="options-setup-banner">
+            <span className="options-setup-banner-icon">⚠️</span>
+            <p>
+              {settings.language === "ja"
+                ? "初期設定が完了していません。Server URL を入力して Save してください。"
+                : "Initial setup is not complete. Enter the Server URL and press Save."}
+            </p>
+          </div>
+        )}
+
         <section className="options-section">
           <h2>{text.targetTitle}</h2>
           <p>{text.targetBody}</p>
           <div className="options-grid">
             <label className="options-field">
-              <span className="options-label">{text.serverUrlLabel}</span>
+              <span className="options-label options-label--required">
+                <span>{text.serverUrlLabel}</span>
+                <span className="options-required-badge">{settings.language === "ja" ? "※必須設定" : "Required"}</span>
+              </span>
               <input
-                className="options-input"
+                className={`options-input${serverUrlMissing ? " options-input--required-missing" : ""}`}
                 type="url"
                 placeholder={text.serverUrlPlaceholder}
                 value={settings.serverUrl}
@@ -765,6 +900,13 @@ function OptionsApp(): React.JSX.Element {
                 autoComplete="off"
                 spellCheck={false}
               />
+              {serverUrlMissing ? (
+                <div className="options-required-hint">
+                  {settings.language === "ja"
+                    ? "拡張機能を有効化するには Mattermost Server URL の設定が必要です。"
+                    : "Mattermost Server URL is required before the extension can be activated."}
+                </div>
+              ) : null}
             </label>
             <label className="options-field">
               <span className="options-label">{text.teamSlugLabel}</span>
@@ -780,6 +922,14 @@ function OptionsApp(): React.JSX.Element {
             </label>
           </div>
           <p>{text.targetHint}</p>
+          <div className="options-callout" role="note">
+            <strong>{settings.language === "ja" ? "初回保存時の権限許可" : "Chrome permission on first save"}</strong>
+            <p>
+              {settings.language === "ja"
+                ? "Server URL を初めて保存すると、Chrome から対象 Mattermost サーバーへの権限許可が求められます。拡張機能を有効化するには、この許可を承認してください。"
+                : "When you save the server URL for the first time, Chrome asks for permission to access that Mattermost server. Approve the request to activate the extension on that server."}
+            </p>
+          </div>
 
           <details className="options-details">
             <summary>{text.advanced}</summary>
@@ -1046,6 +1196,38 @@ function OptionsApp(): React.JSX.Element {
           <p>{text.securityBody3}</p>
         </section>
       </div>
+
+      {showInstallBanner && (
+        <div ref={installBannerRef} className="options-install-banner">
+          <div className="options-install-banner-body">
+            <strong>{settings.language === "ja" ? "📲 Mattermostをアプリとしてインストール" : "📲 Install Mattermost as an App"}</strong>
+            <p>
+              {settings.language === "ja"
+                ? "タスクバーやスタートメニューから直接起動できるようになります。"
+                : "You can launch it directly from the taskbar or Start menu."}
+            </p>
+          </div>
+          <div className="options-install-banner-actions">
+            <button
+              type="button"
+              className="options-button"
+              onClick={() => {
+                void chrome.runtime.sendMessage({ type: "mattermost-deck:install-pwa", url: settings.serverUrl });
+                setShowInstallBanner(false);
+              }}
+            >
+              {settings.language === "ja" ? "インストール" : "Install"}
+            </button>
+            <button
+              type="button"
+              className="options-button options-button--ghost"
+              onClick={() => setShowInstallBanner(false)}
+            >
+              {settings.language === "ja" ? "後で" : "Later"}
+            </button>
+          </div>
+        </div>
+      )}
 
       <footer className="options-footer">
         <div className="options-status">{loaded ? saveError ?? (savedNotice ? text.saved : "") : text.saving}</div>

@@ -59,12 +59,46 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 chrome.runtime.onMessage.addListener((message) => {
-  if (message?.type === "mattermost-deck:open-options") {
-    void chrome.runtime.openOptionsPage();
-    return;
-  }
+  void (async () => {
+    if (message?.type === "mattermost-deck:open-options") {
+      void chrome.runtime.openOptionsPage();
+      return;
+    }
 
-  if (message?.type === "mattermost-deck:sync-content-script") {
-    void syncDeckContentScript();
-  }
+    if (message?.type === "mattermost-deck:install-pwa") {
+      const url = typeof message.url === "string" ? message.url : "";
+      const originPattern = originToPermissionPattern(url);
+      if (!url || !originPattern) return;
+
+      const INSTALL_SCRIPT_ID = "mattermost-deck-pwa-install";
+      try {
+        await chrome.scripting.unregisterContentScripts({ ids: [INSTALL_SCRIPT_ID] });
+      } catch { /* not registered yet */ }
+
+      await chrome.scripting.registerContentScripts([{
+        id: INSTALL_SCRIPT_ID,
+        matches: [originPattern],
+        world: "MAIN" as chrome.scripting.ExecutionWorld,
+        runAt: "document_start",
+        js: ["pwa-install.js"],
+        persistAcrossSessions: false,
+      }]);
+
+      chrome.tabs.create({ url }, (tab) => {
+        if (!tab.id) return;
+        const tabId = tab.id;
+        const cleanup = (id: number, info: chrome.tabs.TabChangeInfo) => {
+          if (id !== tabId || info.status !== "complete") return;
+          chrome.tabs.onUpdated.removeListener(cleanup);
+          void chrome.scripting.unregisterContentScripts({ ids: [INSTALL_SCRIPT_ID] });
+        };
+        chrome.tabs.onUpdated.addListener(cleanup);
+      });
+      return;
+    }
+
+    if (message?.type === "mattermost-deck:sync-content-script") {
+      void syncDeckContentScript();
+    }
+  })();
 });
