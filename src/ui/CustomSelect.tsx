@@ -89,16 +89,12 @@ export function CustomSelect({
       </button>
       {open ? (
         <div className="mm-custom-select-menu" role="listbox">
-          <button
-            type="button"
-            className={`mm-custom-select-option${value === "" ? " mm-custom-select-option--selected" : ""}`}
-            onClick={() => {
-              onChange("");
-              setOpen(false);
-            }}
-          >
-            {placeholder}
-          </button>
+          <div className="mm-custom-select-current">
+            <span className={`mm-custom-select-current-label${selected ? "" : " mm-custom-select-current-label--placeholder"}`}>
+              {selected?.label ?? placeholder}
+            </span>
+          </div>
+          <div className="mm-custom-select-divider" aria-hidden="true" />
           {options.map((option) => (
             <button
               key={option.value}
@@ -112,6 +108,21 @@ export function CustomSelect({
               {option.label}
             </button>
           ))}
+          {value !== "" ? (
+            <>
+              <div className="mm-custom-select-divider" aria-hidden="true" />
+              <button
+                type="button"
+                className="mm-custom-select-option mm-custom-select-option--placeholder"
+                onClick={() => {
+                  onChange("");
+                  setOpen(false);
+                }}
+              >
+                {placeholder}
+              </button>
+            </>
+          ) : null}
         </div>
       ) : null}
     </div>

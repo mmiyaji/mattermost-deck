@@ -22,10 +22,10 @@ import {
   resolveTheme,
   saveDeckSettings,
   type ColumnColorKey,
-  type ColumnIdentityMode,
   type DeckLanguage,
   type DeckSettings,
   type DeckTheme,
+  type PostClickAction,
 } from "../ui/settings";
 
 const REPO_URL = "https://github.com/mmiyaji/mattermost-deck";
@@ -329,6 +329,20 @@ const pageCss = `
     margin-top: 18px;
   }
 
+  .options-color-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 14px;
+    margin-top: 18px;
+  }
+
+  .options-color-item {
+    padding: 12px;
+    border: 1px solid rgba(123, 178, 255, 0.14);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
   .options-field {
     display: flex;
     flex-direction: column;
@@ -527,8 +541,35 @@ const pageCss = `
     z-index: 10;
   }
 
+  .options-shell .mm-custom-select-current {
+    padding: 4px 4px 8px;
+  }
+
+  .options-shell .mm-custom-select-current-label {
+    display: block;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    color: inherit;
+  }
+
+  .options-shell .mm-custom-select-current-label--placeholder {
+    color: #8facd5;
+  }
+
+  .options-shell .mm-custom-select-divider {
+    height: 1px;
+    margin: 0 6px 8px;
+    background: rgba(123, 178, 255, 0.18);
+  }
+
   body[data-theme="light"] .options-shell .mm-custom-select-menu {
     background: #ffffff;
+  }
+
+  body[data-theme="light"] .options-color-item,
+  body[data-theme="light"] .options-shell .mm-custom-select-current-label {
+    background: rgba(255, 255, 255, 0.88);
   }
 
   .options-shell .mm-custom-select-option {
@@ -637,12 +678,13 @@ function OptionsApp(): React.JSX.Element {
     ],
     [text],
   );
-  const identityModeOptions = useMemo<CustomSelectOption[]>(
+  const postClickActionOptions = useMemo<CustomSelectOption[]>(
     () => [
-      { value: "icon", label: "Icon" },
-      { value: "color", label: "Color Accent" },
+      { value: "navigate", label: settings.language === "ja" ? "遷移" : "Navigate" },
+      { value: "none", label: settings.language === "ja" ? "何もしない" : "Do nothing" },
+      { value: "ask", label: settings.language === "ja" ? "動作を選ぶ" : "Choose action" },
     ],
-    [],
+    [settings.language],
   );
 
   const handleSave = async () => {
@@ -939,24 +981,43 @@ function OptionsApp(): React.JSX.Element {
                 </label>
               </label>
               <label className="options-field">
-                <span className="options-label">Pane Identity</span>
+                <span className="options-label">Post Click Action</span>
                 <CustomSelect
-                  options={identityModeOptions}
-                  value={settings.columnIdentityMode}
-                  placeholder="Icon"
+                  options={postClickActionOptions}
+                  value={settings.postClickAction}
+                  placeholder="Navigate"
                   onChange={(value) =>
                     setSettings((current) => ({
                       ...current,
-                      columnIdentityMode: value as ColumnIdentityMode,
+                      postClickAction: value as PostClickAction,
                     }))
                   }
                 />
-                <p>Choose whether pane type is shown with title icons or with top accent colors.</p>
+                <p>Choose how post cards behave when clicked. Dragging to select text never opens a thread.</p>
               </label>
             </div>
             <div className="options-grid">
+              <label className="options-field">
+                <span className="options-label">Pane Identity</span>
+                <p>Pane type icons are always shown. Enable color accents to add a colored top border to cards in each pane.</p>
+                <label className="options-choice">
+                  <input
+                    type="checkbox"
+                    checked={settings.columnColorEnabled}
+                    onChange={(event) =>
+                      setSettings((current) => ({
+                        ...current,
+                        columnColorEnabled: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>Enable color accents</span>
+                </label>
+              </label>
+            </div>
+            <div className="options-color-grid">
               {(Object.keys(DEFAULT_COLUMN_COLORS) as ColumnColorKey[]).map((key) => (
-                <label key={key} className="options-field">
+                <label key={key} className="options-field options-color-item">
                   <span className="options-label">{key}</span>
                   <input
                     className="options-input"

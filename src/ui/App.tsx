@@ -51,9 +51,9 @@ import {
   subscribeDeckSettings,
   type ColumnColorKey,
   type ColumnColorSettings,
-  type ColumnIdentityMode,
   type DeckLanguage,
   type DeckTheme,
+  type PostClickAction,
 } from "./settings";
 
 interface AppProps {
@@ -247,6 +247,73 @@ function summarisePost(message: string): string {
   return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extractSearchTerms(query: string): string[] {
+  return query
+    .match(/"([^"]+)"|(\S+)/g)?.map((part) => part.replace(/^"|"$/g, "").trim()).filter((part) => part.length > 0) ?? [];
+}
+
+function expandSearchQueryForApi(query: string): string {
+  return query.replace(/"[^"]+"|\S+/g, (token) => {
+    if (token.startsWith("\"") && token.endsWith("\"")) {
+      return token;
+    }
+    if (token.includes(":") || token.includes("*")) {
+      return token;
+    }
+    return /^[\p{L}\p{N}_-]+$/u.test(token) ? `*${token}*` : token;
+  });
+}
+
+function buildSearchSnippet(message: string, query: string, limit = 160): string {
+  const normalized = message.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "(empty message)";
+  }
+
+  const terms = extractSearchTerms(query);
+  const lower = normalized.toLowerCase();
+  const matchPositions = terms
+    .map((term) => lower.indexOf(term.toLowerCase()))
+    .filter((index) => index >= 0)
+    .sort((left, right) => left - right);
+
+  if (matchPositions.length === 0 || normalized.length <= limit) {
+    return normalized.length > limit ? `${normalized.slice(0, limit - 3)}...` : normalized;
+  }
+
+  const pivot = matchPositions[0];
+  const start = Math.max(0, pivot - Math.floor(limit * 0.35));
+  const end = Math.min(normalized.length, start + limit);
+  const adjustedStart = Math.max(0, end - limit);
+  const snippet = normalized.slice(adjustedStart, end).trim();
+  const prefix = adjustedStart > 0 ? "..." : "";
+  const suffix = end < normalized.length ? "..." : "";
+  return `${prefix}${snippet}${suffix}`;
+}
+
+function renderHighlightedText(text: string, query: string): React.ReactNode {
+  const terms = extractSearchTerms(query);
+  if (terms.length === 0) {
+    return text;
+  }
+
+  const pattern = new RegExp(`(${terms.map((term) => escapeRegExp(term)).join("|")})`, "gi");
+  const segments = text.split(pattern);
+  return segments.map((segment, index) =>
+    terms.some((term) => segment.toLowerCase() === term.toLowerCase()) ? (
+      <mark key={`${segment}-${index}`} className="deck-highlight">
+        {segment}
+      </mark>
+    ) : (
+      <React.Fragment key={`${segment}-${index}`}>{segment}</React.Fragment>
+    ),
+  );
+}
+
 function isSelectableChannel(channel: MattermostChannel): boolean {
   const candidates = [channel.name, channel.display_name]
     .filter(Boolean)
@@ -391,6 +458,17 @@ function getColumnAccentStyle(type: DeckColumnType, columnColors: ColumnColorSet
   return {
     "--deck-column-accent": accent,
   } as React.CSSProperties;
+}
+
+function SettingsMenuLabel({ label }: { label: string }): React.JSX.Element {
+  return (
+    <span className="deck-menu-label">
+      <span className="deck-menu-inline-icon" aria-hidden="true">
+        <SettingsIcon />
+      </span>
+      <span>{label}</span>
+    </span>
+  );
 }
 
 function stopDeckInputPropagation(event: React.SyntheticEvent): void {
@@ -1210,7 +1288,8 @@ function useDeckSettingsState(): {
   preferredColumnWidth: number;
   healthCheckPath: string;
   compactMode: boolean;
-  columnIdentityMode: ColumnIdentityMode;
+  columnColorEnabled: boolean;
+  postClickAction: PostClickAction;
   columnColors: ColumnColorSettings;
 } {
   const [settings, setSettings] = useState<{
@@ -1224,7 +1303,8 @@ function useDeckSettingsState(): {
     preferredColumnWidth: number;
     healthCheckPath: string;
     compactMode: boolean;
-    columnIdentityMode: ColumnIdentityMode;
+    columnColorEnabled: boolean;
+    postClickAction: PostClickAction;
     columnColors: ColumnColorSettings;
   }>({
     loaded: false,
@@ -1237,7 +1317,8 @@ function useDeckSettingsState(): {
     preferredColumnWidth: DEFAULT_SETTINGS.preferredColumnWidth,
     healthCheckPath: DEFAULT_SETTINGS.healthCheckPath,
     compactMode: DEFAULT_SETTINGS.compactMode,
-    columnIdentityMode: DEFAULT_SETTINGS.columnIdentityMode,
+    columnColorEnabled: DEFAULT_SETTINGS.columnColorEnabled,
+    postClickAction: DEFAULT_SETTINGS.postClickAction,
     columnColors: DEFAULT_COLUMN_COLORS,
   });
 
@@ -1424,7 +1505,9 @@ function PostList({
   loadingMore = false,
   onLoadMore,
   renderMeta,
+  renderBody,
   onOpenPost,
+  postClickAction,
 }: {
   posts: MattermostPost[];
   userDirectory: Record<string, MattermostUser>;
@@ -1433,9 +1516,13 @@ function PostList({
   loadingMore?: boolean;
   onLoadMore?: () => void;
   renderMeta?: (post: MattermostPost) => React.ReactNode;
+  renderBody?: (post: MattermostPost) => React.ReactNode;
   onOpenPost?: (post: MattermostPost) => void;
+  postClickAction: PostClickAction;
 }): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
+  const dragDetectedRef = useRef(false);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const [newPostCount, setNewPostCount] = useState(0);
@@ -1544,15 +1631,57 @@ function PostList({
     return (
       <li
         key={entry.key}
-        className={`deck-card deck-card--post${compactMode ? " deck-card--post-compact" : ""}${onOpenPost ? " deck-card--clickable" : ""}`}
-        onClick={onOpenPost ? () => onOpenPost(post) : undefined}
+        className={`deck-card deck-card--post${compactMode ? " deck-card--post-compact" : ""}${onOpenPost && postClickAction !== "none" ? " deck-card--clickable" : ""}`}
+        onPointerDown={
+          onOpenPost && postClickAction !== "none"
+            ? (event) => {
+                pointerStartRef.current = { x: event.clientX, y: event.clientY };
+                dragDetectedRef.current = false;
+              }
+            : undefined
+        }
+        onPointerMove={
+          onOpenPost && postClickAction !== "none"
+            ? (event) => {
+                const start = pointerStartRef.current;
+                if (!start || dragDetectedRef.current) {
+                  return;
+                }
+                if (Math.abs(event.clientX - start.x) > 6 || Math.abs(event.clientY - start.y) > 6) {
+                  dragDetectedRef.current = true;
+                }
+              }
+            : undefined
+        }
+        onPointerUp={
+          onOpenPost && postClickAction !== "none"
+            ? () => {
+                pointerStartRef.current = null;
+              }
+            : undefined
+        }
+        onClick={
+          onOpenPost && postClickAction !== "none"
+            ? () => {
+                const selectionText = window.getSelection?.()?.toString().trim() ?? "";
+                if (dragDetectedRef.current || selectionText.length > 0) {
+                  dragDetectedRef.current = false;
+                  return;
+                }
+                if (postClickAction === "ask" && !window.confirm("Open this post in the main Mattermost thread view?")) {
+                  return;
+                }
+                onOpenPost(post);
+              }
+            : undefined
+        }
       >
         <div className="deck-card-header">
           <strong>{formatPostTime(post.create_at)}</strong>
           <span>{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
         </div>
         {renderMeta ? <div className="deck-card-meta">{renderMeta(post)}</div> : null}
-        <p>{summarisePost(post.message)}</p>
+        <p>{renderBody ? renderBody(post) : summarisePost(post.message)}</p>
       </li>
     );
   };
@@ -1649,6 +1778,7 @@ function MentionsColumn({
   onUpdate,
   onRemove,
   onOpenPost,
+  postClickAction,
   compactMode,
   columnColors,
 }: {
@@ -1668,6 +1798,7 @@ function MentionsColumn({
   onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, teamName?: string) => void;
+  postClickAction: PostClickAction;
   compactMode: boolean;
   columnColors: ColumnColorSettings;
 }): React.JSX.Element {
@@ -2060,6 +2191,7 @@ function MentionsColumn({
             const teamId = channelDirectory[post.channel_id]?.team_id;
             onOpenPost(post, teamId ? teamDirectory[teamId]?.name : selectedTeam?.name);
           }}
+          postClickAction={postClickAction}
         />
       )}
     </section>
@@ -2084,6 +2216,7 @@ function ChannelWatchColumn({
   onUpdate,
   onRemove,
   onOpenPost,
+  postClickAction,
   compactMode,
   columnColors,
 }: {
@@ -2104,6 +2237,7 @@ function ChannelWatchColumn({
   onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, teamName?: string) => void;
+  postClickAction: PostClickAction;
   compactMode: boolean;
   columnColors: ColumnColorSettings;
 }): React.JSX.Element {
@@ -2498,6 +2632,7 @@ function ChannelWatchColumn({
           loadingMore={postState.loadingMore}
           onLoadMore={handleLoadMore}
           onOpenPost={(post) => onOpenPost(post, selectedTeam?.name)}
+          postClickAction={postClickAction}
         />
       )}
     </section>
@@ -2525,6 +2660,7 @@ function SearchLikeColumn({
   onUpdate,
   onRemove,
   onOpenPost,
+  postClickAction,
   compactMode,
   columnColors,
 }: {
@@ -2540,6 +2676,7 @@ function SearchLikeColumn({
   onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, teamName?: string) => void;
+  postClickAction: PostClickAction;
   compactMode: boolean;
   columnColors: ColumnColorSettings;
 }): React.JSX.Element {
@@ -2559,6 +2696,7 @@ function SearchLikeColumn({
   const refreshStopTimerRef = useRef<number | null>(null);
   const selectedTeam = teams.find((team) => team.id === column.teamId);
   const query = column.query?.trim() ?? "";
+  const apiQuery = useMemo(() => expandSearchQueryForApi(query), [query]);
   const ready = Boolean(column.teamId && query);
   const title = query || "Search";
 
@@ -2620,7 +2758,7 @@ function SearchLikeColumn({
       }));
 
       try {
-        const posts = await searchPostsInTeam(column.teamId as string, query, 0, POSTS_PAGE_SIZE);
+        const posts = await searchPostsInTeam(column.teamId as string, apiQuery, 0, POSTS_PAGE_SIZE);
         if (cancelled) {
           return;
         }
@@ -2659,7 +2797,7 @@ function SearchLikeColumn({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [column.teamId, ensureUsers, finishRefresh, pollingIntervalSeconds, query, ready, reconnectNonce, refreshNonce]);
+  }, [apiQuery, column.teamId, ensureUsers, finishRefresh, pollingIntervalSeconds, ready, reconnectNonce, refreshNonce]);
 
   const handleLoadMore = async () => {
     if (!ready || postState.loadingMore || !postState.hasMore) {
@@ -2669,7 +2807,7 @@ function SearchLikeColumn({
     setPostState((current) => ({ ...current, loadingMore: true, error: null }));
     try {
       const [posts] = await Promise.all([
-        searchPostsInTeam(column.teamId as string, query, postState.nextPage, POSTS_PAGE_SIZE),
+        searchPostsInTeam(column.teamId as string, apiQuery, postState.nextPage, POSTS_PAGE_SIZE),
         new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
       ]);
       ensureUsers(posts.map((post) => post.user_id));
@@ -2774,6 +2912,13 @@ function SearchLikeColumn({
               </button>
             </div>
           </div>
+          <article className="deck-card deck-card--muted">
+            <strong>Search syntax</strong>
+            <p>
+              Use quotes for exact phrases like <code>"error code"</code>, suffix <code>*</code> for prefix matches like <code>test*</code>,
+              and filters such as <code>in:town-square</code>, <code>from:cab-member</code>, <code>before:2026-04-04</code>.
+            </p>
+          </article>
         </div>
       ) : null}
 
@@ -2801,7 +2946,9 @@ function SearchLikeColumn({
           loadingMore={postState.loadingMore}
           onLoadMore={handleLoadMore}
           renderMeta={() => (selectedTeam ? selectedTeam.display_name || selectedTeam.name : null)}
+          renderBody={(post) => renderHighlightedText(buildSearchSnippet(post.message, query), query)}
           onOpenPost={(post) => onOpenPost(post, selectedTeam?.name)}
+          postClickAction={postClickAction}
         />
       )}
     </section>
@@ -2817,6 +2964,7 @@ function SavedPostsColumn({
   onMove,
   onRemove,
   onOpenPost,
+  postClickAction,
   compactMode,
   columnColors,
 }: {
@@ -2828,6 +2976,7 @@ function SavedPostsColumn({
   onMove: (id: string, direction: "left" | "right") => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, teamName?: string) => void;
+  postClickAction: PostClickAction;
   compactMode: boolean;
   columnColors: ColumnColorSettings;
 }): React.JSX.Element {
@@ -3000,6 +3149,7 @@ function SavedPostsColumn({
           loadingMore={postState.loadingMore}
           onLoadMore={handleLoadMore}
           onOpenPost={(post) => onOpenPost(post)}
+          postClickAction={postClickAction}
         />
       )}
     </section>
@@ -3109,6 +3259,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showViewsMenu, setShowViewsMenu] = useState(false);
   const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const [showRailAddMenu, setShowRailAddMenu] = useState(false);
   const [isCompactHeader, setIsCompactHeader] = useState(false);
   const [pendingScrollColumnId, setPendingScrollColumnId] = useState<string | null>(null);
   const shellRef = useRef<HTMLElement | null>(null);
@@ -3117,6 +3268,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
   const addMenuRef = useRef<HTMLDivElement | null>(null);
   const viewsMenuRef = useRef<HTMLDivElement | null>(null);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
+  const railAddMenuRef = useRef<HTMLDivElement | null>(null);
   const resizeStateRef = useRef<{ pointerId: number } | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const pendingWidthRef = useRef<number | null>(null);
@@ -3420,6 +3572,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
     setShowAddMenu(false);
     setShowViewsMenu(false);
     setShowActionsMenu(false);
+    setShowRailAddMenu(false);
   };
 
   useEffect(() => {
@@ -3442,7 +3595,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
   }, [columns, pendingScrollColumnId]);
 
   useEffect(() => {
-    if (!showAddMenu && !showViewsMenu && !showActionsMenu) {
+    if (!showAddMenu && !showViewsMenu && !showActionsMenu && !showRailAddMenu) {
       return;
     }
 
@@ -3460,10 +3613,10 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
     return () => {
       document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [showActionsMenu, showAddMenu, showViewsMenu]);
+  }, [showActionsMenu, showAddMenu, showRailAddMenu, showViewsMenu]);
 
   useEffect(() => {
-    if (!showAddMenu && !showViewsMenu && !showActionsMenu) {
+    if (!showAddMenu && !showViewsMenu && !showActionsMenu && !showRailAddMenu) {
       return;
     }
 
@@ -3472,7 +3625,8 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
       const clickedInside =
         (addMenuRef.current && path.includes(addMenuRef.current)) ||
         (viewsMenuRef.current && path.includes(viewsMenuRef.current)) ||
-        (actionsMenuRef.current && path.includes(actionsMenuRef.current));
+        (actionsMenuRef.current && path.includes(actionsMenuRef.current)) ||
+        (railAddMenuRef.current && path.includes(railAddMenuRef.current));
 
       if (clickedInside) {
         return;
@@ -3481,13 +3635,14 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
       setShowAddMenu(false);
       setShowViewsMenu(false);
       setShowActionsMenu(false);
+      setShowRailAddMenu(false);
     };
 
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown, true);
     };
-  }, [showActionsMenu, showAddMenu, showViewsMenu]);
+  }, [showActionsMenu, showAddMenu, showRailAddMenu, showViewsMenu]);
 
   const handleSaveCurrentView = () => {
     const currentColumns = columns ?? [];
@@ -3503,6 +3658,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
     saveView(name, currentColumns);
     setShowViewsMenu(false);
     setShowActionsMenu(false);
+    setShowRailAddMenu(false);
   };
 
   const handleLoadSavedView = (id: string) => {
@@ -3514,6 +3670,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
     replaceColumns(view.columns);
     setShowViewsMenu(false);
     setShowActionsMenu(false);
+    setShowRailAddMenu(false);
   };
 
   const handleFocusColumn = (id: string) => {
@@ -3525,12 +3682,21 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
     element.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" });
     setShowViewsMenu(false);
     setShowActionsMenu(false);
+    setShowRailAddMenu(false);
+  };
+
+  const handleCloseColumnFromMenu = (id: string) => {
+    removeColumn(id);
+    setShowViewsMenu(false);
+    setShowActionsMenu(false);
+    setShowRailAddMenu(false);
   };
 
   const handleExportLayout = async () => {
     const payload = JSON.stringify({ columns: columns ?? [] }, null, 2);
     await navigator.clipboard.writeText(payload).catch(() => undefined);
     setShowActionsMenu(false);
+    setShowRailAddMenu(false);
   };
 
   const handleImportLayout = () => {
@@ -3546,6 +3712,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
       }
       replaceColumns(parsed.columns);
       setShowActionsMenu(false);
+      setShowRailAddMenu(false);
     } catch {
       return;
     }
@@ -3557,7 +3724,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
       className={`deck-shell${drawerOpen ? "" : " deck-shell--collapsed"}`}
       aria-label="Mattermost Deck"
       data-theme={deckSettings.theme === "mattermost" ? "mattermost" : resolveTheme(deckSettings.theme)}
-      data-column-identity-mode={deckSettings.columnIdentityMode}
+      data-column-color-enabled={deckSettings.columnColorEnabled ? "true" : "false"}
       style={shellStyle}
     >
       <button
@@ -3609,6 +3776,69 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                   <span>{syncStatusLabel}</span>
                 </button>
               )}
+              <div className="deck-add-wrap deck-views-wrap" ref={viewsMenuRef}>
+                <button
+                  type="button"
+                  className="deck-button deck-button--secondary deck-topbar-button"
+                  onClick={() => {
+                    setShowViewsMenu((current) => {
+                      const next = !current;
+                      if (next) {
+                        setShowAddMenu(false);
+                        setShowActionsMenu(false);
+                        setShowRailAddMenu(false);
+                      }
+                      return next;
+                    });
+                  }}
+                  disabled={columns === null || state.status === "loading"}
+                >
+                  <ViewsIcon />
+                  <span className="deck-button-label">Views</span>
+                </button>
+                {showViewsMenu ? (
+                  <div className="deck-add-menu deck-add-menu--views">
+                    <div className="deck-add-menu-title">Views</div>
+                    {(columns ?? []).map((column, index) => {
+                      const meta = getColumnViewMeta(column);
+                      return (
+                        <div key={column.id} className="deck-menu-row deck-menu-row--view">
+                          <button type="button" className="deck-add-item" onClick={() => handleFocusColumn(column.id)}>
+                            <ColumnViewTarget type={column.type} title={`${index + 1}. ${meta.title}`} subtitle={meta.subtitle} />
+                          </button>
+                          <button
+                            type="button"
+                            className="deck-icon-button deck-icon-button--ghost"
+                            onClick={() => handleCloseColumnFromMenu(column.id)}
+                            aria-label={`Close ${meta.title}`}
+                          >
+                            <CloseIcon />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    <div className="deck-add-menu-title deck-add-menu-title--secondary">Saved sets</div>
+                    <button type="button" className="deck-add-item" onClick={handleSaveCurrentView}>
+                      Save current set
+                    </button>
+                    {savedViews.length > 0 ? (
+                      <>
+                        {savedViews.map((view) => (
+                          <div key={view.id} className="deck-menu-row">
+                            <button type="button" className="deck-add-item deck-add-item--recent" onClick={() => handleLoadSavedView(view.id)}>
+                              <span>{view.name}</span>
+                              <small>{view.columns.length} columns</small>
+                            </button>
+                            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => removeView(view.id)} aria-label={`Remove ${view.name}`}>
+                              <CloseIcon />
+                            </button>
+                          </div>
+                        ))}
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
               <div className="deck-add-wrap" ref={addMenuRef}>
                 <button
                   type="button"
@@ -3619,6 +3849,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                       if (next) {
                         setShowViewsMenu(false);
                         setShowActionsMenu(false);
+                        setShowRailAddMenu(false);
                       }
                       return next;
                     });
@@ -3674,58 +3905,6 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                   </div>
                 ) : null}
               </div>
-              <div className="deck-add-wrap deck-views-wrap" ref={viewsMenuRef}>
-                <button
-                  type="button"
-                  className="deck-button deck-button--secondary deck-topbar-button"
-                  onClick={() => {
-                    setShowViewsMenu((current) => {
-                      const next = !current;
-                      if (next) {
-                        setShowAddMenu(false);
-                        setShowActionsMenu(false);
-                      }
-                      return next;
-                    });
-                  }}
-                  disabled={columns === null || state.status === "loading"}
-                >
-                  <ViewsIcon />
-                  <span className="deck-button-label">Views</span>
-                </button>
-                {showViewsMenu ? (
-                  <div className="deck-add-menu deck-add-menu--compact">
-                    <div className="deck-add-menu-title">Views</div>
-                    {(columns ?? []).map((column, index) => {
-                      const meta = getColumnViewMeta(column);
-                      return (
-                        <button key={column.id} type="button" className="deck-add-item" onClick={() => handleFocusColumn(column.id)}>
-                          <ColumnViewTarget type={column.type} title={`${index + 1}. ${meta.title}`} subtitle={meta.subtitle} />
-                        </button>
-                      );
-                    })}
-                    <div className="deck-add-menu-title deck-add-menu-title--secondary">Saved sets</div>
-                    <button type="button" className="deck-add-item" onClick={handleSaveCurrentView}>
-                      Save current set
-                    </button>
-                    {savedViews.length > 0 ? (
-                      <>
-                        {savedViews.map((view) => (
-                          <div key={view.id} className="deck-menu-row">
-                            <button type="button" className="deck-add-item deck-add-item--recent" onClick={() => handleLoadSavedView(view.id)}>
-                              <span>{view.name}</span>
-                              <small>{view.columns.length} columns</small>
-                            </button>
-                            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => removeView(view.id)} aria-label={`Remove ${view.name}`}>
-                              <CloseIcon />
-                            </button>
-                          </div>
-                        ))}
-                      </>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
               <div className="deck-add-wrap deck-actions-wrap" ref={actionsMenuRef}>
                 <button
                   type="button"
@@ -3736,6 +3915,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                       if (next) {
                         setShowAddMenu(false);
                         setShowViewsMenu(false);
+                        setShowRailAddMenu(false);
                       }
                       return next;
                     });
@@ -3795,9 +3975,19 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                         {(columns ?? []).map((column, index) => {
                           const meta = getColumnViewMeta(column);
                           return (
-                            <button key={column.id} type="button" className="deck-add-item" onClick={() => handleFocusColumn(column.id)}>
-                              <ColumnViewTarget type={column.type} title={`${index + 1}. ${meta.title}`} subtitle={meta.subtitle} />
-                            </button>
+                            <div key={column.id} className="deck-menu-row deck-menu-row--view">
+                              <button type="button" className="deck-add-item" onClick={() => handleFocusColumn(column.id)}>
+                                <ColumnViewTarget type={column.type} title={`${index + 1}. ${meta.title}`} subtitle={meta.subtitle} />
+                              </button>
+                              <button
+                                type="button"
+                                className="deck-icon-button deck-icon-button--ghost"
+                                onClick={() => handleCloseColumnFromMenu(column.id)}
+                                aria-label={`Close ${meta.title}`}
+                              >
+                                <CloseIcon />
+                              </button>
+                            </div>
                           );
                         })}
                         <div className="deck-add-menu-title deck-add-menu-title--secondary">Saved sets</div>
@@ -3830,7 +4020,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                         setShowActionsMenu(false);
                       }}
                     >
-                      {text.settingsButton}
+                      <SettingsMenuLabel label={text.settingsButton} />
                     </button>
                     <div className="deck-add-menu-title deck-add-menu-title--secondary">Layout</div>
                     <button type="button" className="deck-add-item" onClick={handleExportLayout}>
@@ -3891,6 +4081,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           onUpdate={updateColumn}
                           onRemove={removeColumn}
                           onOpenPost={handleOpenPost}
+                          postClickAction={deckSettings.postClickAction}
                           compactMode={deckSettings.compactMode}
                           columnColors={deckSettings.columnColors}
                         />
@@ -3917,6 +4108,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           onUpdate={updateColumn}
                           onRemove={removeColumn}
                           onOpenPost={handleOpenPost}
+                          postClickAction={deckSettings.postClickAction}
                           compactMode={deckSettings.compactMode}
                           columnColors={deckSettings.columnColors}
                         />
@@ -3943,6 +4135,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           onUpdate={updateColumn}
                           onRemove={removeColumn}
                           onOpenPost={handleOpenPost}
+                          postClickAction={deckSettings.postClickAction}
                           compactMode={deckSettings.compactMode}
                           columnColors={deckSettings.columnColors}
                         />
@@ -3965,6 +4158,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           onUpdate={updateColumn}
                           onRemove={removeColumn}
                           onOpenPost={handleOpenPost}
+                          postClickAction={deckSettings.postClickAction}
                           compactMode={deckSettings.compactMode}
                           columnColors={deckSettings.columnColors}
                         />
@@ -3982,6 +4176,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           onMove={moveColumn}
                           onRemove={removeColumn}
                           onOpenPost={handleOpenPost}
+                          postClickAction={deckSettings.postClickAction}
                           compactMode={deckSettings.compactMode}
                           columnColors={deckSettings.columnColors}
                         />
@@ -4004,9 +4199,53 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           columnColors={deckSettings.columnColors}
                         />
                       </div>
-                    );
+                  );
                 }
               })}
+              <div className="deck-column-tail" ref={railAddMenuRef}>
+                <button
+                  type="button"
+                  className="deck-column-add-button"
+                  onClick={() => {
+                    setShowRailAddMenu((current) => {
+                      const next = !current;
+                      if (next) {
+                        setShowAddMenu(false);
+                        setShowViewsMenu(false);
+                        setShowActionsMenu(false);
+                      }
+                      return next;
+                    });
+                  }}
+                  aria-label={text.addLabel}
+                  title={text.addLabel}
+                >
+                  <PlusIcon />
+                </button>
+                {showRailAddMenu ? (
+                  <div className="deck-add-menu deck-add-menu--tail">
+                    <div className="deck-add-menu-title">{text.choosePane}</div>
+                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("mentions")}>
+                      <ColumnMenuLabel type="mentions" label={text.addMentions} />
+                    </button>
+                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("channelWatch")}>
+                      <ColumnMenuLabel type="channelWatch" label={text.addChannelWatch} />
+                    </button>
+                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("dmWatch")}>
+                      <ColumnMenuLabel type="dmWatch" label={text.addDmWatch} />
+                    </button>
+                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("search")}>
+                      <ColumnMenuLabel type="search" label="Search" />
+                    </button>
+                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("saved")}>
+                      <ColumnMenuLabel type="saved" label="Saved" />
+                    </button>
+                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("diagnostics")}>
+                      <ColumnMenuLabel type="diagnostics" label="Diagnostics" />
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </main>
           </div>
         </>

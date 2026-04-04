@@ -2,7 +2,7 @@ import { loadStoredEncryptedString, loadStoredString, saveStoredEncryptedString,
 
 export type DeckTheme = "system" | "dark" | "light" | "mattermost";
 export type DeckLanguage = "ja" | "en";
-export type ColumnIdentityMode = "icon" | "color";
+export type PostClickAction = "navigate" | "none" | "ask";
 export type ColumnColorKey =
   | "mentions"
   | "channelWatch"
@@ -28,7 +28,8 @@ export interface DeckSettings {
   preferredRailWidth: number;
   preferredColumnWidth: number;
   compactMode: boolean;
-  columnIdentityMode: ColumnIdentityMode;
+  columnColorEnabled: boolean;
+  postClickAction: PostClickAction;
   columnColors: ColumnColorSettings;
 }
 
@@ -46,7 +47,9 @@ export const SETTINGS_KEYS = {
   preferredRailWidth: "mattermostDeck.preferredRailWidth.v1",
   preferredColumnWidth: "mattermostDeck.preferredColumnWidth.v1",
   compactMode: "mattermostDeck.compactMode.v1",
+  columnColorEnabled: "mattermostDeck.columnColorEnabled.v1",
   columnIdentityMode: "mattermostDeck.columnIdentityMode.v1",
+  postClickAction: "mattermostDeck.postClickAction.v1",
   columnColors: "mattermostDeck.columnColors.v1",
 } as const;
 
@@ -74,7 +77,8 @@ export const DEFAULT_SETTINGS: DeckSettings = {
   preferredRailWidth: 720,
   preferredColumnWidth: 320,
   compactMode: false,
-  columnIdentityMode: "icon",
+  columnColorEnabled: false,
+  postClickAction: "ask",
   columnColors: DEFAULT_COLUMN_COLORS,
 };
 export const MIN_POLLING_INTERVAL_SECONDS = 15;
@@ -237,8 +241,16 @@ function normaliseLanguage(value: string | null): DeckLanguage {
   return value === "ja" || value === "en" ? value : DEFAULT_SETTINGS.language;
 }
 
-function normaliseColumnIdentityMode(value: string | null): ColumnIdentityMode {
-  return value === "color" || value === "icon" ? value : DEFAULT_SETTINGS.columnIdentityMode;
+function normaliseColumnColorEnabled(value: unknown, legacyIdentityMode?: string | null): boolean {
+  if (value !== undefined && value !== null && value !== "") {
+    return normaliseBoolean(value, DEFAULT_SETTINGS.columnColorEnabled);
+  }
+
+  return legacyIdentityMode === "color";
+}
+
+function normalisePostClickAction(value: string | null): PostClickAction {
+  return value === "none" || value === "ask" || value === "navigate" ? value : DEFAULT_SETTINGS.postClickAction;
 }
 
 export async function loadDeckSettings(): Promise<DeckSettings> {
@@ -257,7 +269,9 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
     preferredRailWidth,
     preferredColumnWidth,
     compactMode,
+    columnColorEnabled,
     columnIdentityMode,
+    postClickAction,
     columnColors,
   ] =
     await Promise.all([
@@ -275,7 +289,9 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
     loadStoredString(SETTINGS_KEYS.preferredRailWidth),
     loadStoredString(SETTINGS_KEYS.preferredColumnWidth),
     loadStoredString(SETTINGS_KEYS.compactMode),
+    loadStoredString(SETTINGS_KEYS.columnColorEnabled),
     loadStoredString(SETTINGS_KEYS.columnIdentityMode),
+    loadStoredString(SETTINGS_KEYS.postClickAction),
     loadStoredString(SETTINGS_KEYS.columnColors),
     ]);
 
@@ -293,7 +309,8 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
     preferredRailWidth: normalisePreferredRailWidth(preferredRailWidth),
     preferredColumnWidth: normalisePreferredColumnWidth(preferredColumnWidth),
     compactMode: normaliseBoolean(compactMode, DEFAULT_SETTINGS.compactMode),
-    columnIdentityMode: normaliseColumnIdentityMode(columnIdentityMode),
+    columnColorEnabled: normaliseColumnColorEnabled(columnColorEnabled, columnIdentityMode),
+    postClickAction: normalisePostClickAction(postClickAction),
     columnColors: normaliseColumnColors(parseJsonObject(columnColors)),
   };
 }
@@ -318,7 +335,9 @@ export async function saveDeckSettings(settings: DeckSettings): Promise<void> {
     saveStoredString(SETTINGS_KEYS.preferredRailWidth, String(normalisePreferredRailWidth(settings.preferredRailWidth))),
     saveStoredString(SETTINGS_KEYS.preferredColumnWidth, String(normalisePreferredColumnWidth(settings.preferredColumnWidth))),
     saveStoredString(SETTINGS_KEYS.compactMode, settings.compactMode ? "true" : "false"),
-    saveStoredString(SETTINGS_KEYS.columnIdentityMode, normaliseColumnIdentityMode(settings.columnIdentityMode)),
+    saveStoredString(SETTINGS_KEYS.columnColorEnabled, settings.columnColorEnabled ? "true" : "false"),
+    saveStoredString(SETTINGS_KEYS.columnIdentityMode, settings.columnColorEnabled ? "color" : "icon"),
+    saveStoredString(SETTINGS_KEYS.postClickAction, normalisePostClickAction(settings.postClickAction)),
     saveStoredString(SETTINGS_KEYS.columnColors, JSON.stringify(normaliseColumnColors(settings.columnColors))),
   ]);
 }
@@ -349,7 +368,9 @@ export function subscribeDeckSettings(listener: (settings: DeckSettings) => void
           SETTINGS_KEYS.preferredRailWidth in changes ||
           SETTINGS_KEYS.preferredColumnWidth in changes ||
           SETTINGS_KEYS.compactMode in changes ||
+          SETTINGS_KEYS.columnColorEnabled in changes ||
           SETTINGS_KEYS.columnIdentityMode in changes ||
+          SETTINGS_KEYS.postClickAction in changes ||
           SETTINGS_KEYS.columnColors in changes
         ))
     ) {
