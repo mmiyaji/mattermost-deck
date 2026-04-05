@@ -104,6 +104,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
 
+      if (message?.type === "mattermost-deck:open-tab") {
+        const url = typeof message.url === "string" ? message.url : "";
+        if (!url) {
+          sendResponse({ success: false, error: "Missing URL" });
+          return;
+        }
+        await chrome.tabs.create({ url });
+        sendResponse({ success: true });
+        return;
+      }
+
       if (message?.type === "mattermost-deck:sync-content-script") {
         await syncDeckContentScript();
         sendResponse({ success: true });

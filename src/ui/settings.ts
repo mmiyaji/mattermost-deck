@@ -32,6 +32,7 @@ export interface DeckSettings {
   postClickAction: PostClickAction;
   columnColors: ColumnColorSettings;
   showImagePreviews: boolean;
+  highZIndex: boolean;
 }
 
 export const SETTINGS_KEYS = {
@@ -53,6 +54,7 @@ export const SETTINGS_KEYS = {
   postClickAction: "mattermostDeck.postClickAction.v1",
   columnColors: "mattermostDeck.columnColors.v1",
   showImagePreviews: "mattermostDeck.showImagePreviews.v1",
+  highZIndex: "mattermostDeck.highZIndex.v1",
 } as const;
 
 export const DEFAULT_COLUMN_COLORS: ColumnColorSettings = {
@@ -83,6 +85,7 @@ export const DEFAULT_SETTINGS: DeckSettings = {
   postClickAction: "ask",
   columnColors: DEFAULT_COLUMN_COLORS,
   showImagePreviews: true,
+  highZIndex: false,
 };
 export const MIN_POLLING_INTERVAL_SECONDS = 15;
 export const MAX_POLLING_INTERVAL_SECONDS = 300;
@@ -277,6 +280,7 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
     postClickAction,
     columnColors,
     showImagePreviews,
+    highZIndex,
   ] =
     await Promise.all([
     loadStoredString(SETTINGS_KEYS.serverUrl),
@@ -298,6 +302,7 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
     loadStoredString(SETTINGS_KEYS.postClickAction),
     loadStoredString(SETTINGS_KEYS.columnColors),
     loadStoredString(SETTINGS_KEYS.showImagePreviews),
+    loadStoredString(SETTINGS_KEYS.highZIndex),
     ]);
 
   return {
@@ -318,6 +323,7 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
     postClickAction: normalisePostClickAction(postClickAction),
     columnColors: normaliseColumnColors(parseJsonObject(columnColors)),
     showImagePreviews: normaliseBoolean(showImagePreviews, DEFAULT_SETTINGS.showImagePreviews),
+    highZIndex: normaliseBoolean(highZIndex, DEFAULT_SETTINGS.highZIndex),
   };
 }
 
@@ -346,6 +352,7 @@ export async function saveDeckSettings(settings: DeckSettings): Promise<void> {
     saveStoredString(SETTINGS_KEYS.postClickAction, normalisePostClickAction(settings.postClickAction)),
     saveStoredString(SETTINGS_KEYS.columnColors, JSON.stringify(normaliseColumnColors(settings.columnColors))),
     saveStoredString(SETTINGS_KEYS.showImagePreviews, settings.showImagePreviews ? "true" : "false"),
+    saveStoredString(SETTINGS_KEYS.highZIndex, settings.highZIndex ? "true" : "false"),
   ]);
 }
 
@@ -379,7 +386,8 @@ export function subscribeDeckSettings(listener: (settings: DeckSettings) => void
           SETTINGS_KEYS.columnIdentityMode in changes ||
           SETTINGS_KEYS.postClickAction in changes ||
           SETTINGS_KEYS.columnColors in changes ||
-          SETTINGS_KEYS.showImagePreviews in changes
+          SETTINGS_KEYS.showImagePreviews in changes ||
+          SETTINGS_KEYS.highZIndex in changes
         ))
     ) {
       return;

@@ -75,12 +75,21 @@ type OptionsText = {
   columnWidthLabel: string;
   columnWidthHint: string;
   showImagePreviewsLabel: string;
+  highZIndexLabel: string;
+  compactModeLabel: string;
+  compactModeHint: string;
+  postClickActionLabel: string;
+  postClickActionHint: string;
+  paneIdentityLabel: string;
+  paneIdentityHint: string;
+  colorAccentsLabel: string;
   themeSystem: string;
   themeMattermost: string;
   themeDark: string;
   themeLight: string;
   languageJa: string;
   languageEn: string;
+  openMattermost: string;
   save: string;
   saving: string;
   saved: string;
@@ -134,12 +143,21 @@ const TEXT: Record<DeckLanguage, OptionsText> = {
     columnWidthLabel: "Column Width (px)",
     columnWidthHint: `${MIN_PREFERRED_COLUMN_WIDTH}px 〜 ${MAX_PREFERRED_COLUMN_WIDTH}px で設定します。`,
     showImagePreviewsLabel: "画像サムネイルを表示",
+    highZIndexLabel: "拡張のZ-orderを最大値にする",
+    compactModeLabel: "コンパクトモード",
+    compactModeHint: "投稿カードを小さくし、スペースを詰めて表示します。",
+    postClickActionLabel: "投稿クリック時の動作",
+    postClickActionHint: "投稿カードをクリックしたときの動作を選択します。テキスト選択のためのドラッグではスレッドを開きません。",
+    paneIdentityLabel: "ペイン識別",
+    paneIdentityHint: "ペインの種類アイコンは常に表示されます。カラーアクセントを有効にすると、各ペインのカードに色付きの上部ボーダーを追加できます。",
+    colorAccentsLabel: "カラーアクセントを有効にする",
     themeSystem: "System",
     themeMattermost: "Mattermost",
     themeDark: "Dark",
     themeLight: "Light",
     languageJa: "日本語",
     languageEn: "English",
+    openMattermost: "Mattermostを開く",
     save: "保存",
     saving: "保存中...",
     saved: "保存しました",
@@ -191,12 +209,21 @@ const TEXT: Record<DeckLanguage, OptionsText> = {
     columnWidthLabel: "Column Width (px)",
     columnWidthHint: `Configurable from ${MIN_PREFERRED_COLUMN_WIDTH}px to ${MAX_PREFERRED_COLUMN_WIDTH}px.`,
     showImagePreviewsLabel: "Show image thumbnails",
+    highZIndexLabel: "Use maximum Z-order for the extension",
+    compactModeLabel: "Compact Mode",
+    compactModeHint: "Use denser cards and tighter spacing in the deck.",
+    postClickActionLabel: "Post Click Action",
+    postClickActionHint: "Choose how post cards behave when clicked. Dragging to select text never opens a thread.",
+    paneIdentityLabel: "Pane Identity",
+    paneIdentityHint: "Pane type icons are always shown. Enable color accents to add a colored top border to cards in each pane.",
+    colorAccentsLabel: "Enable color accents",
     themeSystem: "System",
     themeMattermost: "Mattermost",
     themeDark: "Dark",
     themeLight: "Light",
     languageJa: "Japanese",
     languageEn: "English",
+    openMattermost: "Open Mattermost",
     save: "Save",
     saving: "Saving...",
     saved: "Saved",
@@ -327,9 +354,13 @@ const pageCss = `
 
   .options-grid {
     display: grid;
-    grid-template-columns: 1fr 220px;
+    grid-template-columns: 1fr 1fr;
     gap: 14px;
     margin-top: 18px;
+  }
+
+  .options-grid--target {
+    grid-template-columns: 1fr 220px;
   }
 
   .options-color-grid {
@@ -543,6 +574,12 @@ const pageCss = `
     margin-top: 24px;
   }
 
+  .options-footer-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
   .options-status {
     font-size: 13px;
     color: #8facd5;
@@ -730,11 +767,17 @@ const pageCss = `
   }
 
   @media (max-width: 820px) {
-    .options-grid {
+    .options-grid,
+    .options-grid--target {
       grid-template-columns: 1fr;
     }
 
     .options-footer {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .options-footer-left {
       flex-direction: column;
       align-items: stretch;
     }
@@ -916,7 +959,7 @@ function OptionsApp(): React.JSX.Element {
         <section className="options-section">
           <h2>{text.targetTitle}</h2>
           <p>{text.targetBody}</p>
-          <div className="options-grid">
+          <div className="options-grid options-grid--target">
             <label className="options-field">
               <span className="options-label options-label--required">
                 <span>{text.serverUrlLabel}</span>
@@ -1148,7 +1191,7 @@ function OptionsApp(): React.JSX.Element {
                 <p>{text.columnWidthHint}</p>
               </label>
               <label className="options-field">
-                <span className="options-label">Compact Mode</span>
+                <span className="options-label">{text.compactModeLabel}</span>
                 <label className="options-choice">
                   <input
                     type="checkbox"
@@ -1160,7 +1203,7 @@ function OptionsApp(): React.JSX.Element {
                       }))
                     }
                   />
-                  <span>Use denser cards and tighter spacing in the deck.</span>
+                  <span>{text.compactModeHint}</span>
                 </label>
               </label>
               <label className="options-field">
@@ -1180,7 +1223,7 @@ function OptionsApp(): React.JSX.Element {
                 </label>
               </label>
               <label className="options-field">
-                <span className="options-label">Post Click Action</span>
+                <span className="options-label">{text.postClickActionLabel}</span>
                 <CustomSelect
                   options={postClickActionOptions}
                   value={settings.postClickAction}
@@ -1193,13 +1236,33 @@ function OptionsApp(): React.JSX.Element {
                     }))
                   }
                 />
-                <p>Choose how post cards behave when clicked. Dragging to select text never opens a thread.</p>
+                <p>{text.postClickActionHint}</p>
+              </label>
+              <label className="options-field">
+                <span className="options-label">{text.highZIndexLabel}</span>
+                <label className="options-choice">
+                  <input
+                    type="checkbox"
+                    checked={settings.highZIndex}
+                    onChange={(event) =>
+                      setSettings((current) => ({
+                        ...current,
+                        highZIndex: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>
+                    {settings.language === "ja"
+                      ? "オフ時はZ-order 999（Mattermostのドロップダウン等が前面）。オンにすると最大値になり、全ての要素より前面に表示されます。"
+                      : "Off: Z-order 999 (Mattermost dropdowns and popovers appear on top). On: maximum value, the extension renders above everything."}
+                  </span>
+                </label>
               </label>
             </div>
             <div className="options-grid">
               <label className="options-field">
-                <span className="options-label">Pane Identity</span>
-                <p>Pane type icons are always shown. Enable color accents to add a colored top border to cards in each pane.</p>
+                <span className="options-label">{text.paneIdentityLabel}</span>
+                <p>{text.paneIdentityHint}</p>
                 <label className="options-choice">
                   <input
                     type="checkbox"
@@ -1211,7 +1274,7 @@ function OptionsApp(): React.JSX.Element {
                       }))
                     }
                   />
-                  <span>Enable color accents</span>
+                  <span>{text.colorAccentsLabel}</span>
                 </label>
               </label>
             </div>
@@ -1280,7 +1343,21 @@ function OptionsApp(): React.JSX.Element {
       )}
 
       <footer className="options-footer">
-        <div className="options-status">{loaded ? saveError ?? (savedNotice ? text.saved : "") : text.saving}</div>
+        <div className="options-footer-left">
+          <button
+            type="button"
+            className="options-button options-button--ghost"
+            disabled={!settings.serverUrl}
+            onClick={() => {
+              if (settings.serverUrl) {
+                void chrome.tabs.create({ url: settings.serverUrl });
+              }
+            }}
+          >
+            {text.openMattermost}
+          </button>
+          <div className="options-status">{loaded ? saveError ?? (savedNotice ? text.saved : "") : text.saving}</div>
+        </div>
         <button type="button" className="options-button" onClick={handleSave} disabled={!loaded || saving}>
           {saving ? text.saving : text.save}
         </button>

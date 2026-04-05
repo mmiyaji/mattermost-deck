@@ -215,15 +215,11 @@ async function render(): Promise<void> {
   }
 
   const routeKey = `${window.location.pathname}${window.location.hash}`;
-  const renderKey = `${routeKey}|dialog:${hasBlockingDialog() ? "open" : "closed"}`;
+  const dialogOpen = hasBlockingDialog();
+  const renderKey = `${routeKey}|dialog:${dialogOpen ? "open" : "closed"}`;
   lastRenderKey = renderKey;
 
   if (!matchesConfiguredRoute()) {
-    cleanup();
-    return;
-  }
-
-  if (hasBlockingDialog()) {
     cleanup();
     return;
   }
@@ -241,6 +237,9 @@ async function render(): Promise<void> {
   document.body.classList.add(BODY_CLASS);
 
   const mountPoint = ensureRoot();
+  // When Mattermost shows a blocking dialog, lower z-index so the dialog renders on top.
+  const normalZIndex = currentSettings.highZIndex ? "2147483646" : "999";
+  mountPoint.style.zIndex = dialogOpen ? "0" : normalZIndex;
   const shadowRoot = mountPoint.shadowRoot ?? mountPoint.attachShadow({ mode: "open" });
 
   if (!shadowRoot.getElementById("mattermost-deck-style")) {

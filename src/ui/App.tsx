@@ -2136,16 +2136,17 @@ function ImageLightbox({ src, name, onClose }: { src: string; name: string; onCl
     <div className="deck-lightbox-backdrop" role="dialog" aria-modal="true" aria-label={name}>
       {/* 右上ツールバー */}
       <div className="deck-lightbox-toolbar" onClick={(e) => e.stopPropagation()}>
-        <a
+        <button
+          type="button"
           className="deck-lightbox-btn"
-          href={src}
-          target="_blank"
-          rel="noreferrer"
           title="別タブで開く"
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            void chrome.runtime.sendMessage({ type: "mattermost-deck:open-tab", url: src });
+          }}
         >
           <IconExternalLink />
-        </a>
+        </button>
         <button type="button" className="deck-lightbox-btn" title="保存" onClick={handleDownload}>
           <IconDownload />
         </button>
@@ -2278,20 +2279,21 @@ function PostFileAttachments({ fileIds, postId, showImagePreviews = true }: { fi
               onOpen={() => setLightboxSrc({ src: getFullSrc(info), name: info.name })}
             />
           ) : (
-            <a
+            <button
               key={info.id}
+              type="button"
               className="deck-file-card"
-              href={`${baseUrl}/api/v4/files/${info.id}`}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                void chrome.runtime.sendMessage({ type: "mattermost-deck:open-tab", url: `${baseUrl}/api/v4/files/${info.id}` });
+              }}
             >
               <span className="deck-file-icon">
                 <FileTypeIcon mimeType={info.mime_type} extension={info.extension ?? ""} />
               </span>
               <span className="deck-file-name" title={info.name}>{info.name}</span>
               <span className="deck-file-size">{formatFileSize(info.size)}</span>
-            </a>
+            </button>
           );
         })}
       </div>

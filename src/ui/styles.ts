@@ -1680,6 +1680,8 @@ export const railCssText = `
     color: var(--deck-text);
     max-width: 180px;
     font-size: calc(12px * var(--deck-font-scale));
+    font-family: inherit;
+    cursor: pointer;
     transition: background 0.12s;
   }
 
