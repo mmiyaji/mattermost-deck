@@ -18,6 +18,11 @@ await fs.mkdir(distDir, { recursive: true });
 const manifestPath = path.join(srcDir, "manifest.json");
 const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
 
+// EXT_VERSION が設定されている場合、version を更新
+if (process.env.EXT_VERSION) {
+  manifest.version = process.env.EXT_VERSION.replace(/^v/, '');
+}
+
 if (storeBuild && Array.isArray(manifest.content_scripts)) {
   manifest.content_scripts = manifest.content_scripts
     .map((entry) => {
@@ -56,6 +61,13 @@ await fs.copyFile(
 await fs.cp(path.join(srcDir, "assets"), path.join(distDir, "assets"), {
   recursive: true,
 });
+
+const appVersion = process.env.EXT_VERSION ? process.env.EXT_VERSION.replace(/^v/, '') : '0.1.0';
+
+// version.ts を書き換え
+const versionPath = path.join(srcDir, "version.ts");
+const versionContent = `export const APP_VERSION = "${appVersion}";\n`;
+await fs.writeFile(versionPath, versionContent, "utf8");
 
 const ctx = await esbuild.context({
   entryPoints: {
