@@ -363,7 +363,7 @@ export async function getChannelsByIds(channelIds: string[]): Promise<Mattermost
   if (channelIds.length === 0) {
     return [];
   }
-  return await apiPost<MattermostChannel[]>("/channels/ids", channelIds);
+  return await Promise.all(channelIds.map((id) => getChannel(id)));
 }
 
 export async function getRecentPosts(channelId: string, page = 0, perPage = 20): Promise<MattermostPost[]> {

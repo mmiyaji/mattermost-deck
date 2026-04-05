@@ -374,6 +374,8 @@ export const railCssText = `
     border: 1px solid var(--deck-border);
     background: var(--deck-accent-soft);
     color: var(--deck-topbar-text);
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .deck-status-badge--action {
@@ -1890,16 +1892,6 @@ export const railCssText = `
   }
 
   @media (max-width: 1100px) {
-    .deck-topbar {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    .deck-topbar-actions {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
     .deck-status-inline {
       max-width: none;
     }

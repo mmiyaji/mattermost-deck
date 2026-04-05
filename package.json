@@ -1,6 +1,6 @@
 {
   "name": "mattermost-deck",
-  "version": "0.1.1",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,6 +9,7 @@
     "dev": "node ./scripts/build.mjs --watch",
     "check": "tsc --noEmit",
     "open:mattermost": "node ./scripts/open-mattermost.mjs",
+    "test": "vitest run",
     "test:e2e": "playwright test"
   },
   "dependencies": {
@@ -22,6 +23,7 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "esbuild": "^0.25.11",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.2"
   }
 }

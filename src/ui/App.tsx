@@ -841,29 +841,67 @@ function getAppText(language: DeckLanguage) {
   return language === "en"
     ? {
         title: "Mattermost Deck",
-        signedInAs: "ログイン中",
-        usingSession: "現在の Mattermost セッションを利用",
+        signedInAs: "Signed in as",
+        usingSession: "Using current Mattermost session",
         realtimeOff: "Realtime Off",
-        settingsHint: "拡張機能の設定を開く",
-        settingsButton: "設定を開く",
-        connectionLog: "接続ログ",
-        recentLabel: "最近のチャンネル",
-        addLabel: "追加",
+        settingsHint: "Open extension settings",
+        settingsButton: "Open settings",
+        connectionLog: "Connection log",
+        recentLabel: "Recent channels",
+        addLabel: "Add",
         addMentions: "Mentions",
         addChannelWatch: "Channel Watch",
         addDmWatch: "DM / Group",
-        choosePane: "追加するペイン",
-        loading: "Mattermost データを読み込み中...",
+        choosePane: "Add pane",
+        loading: "Loading Mattermost data...",
         sessionExpired: "Session expired. Log in again.",
         failedToLoad: "Failed to load data.",
-        column: "column",
-        columns: "columns",
+        column: "pane",
+        columns: "panes",
+        // TeamSelect
+        teamLabel: "Team",
+        selectTeam: "Select team",
+        allTeams: "All teams",
+        // MentionsColumn
+        unreadOnly: "Unread only",
+        scope: "Scope",
+        mentionBadge: (count: number, perTeam: boolean) =>
+          `${count} unread mention${count === 1 ? "" : "s"}${perTeam ? " in this team" : " across all teams"}`,
+        unreadOnlyNote: "Showing the latest unread mentions based on the current unread count.",
+        allTeamsNote: "This mode aggregates mentions across every joined team and uses a slower polling interval.",
+        // ChannelWatchColumn
+        channelLabel: "Channel",
+        selectChannel: "Select channel",
+        selectDm: "Select direct message",
+        directMessage: "Direct message",
+        pinnedTarget: "Pinned target",
+        unknownTeam: "Unknown team",
+        pickDmOrGroup: "Pick a direct message or group",
+        pickTeamAndChannel: "Pick a team and channel",
+        selectATeam: "Select a team",
+        selectATeamDesc: "This pane no longer follows the main page. Choose a fixed team first.",
+        selectAChannel: "Select a channel",
+        selectADm: "Select a DM / Group",
+        selectChannelDesc: "Choose which channel this pane should watch.",
+        selectDmDesc: "Choose which direct message this pane should watch.",
+        // SearchLikeColumn
+        queryLabel: "Query",
+        searchTerms: "Search terms",
+        applySearch: "Apply",
+        // DiagnosticsColumn
+        noRecentEvents: "No recent API or WebSocket events",
+        // App shell
+        resizeLabel: "Resize deck area",
+        resizeDrag: "Drag to resize deck area",
+        moreActionsLabel: "Open more actions",
+        collapseControls: (name: string) => `Collapse ${name} controls`,
+        expandControls: (name: string) => `Expand ${name} controls`,
       }
     : {
         title: "Mattermost Deck",
         signedInAs: "ログイン中",
         usingSession: "現在の Mattermost セッションを利用",
-        realtimeOff: "Realtime Off",
+        realtimeOff: "リアルタイム無効",
         settingsHint: "拡張機能の設定を開く",
         settingsButton: "設定を開く",
         connectionLog: "接続ログ",
@@ -874,10 +912,48 @@ function getAppText(language: DeckLanguage) {
         addDmWatch: "DM / Group",
         choosePane: "追加するペイン",
         loading: "Mattermost データを読み込み中...",
-        sessionExpired: "Session expired. Log in again.",
-        failedToLoad: "Failed to load data.",
-        column: "column",
-        columns: "columns",
+        sessionExpired: "セッションが切れました。再ログインしてください。",
+        failedToLoad: "データの読み込みに失敗しました。",
+        column: "ペイン",
+        columns: "ペイン",
+        // TeamSelect
+        teamLabel: "チーム",
+        selectTeam: "チームを選択",
+        allTeams: "すべてのチーム",
+        // MentionsColumn
+        unreadOnly: "未読のみ",
+        scope: "スコープ",
+        mentionBadge: (count: number, perTeam: boolean) =>
+          `未読メンション ${count} 件${perTeam ? "（このチーム）" : "（全チーム）"}`,
+        unreadOnlyNote: "現在の未読数をもとに、最新の未読メンションを表示しています。",
+        allTeamsNote: "このモードは参加中の全チームのメンションを集約します。ポーリング間隔が長くなります。",
+        // ChannelWatchColumn
+        channelLabel: "チャンネル",
+        selectChannel: "チャンネルを選択",
+        selectDm: "ダイレクトメッセージを選択",
+        directMessage: "ダイレクトメッセージ",
+        pinnedTarget: "固定ターゲット",
+        unknownTeam: "不明なチーム",
+        pickDmOrGroup: "ダイレクトメッセージまたはグループを選択",
+        pickTeamAndChannel: "チームとチャンネルを選択",
+        selectATeam: "チームを選択",
+        selectATeamDesc: "このペインはメインページに連動しなくなりました。先にチームを固定選択してください。",
+        selectAChannel: "チャンネルを選択",
+        selectADm: "DM / グループを選択",
+        selectChannelDesc: "監視するチャンネルを選択してください。",
+        selectDmDesc: "監視するダイレクトメッセージを選択してください。",
+        // SearchLikeColumn
+        queryLabel: "クエリ",
+        searchTerms: "検索キーワード",
+        applySearch: "適用",
+        // DiagnosticsColumn
+        noRecentEvents: "最近の API / WebSocket イベントなし",
+        // App shell
+        resizeLabel: "デッキ幅を調整",
+        resizeDrag: "ドラッグしてデッキ幅を変更",
+        moreActionsLabel: "その他の操作",
+        collapseControls: (_name: string) => "コントロールを折りたたむ",
+        expandControls: (_name: string) => "コントロールを展開",
       };
 }
 
@@ -1843,11 +1919,14 @@ function TeamSelect({
   teams,
   teamId,
   onChange,
+  language = "ja",
 }: {
   teams: MattermostTeam[];
   teamId?: string;
   onChange: (teamId: string) => void;
+  language?: DeckLanguage;
 }): React.JSX.Element {
+  const t = useMemo(() => getAppText(language), [language]);
   const options = teams.map((team) => ({
     value: team.id,
     label: team.display_name || team.name,
@@ -1855,11 +1934,11 @@ function TeamSelect({
 
   return (
     <label className="deck-field">
-      <span>Team</span>
+      <span>{t.teamLabel}</span>
       <CustomSelect
         options={options}
         value={teamId ?? ""}
-        placeholder="Select team"
+        placeholder={t.selectTeam}
         onChange={onChange}
       />
     </label>
@@ -2670,6 +2749,7 @@ function MentionsColumn({
   language: DeckLanguage;
 }): React.JSX.Element {
   const teamIds = useMemo(() => (column.teamId ? [column.teamId] : teams.map((team) => team.id)), [column.teamId, teams]);
+  const text = useMemo(() => getAppText(language), [language]);
   const teamDirectory = useMemo(() => Object.fromEntries(teams.map((team) => [team.id, team])), [teams]);
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
@@ -2700,8 +2780,8 @@ function MentionsColumn({
     [column.unreadOnly, mentionCount, postState.posts],
   );
   const teamOptions = useMemo<CustomSelectOption[]>(
-    () => [{ value: "", label: "All teams" }, ...teams.map((team) => ({ value: team.id, label: team.display_name || team.name }))],
-    [teams],
+    () => [{ value: "", label: text.allTeams }, ...teams.map((team) => ({ value: team.id, label: team.display_name || team.name }))],
+    [teams, text.allTeams],
   );
 
   const finishRefresh = useCallback(() => {
@@ -2965,19 +3045,19 @@ function MentionsColumn({
               <span>Mentions</span>
             </span>
           </h2>
-          <p title={selectedTeam ? selectedTeam.display_name || selectedTeam.name : "All teams"}>
-            {selectedTeam ? selectedTeam.display_name || selectedTeam.name : "All teams"}
+          <p title={selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.allTeams}>
+            {selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.allTeams}
           </p>
         </div>
         <div className="deck-column-actions">
-          <div className="deck-badge" title={column.teamId ? "Unread mentions in this team" : "Unread mentions across all teams"}>
+          <div className="deck-badge" title={text.mentionBadge(mentionCount, Boolean(column.teamId))}>
             {mentionCount}
           </div>
           <button
             type="button"
             className="deck-icon-button deck-icon-button--ghost"
             onClick={() => setShowControls((current) => !current)}
-            aria-label={showControls ? "Collapse mentions controls" : "Expand mentions controls"}
+            aria-label={showControls ? text.collapseControls("mentions") : text.expandControls("mentions")}
           >
             <ChevronIcon expanded={showControls} />
           </button>
@@ -3021,11 +3101,11 @@ function MentionsColumn({
           </div>
           <div className="deck-controls">
             <label className="deck-field">
-              <span>Team</span>
+              <span>{text.teamLabel}</span>
               <CustomSelect
                 options={teamOptions}
                 value={column.teamId ?? ""}
-                placeholder="All teams"
+                placeholder={text.allTeams}
                 onChange={(teamId) => onUpdate(column.id, { teamId: teamId || undefined })}
               />
             </label>
@@ -3035,28 +3115,28 @@ function MentionsColumn({
                 checked={Boolean(column.unreadOnly)}
                 onChange={(event) => onUpdate(column.id, { unreadOnly: event.currentTarget.checked })}
               />
-              <span>Unread only</span>
+              <span>{text.unreadOnly}</span>
             </label>
           </div>
 
           <article className="deck-card deck-card--muted">
-            <strong>Scope</strong>
-            <p>{selectedTeam ? selectedTeam.display_name || selectedTeam.name : "All teams"}</p>
+            <strong>{text.scope}</strong>
+            <p>{selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.allTeams}</p>
           </article>
           <article className="deck-card deck-card--muted">
             <strong>Mentions</strong>
-            <p>{mentionCount} unread mention(s){column.teamId ? " in this team" : " across all teams"}</p>
+            <p>{text.mentionBadge(mentionCount, Boolean(column.teamId))}</p>
           </article>
           {column.unreadOnly ? (
             <article className="deck-card deck-card--muted">
-              <strong>Unread only</strong>
-              <p>Showing the latest unread mentions based on the current unread count.</p>
+              <strong>{text.unreadOnly}</strong>
+              <p>{text.unreadOnlyNote}</p>
             </article>
           ) : null}
           {!column.teamId ? (
             <article className="deck-card">
-              <strong>All teams</strong>
-              <p>This mode aggregates mentions across every joined team and uses a slower polling interval.</p>
+              <strong>{text.allTeams}</strong>
+              <p>{text.allTeamsNote}</p>
             </article>
           ) : null}
         </div>
@@ -3183,6 +3263,7 @@ function ChannelWatchColumn({
   showImagePreviews: boolean;
   language: DeckLanguage;
 }): React.JSX.Element {
+  const text = useMemo(() => getAppText(language), [language]);
   const [channelState, setChannelState] = useState<ChannelState>({ status: "idle", channels: [], error: null });
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
@@ -3472,20 +3553,20 @@ function ChannelWatchColumn({
             title={
               selectedChannel
                 ? mode === "dm"
-                  ? selectedChannelKindLabel ?? "Direct message"
-                  : selectedTeamLabel ?? "Unknown team"
+                  ? selectedChannelKindLabel ?? text.directMessage
+                  : selectedTeamLabel ?? text.unknownTeam
                 : mode === "dm"
-                  ? "Pick a direct message or group"
-                  : "Pick a team and channel"
+                  ? text.pickDmOrGroup
+                  : text.pickTeamAndChannel
             }
           >
             {selectedChannel
               ? mode === "dm"
-                ? selectedChannelKindLabel ?? "Direct message"
-                : selectedTeamLabel ?? "Unknown team"
+                ? selectedChannelKindLabel ?? text.directMessage
+                : selectedTeamLabel ?? text.unknownTeam
               : mode === "dm"
-                ? "Pick a direct message or group"
-                : "Pick a team and channel"}
+                ? text.pickDmOrGroup
+                : text.pickTeamAndChannel}
           </p>
         </div>
         <div className="deck-column-actions">
@@ -3493,7 +3574,7 @@ function ChannelWatchColumn({
             type="button"
             className="deck-icon-button deck-icon-button--ghost"
             onClick={() => setShowControls((current) => !current)}
-            aria-label={showControls ? "Collapse controls" : "Expand controls"}
+            aria-label={showControls ? text.collapseControls("") : text.expandControls("")}
           >
             <ChevronIcon expanded={showControls} />
           </button>
@@ -3541,15 +3622,16 @@ function ChannelWatchColumn({
                 teams={teams}
                 teamId={column.teamId}
                 onChange={(teamId) => onUpdate(column.id, { teamId: teamId || undefined, channelId: undefined })}
+                language={language}
               />
             ) : null}
             <label className="deck-field">
-              <span>{mode === "dm" ? "DM / Group" : "Channel"}</span>
+              <span>{mode === "dm" ? "DM / Group" : text.channelLabel}</span>
               <CustomSelect
                 options={channelOptions}
                 value={column.channelId ?? ""}
                 disabled={(mode === "channel" && !column.teamId) || channelState.status === "loading"}
-                placeholder={mode === "dm" ? "Select direct message" : "Select channel"}
+                placeholder={mode === "dm" ? text.selectDm : text.selectChannel}
                 onChange={(channelId) => onUpdate(column.id, { channelId: channelId || undefined })}
               />
             </label>
@@ -3557,22 +3639,22 @@ function ChannelWatchColumn({
 
           {mode === "channel" && !column.teamId ? (
             <article className="deck-card">
-              <strong>Select a team</strong>
-              <p>This pane no longer follows the main page. Choose a fixed team first.</p>
+              <strong>{text.selectATeam}</strong>
+              <p>{text.selectATeamDesc}</p>
             </article>
           ) : !column.channelId ? (
             <article className="deck-card">
-              <strong>{mode === "dm" ? "Select a DM / Group" : "Select a channel"}</strong>
-              <p>{channelState.error ?? (mode === "dm" ? "Choose which direct message this pane should watch." : "Choose which channel this pane should watch.")}</p>
+              <strong>{mode === "dm" ? text.selectADm : text.selectAChannel}</strong>
+              <p>{channelState.error ?? (mode === "dm" ? text.selectDmDesc : text.selectChannelDesc)}</p>
             </article>
           ) : mode === "dm" ? (
             <article className="deck-card deck-card--muted">
-              <strong>{selectedChannelLabel ?? "Pinned target"}</strong>
-              <p>{selectedChannelKindLabel ?? "Direct message"}</p>
+              <strong>{selectedChannelLabel ?? text.pinnedTarget}</strong>
+              <p>{selectedChannelKindLabel ?? text.directMessage}</p>
             </article>
           ) : selectedTeam ? (
             <article className="deck-card deck-card--muted">
-              <strong>{selectedChannelLabel ?? "Pinned target"}</strong>
+              <strong>{selectedChannelLabel ?? text.pinnedTarget}</strong>
               <p>{selectedTeamLabel}</p>
             </article>
           ) : null}
@@ -3652,6 +3734,7 @@ function SearchLikeColumn({
   showImagePreviews: boolean;
   language: DeckLanguage;
 }): React.JSX.Element {
+  const text = useMemo(() => getAppText(language), [language]);
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
     posts: [],
@@ -3892,13 +3975,13 @@ function SearchLikeColumn({
             </button>
           </div>
           <div className="deck-controls">
-            <TeamSelect teams={teams} teamId={column.teamId} onChange={(teamId) => onUpdate(column.id, { teamId: teamId || undefined })} />
+            <TeamSelect teams={teams} teamId={column.teamId} onChange={(teamId) => onUpdate(column.id, { teamId: teamId || undefined })} language={language} />
             <label className="deck-field">
-              <span>Query</span>
+              <span>{text.queryLabel}</span>
               <input
                 className="deck-input"
                 value={draftQuery}
-                placeholder="Search terms"
+                placeholder={text.searchTerms}
                 onChange={(event) => setDraftQuery(event.target.value)}
                 onFocus={stopDeckInputPropagation}
                 onClick={stopDeckInputPropagation}
@@ -3915,7 +3998,7 @@ function SearchLikeColumn({
             </label>
             <div className="deck-inline-actions">
               <button type="button" className="deck-load-more" onClick={handleApplyQuery}>
-                Apply
+                {text.applySearch}
               </button>
               <button
                 type="button"
@@ -4241,6 +4324,7 @@ function DiagnosticsColumn({
   onMove,
   onRemove,
   columnColors,
+  language = "ja",
 }: {
   column: DeckColumn;
   wsStatus: WebSocketStatus;
@@ -4253,7 +4337,9 @@ function DiagnosticsColumn({
   onMove: (id: string, direction: "left" | "right") => void;
   onRemove: (id: string) => void;
   columnColors: ColumnColorSettings;
+  language?: DeckLanguage;
 }): React.JSX.Element {
+  const text = useMemo(() => getAppText(language), [language]);
   const [showControls, setShowControls] = useState(false);
 
   return (
@@ -4348,7 +4434,7 @@ function DiagnosticsColumn({
             )) : (
               <li className="deck-log-entry deck-log-entry--info">
                 <span className="deck-log-time">-</span>
-                <span className="deck-log-text" title="No recent API or WebSocket events">No recent API or WebSocket events</span>
+                <span className="deck-log-text" title={text.noRecentEvents}>{text.noRecentEvents}</span>
               </li>
             )}
           </ul>
@@ -4993,8 +5079,8 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
         type="button"
         className={`deck-resizer${isResizing ? " deck-resizer--active" : ""}`}
         onPointerDown={handleResizeStart}
-        aria-label="Resize deck area"
-        title="Drag to resize deck area"
+        aria-label={text.resizeLabel}
+        title={text.resizeDrag}
       >
         <span />
       </button>
@@ -5222,7 +5308,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                       return next;
                     });
                   }}
-                  aria-label="Open more actions"
+                  aria-label={text.moreActionsLabel}
                   disabled={columns === null || state.status === "loading"}
                 >
                   <HamburgerIcon />
@@ -5496,6 +5582,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           onMove={moveColumn}
                           onRemove={removeColumn}
                           columnColors={deckSettings.columnColors}
+                          language={deckSettings.language}
                         />
                       </div>
                   );

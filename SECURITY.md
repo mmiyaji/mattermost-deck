@@ -13,7 +13,7 @@ We take security seriously. The following versions of Mattermost Deck are curren
 If you discover a security vulnerability in Mattermost Deck, please report it to us as follows:
 
 1. **Do not** create a public GitHub issue for the vulnerability.
-2. Email us at [mmiyaji@ruhenheim.org] with details of the vulnerability.
+2. Email us at [mail@ruhenheim.org] with details of the vulnerability.
 3. We will acknowledge receipt within 48 hours and provide a more detailed response within 7 days indicating our next steps.
 4. We will keep you informed about our progress throughout the process of fixing the vulnerability.
 
