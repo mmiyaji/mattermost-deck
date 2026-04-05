@@ -144,9 +144,15 @@ function ensureStyle(): void {
       overflow: hidden !important;
     }
 
+    #${ROOT_ID} {
+      transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
     body.${BODY_CLASS} #root {
       width: calc(100vw - var(${OFFSET_WIDTH_VAR})) !important;
       max-width: calc(100vw - var(${OFFSET_WIDTH_VAR})) !important;
+      transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+                  max-width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     body.${BODY_CLASS} #root .app__content {

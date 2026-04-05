@@ -112,6 +112,8 @@ type ApiHealthStatus = "healthy" | "degraded" | "error";
 
 const FALLBACK_SYNC_INTERVAL_WS_MS = 300_000;
 const FALLBACK_SYNC_INTERVAL_HIDDEN_MS = 180_000;
+const DRAWER_UNMOUNT_DELAY_MS = 5 * 60 * 1_000;
+const DECK_ROOT_ID = "mattermost-deck-root";
 const AVAILABLE_COLUMN_TYPES: DeckColumnType[] = ["mentions", "channelWatch", "dmWatch"];
 const RAIL_WIDTH_STORAGE_KEY = "mattermostDeck.railWidth.v1";
 const DRAWER_OPEN_STORAGE_KEY = "mattermostDeck.drawerOpen.v1";
@@ -814,6 +816,23 @@ function RefreshIcon({ spinning = false }: { spinning?: boolean }): React.JSX.El
       <path d="M3.5 9.5a4.8 4.8 0 0 0 8.2 1.6" />
       <path d="M11.7 11.1v2.1" />
       <path d="M11.7 11.1H9.5" />
+    </svg>
+  );
+}
+
+function PauseIcon(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+      <rect x="4" y="3" width="3" height="10" rx="1" fill="currentColor" stroke="none" />
+      <rect x="9" y="3" width="3" height="10" rx="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function PlayIcon(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polygon points="5,3 13,8 5,13" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -2320,6 +2339,7 @@ function PostList({
   onOpenPost,
   postClickAction,
   showImagePreviews = true,
+  language = "ja",
 }: {
   posts: MattermostPost[];
   userDirectory: Record<string, MattermostUser>;
@@ -2332,6 +2352,7 @@ function PostList({
   onOpenPost?: (post: MattermostPost) => void;
   postClickAction: PostClickAction;
   showImagePreviews?: boolean;
+  language?: DeckLanguage;
 }): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -2548,6 +2569,23 @@ function PostList({
               {visibleEntries.map((entry) => renderEntry(entry))}
             </ul>
           </div>
+          {hasMore || loadingMore ? (
+            <div className="deck-list-footer">
+              <button
+                type="button"
+                className="deck-load-more"
+                onClick={() => onLoadMore?.()}
+                disabled={!hasMore || loadingMore}
+              >
+                <RefreshIcon spinning={loadingMore} />
+                {loadingMore ? "Loading..." : "Load more"}
+              </button>
+            </div>
+          ) : posts.length > 0 ? (
+            <div className="deck-list-end">
+              {language === "ja" ? "全件表示済み" : "All posts loaded"}
+            </div>
+          ) : null}
         </div>
       ) : (
         <div
@@ -2563,21 +2601,25 @@ function PostList({
           onPointerDown={markInteraction}
         >
           <ul className="deck-list">{entries.map((entry) => renderEntry(entry))}</ul>
+          {hasMore || loadingMore ? (
+            <div className="deck-list-footer">
+              <button
+                type="button"
+                className="deck-load-more"
+                onClick={() => onLoadMore?.()}
+                disabled={!hasMore || loadingMore}
+              >
+                <RefreshIcon spinning={loadingMore} />
+                {loadingMore ? "Loading..." : "Load more"}
+              </button>
+            </div>
+          ) : posts.length > 0 ? (
+            <div className="deck-list-end">
+              {language === "ja" ? "全件表示済み" : "All posts loaded"}
+            </div>
+          ) : null}
         </div>
       )}
-      {hasMore || loadingMore ? (
-        <div className="deck-list-footer">
-          <button
-            type="button"
-            className="deck-load-more"
-            onClick={() => onLoadMore?.()}
-            disabled={!hasMore || loadingMore}
-          >
-            <RefreshIcon spinning={loadingMore} />
-            {loadingMore ? "Loading..." : "Load more"}
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -2603,6 +2645,7 @@ function MentionsColumn({
   compactMode,
   columnColors,
   showImagePreviews,
+  language,
 }: {
   column: DeckColumn;
   username: string | null;
@@ -2624,6 +2667,7 @@ function MentionsColumn({
   compactMode: boolean;
   columnColors: ColumnColorSettings;
   showImagePreviews: boolean;
+  language: DeckLanguage;
 }): React.JSX.Element {
   const teamIds = useMemo(() => (column.teamId ? [column.teamId] : teams.map((team) => team.id)), [column.teamId, teams]);
   const teamDirectory = useMemo(() => Object.fromEntries(teams.map((team) => [team.id, team])), [teams]);
@@ -2640,6 +2684,7 @@ function MentionsColumn({
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showControls, setShowControls] = useState(false);
+  const [paused, setPaused] = useState(false);
   const refreshStartedAtRef = useRef<number | null>(null);
   const refreshStopTimerRef = useRef<number | null>(null);
   const selectedTeam = teams.find((team) => team.id === column.teamId);
@@ -2686,6 +2731,10 @@ function MentionsColumn({
 
   useEffect(() => {
     let cancelled = false;
+
+    if (paused) {
+      return () => { cancelled = true; };
+    }
 
     if (teamIds.length === 0 || !username) {
       setPostState({
@@ -2766,7 +2815,7 @@ function MentionsColumn({
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [column.teamId, ensureUsers, finishRefresh, pollingIntervalSeconds, realtimeEnabled, reconnectNonce, refreshNonce, teamIds, username]);
+  }, [column.teamId, ensureUsers, finishRefresh, paused, pollingIntervalSeconds, realtimeEnabled, reconnectNonce, refreshNonce, teamIds, username]);
 
   useEffect(() => {
     if (!postedEvent || !postedEvent.mentionsUser) {
@@ -2938,15 +2987,16 @@ function MentionsColumn({
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="左に移動" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="右に移動" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
             <button
               type="button"
               className="deck-icon-button deck-icon-button--ghost"
+              title="再読み込み"
               onClick={() => {
                 refreshStartedAtRef.current = Date.now();
                 setIsRefreshing(true);
@@ -2956,7 +3006,16 @@ function MentionsColumn({
             >
               <RefreshIcon spinning={isRefreshing} />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onRemove(column.id)}>
+            <button
+              type="button"
+              className={`deck-icon-button deck-icon-button--ghost${paused ? " deck-icon-button--active" : ""}`}
+              onClick={() => setPaused((v) => !v)}
+              title={paused ? "ポーリングを再開" : "ポーリングを一時停止"}
+              aria-label={paused ? "Resume polling" : "Pause polling"}
+            >
+              {paused ? <PlayIcon /> : <PauseIcon />}
+            </button>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="ペインを閉じる" onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -3028,6 +3087,7 @@ function MentionsColumn({
           }}
           postClickAction={postClickAction}
           showImagePreviews={showImagePreviews}
+          language={language}
         />
       )}
     </section>
@@ -3098,6 +3158,7 @@ function ChannelWatchColumn({
   compactMode,
   columnColors,
   showImagePreviews,
+  language,
 }: {
   column: DeckColumn;
   mode: "channel" | "dm";
@@ -3120,6 +3181,7 @@ function ChannelWatchColumn({
   compactMode: boolean;
   columnColors: ColumnColorSettings;
   showImagePreviews: boolean;
+  language: DeckLanguage;
 }): React.JSX.Element {
   const [channelState, setChannelState] = useState<ChannelState>({ status: "idle", channels: [], error: null });
   const [postState, setPostState] = useState<PostState>({
@@ -3133,6 +3195,7 @@ function ChannelWatchColumn({
   const [memberDirectory, setMemberDirectory] = useState<Record<string, string[]>>({});
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [paused, setPaused] = useState(false);
   const hasConfiguredTarget = mode === "dm" ? Boolean(column.channelId) : Boolean(column.teamId && column.channelId);
   const [showControls, setShowControls] = useState(!hasConfiguredTarget);
   const refreshStartedAtRef = useRef<number | null>(null);
@@ -3286,6 +3349,10 @@ function ChannelWatchColumn({
   useEffect(() => {
     let cancelled = false;
 
+    if (paused) {
+      return () => { cancelled = true; };
+    }
+
     if ((mode === "channel" && !column.teamId) || !column.channelId) {
       setPostState({
         status: "idle",
@@ -3346,7 +3413,7 @@ function ChannelWatchColumn({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [column.channelId, column.teamId, ensureUsers, finishRefresh, mode, pollingIntervalSeconds, realtimeEnabled, reconnectNonce, refreshNonce]);
+  }, [column.channelId, column.teamId, ensureUsers, finishRefresh, mode, paused, pollingIntervalSeconds, realtimeEnabled, reconnectNonce, refreshNonce]);
 
   useEffect(() => {
     if (!postedEvent || postedEvent.channelId !== column.channelId) {
@@ -3436,15 +3503,16 @@ function ChannelWatchColumn({
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="左に移動" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="右に移動" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
             <button
               type="button"
               className="deck-icon-button deck-icon-button--ghost"
+              title="再読み込み"
               onClick={() => {
                 refreshStartedAtRef.current = Date.now();
                 setIsRefreshing(true);
@@ -3454,7 +3522,16 @@ function ChannelWatchColumn({
             >
               <RefreshIcon spinning={isRefreshing} />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onRemove(column.id)}>
+            <button
+              type="button"
+              className={`deck-icon-button deck-icon-button--ghost${paused ? " deck-icon-button--active" : ""}`}
+              onClick={() => setPaused((v) => !v)}
+              title={paused ? "ポーリングを再開" : "ポーリングを一時停止"}
+              aria-label={paused ? "Resume polling" : "Pause polling"}
+            >
+              {paused ? <PlayIcon /> : <PauseIcon />}
+            </button>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="ペインを閉じる" onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -3523,6 +3600,7 @@ function ChannelWatchColumn({
           onOpenPost={(post) => onOpenPost(post, selectedTeam?.name)}
           postClickAction={postClickAction}
           showImagePreviews={showImagePreviews}
+          language={language}
         />
       )}
     </section>
@@ -3554,6 +3632,7 @@ function SearchLikeColumn({
   compactMode,
   columnColors,
   showImagePreviews,
+  language,
 }: {
   column: DeckColumn;
   teams: MattermostTeam[];
@@ -3571,6 +3650,7 @@ function SearchLikeColumn({
   compactMode: boolean;
   columnColors: ColumnColorSettings;
   showImagePreviews: boolean;
+  language: DeckLanguage;
 }): React.JSX.Element {
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
@@ -3582,6 +3662,7 @@ function SearchLikeColumn({
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [paused, setPaused] = useState(false);
   const [showControls, setShowControls] = useState(!(column.teamId && column.query?.trim()));
   const [draftQuery, setDraftQuery] = useState(column.query ?? "");
   const [savedSearches, setSavedSearches] = useState<string[]>([]);
@@ -3646,6 +3727,11 @@ function SearchLikeColumn({
 
   useEffect(() => {
     let cancelled = false;
+
+    if (paused) {
+      return () => { cancelled = true; };
+    }
+
     if (!ready) {
       setPostState({
         status: "idle",
@@ -3708,7 +3794,7 @@ function SearchLikeColumn({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [apiQuery, column.teamId, ensureUsers, finishRefresh, pollingIntervalSeconds, ready, reconnectNonce, refreshNonce]);
+  }, [apiQuery, column.teamId, ensureUsers, finishRefresh, paused, pollingIntervalSeconds, ready, reconnectNonce, refreshNonce]);
 
   const handleLoadMore = async () => {
     if (!ready || postState.loadingMore || !postState.hasMore) {
@@ -3773,15 +3859,16 @@ function SearchLikeColumn({
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="左に移動" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="右に移動" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
             <button
               type="button"
               className="deck-icon-button deck-icon-button--ghost"
+              title="再読み込み"
               onClick={() => {
                 refreshStartedAtRef.current = Date.now();
                 setIsRefreshing(true);
@@ -3791,7 +3878,16 @@ function SearchLikeColumn({
             >
               <RefreshIcon spinning={isRefreshing} />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onRemove(column.id)}>
+            <button
+              type="button"
+              className={`deck-icon-button deck-icon-button--ghost${paused ? " deck-icon-button--active" : ""}`}
+              onClick={() => setPaused((v) => !v)}
+              title={paused ? "ポーリングを再開" : "ポーリングを一時停止"}
+              aria-label={paused ? "Resume polling" : "Pause polling"}
+            >
+              {paused ? <PlayIcon /> : <PauseIcon />}
+            </button>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="ペインを閉じる" onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -3903,6 +3999,7 @@ function SearchLikeColumn({
           onOpenPost={(post) => onOpenPost(post, selectedTeam?.name)}
           postClickAction={postClickAction}
           showImagePreviews={showImagePreviews}
+          language={language}
         />
       )}
     </section>
@@ -3922,6 +4019,7 @@ function SavedPostsColumn({
   compactMode,
   columnColors,
   showImagePreviews,
+  language,
 }: {
   column: DeckColumn;
   userDirectory: Record<string, MattermostUser>;
@@ -3935,6 +4033,7 @@ function SavedPostsColumn({
   compactMode: boolean;
   columnColors: ColumnColorSettings;
   showImagePreviews: boolean;
+  language: DeckLanguage;
 }): React.JSX.Element {
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
@@ -3946,6 +4045,7 @@ function SavedPostsColumn({
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [paused, setPaused] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const refreshStartedAtRef = useRef<number | null>(null);
   const refreshStopTimerRef = useRef<number | null>(null);
@@ -3977,6 +4077,11 @@ function SavedPostsColumn({
 
   useEffect(() => {
     let cancelled = false;
+
+    if (paused) {
+      return () => { cancelled = true; };
+    }
+
     const run = async () => {
       setPostState((current) => ({ ...current, status: current.posts.length > 0 ? current.status : "loading", error: null }));
       try {
@@ -4014,7 +4119,7 @@ function SavedPostsColumn({
     return () => {
       cancelled = true;
     };
-  }, [ensureUsers, finishRefresh, refreshNonce]);
+  }, [ensureUsers, finishRefresh, paused, refreshNonce]);
 
   const handleLoadMore = async () => {
     if (postState.loadingMore || !postState.hasMore) {
@@ -4062,15 +4167,16 @@ function SavedPostsColumn({
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="左に移動" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="右に移動" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
             <button
               type="button"
               className="deck-icon-button deck-icon-button--ghost"
+              title="再読み込み"
               onClick={() => {
                 refreshStartedAtRef.current = Date.now();
                 setIsRefreshing(true);
@@ -4080,7 +4186,16 @@ function SavedPostsColumn({
             >
               <RefreshIcon spinning={isRefreshing} />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onRemove(column.id)}>
+            <button
+              type="button"
+              className={`deck-icon-button deck-icon-button--ghost${paused ? " deck-icon-button--active" : ""}`}
+              onClick={() => setPaused((v) => !v)}
+              title={paused ? "ポーリングを再開" : "ポーリングを一時停止"}
+              aria-label={paused ? "Resume polling" : "Pause polling"}
+            >
+              {paused ? <PlayIcon /> : <PauseIcon />}
+            </button>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="ペインを閉じる" onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -4107,6 +4222,7 @@ function SavedPostsColumn({
           onOpenPost={(post) => onOpenPost(post)}
           postClickAction={postClickAction}
           showImagePreviews={showImagePreviews}
+          language={language}
         />
       )}
     </section>
@@ -4156,13 +4272,13 @@ function DiagnosticsColumn({
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="左に移動" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="右に移動" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => onRemove(column.id)}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="ペインを閉じる" onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -4249,6 +4365,8 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
   const [userDirectory, setUserDirectory] = useState<Record<string, MattermostUser>>({});
   const userDirectoryRef = useRef<Record<string, MattermostUser>>({});
   const [drawerOpen, setDrawerOpen] = useStoredBoolean(DRAWER_OPEN_STORAGE_KEY, true);
+  const [contentMounted, setContentMounted] = useState(true);
+  const unmountTimerRef = useRef<number | null>(null);
   const deckSettings = useDeckSettingsState();
   const text = useMemo(() => getAppText(deckSettings.language), [deckSettings.language]);
   const realtimeEnabled = deckSettings.wsPat.trim().length > 0;
@@ -4411,6 +4529,26 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
     };
   }, [drawerOpen, isResizing]);
 
+  useEffect(() => {
+    if (drawerOpen) {
+      if (unmountTimerRef.current !== null) {
+        window.clearTimeout(unmountTimerRef.current);
+        unmountTimerRef.current = null;
+      }
+      setContentMounted(true);
+    } else {
+      unmountTimerRef.current = window.setTimeout(() => {
+        setContentMounted(false);
+        unmountTimerRef.current = null;
+      }, DRAWER_UNMOUNT_DELAY_MS);
+    }
+    return () => {
+      if (unmountTimerRef.current !== null) {
+        window.clearTimeout(unmountTimerRef.current);
+      }
+    };
+  }, [drawerOpen]);
+
   useLayoutEffect(() => {
     const currentColumns = columns ?? [];
     const currentOrder = currentColumns.map((column) => column.id);
@@ -4560,6 +4698,12 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
       pendingWidthRef.current = null;
     };
   }, [drawerOpen, isResizing, setRailWidth]);
+
+  useEffect(() => {
+    const root = document.getElementById(DECK_ROOT_ID);
+    if (!root) return;
+    root.style.transition = isResizing ? "none" : "";
+  }, [isResizing]);
 
   const handleResizeStart = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (!drawerOpen) {
@@ -4865,8 +5009,9 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
         <DrawerToggleIcon open={drawerOpen} />
       </button>
 
-      {drawerOpen ? (
-        <>
+      {!drawerOpen && <div className="deck-collapsed-banner">Mattermost Deck</div>}
+      {contentMounted && (
+        <div style={{ display: drawerOpen ? "contents" : "none" }}>
           <header className={`deck-topbar deck-topbar--compact${isCompactHeader ? " deck-topbar--collapsed" : ""}`}>
             <div className="deck-topbar-copy">
               <h1>
@@ -5229,6 +5374,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           compactMode={deckSettings.compactMode}
                           columnColors={deckSettings.columnColors}
                           showImagePreviews={deckSettings.showImagePreviews}
+                          language={deckSettings.language}
                         />
                       </div>
                     );
@@ -5257,6 +5403,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           compactMode={deckSettings.compactMode}
                           columnColors={deckSettings.columnColors}
                           showImagePreviews={deckSettings.showImagePreviews}
+                          language={deckSettings.language}
                         />
                       </div>
                     );
@@ -5285,6 +5432,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           compactMode={deckSettings.compactMode}
                           columnColors={deckSettings.columnColors}
                           showImagePreviews={deckSettings.showImagePreviews}
+                          language={deckSettings.language}
                         />
                       </div>
                     );
@@ -5309,6 +5457,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           compactMode={deckSettings.compactMode}
                           columnColors={deckSettings.columnColors}
                           showImagePreviews={deckSettings.showImagePreviews}
+                          language={deckSettings.language}
                         />
                       </div>
                     );
@@ -5328,6 +5477,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           compactMode={deckSettings.compactMode}
                           columnColors={deckSettings.columnColors}
                           showImagePreviews={deckSettings.showImagePreviews}
+                          language={deckSettings.language}
                         />
                       </div>
                     );
@@ -5403,9 +5553,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
               </button>
             </div>
           ) : null}
-        </>
-      ) : (
-        <div className="deck-collapsed-banner">Deck</div>
+        </div>
       )}
     </aside>
   );

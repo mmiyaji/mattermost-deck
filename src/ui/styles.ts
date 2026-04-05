@@ -628,6 +628,18 @@ export const railCssText = `
     border: 1px solid var(--deck-border);
   }
 
+  .deck-icon-button--active {
+    background: rgba(217, 119, 6, 0.18);
+    color: #f59e0b;
+    border-color: rgba(217, 119, 6, 0.35);
+  }
+
+  .deck-shell[data-theme="light"] .deck-icon-button--active {
+    background: rgba(217, 119, 6, 0.12);
+    color: #b45309;
+    border-color: rgba(217, 119, 6, 0.3);
+  }
+
   .deck-icon-button--plain {
     background: transparent;
     color: var(--deck-topbar-text);
@@ -1274,6 +1286,33 @@ export const railCssText = `
   .deck-list-footer {
     display: flex;
     justify-content: center;
+    padding: 8px 0;
+  }
+
+  .deck-list-end {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    color: rgba(143, 172, 213, 0.45);
+    font-size: 11px;
+  }
+
+  .deck-list-end::before,
+  .deck-list-end::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: rgba(123, 178, 255, 0.1);
+  }
+
+  .deck-shell[data-theme="light"] .deck-list-end {
+    color: rgba(73, 101, 131, 0.5);
+  }
+
+  .deck-shell[data-theme="light"] .deck-list-end::before,
+  .deck-shell[data-theme="light"] .deck-list-end::after {
+    background: rgba(84, 120, 168, 0.15);
   }
 
   .deck-list-floating-action {
