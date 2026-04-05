@@ -1,5 +1,6 @@
-﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { ShadowRootContext } from "./ShadowRootContext";
 import {
   checkApiHealth,
   fetchPostFileInfos,
@@ -59,8 +60,10 @@ import {
   type PostClickAction,
 } from "./settings";
 
+
 interface AppProps {
   routeKey: string;
+  shadowRoot: ShadowRoot | null;
 }
 
 interface AppState {
@@ -2224,7 +2227,7 @@ function ImageLightbox({ src, name, onClose }: { src: string; name: string; onCl
     document.body.removeChild(a);
   };
 
-  const shadowRoot = document.getElementById("mattermost-deck-root")?.shadowRoot ?? null;
+  const shadowRoot = useContext(ShadowRootContext);
   if (!shadowRoot) return null;
 
   const currentScale = scale ?? 0.001;
@@ -4444,7 +4447,7 @@ function DiagnosticsColumn({
   );
 }
 
-export function App({ routeKey }: AppProps): React.JSX.Element {
+export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const currentRoute = useMemo(() => readCurrentRoute(), [routeKey]);
   const [reconnectNonce, setReconnectNonce] = useState(0);
   const [postedEvent, setPostedEvent] = useState<PostedEvent | null>(null);
@@ -4920,9 +4923,10 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
       setShowRailAddMenu(false);
     };
 
-    document.addEventListener("pointerdown", handlePointerDown, true);
+    const target: EventTarget = shadowRoot ?? document;
+    target.addEventListener("pointerdown", handlePointerDown, true);
     return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
+      target.removeEventListener("pointerdown", handlePointerDown, true);
     };
   }, [showActionsMenu, showAddMenu, showRailAddMenu, showViewsMenu]);
 
@@ -5060,6 +5064,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
   };
 
   return (
+    <ShadowRootContext.Provider value={shadowRoot}>
     <aside
       ref={shellRef}
       className={`deck-shell${drawerOpen ? "" : " deck-shell--collapsed"}`}
@@ -5643,6 +5648,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
         </div>
       )}
     </aside>
+    </ShadowRootContext.Provider>
   );
 }
 

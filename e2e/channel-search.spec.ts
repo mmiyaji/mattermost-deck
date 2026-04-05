@@ -116,60 +116,47 @@ test("Channel Watch のチャンネル選択にインクリメンタル検索が
   });
 
   try {
-    // ── 3. Service Worker から拡張IDを取得 ────────────────────────────────
+    // ── 3. Service Worker から storage に直接 serverUrl を書き込む ────────
     const [existingSw] = context.serviceWorkers();
     const sw = existingSw ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
-    const swUrl = sw.url();  // chrome-extension://[id]/background.js
-    const extensionId = swUrl.split("/")[2];
-    console.log(`  Extension ID: ${extensionId}`);
+    console.log(`  Extension SW: ${sw.url()}`);
 
-    // ── 4. オプションページでサーバーURLを設定・保存 ──────────────────────
-    const optionsPage = await context.newPage();
-    await optionsPage.goto(`chrome-extension://${extensionId}/options.html`);
-    await optionsPage.waitForLoadState("domcontentloaded");
+    await sw.evaluate((url: string) => {
+      return new Promise<void>((resolve) => {
+        chrome.storage.local.set({ "mattermostDeck.serverUrl.v1": url }, () => resolve());
+      });
+    }, baseUrl);
+    console.log(`  ✓ serverUrl をストレージに設定: ${baseUrl}`);
 
-    const serverUrlInput = optionsPage.locator('input[type="url"], input[placeholder*="mattermost"], input[placeholder*="https"]').first();
-    await serverUrlInput.waitFor({ state: "visible", timeout: 10_000 });
-    await serverUrlInput.fill(baseUrl);
-
-    await optionsPage.getByRole("button", { name: /保存|save/i }).click();
-
-    // 権限許可ダイアログが出た場合は承認
-    optionsPage.on("dialog", (dialog) => void dialog.accept().catch(() => undefined));
-
-    // 保存完了を待つ（ステータスが変わるまで少し待つ）
-    await optionsPage.waitForTimeout(2_000);
-    await optionsPage.close();
-
-    // ── 5. ログイン ────────────────────────────────────────────────────────
+    // ── 4. ログイン ────────────────────────────────────────────────────────
     const page = await context.newPage();
     await login(page, state.memberUser.username, state.memberUser.password);
 
-    // ── 6. デッキが挿入されるのを待つ ──────────────────────────────────────
+    // ── 5. デッキが挿入されるのを待つ ──────────────────────────────────────
     const deckRoot = page.locator("#mattermost-deck-root");
     await expect(deckRoot).toBeAttached({ timeout: 20_000 });
     await expect(page.locator("body")).toHaveClass(/mattermost-deck-body-offset/);
     console.log("  ✓ デッキが挿入されました");
 
-    // ── 7. Channel Watch カラムを追加 ──────────────────────────────────────
-    // ツールバー右端の「+」ボタンをクリック
-    const addWrap = page.locator(".deck-add-wrap").last();
-    await addWrap.locator("button").first().click();
-    await page.locator(".deck-add-item", { hasText: "Channel Watch" }).first().click();
+    // ── 6. Channel Watch カラムを追加 ──────────────────────────────────────
+    const addButton = page.locator("button.deck-topbar-button:not(.deck-button--secondary)");
+    await expect(addButton).toBeEnabled({ timeout: 30_000 });
+    await addButton.click();
+    await page.locator(".deck-add-item", { hasText: /channel watch/i }).first().click();
     console.log("  ✓ Channel Watch カラムを追加しました");
 
     // 追加されたカラムを取得
     const column = page.locator(".deck-column--channel").last();
     await expect(column).toBeVisible({ timeout: 10_000 });
 
-    // ── 8. コントロールを展開 ────────────────────────────────────────────
+    // ── 7. コントロールを展開 ────────────────────────────────────────────
     const controls = column.locator(".deck-stack--controls");
     if (!(await controls.isVisible().catch(() => false))) {
       await column.locator("header button").first().click();
     }
     await expect(controls).toBeVisible({ timeout: 5_000 });
 
-    // ── 9. チームを選択 ──────────────────────────────────────────────────
+    // ── 8. チームを選択 ──────────────────────────────────────────────────
     const teamSelect = controls.locator(".mm-custom-select").first();
     await teamSelect.locator("button.mm-custom-select-button").click();
     const teamMenu = teamSelect.locator(".mm-custom-select-menu");
@@ -180,7 +167,7 @@ test("Channel Watch のチャンネル選択にインクリメンタル検索が
     await teamOption.click();
     console.log(`  ✓ チーム "${state.team.name}" を選択しました`);
 
-    // ── 10. チャンネルドロップダウンを開く ──────────────────────────────
+    // ── 9. チャンネルドロップダウンを開く ──────────────────────────────
     await page.waitForTimeout(1_000); // チャンネル一覧ロード待ち
     const channelSelect = controls.locator(".mm-custom-select").nth(1);
     await expect(channelSelect).toBeVisible({ timeout: 10_000 });
@@ -194,12 +181,12 @@ test("Channel Watch のチャンネル選択にインクリメンタル検索が
     const optionCount = await renderedOptions.count();
     console.log(`  ドロップダウンに表示されたチャンネル数: ${optionCount}件`);
 
-    // ── 11. 検索フィールドの表示を検証 ────────────────────────────────
+    // ── 10. 検索フィールドの表示を検証 ────────────────────────────────
     const searchInput = channelMenu.locator(".mm-custom-select-search-input");
     await expect(searchInput).toBeVisible({ timeout: 3_000 });
     console.log("  ✓ インクリメンタル検索フィールドが表示されました");
 
-    // ── 12. フィルタリング動作を確認 ────────────────────────────────────
+    // ── 11. フィルタリング動作を確認 ────────────────────────────────────
     const allOptionsBefore = await renderedOptions.allTextContents();
     const countBefore = allOptionsBefore.length;
 
@@ -219,7 +206,7 @@ test("Channel Watch のチャンネル選択にインクリメンタル検索が
       .every((t) => t.toLowerCase().includes(searchTerm.toLowerCase()));
     expect(allMatch, `絞り込み後の全オプションが "${searchTerm}" を含むべき`).toBe(true);
 
-    // ── 13. 検索クリアで全件戻ることを確認 ──────────────────────────────
+    // ── 12. 検索クリアで全件戻ることを確認 ──────────────────────────────
     await searchInput.clear();
     await page.waitForTimeout(300);
     const countAfterClear = await renderedOptions.count();
@@ -229,7 +216,7 @@ test("Channel Watch のチャンネル選択にインクリメンタル検索が
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });
 
-    // ── 14. テスト用チャンネルを削除 ────────────────────────────────────
+    // ── 13. テスト用チャンネルを削除 ────────────────────────────────────
     for (const id of createdChannelIds) {
       await apiDelete(token, `/channels/${id}`).catch(() => undefined);
     }

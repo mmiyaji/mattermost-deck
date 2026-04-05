@@ -1132,6 +1132,12 @@ export const railCssText = `
     border-color: color-mix(in srgb, var(--deck-border) 44%, var(--deck-accent) 56%);
   }
 
+  .deck-shell .mm-custom-select-option--focused {
+    background: color-mix(in srgb, var(--deck-card) 76%, var(--deck-accent) 24%);
+    border-color: color-mix(in srgb, var(--deck-border) 40%, var(--deck-accent) 60%);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--deck-accent) 22%, transparent);
+  }
+
   .deck-shell .mm-custom-select-option--placeholder {
     color: var(--deck-text-faint);
   }

@@ -216,7 +216,7 @@ async function apiGet<T>(pathname: string): Promise<T> {
   const csrfToken = document.cookie
     .split("; ")
     .find((entry) => entry.startsWith("MMCSRF="))
-    ?.split("=")[1];
+    ?.slice("MMCSRF=".length);
 
   const request = (async () => {
     const response = await performMeasuredFetch("GET", pathname, async () =>
@@ -255,7 +255,7 @@ async function apiGetAbsolute(pathname: string): Promise<Response> {
   const csrfToken = document.cookie
     .split("; ")
     .find((entry) => entry.startsWith("MMCSRF="))
-    ?.split("=")[1];
+    ?.slice("MMCSRF=".length);
 
   return await performMeasuredFetch("GET", pathname, async () =>
     await fetch(pathname, {
@@ -273,7 +273,7 @@ async function apiPost<T>(pathname: string, body: unknown): Promise<T> {
   const csrfToken = document.cookie
     .split("; ")
     .find((entry) => entry.startsWith("MMCSRF="))
-    ?.split("=")[1];
+    ?.slice("MMCSRF=".length);
 
   const response = await performMeasuredFetch("POST", pathname, async () =>
     await fetch(`/api/v4${pathname}`, {
@@ -333,11 +333,11 @@ export async function getTeamsForCurrentUser(): Promise<MattermostTeam[]> {
 }
 
 export async function getTeamByName(teamName: string): Promise<MattermostTeam> {
-  return await apiGet<MattermostTeam>(`/teams/name/${teamName}`);
+  return await apiGet<MattermostTeam>(`/teams/name/${encodeURIComponent(teamName)}`);
 }
 
 export async function getChannelsForCurrentUser(teamId: string): Promise<MattermostChannel[]> {
-  return await apiGet<MattermostChannel[]>(`/users/me/teams/${teamId}/channels`);
+  return await apiGet<MattermostChannel[]>(`/users/me/teams/${encodeURIComponent(teamId)}/channels`);
 }
 
 export async function getDirectChannelsForCurrentUser(): Promise<MattermostChannel[]> {
@@ -345,18 +345,20 @@ export async function getDirectChannelsForCurrentUser(): Promise<MattermostChann
 }
 
 export async function getChannelMembers(channelId: string): Promise<MattermostChannelMember[]> {
-  return await apiGet<MattermostChannelMember[]>(`/channels/${channelId}/members`);
+  return await apiGet<MattermostChannelMember[]>(`/channels/${encodeURIComponent(channelId)}/members`);
 }
 
 export async function getChannel(channelId: string): Promise<MattermostChannel> {
-  return await apiGet<MattermostChannel>(`/channels/${channelId}`);
+  return await apiGet<MattermostChannel>(`/channels/${encodeURIComponent(channelId)}`);
 }
 
 export async function getChannelByName(
   teamId: string,
   channelName: string,
 ): Promise<MattermostChannel> {
-  return await apiGet<MattermostChannel>(`/teams/${teamId}/channels/name/${channelName}`);
+  return await apiGet<MattermostChannel>(
+    `/teams/${encodeURIComponent(teamId)}/channels/name/${encodeURIComponent(channelName)}`,
+  );
 }
 
 export async function getChannelsByIds(channelIds: string[]): Promise<MattermostChannel[]> {
@@ -368,7 +370,7 @@ export async function getChannelsByIds(channelIds: string[]): Promise<Mattermost
 
 export async function getRecentPosts(channelId: string, page = 0, perPage = 20): Promise<MattermostPost[]> {
   const payload = await apiGet<MattermostPostList>(
-    `/channels/${channelId}/posts?page=${page}&per_page=${perPage}`,
+    `/channels/${encodeURIComponent(channelId)}/posts?page=${page}&per_page=${perPage}`,
   );
 
   return payload.order
@@ -385,7 +387,7 @@ export async function getFlaggedPosts(page = 0, perPage = 20): Promise<Mattermos
 }
 
 export async function getTeamUnread(userId: string): Promise<TeamUnread[]> {
-  return await apiGet<TeamUnread[]>(`/users/${userId}/teams/unread`);
+  return await apiGet<TeamUnread[]>(`/users/${encodeURIComponent(userId)}/teams/unread`);
 }
 
 export async function searchPostsInTeam(
@@ -395,7 +397,7 @@ export async function searchPostsInTeam(
   perPage = 20,
 ): Promise<MattermostPost[]> {
   const payload = await apiPost<MattermostPostList>(
-    `/teams/${teamId}/posts/search?page=${page}&per_page=${perPage}`,
+    `/teams/${encodeURIComponent(teamId)}/posts/search?page=${page}&per_page=${perPage}`,
     {
       terms,
       is_or_search: false,
@@ -409,7 +411,7 @@ export async function searchPostsInTeam(
 }
 
 export async function fetchPostFileInfos(postId: string): Promise<MattermostFileInfo[]> {
-  const payload = await apiGet<MattermostFileInfo[]>(`/posts/${postId}/files/info`);
+  const payload = await apiGet<MattermostFileInfo[]>(`/posts/${encodeURIComponent(postId)}/files/info`);
   return Array.isArray(payload) ? payload : [];
 }
 

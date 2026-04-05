@@ -110,6 +110,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ success: false, error: "Missing URL" });
           return;
         }
+        if (!url.startsWith("https://") && !url.startsWith("http://")) {
+          sendResponse({ success: false, error: "Invalid URL scheme" });
+          return;
+        }
         await chrome.tabs.create({ url });
         sendResponse({ success: true });
         return;

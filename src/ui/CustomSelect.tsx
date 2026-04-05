@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { ShadowRootContext } from "./ShadowRootContext";
 
 export interface CustomSelectOption {
   value: string;
@@ -22,8 +23,11 @@ export function CustomSelect({
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [focusedIndex, setFocusedIndex] = useState(-1);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const shadowRoot = useContext(ShadowRootContext);
   const selected = options.find((option) => option.value === value);
 
   const filteredOptions = useMemo(() => {
@@ -34,20 +38,72 @@ export function CustomSelect({
     return options.filter((o) => o.label.toLowerCase().includes(lower));
   }, [options, search]);
 
+  // フォーカスが当たった項目を表示領域にスクロール
+  useEffect(() => {
+    if (focusedIndex >= 0) {
+      optionRefs.current[focusedIndex]?.scrollIntoView({ block: "nearest" });
+    }
+  }, [focusedIndex]);
+
+  // 検索テキストが変わったらフォーカスをリセット
+  useEffect(() => {
+    setFocusedIndex(-1);
+  }, [search]);
+
+  // メニューを開いたとき選択中の項目にフォーカスを合わせる
+  useEffect(() => {
+    if (!open) {
+      setSearch("");
+      setFocusedIndex(-1);
+      return;
+    }
+
+    const idx = filteredOptions.findIndex((o) => o.value === value);
+    setFocusedIndex(idx);
+    window.setTimeout(() => searchRef.current?.focus(), 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // 全ナビゲーション対象項目（filteredOptions + クリア項目）
+  const allItems = useMemo(() => {
+    const items: Array<{ value: string; label: string }> = [...filteredOptions];
+    if (allowClear && value !== "") {
+      items.push({ value: "", label: placeholder });
+    }
+    return items;
+  }, [filteredOptions, allowClear, value, placeholder]);
+
+  const selectItem = useCallback((itemValue: string) => {
+    onChange(itemValue);
+    setOpen(false);
+  }, [onChange]);
+
+  const handleMenuKeyDown = useCallback((e: React.KeyboardEvent | KeyboardEvent) => {
+    if (!open) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setFocusedIndex((prev) => Math.min(prev + 1, allItems.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setFocusedIndex((prev) => Math.max(prev - 1, -1));
+    } else if (e.key === "Enter") {
+      if (focusedIndex >= 0 && focusedIndex < allItems.length) {
+        e.preventDefault();
+        selectItem(allItems[focusedIndex].value);
+      }
+    }
+  }, [open, allItems, focusedIndex, selectItem]);
+
   useEffect(() => {
     if (!open) {
       setSearch("");
       return;
     }
 
-    window.setTimeout(() => searchRef.current?.focus(), 0);
-
     const handlePointerDown = (event: PointerEvent) => {
       const root = rootRef.current;
-      if (!root) {
-        return;
-      }
-
+      if (!root) return;
       const path = typeof event.composedPath === "function" ? event.composedPath() : [];
       if (!path.includes(root)) {
         setOpen(false);
@@ -57,17 +113,20 @@ export function CustomSelect({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setOpen(false);
+        return;
       }
+      handleMenuKeyDown(event);
     };
 
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    document.addEventListener("keydown", handleKeyDown);
+    const target: EventTarget = shadowRoot ?? document;
+    target.addEventListener("pointerdown", handlePointerDown, true);
+    target.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-      document.removeEventListener("keydown", handleKeyDown);
+      target.removeEventListener("pointerdown", handlePointerDown, true);
+      target.removeEventListener("keydown", handleKeyDown);
     };
-  }, [open]);
+  }, [open, shadowRoot, handleMenuKeyDown]);
 
   useEffect(() => {
     if (disabled) {
@@ -124,19 +183,23 @@ export function CustomSelect({
                 e.stopPropagation();
                 if (e.key === "Escape") {
                   setOpen(false);
+                  return;
                 }
+                handleMenuKeyDown(e);
               }}
             />
           </div>
-          {filteredOptions.map((option) => (
+          {filteredOptions.map((option, index) => (
             <button
               key={option.value}
+              ref={(el) => { optionRefs.current[index] = el; }}
               type="button"
-              className={`mm-custom-select-option${option.value === value ? " mm-custom-select-option--selected" : ""}`}
-              onClick={() => {
-                onChange(option.value);
-                setOpen(false);
-              }}
+              className={[
+                "mm-custom-select-option",
+                option.value === value ? "mm-custom-select-option--selected" : "",
+                focusedIndex === index ? "mm-custom-select-option--focused" : "",
+              ].filter(Boolean).join(" ")}
+              onClick={() => selectItem(option.value)}
             >
               {option.label}
             </button>
@@ -148,12 +211,14 @@ export function CustomSelect({
             <>
               <div className="mm-custom-select-divider" aria-hidden="true" />
               <button
+                ref={(el) => { optionRefs.current[filteredOptions.length] = el; }}
                 type="button"
-                className="mm-custom-select-option mm-custom-select-option--placeholder"
-                onClick={() => {
-                  onChange("");
-                  setOpen(false);
-                }}
+                className={[
+                  "mm-custom-select-option",
+                  "mm-custom-select-option--placeholder",
+                  focusedIndex === filteredOptions.length ? "mm-custom-select-option--focused" : "",
+                ].filter(Boolean).join(" ")}
+                onClick={() => selectItem("")}
               >
                 {placeholder}
               </button>

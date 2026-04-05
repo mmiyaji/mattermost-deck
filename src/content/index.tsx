@@ -19,6 +19,7 @@ let routePoller: number | null = null;
 let lastRenderKey = "";
 let currentSettings: DeckSettings = DEFAULT_SETTINGS;
 let settingsLoaded = false;
+let deckShadowRoot: ShadowRoot | null = null;
 let guardCache:
   | {
       origin: string;
@@ -93,7 +94,7 @@ async function verifyMattermostSession(): Promise<boolean> {
     const csrfToken = document.cookie
       .split("; ")
       .find((entry) => entry.startsWith("MMCSRF="))
-      ?.split("=")[1];
+      ?.slice("MMCSRF=".length);
 
     try {
       const response = await fetch(currentSettings.healthCheckPath, {
@@ -213,6 +214,7 @@ function cleanup(): void {
     appRoot.unmount();
     appRoot = null;
   }
+  deckShadowRoot = null;
 }
 
 async function render(): Promise<void> {
@@ -246,7 +248,8 @@ async function render(): Promise<void> {
   // When Mattermost shows a blocking dialog, lower z-index so the dialog renders on top.
   const normalZIndex = currentSettings.highZIndex ? "2147483646" : "999";
   mountPoint.style.zIndex = dialogOpen ? "0" : normalZIndex;
-  const shadowRoot = mountPoint.shadowRoot ?? mountPoint.attachShadow({ mode: "open" });
+  deckShadowRoot ??= mountPoint.attachShadow({ mode: "closed" });
+  const shadowRoot = deckShadowRoot;
 
   if (!shadowRoot.getElementById("mattermost-deck-style")) {
     const style = document.createElement("style");
@@ -264,7 +267,7 @@ async function render(): Promise<void> {
   }
 
   appRoot ??= createRoot(reactRoot);
-  appRoot.render(<App routeKey={`${window.location.pathname}${window.location.hash}`} />);
+  appRoot.render(<App routeKey={`${window.location.pathname}${window.location.hash}`} shadowRoot={shadowRoot} />);
 }
 
 function installRouteWatcher(): void {

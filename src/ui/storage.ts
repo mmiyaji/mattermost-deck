@@ -4,9 +4,12 @@ interface LayoutPayload {
   columns: DeckColumn[];
 }
 
-const ENCRYPTION_PREFIX = "enc:v1:";
+const ENCRYPTION_PREFIX_V1 = "enc:v1:";
+const ENCRYPTION_PREFIX_V2 = "enc:v2:";
 const STORAGE_SALT = "mattermost-deck.local-storage.v1";
-let cachedEncryptionKey: Promise<CryptoKey> | null = null;
+const ENC_SEED_KEY = "mattermost-deck.enc-seed.v1";
+let cachedEncryptionKeyV1: Promise<CryptoKey> | null = null;
+let cachedEncryptionKeyV2: Promise<CryptoKey> | null = null;
 type StorageAreaName = "local" | "session";
 
 function isDeckColumn(value: unknown): value is DeckColumn {
@@ -74,9 +77,9 @@ function encodeBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function decodeBase64(input: string): Uint8Array {
+function decodeBase64(input: string): Uint8Array<ArrayBuffer> {
   const binary = atob(input);
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0)) as Uint8Array<ArrayBuffer>;
 }
 
 function getStorageArea(area: StorageAreaName): chrome.storage.StorageArea | null {
@@ -131,76 +134,84 @@ async function setRawStoredString(storageKey: string, value: string, area: Stora
   }
 }
 
-async function deriveEncryptionKey(): Promise<CryptoKey> {
-  if (cachedEncryptionKey) {
-    return await cachedEncryptionKey;
-  }
-
-  cachedEncryptionKey = (async () => {
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(chrome.runtime?.id ?? window.location.origin),
-    "PBKDF2",
-    false,
-    ["deriveKey"],
-  );
-
+async function pbkdf2Key(passwordBytes: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
+  const keyMaterial = await crypto.subtle.importKey("raw", passwordBytes, "PBKDF2", false, ["deriveKey"]);
   return await crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: new TextEncoder().encode(STORAGE_SALT),
-      iterations: 100_000,
-      hash: "SHA-256",
-    },
+    { name: "PBKDF2", salt: new TextEncoder().encode(STORAGE_SALT), iterations: 100_000, hash: "SHA-256" },
     keyMaterial,
-    {
-      name: "AES-GCM",
-      length: 256,
-    },
+    { name: "AES-GCM", length: 256 },
     false,
     ["encrypt", "decrypt"],
   );
-  })();
+}
 
-  return await cachedEncryptionKey;
+/** v1: 旧方式 — 鍵素材として拡張機能 ID（公開情報）を使用。復号のみに使用。 */
+async function deriveEncryptionKeyV1(): Promise<CryptoKey> {
+  cachedEncryptionKeyV1 ??= pbkdf2Key(
+    new TextEncoder().encode(chrome.runtime?.id ?? window.location.origin) as Uint8Array<ArrayBuffer>,
+  );
+  return await cachedEncryptionKeyV1;
+}
+
+/** v2: 新方式 — 初回起動時に生成したランダムシードを chrome.storage.local に保存して使用。 */
+async function deriveEncryptionKeyV2(): Promise<CryptoKey> {
+  cachedEncryptionKeyV2 ??= (async () => {
+    let seed: Uint8Array<ArrayBuffer>;
+    try {
+      const stored = await chrome.storage.local.get(ENC_SEED_KEY);
+      const raw = stored[ENC_SEED_KEY];
+      if (typeof raw === "string" && raw.length > 0) {
+        seed = decodeBase64(raw);
+      } else {
+        seed = crypto.getRandomValues(new Uint8Array(32));
+        await chrome.storage.local.set({ [ENC_SEED_KEY]: encodeBase64(seed) });
+      }
+    } catch {
+      // chrome.storage が使えない場合は拡張機能 ID にフォールバック（v1 と同等）
+      seed = new TextEncoder().encode(chrome.runtime?.id ?? window.location.origin) as Uint8Array<ArrayBuffer>;
+    }
+    return await pbkdf2Key(seed);
+  })();
+  return await cachedEncryptionKeyV2;
 }
 
 async function encryptString(value: string): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await deriveEncryptionKey();
-  const encrypted = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    key,
-    new TextEncoder().encode(value),
-  );
-
-  return `${ENCRYPTION_PREFIX}${encodeBase64(iv)}:${encodeBase64(new Uint8Array(encrypted))}`;
+  const key = await deriveEncryptionKeyV2();
+  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(value));
+  return `${ENCRYPTION_PREFIX_V2}${encodeBase64(iv)}:${encodeBase64(new Uint8Array(encrypted))}`;
 }
 
-async function decryptString(value: string): Promise<string | null> {
-  if (!value.startsWith(ENCRYPTION_PREFIX)) {
-    return value;
-  }
-
-  const payload = value.slice(ENCRYPTION_PREFIX.length);
-  const [ivRaw, cipherRaw] = payload.split(":");
+async function decryptPayload(prefix: string, key: CryptoKey): Promise<string | null> {
+  const [ivRaw, cipherRaw] = prefix.split(":");
   if (!ivRaw || !cipherRaw) {
     return null;
   }
 
   try {
-    const key = await deriveEncryptionKey();
-    const ivBytes = new Uint8Array(decodeBase64(ivRaw));
-    const cipherBytes = new Uint8Array(decodeBase64(cipherRaw));
     const decrypted = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: ivBytes },
+      { name: "AES-GCM", iv: new Uint8Array(decodeBase64(ivRaw)) },
       key,
-      cipherBytes,
+      new Uint8Array(decodeBase64(cipherRaw)),
     );
     return new TextDecoder().decode(decrypted);
   } catch {
     return null;
   }
+}
+
+async function decryptString(value: string): Promise<string | null> {
+  if (value.startsWith(ENCRYPTION_PREFIX_V2)) {
+    return await decryptPayload(value.slice(ENCRYPTION_PREFIX_V2.length), await deriveEncryptionKeyV2());
+  }
+
+  if (value.startsWith(ENCRYPTION_PREFIX_V1)) {
+    // v1 で保存された既存データを復号し、次回保存時に v2 へ自動移行される
+    return await decryptPayload(value.slice(ENCRYPTION_PREFIX_V1.length), await deriveEncryptionKeyV1());
+  }
+
+  // プレフィックスなし = 暗号化前の旧データ（後方互換）
+  return value;
 }
 
 export async function loadDeckLayout(storageKey: string): Promise<DeckColumn[]> {
