@@ -44,6 +44,7 @@ export interface MattermostFileInfo {
   width?: number;
   height?: number;
   has_preview_image?: boolean;
+  mini_preview?: string;
 }
 
 interface MattermostPostList {
@@ -408,8 +409,8 @@ export async function searchPostsInTeam(
 }
 
 export async function fetchPostFileInfos(postId: string): Promise<MattermostFileInfo[]> {
-  const payload = await apiGet<{ file_infos: MattermostFileInfo[] }>(`/posts/${postId}/files/info`);
-  return payload.file_infos ?? [];
+  const payload = await apiGet<MattermostFileInfo[]>(`/posts/${postId}/files/info`);
+  return Array.isArray(payload) ? payload : [];
 }
 
 export function getWebSocketUrl(): string {

@@ -74,6 +74,7 @@ type OptionsText = {
   paneWidthHint: string;
   columnWidthLabel: string;
   columnWidthHint: string;
+  showImagePreviewsLabel: string;
   themeSystem: string;
   themeMattermost: string;
   themeDark: string;
@@ -132,6 +133,7 @@ const TEXT: Record<DeckLanguage, OptionsText> = {
     paneWidthHint: `${MIN_PREFERRED_RAIL_WIDTH}px 〜 ${MAX_PREFERRED_RAIL_WIDTH}px で設定します。保存済みの手動リサイズ幅がない場合の初期値として使われます。`,
     columnWidthLabel: "Column Width (px)",
     columnWidthHint: `${MIN_PREFERRED_COLUMN_WIDTH}px 〜 ${MAX_PREFERRED_COLUMN_WIDTH}px で設定します。`,
+    showImagePreviewsLabel: "画像サムネイルを表示",
     themeSystem: "System",
     themeMattermost: "Mattermost",
     themeDark: "Dark",
@@ -188,6 +190,7 @@ const TEXT: Record<DeckLanguage, OptionsText> = {
     paneWidthHint: `Configurable from ${MIN_PREFERRED_RAIL_WIDTH}px to ${MAX_PREFERRED_RAIL_WIDTH}px. Used as the initial width when no saved manual resize exists.`,
     columnWidthLabel: "Column Width (px)",
     columnWidthHint: `Configurable from ${MIN_PREFERRED_COLUMN_WIDTH}px to ${MAX_PREFERRED_COLUMN_WIDTH}px.`,
+    showImagePreviewsLabel: "Show image thumbnails",
     themeSystem: "System",
     themeMattermost: "Mattermost",
     themeDark: "Dark",
@@ -1158,6 +1161,22 @@ function OptionsApp(): React.JSX.Element {
                     }
                   />
                   <span>Use denser cards and tighter spacing in the deck.</span>
+                </label>
+              </label>
+              <label className="options-field">
+                <span className="options-label">{text.showImagePreviewsLabel}</span>
+                <label className="options-choice">
+                  <input
+                    type="checkbox"
+                    checked={settings.showImagePreviews}
+                    onChange={(event) =>
+                      setSettings((current) => ({
+                        ...current,
+                        showImagePreviews: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>{settings.language === "ja" ? "投稿の画像添付をサムネイル表示します。オフにするとファイルカードとして表示されます。" : "Show image attachments as thumbnails. When off, images appear as file cards."}</span>
                 </label>
               </label>
               <label className="options-field">

@@ -1538,76 +1538,134 @@ export const railCssText = `
     position: fixed;
     inset: 0;
     z-index: 2147483647;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.88);
+  }
+
+  /* ── top-right toolbar ─────────────────────────────────────────── */
+  .deck-lightbox-toolbar {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    z-index: 1;
+  }
+
+  .deck-lightbox-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: zoom-out;
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.12);
+    border: none;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 16px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.12s, color 0.12s;
+    line-height: 1;
   }
 
-  .deck-lightbox-content {
-    display: flex;
-    flex-direction: column;
-    max-width: min(90vw, 900px);
-    max-height: 90vh;
-    background: var(--deck-panel);
-    border-radius: 10px;
+  .deck-lightbox-btn:hover {
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
+  }
+
+  .deck-lightbox-btn--close:hover {
+    background: rgba(220, 53, 69, 0.75);
+  }
+
+  /* ── image stage ────────────────────────────────────────────────── */
+  .deck-lightbox-stage {
+    position: absolute;
+    inset: 0 0 52px 0;
     overflow: hidden;
-    box-shadow: 0 16px 64px rgba(0, 0, 0, 0.6);
-    cursor: default;
+    cursor: grab;
+    user-select: none;
+  }
+
+  .deck-lightbox-stage--grabbing {
+    cursor: grabbing;
   }
 
   .deck-lightbox-img {
-    display: block;
-    max-width: 100%;
-    max-height: calc(90vh - 44px);
-    object-fit: contain;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: auto;
+    height: auto;
+    transform-origin: center center;
+    cursor: zoom-in;
+    user-select: none;
+    -webkit-user-drag: none;
   }
 
-  .deck-lightbox-footer {
+  .deck-lightbox-stage--grabbing .deck-lightbox-img {
+    cursor: grabbing;
+  }
+
+  /* ── bottom controls ────────────────────────────────────────────── */
+  .deck-lightbox-controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 52px;
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
     gap: 8px;
-    padding: 8px 12px;
-    border-top: 1px solid var(--deck-border);
-    min-height: 44px;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(8px);
   }
 
-  .deck-lightbox-name {
+  .deck-lightbox-filename {
     flex: 1;
+    min-width: 0;
     font-size: calc(12px * var(--deck-font-scale));
-    color: var(--deck-text-muted);
+    color: rgba(255, 255, 255, 0.65);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .deck-lightbox-download {
+  .deck-lightbox-zoom-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
     flex: none;
-    font-size: calc(12px * var(--deck-font-scale));
-    color: var(--deck-accent);
-    text-decoration: none;
   }
 
-  .deck-lightbox-download:hover {
-    text-decoration: underline;
-  }
-
-  .deck-lightbox-close {
-    flex: none;
-    background: none;
+  .deck-lightbox-ctrl {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    height: 32px;
+    padding: 0 8px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.1);
     border: none;
-    color: var(--deck-text-muted);
+    color: rgba(255, 255, 255, 0.85);
     font-size: 14px;
     cursor: pointer;
-    padding: 2px 6px;
-    border-radius: 4px;
-    line-height: 1;
-    transition: color 0.12s;
+    transition: background 0.12s;
+    white-space: nowrap;
   }
 
-  .deck-lightbox-close:hover {
-    color: var(--deck-text);
+  .deck-lightbox-ctrl:hover {
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
+  }
+
+  .deck-lightbox-ctrl--scale {
+    min-width: 56px;
+    font-size: calc(12px * var(--deck-font-scale));
+    font-variant-numeric: tabular-nums;
   }
 
   .deck-file-card {

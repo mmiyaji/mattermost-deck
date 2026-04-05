@@ -159,7 +159,7 @@ test("Channel Watch のチャンネル選択にインクリメンタル検索が
     console.log("  ✓ Channel Watch カラムを追加しました");
 
     // 追加されたカラムを取得
-    const column = page.locator(".deck-column--channelwatch").last();
+    const column = page.locator(".deck-column--channel").last();
     await expect(column).toBeVisible({ timeout: 10_000 });
 
     // ── 8. コントロールを展開 ────────────────────────────────────────────

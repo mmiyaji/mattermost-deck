@@ -1,4 +1,5 @@
 ﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   checkApiHealth,
   fetchPostFileInfos,
@@ -1637,6 +1638,7 @@ function useDeckSettingsState(): {
   columnColorEnabled: boolean;
   postClickAction: PostClickAction;
   columnColors: ColumnColorSettings;
+  showImagePreviews: boolean;
 } {
   const [settings, setSettings] = useState<{
     loaded: boolean;
@@ -1652,6 +1654,7 @@ function useDeckSettingsState(): {
     columnColorEnabled: boolean;
     postClickAction: PostClickAction;
     columnColors: ColumnColorSettings;
+    showImagePreviews: boolean;
   }>({
     loaded: false,
     wsPat: "",
@@ -1666,6 +1669,7 @@ function useDeckSettingsState(): {
     columnColorEnabled: DEFAULT_SETTINGS.columnColorEnabled,
     postClickAction: DEFAULT_SETTINGS.postClickAction,
     columnColors: DEFAULT_COLUMN_COLORS,
+    showImagePreviews: DEFAULT_SETTINGS.showImagePreviews,
   });
 
   useEffect(() => {
@@ -1851,47 +1855,215 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function ImageLightbox({ src, name, onClose }: { src: string; name: string; onClose: () => void }): React.JSX.Element {
+const ZOOM_STEP = 1.3;
+const MAX_SCALE = 16;
+const MIN_SCALE = 0.02;
+
+function ImageLightbox({ src, name, onClose }: { src: string; name: string; onClose: () => void }): React.JSX.Element | null {
+  // scale=null = 画像未ロード（非表示）
+  const [scale, setScale] = useState<number | null>(null);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [grabbing, setGrabbing] = useState(false);
+  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
+  const fitScaleRef = useRef(1);
+  const posRef = useRef({ x: 0, y: 0 });
+  // dragRef: null = ドラッグ中でない
+  const dragRef = useRef<{ mx: number; my: number; px: number; py: number } | null>(null);
+  const hasDragged = useRef(false);
+  const stageRef = useRef<HTMLDivElement>(null);
+
+  // pos の最新値を ref で追跡（window イベントハンドラから参照するため）
+  useEffect(() => { posRef.current = pos; }, [pos]);
+
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  return (
-    <div
-      className="deck-lightbox-backdrop"
-      onClick={onClose}
-      onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
-      role="dialog"
-      aria-modal="true"
-      aria-label={name}
-    >
-      <div className="deck-lightbox-content" onClick={(e) => e.stopPropagation()}>
-        <img src={src} alt={name} className="deck-lightbox-img" />
-        <div className="deck-lightbox-footer">
-          <span className="deck-lightbox-name">{name}</span>
-          <a
-            className="deck-lightbox-download"
-            href={src}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(e) => e.stopPropagation()}
-          >
-            開く
-          </a>
-          <button type="button" className="deck-lightbox-close" onClick={onClose} aria-label="閉じる">
-            ✕
+  const zoomIn = useCallback(() => {
+    setScale((s) => Math.min((s ?? fitScaleRef.current) * ZOOM_STEP, MAX_SCALE));
+  }, []);
+  const zoomOut = useCallback(() => {
+    setScale((s) => Math.max((s ?? fitScaleRef.current) / ZOOM_STEP, MIN_SCALE));
+  }, []);
+  const fitScreen = useCallback(() => { setScale(fitScaleRef.current); setPos({ x: 0, y: 0 }); }, []);
+  const fillScreen = useCallback(() => {
+    if (!naturalSize || !stageRef.current) return;
+    const { width: sw, height: sh } = stageRef.current.getBoundingClientRect();
+    setScale(Math.max(sw / naturalSize.w, sh / naturalSize.h));
+    setPos({ x: 0, y: 0 });
+  }, [naturalSize]);
+
+  // window レベルの mousemove/mouseup で drag 追跡
+  // → setPointerCapture を使わないので image の click イベントが正常に発火する
+  const onStageMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    hasDragged.current = false;
+    dragRef.current = { mx: e.clientX, my: e.clientY, px: posRef.current.x, py: posRef.current.y };
+    setGrabbing(true);
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = ev.clientX - dragRef.current.mx;
+      const dy = ev.clientY - dragRef.current.my;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) hasDragged.current = true;
+      setPos({ x: dragRef.current.px + dx, y: dragRef.current.py + dy });
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      setGrabbing(false);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, []);
+
+  // ステージ（暗い部分）クリック → 非ドラッグ時に閉じる
+  const onStageClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!hasDragged.current && e.target === e.currentTarget) onClose();
+  };
+
+  // 画像クリック → 非ドラッグ時に拡大
+  const onImgClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!hasDragged.current) zoomIn();
+  };
+
+  // 画像ロード完了 → フィットスケール計算・適用
+  const onImgLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    const natW = Math.max(img.naturalWidth, 1);
+    const natH = Math.max(img.naturalHeight, 1);
+    setNaturalSize({ w: natW, h: natH });
+    if (stageRef.current) {
+      const { width: sw, height: sh } = stageRef.current.getBoundingClientRect();
+      const fs = Math.min(sw / natW, sh / natH, 1);
+      fitScaleRef.current = fs;
+      setScale(fs);
+    }
+  };
+
+  const handleDownload = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const a = document.createElement("a");
+    a.href = src;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const shadowRoot = document.getElementById("mattermost-deck-root")?.shadowRoot ?? null;
+  if (!shadowRoot) return null;
+
+  const currentScale = scale ?? 0.001;
+  const scaleLabel = `${Math.round(currentScale * 100)}%`;
+
+  return createPortal(
+    <div className="deck-lightbox-backdrop" role="dialog" aria-modal="true" aria-label={name}>
+      {/* 右上ツールバー */}
+      <div className="deck-lightbox-toolbar" onClick={(e) => e.stopPropagation()}>
+        <a
+          className="deck-lightbox-btn"
+          href={src}
+          target="_blank"
+          rel="noreferrer"
+          title="別タブで開く"
+          onClick={(e) => e.stopPropagation()}
+        >
+          ⧉
+        </a>
+        <button type="button" className="deck-lightbox-btn" title="保存" onClick={handleDownload}>
+          ↓
+        </button>
+        <button type="button" className="deck-lightbox-btn deck-lightbox-btn--close" title="閉じる" onClick={onClose}>
+          ✕
+        </button>
+      </div>
+
+      {/* 画像ステージ：暗い部分クリックで閉じる、ドラッグで移動 */}
+      <div
+        ref={stageRef}
+        className={`deck-lightbox-stage${grabbing ? " deck-lightbox-stage--grabbing" : ""}`}
+        onMouseDown={onStageMouseDown}
+        onClick={onStageClick}
+      >
+        <img
+          className="deck-lightbox-img"
+          src={src}
+          alt={name}
+          draggable={false}
+          onLoad={onImgLoad}
+          onClick={onImgClick}
+          style={{
+            opacity: scale !== null ? 1 : 0,
+            transform: `translate(calc(-50% + ${pos.x}px), calc(-50% + ${pos.y}px)) scale(${currentScale})`,
+          }}
+        />
+      </div>
+
+      {/* 下部コントロール */}
+      <div className="deck-lightbox-controls" onClick={(e) => e.stopPropagation()}>
+        <span className="deck-lightbox-filename" title={name}>{name}</span>
+        <div className="deck-lightbox-zoom-group">
+          <button type="button" className="deck-lightbox-ctrl" title="縮小" onClick={zoomOut}>−</button>
+          <button type="button" className="deck-lightbox-ctrl deck-lightbox-ctrl--scale" title="フィットに戻す" onClick={fitScreen}>
+            {scaleLabel}
           </button>
+          <button type="button" className="deck-lightbox-ctrl" title="拡大" onClick={zoomIn}>＋</button>
+          <button type="button" className="deck-lightbox-ctrl" title="最大化" onClick={fillScreen}>⛶</button>
         </div>
       </div>
-    </div>
+    </div>,
+    shadowRoot,
   );
 }
 
-function PostFileAttachments({ fileIds, postId }: { fileIds: string[]; postId: string }): React.JSX.Element | null {
+function ImageThumb({
+  info,
+  placeholder,
+  previewSrc,
+  fullSrc,
+  onOpen,
+}: {
+  info: MattermostFileInfo;
+  placeholder: string | null;
+  previewSrc: string;
+  fullSrc: string;
+  onOpen: () => void;
+}): React.JSX.Element {
+  const [src, setSrc] = useState<string>(placeholder ?? previewSrc);
+
+  useEffect(() => {
+    if (!placeholder) return;
+    const img = new Image();
+    img.onload = () => setSrc(previewSrc);
+    img.onerror = () => setSrc(fullSrc);
+    img.src = previewSrc;
+  }, [placeholder, previewSrc, fullSrc]);
+
+  return (
+    <button
+      type="button"
+      className="deck-file-thumb-wrap"
+      onClick={(e) => { e.stopPropagation(); onOpen(); }}
+      aria-label={`画像を拡大: ${info.name}`}
+    >
+      <img
+        className="deck-file-thumb"
+        src={src}
+        alt={info.name}
+        loading="lazy"
+        onError={(e) => { (e.currentTarget as HTMLImageElement).src = fullSrc; }}
+      />
+    </button>
+  );
+}
+
+function PostFileAttachments({ fileIds, postId, showImagePreviews = true }: { fileIds: string[]; postId: string; showImagePreviews?: boolean }): React.JSX.Element | null {
   const [fileInfos, setFileInfos] = useState<MattermostFileInfo[]>([]);
   const [lightboxSrc, setLightboxSrc] = useState<{ src: string; name: string } | null>(null);
 
@@ -1901,34 +2073,45 @@ function PostFileAttachments({ fileIds, postId }: { fileIds: string[]; postId: s
 
   if (fileInfos.length === 0) return null;
 
+  const baseUrl = window.location.origin;
+
+  const getPlaceholderSrc = (info: MattermostFileInfo): string | null => {
+    if (info.mini_preview) {
+      return `data:${info.mime_type};base64,${info.mini_preview}`;
+    }
+    return null;
+  };
+
+  const getPreviewSrc = (info: MattermostFileInfo): string => {
+    if (info.has_preview_image) {
+      return `${baseUrl}/api/v4/files/${info.id}/preview`;
+    }
+    return `${baseUrl}/api/v4/files/${info.id}`;
+  };
+
+  const getFullSrc = (info: MattermostFileInfo): string => {
+    return `${baseUrl}/api/v4/files/${info.id}`;
+  };
+
   return (
     <>
       <div className="deck-post-files">
         {fileInfos.map((info) => {
           const isImage = info.mime_type.startsWith("image/");
-          return isImage ? (
-            <button
+          return isImage && showImagePreviews ? (
+            <ImageThumb
               key={info.id}
-              type="button"
-              className="deck-file-thumb-wrap"
-              onClick={(e) => {
-                e.stopPropagation();
-                setLightboxSrc({ src: `/api/v4/files/${info.id}`, name: info.name });
-              }}
-              aria-label={`画像を拡大: ${info.name}`}
-            >
-              <img
-                className="deck-file-thumb"
-                src={`/api/v4/files/${info.id}/thumbnail`}
-                alt={info.name}
-                loading="lazy"
-              />
-            </button>
+              info={info}
+              placeholder={getPlaceholderSrc(info)}
+              previewSrc={getPreviewSrc(info)}
+              fullSrc={getFullSrc(info)}
+              onOpen={() => setLightboxSrc({ src: getFullSrc(info), name: info.name })}
+            />
           ) : (
             <a
               key={info.id}
               className="deck-file-card"
-              href={`/api/v4/files/${info.id}`}
+              href={`${baseUrl}/api/v4/files/${info.id}`}
               target="_blank"
               rel="noreferrer"
               onClick={(e) => e.stopPropagation()}
@@ -1940,7 +2123,7 @@ function PostFileAttachments({ fileIds, postId }: { fileIds: string[]; postId: s
           );
         })}
       </div>
-      {lightboxSrc ? (
+      {lightboxSrc !== null && showImagePreviews ? (
         <ImageLightbox
           src={lightboxSrc.src}
           name={lightboxSrc.name}
@@ -1962,6 +2145,7 @@ function PostList({
   renderBody,
   onOpenPost,
   postClickAction,
+  showImagePreviews = true,
 }: {
   posts: MattermostPost[];
   userDirectory: Record<string, MattermostUser>;
@@ -1973,6 +2157,7 @@ function PostList({
   renderBody?: (post: MattermostPost) => React.ReactNode;
   onOpenPost?: (post: MattermostPost) => void;
   postClickAction: PostClickAction;
+  showImagePreviews?: boolean;
 }): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -2135,9 +2320,14 @@ function PostList({
           <span>{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
         </div>
         {renderMeta ? <div className="deck-card-meta">{renderMeta(post)}</div> : null}
-        <p>{renderBody ? renderBody(post) : summarisePost(post.message)}</p>
+        {(() => {
+          const hasFiles = (post.file_ids?.length ?? 0) > 0;
+          const body = renderBody ? renderBody(post) : summarisePost(post.message);
+          const isEmpty = !renderBody && !post.message.trim();
+          return (!isEmpty || !hasFiles) ? <p>{body}</p> : null;
+        })()}
         {post.file_ids && post.file_ids.length > 0 && (
-          <PostFileAttachments fileIds={post.file_ids} postId={post.id} />
+          <PostFileAttachments fileIds={post.file_ids} postId={post.id} showImagePreviews={showImagePreviews} />
         )}
       </li>
     );
@@ -2238,6 +2428,7 @@ function MentionsColumn({
   postClickAction,
   compactMode,
   columnColors,
+  showImagePreviews,
 }: {
   column: DeckColumn;
   username: string | null;
@@ -2258,6 +2449,7 @@ function MentionsColumn({
   postClickAction: PostClickAction;
   compactMode: boolean;
   columnColors: ColumnColorSettings;
+  showImagePreviews: boolean;
 }): React.JSX.Element {
   const teamIds = useMemo(() => (column.teamId ? [column.teamId] : teams.map((team) => team.id)), [column.teamId, teams]);
   const teamDirectory = useMemo(() => Object.fromEntries(teams.map((team) => [team.id, team])), [teams]);
@@ -2661,6 +2853,7 @@ function MentionsColumn({
             onOpenPost(post, teamId ? teamDirectory[teamId]?.name : selectedTeam?.name);
           }}
           postClickAction={postClickAction}
+          showImagePreviews={showImagePreviews}
         />
       )}
     </section>
@@ -2730,6 +2923,7 @@ function ChannelWatchColumn({
   postClickAction,
   compactMode,
   columnColors,
+  showImagePreviews,
 }: {
   column: DeckColumn;
   mode: "channel" | "dm";
@@ -2751,6 +2945,7 @@ function ChannelWatchColumn({
   postClickAction: PostClickAction;
   compactMode: boolean;
   columnColors: ColumnColorSettings;
+  showImagePreviews: boolean;
 }): React.JSX.Element {
   const [channelState, setChannelState] = useState<ChannelState>({ status: "idle", channels: [], error: null });
   const [postState, setPostState] = useState<PostState>({
@@ -3153,6 +3348,7 @@ function ChannelWatchColumn({
           onLoadMore={handleLoadMore}
           onOpenPost={(post) => onOpenPost(post, selectedTeam?.name)}
           postClickAction={postClickAction}
+          showImagePreviews={showImagePreviews}
         />
       )}
     </section>
@@ -3183,6 +3379,7 @@ function SearchLikeColumn({
   postClickAction,
   compactMode,
   columnColors,
+  showImagePreviews,
 }: {
   column: DeckColumn;
   teams: MattermostTeam[];
@@ -3199,6 +3396,7 @@ function SearchLikeColumn({
   postClickAction: PostClickAction;
   compactMode: boolean;
   columnColors: ColumnColorSettings;
+  showImagePreviews: boolean;
 }): React.JSX.Element {
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
@@ -3530,6 +3728,7 @@ function SearchLikeColumn({
           renderBody={(post) => renderHighlightedText(buildSearchSnippet(post.message, query), query)}
           onOpenPost={(post) => onOpenPost(post, selectedTeam?.name)}
           postClickAction={postClickAction}
+          showImagePreviews={showImagePreviews}
         />
       )}
     </section>
@@ -3548,6 +3747,7 @@ function SavedPostsColumn({
   postClickAction,
   compactMode,
   columnColors,
+  showImagePreviews,
 }: {
   column: DeckColumn;
   userDirectory: Record<string, MattermostUser>;
@@ -3560,6 +3760,7 @@ function SavedPostsColumn({
   postClickAction: PostClickAction;
   compactMode: boolean;
   columnColors: ColumnColorSettings;
+  showImagePreviews: boolean;
 }): React.JSX.Element {
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
@@ -3731,6 +3932,7 @@ function SavedPostsColumn({
           onLoadMore={handleLoadMore}
           onOpenPost={(post) => onOpenPost(post)}
           postClickAction={postClickAction}
+          showImagePreviews={showImagePreviews}
         />
       )}
     </section>
@@ -4852,6 +5054,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           postClickAction={deckSettings.postClickAction}
                           compactMode={deckSettings.compactMode}
                           columnColors={deckSettings.columnColors}
+                          showImagePreviews={deckSettings.showImagePreviews}
                         />
                       </div>
                     );
@@ -4879,6 +5082,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           postClickAction={deckSettings.postClickAction}
                           compactMode={deckSettings.compactMode}
                           columnColors={deckSettings.columnColors}
+                          showImagePreviews={deckSettings.showImagePreviews}
                         />
                       </div>
                     );
@@ -4906,6 +5110,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           postClickAction={deckSettings.postClickAction}
                           compactMode={deckSettings.compactMode}
                           columnColors={deckSettings.columnColors}
+                          showImagePreviews={deckSettings.showImagePreviews}
                         />
                       </div>
                     );
@@ -4929,6 +5134,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           postClickAction={deckSettings.postClickAction}
                           compactMode={deckSettings.compactMode}
                           columnColors={deckSettings.columnColors}
+                          showImagePreviews={deckSettings.showImagePreviews}
                         />
                       </div>
                     );
@@ -4947,6 +5153,7 @@ export function App({ routeKey }: AppProps): React.JSX.Element {
                           postClickAction={deckSettings.postClickAction}
                           compactMode={deckSettings.compactMode}
                           columnColors={deckSettings.columnColors}
+                          showImagePreviews={deckSettings.showImagePreviews}
                         />
                       </div>
                     );
