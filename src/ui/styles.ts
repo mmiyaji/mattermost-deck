@@ -1562,11 +1562,10 @@ export const railCssText = `
     background: rgba(255, 255, 255, 0.12);
     border: none;
     color: rgba(255, 255, 255, 0.85);
-    font-size: 16px;
     cursor: pointer;
     text-decoration: none;
     transition: background 0.12s, color 0.12s;
-    line-height: 1;
+    line-height: 0;
   }
 
   .deck-lightbox-btn:hover {
@@ -1655,6 +1654,7 @@ export const railCssText = `
     cursor: pointer;
     transition: background 0.12s;
     white-space: nowrap;
+    line-height: 0;
   }
 
   .deck-lightbox-ctrl:hover {
@@ -1687,14 +1687,12 @@ export const railCssText = `
     background: var(--deck-surface-hover, rgba(255,255,255,0.06));
   }
 
-  .deck-file-ext {
+  .deck-file-icon {
     flex: none;
-    font-size: calc(10px * var(--deck-font-scale));
-    font-weight: 700;
-    background: var(--deck-accent-soft);
+    display: flex;
+    align-items: center;
     color: var(--deck-accent);
-    padding: 2px 5px;
-    border-radius: 4px;
+    line-height: 0;
   }
 
   .deck-file-name {
