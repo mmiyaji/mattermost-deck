@@ -113,6 +113,8 @@
     "postClickAsk": "选择操作",
     "highZIndexLabel": "对扩展使用最大 Z 顺序",
     "highZIndexHint": "关闭：Z 顺序 999（Mattermost 下拉菜单和弹出框显示在顶部）。开启：最大值，扩展渲染在所有内容之上。",
+    "reversedPostOrderLabel": "反转投稿顺序",
+    "reversedPostOrderHint": "将最新投稿显示在底部（与 Mattermost 标准行为一致）。",
     "paneIdentityLabel": "面板标识颜色",
     "paneIdentityHint": "面板类型图标始终显示。启用颜色强调以在每个面板的卡片上添加彩色顶部边框。",
     "colorAccentsLabel": "启用颜色强调",

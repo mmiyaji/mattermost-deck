@@ -5,3 +5,4 @@ test-results/
 .tmp-*/
 .tmp-*.cjs
 .claude/
+e2e/mm95-state.json

@@ -115,6 +115,8 @@
     "postClickAsk": "Choose action",
     "highZIndexLabel": "Use maximum Z-order for the extension",
     "highZIndexHint": "Off: Z-order 999 (Mattermost dropdowns and popovers appear on top). On: maximum value, the extension renders above everything.",
+    "reversedPostOrderLabel": "Reverse Post Order",
+    "reversedPostOrderHint": "Display newest posts at the bottom, matching standard Mattermost behavior.",
     "paneIdentityLabel": "Pane Identity Colors",
     "paneIdentityHint": "Pane type icons are always shown. Enable color accents to add a colored top border to cards in each pane.",
     "colorAccentsLabel": "Enable color accents",

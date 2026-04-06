@@ -1687,6 +1687,7 @@ function useDeckSettingsState(): {
   postClickAction: PostClickAction;
   columnColors: ColumnColorSettings;
   showImagePreviews: boolean;
+  reversedPostOrder: boolean;
 } {
   const [settings, setSettings] = useState<{
     loaded: boolean;
@@ -1703,6 +1704,7 @@ function useDeckSettingsState(): {
     postClickAction: PostClickAction;
     columnColors: ColumnColorSettings;
     showImagePreviews: boolean;
+    reversedPostOrder: boolean;
   }>({
     loaded: false,
     wsPat: "",
@@ -1718,6 +1720,7 @@ function useDeckSettingsState(): {
     postClickAction: DEFAULT_SETTINGS.postClickAction,
     columnColors: DEFAULT_COLUMN_COLORS,
     showImagePreviews: DEFAULT_SETTINGS.showImagePreviews,
+    reversedPostOrder: DEFAULT_SETTINGS.reversedPostOrder,
   });
 
   useEffect(() => {
@@ -2372,6 +2375,7 @@ function PostList({
   postClickAction,
   showImagePreviews = true,
   language = "ja",
+  reversedPostOrder = false,
 }: {
   posts: MattermostPost[];
   userDirectory: Record<string, MattermostUser>;
@@ -2385,6 +2389,7 @@ function PostList({
   postClickAction: PostClickAction;
   showImagePreviews?: boolean;
   language?: DeckLanguage;
+  reversedPostOrder?: boolean;
 }): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -2396,6 +2401,13 @@ function PostList({
   const previousTopPostIdRef = useRef<string | null>(posts[0]?.id ?? null);
   const previousPostCountRef = useRef(posts.length);
   const entries = useMemo(() => buildPostListEntries(posts), [posts]);
+  const displayEntries = useMemo(
+    () => reversedPostOrder ? [...entries].reverse() : entries,
+    [entries, reversedPostOrder],
+  );
+  const reversedPostOrderRef = useRef(reversedPostOrder);
+  reversedPostOrderRef.current = reversedPostOrder;
+  const hasInitialScrolledRef = useRef(false);
   const shouldVirtualize = posts.length > POST_VIRTUALIZE_THRESHOLD;
 
   const markInteraction = useCallback(() => {
@@ -2435,6 +2447,17 @@ function PostList({
   }, [posts, shouldVirtualize]);
 
   useEffect(() => {
+    if (!reversedPostOrder || hasInitialScrolledRef.current) return;
+    const viewport = viewportRef.current;
+    if (!viewport || viewportHeight === 0) return;
+    const target = viewport.scrollHeight - viewport.clientHeight;
+    if (target <= 0) return;
+    viewport.scrollTop = target;
+    setScrollTop(target);
+    hasInitialScrolledRef.current = true;
+  }, [reversedPostOrder, viewportHeight]);
+
+  useEffect(() => {
     const nextTopPostId = posts[0]?.id ?? null;
     const previousTopPostId = previousTopPostIdRef.current;
     const previousCount = previousPostCountRef.current;
@@ -2446,41 +2469,54 @@ function PostList({
     }
 
     const viewport = viewportRef.current;
-    const isNearTop = !viewport || viewport.scrollTop < 24;
 
-    if (Date.now() - lastInteractionAtRef.current < IDLE_AUTOSCROLL_MS && !isNearTop) {
-      setNewPostCount((current) => current + Math.max(1, posts.length - previousCount));
-      return;
-    }
-    if (!viewport) {
-      return;
-    }
+    if (reversedPostOrderRef.current) {
+      const isNearBottom = !viewport ||
+        (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight) < 24;
 
-    viewport.scrollTo({ top: 0, behavior: "smooth" });
-    setScrollTop(0);
-    setNewPostCount(0);
+      if (Date.now() - lastInteractionAtRef.current < IDLE_AUTOSCROLL_MS && !isNearBottom) {
+        setNewPostCount((current) => current + Math.max(1, posts.length - previousCount));
+        return;
+      }
+      if (!viewport) return;
+      const target = viewport.scrollHeight - viewport.clientHeight;
+      viewport.scrollTo({ top: target, behavior: "smooth" });
+      setScrollTop(target);
+      setNewPostCount(0);
+    } else {
+      const isNearTop = !viewport || viewport.scrollTop < 24;
+
+      if (Date.now() - lastInteractionAtRef.current < IDLE_AUTOSCROLL_MS && !isNearTop) {
+        setNewPostCount((current) => current + Math.max(1, posts.length - previousCount));
+        return;
+      }
+      if (!viewport) return;
+      viewport.scrollTo({ top: 0, behavior: "smooth" });
+      setScrollTop(0);
+      setNewPostCount(0);
+    }
   }, [posts]);
 
   const rowHeights = useMemo(
-    () => entries.map((entry) => (entry.type === "separator" ? POST_SEPARATOR_ESTIMATE : POST_ROW_ESTIMATE)),
-    [entries],
+    () => displayEntries.map((entry) => (entry.type === "separator" ? POST_SEPARATOR_ESTIMATE : POST_ROW_ESTIMATE)),
+    [displayEntries],
   );
   const offsets = useMemo(() => {
-    const values: number[] = new Array(entries.length);
+    const values: number[] = new Array(displayEntries.length);
     let total = 0;
-    for (let index = 0; index < entries.length; index += 1) {
+    for (let index = 0; index < displayEntries.length; index += 1) {
       values[index] = total;
       total += rowHeights[index] ?? 0;
     }
     return values;
-  }, [entries, rowHeights]);
+  }, [displayEntries, rowHeights]);
   const totalHeight = useMemo(() => rowHeights.reduce((sum, height) => sum + height, 0), [rowHeights]);
   const startIndex = shouldVirtualize ? Math.max(0, binarySearchOffsets(offsets, scrollTop) - POST_OVERSCAN) : 0;
   const endBoundary = scrollTop + viewportHeight;
   const endIndex = shouldVirtualize
-    ? Math.min(entries.length, binarySearchOffsets(offsets, endBoundary) + POST_OVERSCAN + 2)
-    : entries.length;
-  const visibleEntries = entries.slice(startIndex, endIndex);
+    ? Math.min(displayEntries.length, binarySearchOffsets(offsets, endBoundary) + POST_OVERSCAN + 2)
+    : displayEntries.length;
+  const visibleEntries = displayEntries.slice(startIndex, endIndex);
   const offsetY = offsets[startIndex] ?? 0;
   const spacerHeight = totalHeight;
 
@@ -2560,6 +2596,24 @@ function PostList({
     );
   };
 
+  const footerNode = hasMore || loadingMore ? (
+    <div className="deck-list-footer">
+      <button
+        type="button"
+        className="deck-load-more"
+        onClick={() => onLoadMore?.()}
+        disabled={!hasMore || loadingMore}
+      >
+        <RefreshIcon spinning={loadingMore} />
+        {loadingMore ? "Loading..." : "Load more"}
+      </button>
+    </div>
+  ) : posts.length > 0 ? (
+    <div className="deck-list-end">
+      {language === "ja" ? "全件表示済み" : "All posts loaded"}
+    </div>
+  ) : null;
+
   return (
     <div className="deck-post-list">
       {newPostCount > 0 ? (
@@ -2572,8 +2626,14 @@ function PostList({
               if (!viewport) {
                 return;
               }
-              viewport.scrollTo({ top: 0, behavior: "smooth" });
-              setScrollTop(0);
+              if (reversedPostOrder) {
+                const target = viewport.scrollHeight - viewport.clientHeight;
+                viewport.scrollTo({ top: target, behavior: "smooth" });
+                setScrollTop(target);
+              } else {
+                viewport.scrollTo({ top: 0, behavior: "smooth" });
+                setScrollTop(0);
+              }
               setNewPostCount(0);
               markInteraction();
             }}
@@ -2587,8 +2647,12 @@ function PostList({
           ref={viewportRef}
           className="deck-list-viewport"
           onScroll={(event) => {
-            setScrollTop(event.currentTarget.scrollTop);
-            if (event.currentTarget.scrollTop < 24) {
+            const el = event.currentTarget;
+            setScrollTop(el.scrollTop);
+            const nearEdge = reversedPostOrder
+              ? el.scrollHeight - el.scrollTop - el.clientHeight < 24
+              : el.scrollTop < 24;
+            if (nearEdge) {
               setNewPostCount(0);
             }
             markInteraction();
@@ -2596,35 +2660,24 @@ function PostList({
           onWheel={markInteraction}
           onPointerDown={markInteraction}
         >
+          {reversedPostOrder && footerNode}
           <div className="deck-list-spacer" style={{ height: `${Math.max(spacerHeight, viewportHeight)}px` }}>
             <ul className="deck-list deck-list--virtual" style={{ transform: `translateY(${offsetY}px)` }}>
               {visibleEntries.map((entry) => renderEntry(entry))}
             </ul>
           </div>
-          {hasMore || loadingMore ? (
-            <div className="deck-list-footer">
-              <button
-                type="button"
-                className="deck-load-more"
-                onClick={() => onLoadMore?.()}
-                disabled={!hasMore || loadingMore}
-              >
-                <RefreshIcon spinning={loadingMore} />
-                {loadingMore ? "Loading..." : "Load more"}
-              </button>
-            </div>
-          ) : posts.length > 0 ? (
-            <div className="deck-list-end">
-              {language === "ja" ? "全件表示済み" : "All posts loaded"}
-            </div>
-          ) : null}
+          {!reversedPostOrder && footerNode}
         </div>
       ) : (
         <div
           ref={viewportRef}
           className="deck-list-viewport"
           onScroll={(event) => {
-            if (event.currentTarget.scrollTop < 24) {
+            const el = event.currentTarget;
+            const nearEdge = reversedPostOrder
+              ? el.scrollHeight - el.scrollTop - el.clientHeight < 24
+              : el.scrollTop < 24;
+            if (nearEdge) {
               setNewPostCount(0);
             }
             markInteraction();
@@ -2632,24 +2685,9 @@ function PostList({
           onWheel={markInteraction}
           onPointerDown={markInteraction}
         >
-          <ul className="deck-list">{entries.map((entry) => renderEntry(entry))}</ul>
-          {hasMore || loadingMore ? (
-            <div className="deck-list-footer">
-              <button
-                type="button"
-                className="deck-load-more"
-                onClick={() => onLoadMore?.()}
-                disabled={!hasMore || loadingMore}
-              >
-                <RefreshIcon spinning={loadingMore} />
-                {loadingMore ? "Loading..." : "Load more"}
-              </button>
-            </div>
-          ) : posts.length > 0 ? (
-            <div className="deck-list-end">
-              {language === "ja" ? "全件表示済み" : "All posts loaded"}
-            </div>
-          ) : null}
+          {reversedPostOrder && footerNode}
+          <ul className="deck-list">{displayEntries.map((entry) => renderEntry(entry))}</ul>
+          {!reversedPostOrder && footerNode}
         </div>
       )}
     </div>
@@ -2678,6 +2716,7 @@ function MentionsColumn({
   columnColors,
   showImagePreviews,
   language,
+  reversedPostOrder,
 }: {
   column: DeckColumn;
   username: string | null;
@@ -2700,6 +2739,7 @@ function MentionsColumn({
   columnColors: ColumnColorSettings;
   showImagePreviews: boolean;
   language: DeckLanguage;
+  reversedPostOrder: boolean;
 }): React.JSX.Element {
   const teamIds = useMemo(() => (column.teamId ? [column.teamId] : teams.map((team) => team.id)), [column.teamId, teams]);
   const text = useAppText();
@@ -3121,6 +3161,7 @@ function MentionsColumn({
           postClickAction={postClickAction}
           showImagePreviews={showImagePreviews}
           language={language}
+          reversedPostOrder={reversedPostOrder}
         />
       )}
     </section>
@@ -3192,6 +3233,7 @@ function ChannelWatchColumn({
   columnColors,
   showImagePreviews,
   language,
+  reversedPostOrder,
 }: {
   column: DeckColumn;
   mode: "channel" | "dm";
@@ -3215,6 +3257,7 @@ function ChannelWatchColumn({
   columnColors: ColumnColorSettings;
   showImagePreviews: boolean;
   language: DeckLanguage;
+  reversedPostOrder: boolean;
 }): React.JSX.Element {
   const text = useAppText();
   const [channelState, setChannelState] = useState<ChannelState>({ status: "idle", channels: [], error: null });
@@ -3636,6 +3679,7 @@ function ChannelWatchColumn({
           postClickAction={postClickAction}
           showImagePreviews={showImagePreviews}
           language={language}
+          reversedPostOrder={reversedPostOrder}
         />
       )}
     </section>
@@ -3668,6 +3712,7 @@ function SearchLikeColumn({
   columnColors,
   showImagePreviews,
   language,
+  reversedPostOrder,
 }: {
   column: DeckColumn;
   teams: MattermostTeam[];
@@ -3686,6 +3731,7 @@ function SearchLikeColumn({
   columnColors: ColumnColorSettings;
   showImagePreviews: boolean;
   language: DeckLanguage;
+  reversedPostOrder: boolean;
 }): React.JSX.Element {
   const text = useAppText();
   const [postState, setPostState] = useState<PostState>({
@@ -4036,6 +4082,7 @@ function SearchLikeColumn({
           postClickAction={postClickAction}
           showImagePreviews={showImagePreviews}
           language={language}
+          reversedPostOrder={reversedPostOrder}
         />
       )}
     </section>
@@ -4056,6 +4103,7 @@ function SavedPostsColumn({
   columnColors,
   showImagePreviews,
   language,
+  reversedPostOrder,
 }: {
   column: DeckColumn;
   userDirectory: Record<string, MattermostUser>;
@@ -4070,6 +4118,7 @@ function SavedPostsColumn({
   columnColors: ColumnColorSettings;
   showImagePreviews: boolean;
   language: DeckLanguage;
+  reversedPostOrder: boolean;
 }): React.JSX.Element {
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
@@ -4259,6 +4308,7 @@ function SavedPostsColumn({
           postClickAction={postClickAction}
           showImagePreviews={showImagePreviews}
           language={language}
+          reversedPostOrder={reversedPostOrder}
         />
       )}
     </section>
@@ -5417,6 +5467,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           columnColors={deckSettings.columnColors}
                           showImagePreviews={deckSettings.showImagePreviews}
                           language={deckSettings.language}
+                          reversedPostOrder={deckSettings.reversedPostOrder}
                         />
                       </div>
                     );
@@ -5446,6 +5497,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           columnColors={deckSettings.columnColors}
                           showImagePreviews={deckSettings.showImagePreviews}
                           language={deckSettings.language}
+                          reversedPostOrder={deckSettings.reversedPostOrder}
                         />
                       </div>
                     );
@@ -5475,6 +5527,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           columnColors={deckSettings.columnColors}
                           showImagePreviews={deckSettings.showImagePreviews}
                           language={deckSettings.language}
+                          reversedPostOrder={deckSettings.reversedPostOrder}
                         />
                       </div>
                     );
@@ -5500,6 +5553,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           columnColors={deckSettings.columnColors}
                           showImagePreviews={deckSettings.showImagePreviews}
                           language={deckSettings.language}
+                          reversedPostOrder={deckSettings.reversedPostOrder}
                         />
                       </div>
                     );
@@ -5520,6 +5574,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           columnColors={deckSettings.columnColors}
                           showImagePreviews={deckSettings.showImagePreviews}
                           language={deckSettings.language}
+                          reversedPostOrder={deckSettings.reversedPostOrder}
                         />
                       </div>
                     );

@@ -99,6 +99,8 @@ function useOptionsText() {
     postClickActionHint: t("options.postClickActionHint"),
     highZIndexLabel: t("options.highZIndexLabel"),
     highZIndexHint: t("options.highZIndexHint"),
+    reversedPostOrderLabel: t("options.reversedPostOrderLabel"),
+    reversedPostOrderHint: t("options.reversedPostOrderHint"),
     paneIdentityLabel: t("options.paneIdentityLabel"),
     paneIdentityHint: t("options.paneIdentityHint"),
     colorAccentsLabel: t("options.colorAccentsLabel"),
@@ -1792,6 +1794,17 @@ function OptionsApp(): React.JSX.Element {
                       onChange={(e) => setSettings((s) => ({ ...s, highZIndex: e.target.checked }))}
                     />
                     <span>{text.highZIndexHint}</span>
+                  </label>
+                </label>
+                <label className="options-field">
+                  <span className="options-label">{text.reversedPostOrderLabel}</span>
+                  <label className="options-choice">
+                    <input
+                      type="checkbox"
+                      checked={settings.reversedPostOrder}
+                      onChange={(e) => setSettings((s) => ({ ...s, reversedPostOrder: e.target.checked }))}
+                    />
+                    <span>{text.reversedPostOrderHint}</span>
                   </label>
                 </label>
               </div>

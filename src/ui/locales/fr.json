@@ -115,6 +115,8 @@
     "postClickAsk": "Choisir une action",
     "highZIndexLabel": "Utiliser l'ordre Z maximum pour l'extension",
     "highZIndexHint": "Désactivé : ordre Z 999 (les menus déroulants et popups Mattermost apparaissent au premier plan). Activé : valeur maximale, l'extension s'affiche au-dessus de tout.",
+    "reversedPostOrderLabel": "Inverser l'ordre des messages",
+    "reversedPostOrderHint": "Afficher les messages les plus récents en bas, conformément au comportement standard de Mattermost.",
     "paneIdentityLabel": "Couleurs d'identité des volets",
     "paneIdentityHint": "Les icônes de type de volet sont toujours affichées. Activer les accents de couleur pour ajouter une bordure supérieure colorée aux cartes de chaque volet.",
     "colorAccentsLabel": "Activer les accents de couleur",

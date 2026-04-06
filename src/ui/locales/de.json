@@ -115,6 +115,8 @@
     "postClickAsk": "Aktion auswählen",
     "highZIndexLabel": "Maximale Z-Reihenfolge für die Erweiterung",
     "highZIndexHint": "Aus: Z-Reihenfolge 999 (Mattermost-Dropdowns und Popovers werden vorne angezeigt). An: maximaler Wert, die Erweiterung wird über allem gerendert.",
+    "reversedPostOrderLabel": "Beitragsreihenfolge umkehren",
+    "reversedPostOrderHint": "Neueste Beiträge unten anzeigen (entspricht dem Standardverhalten von Mattermost).",
     "paneIdentityLabel": "Bereichsidentifikationsfarben",
     "paneIdentityHint": "Bereichstyp-Icons werden immer angezeigt. Farbakzente aktivieren, um den Karten in jedem Bereich einen farbigen oberen Rahmen hinzuzufügen.",
     "colorAccentsLabel": "Farbakzente aktivieren",

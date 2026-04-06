@@ -113,6 +113,8 @@
     "postClickAsk": "動作を選ぶ",
     "highZIndexLabel": "拡張の Z-order を最大値にする",
     "highZIndexHint": "オフ時は Z-order 999（Mattermost のドロップダウン等が前面）。オンにすると全要素より前面に表示されます。",
+    "reversedPostOrderLabel": "投稿順を逆転する",
+    "reversedPostOrderHint": "最新投稿を下に表示します（Mattermost の通常表示に合わせた順番）。",
     "paneIdentityLabel": "ペイン識別カラー",
     "paneIdentityHint": "ペインの種類アイコンは常に表示されます。カラーアクセントを有効にすると、各ペインのカードに色付きの上部ボーダーが追加されます。",
     "colorAccentsLabel": "カラーアクセントを有効にする",
