@@ -1011,7 +1011,14 @@ function contrastRatio(left: string, right: string): number {
 }
 
 function pickBestAccent(background: string, candidates: Array<string | undefined>, fallback: string): string {
-  const usable = candidates.filter((candidate): candidate is string => Boolean(candidate && candidate.trim()));
+  const usable = candidates.filter((candidate): candidate is string => {
+    if (!candidate || !candidate.trim()) return false;
+    // Reject transparent colors — parseCssColor ignores the alpha channel, so rgba(0,0,0,0)
+    // would produce a spuriously high contrast ratio (21) and beat every real accent color.
+    const alphaMatch = candidate.match(/rgba\([^)]+,\s*([\d.]+)\s*\)/i);
+    if (alphaMatch && parseFloat(alphaMatch[1]) < 0.05) return false;
+    return true;
+  });
   if (usable.length === 0) {
     return fallback;
   }
@@ -1211,7 +1218,7 @@ function extractMattermostThemeStyle(): MattermostThemeStyle {
     "--deck-bg-soft": shellBgSoft,
     "--deck-panel": centerBg,
     "--deck-panel-2": centerBg,
-    "--deck-card": lightenRgb(centerBg, 0.015),
+    "--deck-card": colorMixFallback(centerText, centerBg, 0.04),
     "--deck-card-soft": centerBg,
     "--deck-border": border,
     "--deck-border-strong": borderStrong,

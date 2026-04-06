@@ -630,6 +630,15 @@ export const railCssText = `
     border: 1px solid var(--deck-border);
   }
 
+  /* Pane-area and floating-menu buttons sit over the center-channel background,
+     so use --deck-text (center-channel text color) instead of --deck-topbar-text
+     (sidebar text color, which is white in many Mattermost themes). */
+  .deck-column .deck-icon-button--ghost,
+  .deck-add-menu .deck-icon-button--ghost {
+    color: var(--deck-text);
+    background: color-mix(in srgb, var(--deck-text) 5%, transparent);
+  }
+
   .deck-icon-button--active {
     background: rgba(217, 119, 6, 0.18);
     color: #f59e0b;
@@ -1314,13 +1323,16 @@ export const railCssText = `
     background: rgba(123, 178, 255, 0.1);
   }
 
-  .deck-shell[data-theme="light"] .deck-list-end {
-    color: rgba(73, 101, 131, 0.5);
+  .deck-shell[data-theme="light"] .deck-list-end,
+  .deck-shell[data-theme="mattermost"] .deck-list-end {
+    color: var(--deck-text-faint);
   }
 
   .deck-shell[data-theme="light"] .deck-list-end::before,
-  .deck-shell[data-theme="light"] .deck-list-end::after {
-    background: rgba(84, 120, 168, 0.15);
+  .deck-shell[data-theme="light"] .deck-list-end::after,
+  .deck-shell[data-theme="mattermost"] .deck-list-end::before,
+  .deck-shell[data-theme="mattermost"] .deck-list-end::after {
+    background: var(--deck-border);
   }
 
   .deck-list-floating-action {
