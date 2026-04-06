@@ -96,10 +96,10 @@ export const railCssText = `
     justify-content: space-between;
     align-items: center;
     gap: 16px;
-    padding: 14px 18px 12px 54px;
+    padding: 8px 18px 6px 54px;
     border-bottom: 1px solid var(--deck-border);
     background: var(--deck-bg-elevated);
-    min-height: 76px;
+    min-height: 52px;
   }
 
   .deck-topbar--compact {
@@ -121,7 +121,7 @@ export const railCssText = `
     transform: rotate(180deg);
     margin: auto;
     padding: 12px 0;
-    color: var(--deck-text-faint);
+    color: var(--deck-topbar-text-soft);
     font-size: 12px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -718,7 +718,7 @@ export const railCssText = `
     min-height: 0;
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 16px 14px 18px 14px;
+    padding: 0px 14px 8px 14px;
     scrollbar-color: rgba(143, 164, 193, 0.45) transparent;
   }
 
@@ -1887,7 +1887,7 @@ export const railCssText = `
 
   .deck-drawer-toggle {
     position: absolute;
-    top: 20px;
+    top: 12px;
     left: 12px;
     z-index: 3;
     display: flex;

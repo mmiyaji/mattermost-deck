@@ -39,7 +39,7 @@
     "pickDmOrGroup": "选择私信或群组",
     "pickTeamAndChannel": "选择团队和频道",
     "selectATeam": "选择团队",
-    "selectATeamDesc": "此面板不再跟随主页面。请先选择固定团队。",
+    "selectATeamDesc": "请先选择固定团队。",
     "selectAChannel": "选择频道",
     "selectADm": "选择私信 / 群组",
     "selectChannelDesc": "选择此面板要监视的频道。",

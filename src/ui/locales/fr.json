@@ -41,7 +41,7 @@
     "pickDmOrGroup": "Choisir un message direct ou un groupe",
     "pickTeamAndChannel": "Choisir une équipe et un canal",
     "selectATeam": "Sélectionner une équipe",
-    "selectATeamDesc": "Ce volet ne suit plus la page principale. Choisissez d'abord une équipe fixe.",
+    "selectATeamDesc": "Choisissez d'abord une équipe fixe.",
     "selectAChannel": "Sélectionner un canal",
     "selectADm": "Sélectionner un MP / Groupe",
     "selectChannelDesc": "Choisissez quel canal ce volet doit surveiller.",

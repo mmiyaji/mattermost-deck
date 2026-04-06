@@ -39,7 +39,7 @@
     "pickDmOrGroup": "ダイレクトメッセージまたはグループを選択",
     "pickTeamAndChannel": "チームとチャンネルを選択",
     "selectATeam": "チームを選択",
-    "selectATeamDesc": "このペインはメインページに連動しなくなりました。先にチームを固定選択してください。",
+    "selectATeamDesc": "チームを選択してください。",
     "selectAChannel": "チャンネルを選択",
     "selectADm": "DM / グループを選択",
     "selectChannelDesc": "監視するチャンネルを選択してください。",

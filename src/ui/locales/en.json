@@ -41,7 +41,7 @@
     "pickDmOrGroup": "Pick a direct message or group",
     "pickTeamAndChannel": "Pick a team and channel",
     "selectATeam": "Select a team",
-    "selectATeamDesc": "This pane no longer follows the main page. Choose a fixed team first.",
+    "selectATeamDesc": "Choose a team first.",
     "selectAChannel": "Select a channel",
     "selectADm": "Select a DM / Group",
     "selectChannelDesc": "Choose which channel this pane should watch.",
