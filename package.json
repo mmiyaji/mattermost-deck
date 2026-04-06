@@ -10,7 +10,10 @@
     "check": "tsc --noEmit",
     "open:mattermost": "node ./scripts/open-mattermost.mjs",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "mm95:start": "node ./scripts/mm95-start.mjs",
+    "mm95:stop": "node ./scripts/mm95-start.mjs --stop",
+    "test:theme": "MATTERMOST_BASE_URL=http://127.0.0.1:8066 MM95_STATE_FILE=e2e/mm95-state.json playwright test e2e/theme-compat.spec.ts --headed"
   },
   "dependencies": {
     "i18next": "^26.0.1",

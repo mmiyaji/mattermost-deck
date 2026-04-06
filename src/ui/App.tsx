@@ -1095,16 +1095,25 @@ function extractMattermostThemeStyle(): MattermostThemeStyle {
     ["--sidebar-header-bg", "--sidebar-bg"],
     channelHeaderStyle.backgroundColor || sidebarBg,
   );
+  // CSS variable is preferred over computed element color.
+  // In Mattermost 9.5, the sidebar container's computed `color` reflects the
+  // inherited center-channel text (dark grey), not the sidebar text (white).
+  // Reading --sidebar-text first avoids picking up the wrong fallback color.
   const sidebarText =
+    readMattermostThemeValue(rootStyle, ["--sidebar-text", "--sidebar-header-text-color"]) ||
     sidebarTeamButtonStyle.color ||
-    readMattermostThemeValue(rootStyle, ["--sidebar-text", "--sidebar-header-text-color"], sidebarStyle.color) ||
+    sidebarStyle.color ||
     "rgb(255, 255, 255)";
   const sidebarTextSoft =
+    readMattermostThemeValue(rootStyle, ["--sidebar-text-80", "--sidebar-header-text-color-80"]) ||
     (sidebarTeamButtonStyle.color ? rgbaFromRgb(sidebarTeamButtonStyle.color, 0.8) : undefined) ||
-    readMattermostThemeValue(rootStyle, ["--sidebar-text-80", "--sidebar-header-text-color-80"], rgbaFromRgb(sidebarText, 0.8));
+    rgbaFromRgb(sidebarText, 0.8);
+  // --sidebar-teambar-bg is the Global Header background (added in later 9.x).
+  // Prefer it over --sidebar-header-bg so the deck topbar matches the
+  // Mattermost Global Header rather than the sidebar channel-list header.
   const shellBg = readMattermostThemeValue(
     rootStyle,
-    ["--sidebar-header-bg", "--sidebar-bg"],
+    ["--sidebar-teambar-bg", "--sidebar-header-bg", "--sidebar-bg"],
     appBodyStyle.backgroundColor || sidebarHeaderBg,
   );
   const shellBgSoft = readMattermostThemeValue(
@@ -1119,7 +1128,7 @@ function extractMattermostThemeStyle(): MattermostThemeStyle {
   );
   const centerText = readMattermostThemeValue(
     rootStyle,
-    ["--center-channel-color", "--center-channel-color-88"],
+    ["--center-channel-color", "--center-channel-text", "--center-channel-color-88"],
     postAreaStyle.color || "rgb(61, 60, 64)",
   );
   const centerTextSoft = readMattermostThemeValue(
