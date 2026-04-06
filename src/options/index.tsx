@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { useTranslation } from "react-i18next";
 import { CustomSelect, type CustomSelectOption } from "../ui/CustomSelect";
+import i18n from "../ui/i18n";
 import {
   DEFAULT_COLUMN_COLORS,
   DEFAULT_SETTINGS,
@@ -39,222 +41,81 @@ const COPYRIGHT_YEAR = "2026";
 
 type ActivePanel = "guide" | "conn" | "realtime" | "appearance" | "behavior" | "security";
 
-type OptionsText = {
-  title: string;
-  guideTitle: string;
-  connTitle: string;
-  connDesc: string;
-  serverUrlLabel: string;
-  serverUrlPlaceholder: string;
-  teamSlugLabel: string;
-  teamSlugPlaceholder: string;
-  targetHint: string;
-  routeKindsLabel: string;
-  routeKindsHint: string;
-  healthCheckLabel: string;
-  healthCheckHint: string;
-  advanced: string;
-  realtimeTitle: string;
-  realtimeDesc: string;
-  patLabel: string;
-  patPlaceholder: string;
-  patHelp: string;
-  patEnableLink: string;
-  patGuideLink: string;
-  pollingLabel: string;
-  pollingHint: string;
-  show: string;
-  hide: string;
-  appearanceTitle: string;
-  appearanceDesc: string;
-  themeLabel: string;
-  languageLabel: string;
-  fontScaleLabel: string;
-  fontScaleHint: string;
-  paneWidthLabel: string;
-  paneWidthHint: string;
-  columnWidthLabel: string;
-  columnWidthHint: string;
-  compactModeLabel: string;
-  compactModeHint: string;
-  showImagePreviewsLabel: string;
-  showImagePreviewsHint: string;
-  themeSystem: string;
-  themeMattermost: string;
-  themeDark: string;
-  themeLight: string;
-  languageJa: string;
-  languageEn: string;
-  behaviorTitle: string;
-  behaviorDesc: string;
-  postClickActionLabel: string;
-  postClickActionHint: string;
-  highZIndexLabel: string;
-  highZIndexHint: string;
-  paneIdentityLabel: string;
-  paneIdentityHint: string;
-  colorAccentsLabel: string;
-  securityTitle: string;
-  securityBody: string;
-  securityBody2: string;
-  securityBody3: string;
-  openMattermost: string;
-  save: string;
-  saving: string;
-  saved: string;
-  invalidServerUrl: string;
-  permissionDenied: string;
-  privacyPolicy: string;
-  termsOfUse: string;
-  github: string;
-  storeLink: string;
-  version: string;
-};
+function useOptionsText() {
+  const { t } = useTranslation();
+  return useMemo(() => ({
+    title: t("options.title"),
+    version: t("options.version"),
+    guideTitle: t("options.guideTitle"),
+    connTitle: t("options.connTitle"),
+    connDesc: t("options.connDesc"),
+    serverUrlLabel: t("options.serverUrlLabel"),
+    serverUrlPlaceholder: t("options.serverUrlPlaceholder"),
+    teamSlugLabel: t("options.teamSlugLabel"),
+    teamSlugPlaceholder: t("options.teamSlugPlaceholder"),
+    targetHint: t("options.targetHint"),
+    advanced: t("options.advanced"),
+    routeKindsLabel: t("options.routeKindsLabel"),
+    routeKindsHint: t("options.routeKindsHint"),
+    healthCheckLabel: t("options.healthCheckLabel"),
+    healthCheckHint: t("options.healthCheckHint"),
+    realtimeTitle: t("options.realtimeTitle"),
+    realtimeDesc: t("options.realtimeDesc"),
+    patLabel: t("options.patLabel"),
+    patPlaceholder: t("options.patPlaceholder"),
+    patHelp: t("options.patHelp"),
+    patEnableLink: t("options.patEnableLink"),
+    patGuideLink: t("options.patGuideLink"),
+    pollingLabel: t("options.pollingLabel"),
+    pollingHint: t("options.pollingHint", { min: MIN_POLLING_INTERVAL_SECONDS }),
+    show: t("options.show"),
+    hide: t("options.hide"),
+    appearanceTitle: t("options.appearanceTitle"),
+    appearanceDesc: t("options.appearanceDesc"),
+    themeLabel: t("options.themeLabel"),
+    languageLabel: t("options.languageLabel"),
+    fontScaleLabel: t("options.fontScaleLabel"),
+    fontScaleHint: t("options.fontScaleHint", { min: MIN_FONT_SCALE_PERCENT, max: MAX_FONT_SCALE_PERCENT }),
+    paneWidthLabel: t("options.paneWidthLabel"),
+    paneWidthHint: t("options.paneWidthHint", { min: MIN_PREFERRED_RAIL_WIDTH, max: MAX_PREFERRED_RAIL_WIDTH }),
+    columnWidthLabel: t("options.columnWidthLabel"),
+    columnWidthHint: t("options.columnWidthHint", { min: MIN_PREFERRED_COLUMN_WIDTH, max: MAX_PREFERRED_COLUMN_WIDTH }),
+    compactModeLabel: t("options.compactModeLabel"),
+    compactModeHint: t("options.compactModeHint"),
+    showImagePreviewsLabel: t("options.showImagePreviewsLabel"),
+    showImagePreviewsHint: t("options.showImagePreviewsHint"),
+    themeSystem: t("options.themeSystem"),
+    themeMattermost: t("options.themeMattermost"),
+    themeDark: t("options.themeDark"),
+    themeLight: t("options.themeLight"),
+    languageJa: t("options.languageJa"),
+    languageEn: t("options.languageEn"),
+    behaviorTitle: t("options.behaviorTitle"),
+    behaviorDesc: t("options.behaviorDesc"),
+    postClickActionLabel: t("options.postClickActionLabel"),
+    postClickActionHint: t("options.postClickActionHint"),
+    highZIndexLabel: t("options.highZIndexLabel"),
+    highZIndexHint: t("options.highZIndexHint"),
+    paneIdentityLabel: t("options.paneIdentityLabel"),
+    paneIdentityHint: t("options.paneIdentityHint"),
+    colorAccentsLabel: t("options.colorAccentsLabel"),
+    securityTitle: t("options.securityTitle"),
+    securityBody: t("options.securityBody"),
+    securityBody2: t("options.securityBody2"),
+    securityBody3: t("options.securityBody3"),
+    openMattermost: t("options.openMattermost"),
+    save: t("options.save"),
+    saving: t("options.saving"),
+    saved: t("options.saved"),
+    invalidServerUrl: t("options.invalidServerUrl"),
+    permissionDenied: t("options.permissionDenied"),
+    privacyPolicy: t("options.privacyPolicy"),
+    termsOfUse: t("options.termsOfUse"),
+    github: t("options.github"),
+    storeLink: t("options.storeLink"),
+  }), [t]);
+}
 
-const TEXT: Record<DeckLanguage, OptionsText> = {
-  ja: {
-    title: "Mattermost Deck",
-    version: "Version",
-    guideTitle: "使い方",
-    connTitle: "接続",
-    connDesc: "拡張は設定した Mattermost Server URL 上でのみ有効です。Team Slug を空にすると全チーム、指定するとそのチーム配下だけで有効になります。",
-    serverUrlLabel: "Mattermost Server URL",
-    serverUrlPlaceholder: "https://mattermost.example.com",
-    teamSlugLabel: "Team Slug",
-    teamSlugPlaceholder: "myteam",
-    targetHint: "通常は Server URL だけ設定すれば十分です。",
-    advanced: "詳細設定",
-    routeKindsLabel: "Allowed Route Kinds",
-    routeKindsHint: "既定は channels,messages です。拡張はこの URL パターンでのみ有効化されます。",
-    healthCheckLabel: "Health Check API Path",
-    healthCheckHint: "既定は /api/v4/users/me です。描画前にこの API が正常応答するか確認します。",
-    realtimeTitle: "リアルタイム",
-    realtimeDesc: "更新方式は PAT の有無で切り替わります。PAT を設定すると WebSocket でイベントを即時受信します。未設定時はポーリング（定期的な REST リクエスト）で更新するため、最大でポーリング間隔分の遅延が生じます。",
-    patLabel: "Personal Access Token (PAT)",
-    patPlaceholder: "Personal Access Token を入力",
-    patHelp: "作成場所: User Settings > Security > Personal Access Tokens。管理者側で PAT が有効になっている必要があります。",
-    patEnableLink: "PAT の有効化",
-    patGuideLink: "取得方法の公式案内",
-    pollingLabel: "ポーリング間隔（秒）",
-    pollingHint: `Realtime 無効時の取得間隔です。下限は ${MIN_POLLING_INTERVAL_SECONDS} 秒です。`,
-    show: "表示",
-    hide: "非表示",
-    appearanceTitle: "外観",
-    appearanceDesc: "Mattermost を選ぶと、現在開いている Mattermost 本体の配色に右ペインを寄せます。",
-    themeLabel: "テーマ",
-    languageLabel: "言語",
-    fontScaleLabel: "フォントサイズ（%）",
-    fontScaleHint: `${MIN_FONT_SCALE_PERCENT}% 〜 ${MAX_FONT_SCALE_PERCENT}% で設定します。`,
-    paneWidthLabel: "ペイン幅（px）",
-    paneWidthHint: `${MIN_PREFERRED_RAIL_WIDTH}px 〜 ${MAX_PREFERRED_RAIL_WIDTH}px。保存済みの手動リサイズ幅がない場合の初期値として使われます。`,
-    columnWidthLabel: "カラム幅（px）",
-    columnWidthHint: `${MIN_PREFERRED_COLUMN_WIDTH}px 〜 ${MAX_PREFERRED_COLUMN_WIDTH}px で設定します。`,
-    compactModeLabel: "コンパクトモード",
-    compactModeHint: "投稿カードを小さくし、スペースを詰めて表示します。",
-    showImagePreviewsLabel: "画像サムネイルを表示",
-    showImagePreviewsHint: "投稿の画像添付をサムネイル表示します。オフにするとファイルカードとして表示されます。",
-    themeSystem: "System",
-    themeMattermost: "Mattermost",
-    themeDark: "Dark",
-    themeLight: "Light",
-    languageJa: "日本語",
-    languageEn: "English",
-    behaviorTitle: "動作",
-    behaviorDesc: "投稿クリック・画像表示・Z-order の動作を設定します。",
-    postClickActionLabel: "投稿クリック時の動作",
-    postClickActionHint: "投稿カードをクリックしたときの動作を選択します。テキスト選択のドラッグではスレッドを開きません。",
-    highZIndexLabel: "拡張の Z-order を最大値にする",
-    highZIndexHint: "オフ時は Z-order 999（Mattermost のドロップダウン等が前面）。オンにすると全要素より前面に表示されます。",
-    paneIdentityLabel: "ペイン識別カラー",
-    paneIdentityHint: "ペインの種類アイコンは常に表示されます。カラーアクセントを有効にすると、各ペインのカードに色付きの上部ボーダーが追加されます。",
-    colorAccentsLabel: "カラーアクセントを有効にする",
-    securityTitle: "セキュリティ",
-    securityBody: "PAT は平文ではなく、拡張内で復号可能なクライアント側暗号化を施して保存します。",
-    securityBody2: "ただし鍵もクライアント側にあるため、これは最低限の秘匿化です。完全な保護ではありません。",
-    securityBody3: "高権限トークンは避け、可能なら専用の低権限トークンを使ってください。",
-    openMattermost: "Mattermost を開く",
-    save: "保存",
-    saving: "保存中...",
-    saved: "保存しました",
-    invalidServerUrl: "Mattermost Server URL を正しい origin 形式で入力してください。",
-    permissionDenied: "Mattermost origin への Chrome 権限が拒否されたため有効化できませんでした。もう一度 Save を押すと再度許可ダイアログを表示できます。",
-    privacyPolicy: "プライバシーポリシー",
-    termsOfUse: "利用規約",
-    github: "GitHub",
-    storeLink: "Chrome ウェブストア",
-  },
-  en: {
-    title: "Mattermost Deck",
-    version: "Version",
-    guideTitle: "Guide",
-    connTitle: "Connection",
-    connDesc: "The extension runs only on the configured Mattermost Server URL. Leave Team Slug blank to enable on all teams, or set it to scope activation to one team.",
-    serverUrlLabel: "Mattermost Server URL",
-    serverUrlPlaceholder: "https://mattermost.example.com",
-    teamSlugLabel: "Team Slug",
-    teamSlugPlaceholder: "myteam",
-    targetHint: "In most cases, configuring the Server URL is enough.",
-    advanced: "Advanced",
-    routeKindsLabel: "Allowed Route Kinds",
-    routeKindsHint: "Default is channels,messages. The extension activates only on these URL patterns.",
-    healthCheckLabel: "Health Check API Path",
-    healthCheckHint: "Default is /api/v4/users/me. The extension confirms this endpoint before rendering.",
-    realtimeTitle: "Realtime",
-    realtimeDesc: "The update mode depends on whether a PAT is configured. With a PAT, the deck receives events instantly over WebSocket. Without one, it falls back to polling (periodic REST requests), introducing a delay of up to the polling interval.",
-    patLabel: "Personal Access Token (PAT)",
-    patPlaceholder: "Paste a personal access token",
-    patHelp: "Create it from User Settings > Security > Personal Access Tokens. Personal access tokens must also be enabled by an administrator.",
-    patEnableLink: "Enable PATs",
-    patGuideLink: "Official setup guide",
-    pollingLabel: "Polling Interval (seconds)",
-    pollingHint: `Used only when realtime is off. The minimum is ${MIN_POLLING_INTERVAL_SECONDS} seconds.`,
-    show: "Show",
-    hide: "Hide",
-    appearanceTitle: "Appearance",
-    appearanceDesc: "When set to Mattermost, the right rail follows the colors of the currently open Mattermost page.",
-    themeLabel: "Theme",
-    languageLabel: "Language",
-    fontScaleLabel: "Font Size (%)",
-    fontScaleHint: `Configurable from ${MIN_FONT_SCALE_PERCENT}% to ${MAX_FONT_SCALE_PERCENT}%.`,
-    paneWidthLabel: "Pane Width (px)",
-    paneWidthHint: `Configurable from ${MIN_PREFERRED_RAIL_WIDTH}px to ${MAX_PREFERRED_RAIL_WIDTH}px. Used as the initial width when no saved manual resize exists.`,
-    columnWidthLabel: "Column Width (px)",
-    columnWidthHint: `Configurable from ${MIN_PREFERRED_COLUMN_WIDTH}px to ${MAX_PREFERRED_COLUMN_WIDTH}px.`,
-    compactModeLabel: "Compact Mode",
-    compactModeHint: "Use denser cards and tighter spacing in the deck.",
-    showImagePreviewsLabel: "Show image thumbnails",
-    showImagePreviewsHint: "Show image attachments as thumbnails. When off, images appear as file cards.",
-    themeSystem: "System",
-    themeMattermost: "Mattermost",
-    themeDark: "Dark",
-    themeLight: "Light",
-    languageJa: "Japanese",
-    languageEn: "English",
-    behaviorTitle: "Behavior",
-    behaviorDesc: "Configure post click action, image display, and Z-order.",
-    postClickActionLabel: "Post Click Action",
-    postClickActionHint: "Choose how post cards behave when clicked. Dragging to select text never opens a thread.",
-    highZIndexLabel: "Use maximum Z-order for the extension",
-    highZIndexHint: "Off: Z-order 999 (Mattermost dropdowns and popovers appear on top). On: maximum value, the extension renders above everything.",
-    paneIdentityLabel: "Pane Identity Colors",
-    paneIdentityHint: "Pane type icons are always shown. Enable color accents to add a colored top border to cards in each pane.",
-    colorAccentsLabel: "Enable color accents",
-    securityTitle: "Security",
-    securityBody: "The PAT is no longer stored as plain text. It is saved using client-side encryption that the extension can decrypt locally.",
-    securityBody2: "Because the key also lives on the client, this is only a minimum layer of protection and not a complete security boundary.",
-    securityBody3: "Avoid high-privilege tokens. Prefer a dedicated lower-privilege token when possible.",
-    openMattermost: "Open Mattermost",
-    save: "Save",
-    saving: "Saving...",
-    saved: "Saved",
-    invalidServerUrl: "Enter the Mattermost Server URL as a valid origin.",
-    permissionDenied: "Chrome permission for the configured Mattermost origin was denied, so the extension could not be activated. Press Save again to show the permission dialog again.",
-    privacyPolicy: "Privacy Policy",
-    termsOfUse: "Terms of Use",
-    github: "GitHub",
-    storeLink: "Chrome Web Store",
-  },
-};
 
 // ── Sidebar nav icons (Feather-style SVG) ────────────────────────────────────
 
@@ -1260,14 +1121,13 @@ function OptionsApp(): React.JSX.Element {
     document.documentElement.lang = settings.language;
   }, [settings.language, settings.theme]);
 
-  const text = useMemo(() => TEXT[settings.language], [settings.language]);
+  const { t } = useTranslation();
+  useEffect(() => { void i18n.changeLanguage(settings.language); }, [settings.language]);
+  const text = useOptionsText();
   const version = useMemo(() => getManifestVersion(), []);
-  const patStorageSessionLabel = "Session only";
-  const patStoragePersistentLabel = "Persist across restarts";
-  const patStorageHint =
-    settings.language === "ja"
-      ? "既定は session only です。ブラウザ再起動後も保持したい場合だけ persist を選んでください。"
-      : "Use session-only storage by default. Choose persistent storage only if you want the token kept across browser restarts.";
+  const patStorageSessionLabel = t("options.patStorageSessionLabel");
+  const patStoragePersistentLabel = t("options.patStoragePersistentLabel");
+  const patStorageHint = t("options.patStorageHint");
 
   const themeOptions = useMemo<CustomSelectOption[]>(
     () => [
@@ -1287,11 +1147,11 @@ function OptionsApp(): React.JSX.Element {
   );
   const postClickActionOptions = useMemo<CustomSelectOption[]>(
     () => [
-      { value: "navigate", label: settings.language === "ja" ? "遷移" : "Navigate" },
-      { value: "none", label: settings.language === "ja" ? "何もしない" : "Do nothing" },
-      { value: "ask", label: settings.language === "ja" ? "動作を選ぶ" : "Choose action" },
+      { value: "navigate", label: t("options.postClickNavigate") },
+      { value: "none", label: t("options.postClickNone") },
+      { value: "ask", label: t("options.postClickAsk") },
     ],
-    [settings.language],
+    [t],
   );
   const serverUrlMissing = settings.serverUrl.trim().length === 0;
 
@@ -1409,12 +1269,10 @@ function OptionsApp(): React.JSX.Element {
             <div ref={installBannerRef} className="options-install-banner">
               <div className="options-install-banner-body">
                 <strong>
-                  {settings.language === "ja" ? "📲 Mattermost をアプリとしてインストール" : "📲 Install Mattermost as an App"}
+                  {t("options.installPwaTitle")}
                 </strong>
                 <p>
-                  {settings.language === "ja"
-                    ? "タスクバーやスタートメニューから直接起動できるようになります。"
-                    : "You can launch it directly from the taskbar or Start menu."}
+                  {t("options.installPwaDesc")}
                 </p>
               </div>
               <div className="options-install-banner-actions">
@@ -1426,14 +1284,14 @@ function OptionsApp(): React.JSX.Element {
                     setShowInstallBanner(false);
                   }}
                 >
-                  {settings.language === "ja" ? "インストール" : "Install"}
+                  {t("options.installPwaInstall")}
                 </button>
                 <button
                   type="button"
                   className="options-button options-button--ghost"
                   onClick={() => setShowInstallBanner(false)}
                 >
-                  {settings.language === "ja" ? "後で" : "Later"}
+                  {t("options.installPwaLater")}
                 </button>
               </div>
             </div>
@@ -1445,15 +1303,13 @@ function OptionsApp(): React.JSX.Element {
               <div className="options-panel-header">
                 <h2>{text.guideTitle}</h2>
                 <p>
-                  {settings.language === "ja"
-                    ? "Mattermost Deck は Mattermost の画面右側に複数のペインを表示するChrome拡張機能です。"
-                    : "Mattermost Deck is a Chrome extension that adds a multi-pane sidebar to the right side of Mattermost."}
+                  {t("options.guideDesc")}
                 </p>
               </div>
 
               {/* Browser layout diagram */}
               <div className="options-guide-diagram">
-                <svg viewBox="0 0 680 260" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label={settings.language === "ja" ? "ブラウザレイアウト図" : "Browser layout diagram"}>
+                <svg viewBox="0 0 680 260" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label={t("options.guideLayoutAlt")}>
                   {/* browser chrome */}
                   <rect width="680" height="260" fill="#0b1322" />
                   <rect width="680" height="32" fill="#111d2e" />
@@ -1523,19 +1379,17 @@ function OptionsApp(): React.JSX.Element {
               {/* Setup steps */}
               <div className="options-subsection">
                 <span className="options-subsection-label">
-                  {settings.language === "ja" ? "セットアップ手順" : "Setup"}
+                  {t("options.guideSetupLabel")}
                 </span>
                 <div className="options-steps">
                   <div className="options-step">
                     <div className="options-step-num">1</div>
                     <div className="options-step-content">
                       <div className="options-step-title">
-                        {settings.language === "ja" ? "Server URL を設定して保存" : "Enter Server URL and save"}
+                        {t("options.guideStep1Title")}
                       </div>
                       <div className="options-step-desc">
-                        {settings.language === "ja"
-                          ? "「接続」タブで Mattermost Server URL を入力し、保存します。初回保存時に Chrome の権限許可ダイアログが表示されるので承認してください。"
-                          : 'Go to the Connection tab, enter your Mattermost Server URL, and click Save. Chrome will ask for host permission on the first save — approve it.'}
+                        {t("options.guideStep1Desc")}
                       </div>
                     </div>
                   </div>
@@ -1543,12 +1397,10 @@ function OptionsApp(): React.JSX.Element {
                     <div className="options-step-num">2</div>
                     <div className="options-step-content">
                       <div className="options-step-title">
-                        {settings.language === "ja" ? "Mattermost を開く" : "Open Mattermost"}
+                        {t("options.guideStep2Title")}
                       </div>
                       <div className="options-step-desc">
-                        {settings.language === "ja"
-                          ? "設定したサーバーの Mattermost をブラウザで開くと、画面右側に Deck ペインが自動的に表示されます。"
-                          : "Open your Mattermost server in the browser. The Deck panel will appear automatically on the right side."}
+                        {t("options.guideStep2Desc")}
                       </div>
                     </div>
                   </div>
@@ -1556,12 +1408,10 @@ function OptionsApp(): React.JSX.Element {
                     <div className="options-step-num">3</div>
                     <div className="options-step-content">
                       <div className="options-step-title">
-                        {settings.language === "ja" ? "ペインを追加・カスタマイズ" : "Add and customize panes"}
+                        {t("options.guideStep3Title")}
                       </div>
                       <div className="options-step-desc">
-                        {settings.language === "ja"
-                          ? "Deck ペインの「＋」ボタンからペインを追加できます。各ペインは独立してスクロールし、並べ替えや削除も可能です。PAT を設定するとリアルタイム更新になります。"
-                          : 'Click the "+" button in the Deck panel to add panes. Each pane scrolls independently and can be reordered or removed. Set a PAT to enable real-time updates.'}
+                        {t("options.guideStep3Desc")}
                       </div>
                     </div>
                   </div>
@@ -1573,16 +1423,16 @@ function OptionsApp(): React.JSX.Element {
               {/* Column types */}
               <div className="options-subsection">
                 <span className="options-subsection-label">
-                  {settings.language === "ja" ? "ペインの種類" : "Pane types"}
+                  {t("options.guidePaneTypesLabel")}
                 </span>
                 <div className="options-col-types">
                   {[
-                    { key: "mentions",     color: "#2f6fed", name: settings.language === "ja" ? "メンション" : "Mentions",      desc: settings.language === "ja" ? "自分へのメンション通知を一覧表示" : "List posts that mention you" },
-                    { key: "channelWatch", color: "#1f9d7a", name: settings.language === "ja" ? "チャンネル" : "Channel Watch",  desc: settings.language === "ja" ? "指定チャンネルの新着投稿を監視" : "Monitor new posts in a channel" },
-                    { key: "dmWatch",      color: "#8b5cf6", name: settings.language === "ja" ? "DM" : "DM Watch",              desc: settings.language === "ja" ? "ダイレクトメッセージをリアルタイムに表示" : "Show direct messages in real time" },
-                    { key: "keywordWatch", color: "#d97706", name: settings.language === "ja" ? "キーワード" : "Keyword Watch",  desc: settings.language === "ja" ? "特定キーワードを含む投稿を収集" : "Collect posts containing keywords" },
-                    { key: "search",       color: "#0891b2", name: settings.language === "ja" ? "検索" : "Search",              desc: settings.language === "ja" ? "Mattermost 全文検索結果を表示" : "Show Mattermost full-text search results" },
-                    { key: "saved",        color: "#c2410c", name: settings.language === "ja" ? "保存済み" : "Saved",            desc: settings.language === "ja" ? "後で読む用にピン留めした投稿" : "Posts pinned to read later" },
+                    { key: "mentions",     color: "#2f6fed", name: t("options.paneTypeMentions"),     desc: t("options.paneTypeMentionsDesc") },
+                    { key: "channelWatch", color: "#1f9d7a", name: t("options.paneTypeChannelWatch"), desc: t("options.paneTypeChannelWatchDesc") },
+                    { key: "dmWatch",      color: "#8b5cf6", name: t("options.paneTypeDmWatch"),      desc: t("options.paneTypeDmWatchDesc") },
+                    { key: "keywordWatch", color: "#d97706", name: t("options.paneTypeKeywordWatch"), desc: t("options.paneTypeKeywordWatchDesc") },
+                    { key: "search",       color: "#0891b2", name: t("options.paneTypeSearch"),       desc: t("options.paneTypeSearchDesc") },
+                    { key: "saved",        color: "#c2410c", name: t("options.paneTypeSaved"),        desc: t("options.paneTypeSavedDesc") },
                   ].map(({ key, color, name, desc }) => (
                     <div key={key} className="options-col-type">
                       <div className="options-col-type-header">
@@ -1609,9 +1459,7 @@ function OptionsApp(): React.JSX.Element {
                 <div className="options-setup-banner">
                   <span>⚠️</span>
                   <p>
-                    {settings.language === "ja"
-                      ? "初期設定が完了していません。Server URL を入力して保存してください。"
-                      : "Initial setup is not complete. Enter the Server URL and press Save."}
+                    {t("options.setupWarning")}
                   </p>
                 </div>
               )}
@@ -1621,7 +1469,7 @@ function OptionsApp(): React.JSX.Element {
                   <span className="options-label options-label--required">
                     <span>{text.serverUrlLabel}</span>
                     <span className="options-required-badge">
-                      {settings.language === "ja" ? "※必須" : "Required"}
+                      {t("options.serverUrlRequired")}
                     </span>
                   </span>
                   <input
@@ -1635,9 +1483,7 @@ function OptionsApp(): React.JSX.Element {
                   />
                   {serverUrlMissing && (
                     <span className="options-required-hint">
-                      {settings.language === "ja"
-                        ? "拡張機能を有効化するには Mattermost Server URL の設定が必要です。"
-                        : "Mattermost Server URL is required before the extension can be activated."}
+                      {t("options.serverUrlRequiredHint")}
                     </span>
                   )}
                 </label>
@@ -1658,12 +1504,10 @@ function OptionsApp(): React.JSX.Element {
 
               <div className="options-callout" role="note">
                 <strong>
-                  {settings.language === "ja" ? "初回保存時の権限許可" : "Chrome permission on first save"}
+                  {t("options.firstSavePermTitle")}
                 </strong>
                 <p>
-                  {settings.language === "ja"
-                    ? "Server URL を初めて保存すると、Chrome から対象 Mattermost サーバーへの権限許可が求められます。拡張機能を有効化するには、この許可を承認してください。"
-                    : "When you save the server URL for the first time, Chrome asks for permission to access that Mattermost server. Approve the request to activate the extension on that server."}
+                  {t("options.firstSavePermDesc")}
                 </p>
               </div>
 
@@ -1713,22 +1557,18 @@ function OptionsApp(): React.JSX.Element {
               <div className="options-grid">
                 <div className="options-callout" role="note">
                   <strong>
-                    {settings.language === "ja" ? "ポーリング（PAT なし）" : "Polling (no PAT)"}
+                    {t("options.pollingModeTitle")}
                   </strong>
                   <p>
-                    {settings.language === "ja"
-                      ? `${settings.pollingIntervalSeconds} 秒ごとにサーバーへ REST リクエストを送り、新着を取得します。新着投稿の反映まで最大 ${settings.pollingIntervalSeconds} 秒の遅延があります。`
-                      : `Sends a REST request every ${settings.pollingIntervalSeconds} seconds. New posts may take up to ${settings.pollingIntervalSeconds} seconds to appear.`}
+                    {t("options.pollingModeDesc", { sec: settings.pollingIntervalSeconds })}
                   </p>
                 </div>
                 <div className="options-callout" role="note" style={{ borderColor: "rgba(31, 157, 255, 0.3)", background: "rgba(31, 157, 255, 0.07)" }}>
                   <strong>
-                    {settings.language === "ja" ? "リアルタイム（PAT あり）" : "Realtime (with PAT)"}
+                    {t("options.realtimeModeTitle")}
                   </strong>
                   <p>
-                    {settings.language === "ja"
-                      ? "WebSocket でサーバーのイベントを購読します。新着投稿・メンション・DM がほぼ即時に反映されます。"
-                      : "Subscribes to server events over WebSocket. New posts, mentions, and DMs appear almost instantly."}
+                    {t("options.realtimeModeDesc")}
                   </p>
                 </div>
               </div>
@@ -1802,7 +1642,7 @@ function OptionsApp(): React.JSX.Element {
               </div>
 
               <div className="options-callout" role="note">
-                <strong>{settings.language === "ja" ? "PAT の取得" : "Getting a PAT"}</strong>
+                <strong>{t("options.getPatTitle")}</strong>
                 <p>{text.patHelp}</p>
               </div>
             </div>

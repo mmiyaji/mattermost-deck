@@ -1,6 +1,8 @@
 ﻿import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import { ShadowRootContext } from "./ShadowRootContext";
+import i18n from "./i18n";
 import {
   checkApiHealth,
   fetchPostFileInfos,
@@ -840,124 +842,63 @@ function PlayIcon(): React.JSX.Element {
   );
 }
 
-function getAppText(language: DeckLanguage) {
-  return language === "en"
-    ? {
-        title: "Mattermost Deck",
-        signedInAs: "Signed in as",
-        usingSession: "Using current Mattermost session",
-        realtimeOff: "Realtime Off",
-        settingsHint: "Open extension settings",
-        settingsButton: "Open settings",
-        connectionLog: "Connection log",
-        recentLabel: "Recent channels",
-        addLabel: "Add",
-        addMentions: "Mentions",
-        addChannelWatch: "Channel Watch",
-        addDmWatch: "DM / Group",
-        choosePane: "Add pane",
-        loading: "Loading Mattermost data...",
-        sessionExpired: "Session expired. Log in again.",
-        failedToLoad: "Failed to load data.",
-        column: "pane",
-        columns: "panes",
-        // TeamSelect
-        teamLabel: "Team",
-        selectTeam: "Select team",
-        allTeams: "All teams",
-        // MentionsColumn
-        unreadOnly: "Unread only",
-        scope: "Scope",
-        mentionBadge: (count: number, perTeam: boolean) =>
-          `${count} unread mention${count === 1 ? "" : "s"}${perTeam ? " in this team" : " across all teams"}`,
-        unreadOnlyNote: "Showing the latest unread mentions based on the current unread count.",
-        allTeamsNote: "This mode aggregates mentions across every joined team and uses a slower polling interval.",
-        // ChannelWatchColumn
-        channelLabel: "Channel",
-        selectChannel: "Select channel",
-        selectDm: "Select direct message",
-        directMessage: "Direct message",
-        pinnedTarget: "Pinned target",
-        unknownTeam: "Unknown team",
-        pickDmOrGroup: "Pick a direct message or group",
-        pickTeamAndChannel: "Pick a team and channel",
-        selectATeam: "Select a team",
-        selectATeamDesc: "This pane no longer follows the main page. Choose a fixed team first.",
-        selectAChannel: "Select a channel",
-        selectADm: "Select a DM / Group",
-        selectChannelDesc: "Choose which channel this pane should watch.",
-        selectDmDesc: "Choose which direct message this pane should watch.",
-        // SearchLikeColumn
-        queryLabel: "Query",
-        searchTerms: "Search terms",
-        applySearch: "Apply",
-        // DiagnosticsColumn
-        noRecentEvents: "No recent API or WebSocket events",
-        // App shell
-        resizeLabel: "Resize deck area",
-        resizeDrag: "Drag to resize deck area",
-        moreActionsLabel: "Open more actions",
-        collapseControls: (name: string) => `Collapse ${name} controls`,
-        expandControls: (name: string) => `Expand ${name} controls`,
-      }
-    : {
-        title: "Mattermost Deck",
-        signedInAs: "ログイン中",
-        usingSession: "現在の Mattermost セッションを利用",
-        realtimeOff: "リアルタイム無効",
-        settingsHint: "拡張機能の設定を開く",
-        settingsButton: "設定を開く",
-        connectionLog: "接続ログ",
-        recentLabel: "最近のチャンネル",
-        addLabel: "追加",
-        addMentions: "Mentions",
-        addChannelWatch: "Channel Watch",
-        addDmWatch: "DM / Group",
-        choosePane: "追加するペイン",
-        loading: "Mattermost データを読み込み中...",
-        sessionExpired: "セッションが切れました。再ログインしてください。",
-        failedToLoad: "データの読み込みに失敗しました。",
-        column: "ペイン",
-        columns: "ペイン",
-        // TeamSelect
-        teamLabel: "チーム",
-        selectTeam: "チームを選択",
-        allTeams: "すべてのチーム",
-        // MentionsColumn
-        unreadOnly: "未読のみ",
-        scope: "スコープ",
-        mentionBadge: (count: number, perTeam: boolean) =>
-          `未読メンション ${count} 件${perTeam ? "（このチーム）" : "（全チーム）"}`,
-        unreadOnlyNote: "現在の未読数をもとに、最新の未読メンションを表示しています。",
-        allTeamsNote: "このモードは参加中の全チームのメンションを集約します。ポーリング間隔が長くなります。",
-        // ChannelWatchColumn
-        channelLabel: "チャンネル",
-        selectChannel: "チャンネルを選択",
-        selectDm: "ダイレクトメッセージを選択",
-        directMessage: "ダイレクトメッセージ",
-        pinnedTarget: "固定ターゲット",
-        unknownTeam: "不明なチーム",
-        pickDmOrGroup: "ダイレクトメッセージまたはグループを選択",
-        pickTeamAndChannel: "チームとチャンネルを選択",
-        selectATeam: "チームを選択",
-        selectATeamDesc: "このペインはメインページに連動しなくなりました。先にチームを固定選択してください。",
-        selectAChannel: "チャンネルを選択",
-        selectADm: "DM / グループを選択",
-        selectChannelDesc: "監視するチャンネルを選択してください。",
-        selectDmDesc: "監視するダイレクトメッセージを選択してください。",
-        // SearchLikeColumn
-        queryLabel: "クエリ",
-        searchTerms: "検索キーワード",
-        applySearch: "適用",
-        // DiagnosticsColumn
-        noRecentEvents: "最近の API / WebSocket イベントなし",
-        // App shell
-        resizeLabel: "デッキ幅を調整",
-        resizeDrag: "ドラッグしてデッキ幅を変更",
-        moreActionsLabel: "その他の操作",
-        collapseControls: (_name: string) => "コントロールを折りたたむ",
-        expandControls: (_name: string) => "コントロールを展開",
-      };
+function useAppText() {
+  const { t } = useTranslation();
+  return useMemo(() => ({
+    title: t("deck.title"),
+    signedInAs: t("deck.signedInAs"),
+    usingSession: t("deck.usingSession"),
+    realtimeOff: t("deck.realtimeOff"),
+    settingsHint: t("deck.settingsHint"),
+    settingsButton: t("deck.settingsButton"),
+    connectionLog: t("deck.connectionLog"),
+    recentLabel: t("deck.recentLabel"),
+    addLabel: t("deck.addLabel"),
+    addMentions: t("deck.addMentions"),
+    addChannelWatch: t("deck.addChannelWatch"),
+    addDmWatch: t("deck.addDmWatch"),
+    addSearch: t("deck.addSearch"),
+    addSaved: t("deck.addSaved"),
+    addDiagnostics: t("deck.addDiagnostics"),
+    choosePane: t("deck.choosePane"),
+    loading: t("deck.loading"),
+    sessionExpired: t("deck.sessionExpired"),
+    failedToLoad: t("deck.failedToLoad"),
+    column: t("deck.column"),
+    columns: t("deck.columns"),
+    teamLabel: t("deck.teamLabel"),
+    selectTeam: t("deck.selectTeam"),
+    allTeams: t("deck.allTeams"),
+    unreadOnly: t("deck.unreadOnly"),
+    scope: t("deck.scope"),
+    mentionBadge: (count: number, perTeam: boolean) =>
+      t(perTeam ? "deck.mentionBadgePerTeam" : "deck.mentionBadgeAllTeams", { count }),
+    unreadOnlyNote: t("deck.unreadOnlyNote"),
+    allTeamsNote: t("deck.allTeamsNote"),
+    channelLabel: t("deck.channelLabel"),
+    selectChannel: t("deck.selectChannel"),
+    selectDm: t("deck.selectDm"),
+    directMessage: t("deck.directMessage"),
+    pinnedTarget: t("deck.pinnedTarget"),
+    unknownTeam: t("deck.unknownTeam"),
+    pickDmOrGroup: t("deck.pickDmOrGroup"),
+    pickTeamAndChannel: t("deck.pickTeamAndChannel"),
+    selectATeam: t("deck.selectATeam"),
+    selectATeamDesc: t("deck.selectATeamDesc"),
+    selectAChannel: t("deck.selectAChannel"),
+    selectADm: t("deck.selectADm"),
+    selectChannelDesc: t("deck.selectChannelDesc"),
+    selectDmDesc: t("deck.selectDmDesc"),
+    queryLabel: t("deck.queryLabel"),
+    searchTerms: t("deck.searchTerms"),
+    applySearch: t("deck.applySearch"),
+    noRecentEvents: t("deck.noRecentEvents"),
+    resizeLabel: t("deck.resizeLabel"),
+    resizeDrag: t("deck.resizeDrag"),
+    moreActionsLabel: t("deck.moreActionsLabel"),
+    collapseControls: (name: string) => t("deck.collapseControls", { name }),
+    expandControls: (name: string) => t("deck.expandControls", { name }),
+  }), [t]);
 }
 
 type MattermostThemeStyle = React.CSSProperties & {
@@ -1929,7 +1870,7 @@ function TeamSelect({
   onChange: (teamId: string) => void;
   language?: DeckLanguage;
 }): React.JSX.Element {
-  const t = useMemo(() => getAppText(language), [language]);
+  const t = useAppText();
   const options = teams.map((team) => ({
     value: team.id,
     label: team.display_name || team.name,
@@ -2752,7 +2693,7 @@ function MentionsColumn({
   language: DeckLanguage;
 }): React.JSX.Element {
   const teamIds = useMemo(() => (column.teamId ? [column.teamId] : teams.map((team) => team.id)), [column.teamId, teams]);
-  const text = useMemo(() => getAppText(language), [language]);
+  const text = useAppText();
   const teamDirectory = useMemo(() => Object.fromEntries(teams.map((team) => [team.id, team])), [teams]);
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
@@ -3266,7 +3207,7 @@ function ChannelWatchColumn({
   showImagePreviews: boolean;
   language: DeckLanguage;
 }): React.JSX.Element {
-  const text = useMemo(() => getAppText(language), [language]);
+  const text = useAppText();
   const [channelState, setChannelState] = useState<ChannelState>({ status: "idle", channels: [], error: null });
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
@@ -3737,7 +3678,7 @@ function SearchLikeColumn({
   showImagePreviews: boolean;
   language: DeckLanguage;
 }): React.JSX.Element {
-  const text = useMemo(() => getAppText(language), [language]);
+  const text = useAppText();
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
     posts: [],
@@ -4342,7 +4283,7 @@ function DiagnosticsColumn({
   columnColors: ColumnColorSettings;
   language?: DeckLanguage;
 }): React.JSX.Element {
-  const text = useMemo(() => getAppText(language), [language]);
+  const text = useAppText();
   const [showControls, setShowControls] = useState(false);
 
   return (
@@ -4457,7 +4398,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const [contentMounted, setContentMounted] = useState(true);
   const unmountTimerRef = useRef<number | null>(null);
   const deckSettings = useDeckSettingsState();
-  const text = useMemo(() => getAppText(deckSettings.language), [deckSettings.language]);
+  const text = useAppText();
+  useEffect(() => { void i18n.changeLanguage(deckSettings.language); }, [deckSettings.language]);
   const realtimeEnabled = deckSettings.wsPat.trim().length > 0;
   const state = useDeckState(routeKey, reconnectNonce, realtimeEnabled, deckSettings.pollingIntervalSeconds);
   const [columns, addColumn, removeColumn, updateColumn, moveColumn, replaceColumns] = useDeckLayout();
@@ -4924,9 +4866,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     };
 
     const target: EventTarget = shadowRoot ?? document;
-    target.addEventListener("pointerdown", handlePointerDown, true);
+    target.addEventListener("pointerdown", handlePointerDown as EventListener, true);
     return () => {
-      target.removeEventListener("pointerdown", handlePointerDown, true);
+      target.removeEventListener("pointerdown", handlePointerDown as EventListener, true);
     };
   }, [showActionsMenu, showAddMenu, showRailAddMenu, showViewsMenu]);
 
@@ -5265,13 +5207,13 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                       <ColumnMenuLabel type="dmWatch" label={text.addDmWatch} />
                     </button>
                     <button type="button" className="deck-add-item" onClick={() => handleAddColumn("search")}>
-                      <ColumnMenuLabel type="search" label="Search" />
+                      <ColumnMenuLabel type="search" label={text.addSearch} />
                     </button>
                     <button type="button" className="deck-add-item" onClick={() => handleAddColumn("saved")}>
-                      <ColumnMenuLabel type="saved" label="Saved" />
+                      <ColumnMenuLabel type="saved" label={text.addSaved} />
                     </button>
                     <button type="button" className="deck-add-item" onClick={() => handleAddColumn("diagnostics")}>
-                      <ColumnMenuLabel type="diagnostics" label="Diagnostics" />
+                      <ColumnMenuLabel type="diagnostics" label={text.addDiagnostics} />
                     </button>
                     {recentTargets.length > 0 ? (
                       <>
@@ -5334,13 +5276,13 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           <ColumnMenuLabel type="dmWatch" label={text.addDmWatch} />
                         </button>
                         <button type="button" className="deck-add-item" onClick={() => handleAddColumn("search")}>
-                          <ColumnMenuLabel type="search" label="Search" />
+                          <ColumnMenuLabel type="search" label={text.addSearch} />
                         </button>
                         <button type="button" className="deck-add-item" onClick={() => handleAddColumn("saved")}>
-                          <ColumnMenuLabel type="saved" label="Saved" />
+                          <ColumnMenuLabel type="saved" label={text.addSaved} />
                         </button>
                         <button type="button" className="deck-add-item" onClick={() => handleAddColumn("diagnostics")}>
-                          <ColumnMenuLabel type="diagnostics" label="Diagnostics" />
+                          <ColumnMenuLabel type="diagnostics" label={text.addDiagnostics} />
                         </button>
                         {recentTargets.length > 0 ? (
                           <>
@@ -5635,13 +5577,13 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                 <ColumnMenuLabel type="dmWatch" label={text.addDmWatch} />
               </button>
               <button type="button" className="deck-add-item" onClick={() => handleAddColumn("search")}>
-                <ColumnMenuLabel type="search" label="Search" />
+                <ColumnMenuLabel type="search" label={text.addSearch} />
               </button>
               <button type="button" className="deck-add-item" onClick={() => handleAddColumn("saved")}>
-                <ColumnMenuLabel type="saved" label="Saved" />
+                <ColumnMenuLabel type="saved" label={text.addSaved} />
               </button>
               <button type="button" className="deck-add-item" onClick={() => handleAddColumn("diagnostics")}>
-                <ColumnMenuLabel type="diagnostics" label="Diagnostics" />
+                <ColumnMenuLabel type="diagnostics" label={text.addDiagnostics} />
               </button>
             </div>
           ) : null}

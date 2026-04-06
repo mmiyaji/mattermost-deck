@@ -1,4 +1,5 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ShadowRootContext } from "./ShadowRootContext";
 
 export interface CustomSelectOption {
@@ -21,6 +22,7 @@ export function CustomSelect({
   allowClear?: boolean;
   onChange: (value: string) => void;
 }): React.JSX.Element {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [focusedIndex, setFocusedIndex] = useState(-1);
@@ -119,12 +121,12 @@ export function CustomSelect({
     };
 
     const target: EventTarget = shadowRoot ?? document;
-    target.addEventListener("pointerdown", handlePointerDown, true);
-    target.addEventListener("keydown", handleKeyDown);
+    target.addEventListener("pointerdown", handlePointerDown as EventListener, true);
+    target.addEventListener("keydown", handleKeyDown as EventListener);
 
     return () => {
-      target.removeEventListener("pointerdown", handlePointerDown, true);
-      target.removeEventListener("keydown", handleKeyDown);
+      target.removeEventListener("pointerdown", handlePointerDown as EventListener, true);
+      target.removeEventListener("keydown", handleKeyDown as EventListener);
     };
   }, [open, shadowRoot, handleMenuKeyDown]);
 
@@ -174,7 +176,7 @@ export function CustomSelect({
               ref={searchRef}
               type="text"
               className="mm-custom-select-search-input"
-              placeholder="絞り込み..."
+              placeholder={t("select.filterPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onPointerDown={(e) => e.stopPropagation()}
@@ -205,7 +207,7 @@ export function CustomSelect({
             </button>
           ))}
           {filteredOptions.length === 0 ? (
-            <div className="mm-custom-select-empty">一致なし</div>
+            <div className="mm-custom-select-empty">{t("select.noMatch")}</div>
           ) : null}
           {allowClear && value !== "" ? (
             <>

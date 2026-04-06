@@ -85,6 +85,7 @@ const ctx = await esbuild.context({
   loader: {
     ".ts": "ts",
     ".tsx": "tsx",
+    ".json": "json",
   },
 });
 
