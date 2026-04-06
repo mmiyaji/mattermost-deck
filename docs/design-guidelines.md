@@ -190,6 +190,35 @@ If the user has been idle long enough, new posts may scroll the pane back toward
 - pane identity icons are always shown
 - pane color accents are optional and disabled by default
 
+## Internationalization
+
+The UI uses i18next and react-i18next. Locale files live in `src/ui/locales/`.
+
+### Supported languages
+
+| Code | Language |
+|------|----------|
+| `ja` | Japanese (default) |
+| `en` | English (fallback) |
+| `de` | German |
+| `zh-CN` | Chinese (Simplified) |
+| `fr` | French |
+
+### Adding a new language
+
+1. Copy `en.json` to a new locale file (e.g. `ko.json`) and translate the values.
+2. Import and register it in `src/ui/i18n.ts`.
+3. Add the code to `DeckLanguage` in `src/ui/settings.ts` and to `normaliseLanguage`.
+4. Add a language option to `languageOptions` in `src/options/index.tsx`.
+
+### Plural forms
+
+English uses `_one` / `_other` i18next suffix keys. Languages without grammatical number (Japanese, Chinese) use a single base key. i18next falls back to `en` for any missing key.
+
+### Interpolation
+
+Interpolation uses the `{{variable}}` syntax. Values must not be escaped (HTML is safe inside Shadow DOM).
+
 ## Documentation and Distribution
 
 - project license: MIT

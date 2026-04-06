@@ -1,7 +1,7 @@
 import { loadStoredEncryptedString, loadStoredString, saveStoredEncryptedString, saveStoredString } from "./storage";
 
 export type DeckTheme = "system" | "dark" | "light" | "mattermost";
-export type DeckLanguage = "ja" | "en";
+export type DeckLanguage = "ja" | "en" | "de" | "zh-CN" | "fr";
 export type PostClickAction = "navigate" | "none" | "ask";
 export type ColumnColorKey =
   | "mentions"
@@ -244,7 +244,9 @@ function normaliseTheme(value: string | null): DeckTheme {
 }
 
 function normaliseLanguage(value: string | null): DeckLanguage {
-  return value === "ja" || value === "en" ? value : DEFAULT_SETTINGS.language;
+  return value === "ja" || value === "en" || value === "de" || value === "zh-CN" || value === "fr"
+    ? value
+    : DEFAULT_SETTINGS.language;
 }
 
 function normaliseColumnColorEnabled(value: unknown, legacyIdentityMode?: string | null): boolean {

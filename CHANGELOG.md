@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.1.5] - 2026-04-06
+
+### Added
+
+- Internationalization (i18n) with i18next and react-i18next
+  - Supported languages: Japanese, English, German, Chinese (Simplified), French
+  - Locale files in `src/ui/locales/` for community contributions
+- Keyboard navigation (↑ / ↓ / Enter / Escape) for all CustomSelect dropdowns
+- Closed Shadow DOM event handling for menus and dropdowns
+
+### Changed
+
+- Replaced inline language ternaries across App.tsx and options/index.tsx with `t()` calls
+- `DeckLanguage` type extended to `"ja" | "en" | "de" | "zh-CN" | "fr"`
+
+### Fixed
+
+- Pane add menu outside-click detection broken by closed Shadow DOM
+- Dropdown item selection broken by closed Shadow DOM (`composedPath` retargeting)
+
+
 ## [0.1.4] - 2026-04-06
 
 ### Added

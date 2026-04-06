@@ -90,6 +90,9 @@ function useOptionsText() {
     themeLight: t("options.themeLight"),
     languageJa: t("options.languageJa"),
     languageEn: t("options.languageEn"),
+    languageDe: t("options.languageDe"),
+    languageZhCn: t("options.languageZhCn"),
+    languageFr: t("options.languageFr"),
     behaviorTitle: t("options.behaviorTitle"),
     behaviorDesc: t("options.behaviorDesc"),
     postClickActionLabel: t("options.postClickActionLabel"),
@@ -1140,8 +1143,11 @@ function OptionsApp(): React.JSX.Element {
   );
   const languageOptions = useMemo<CustomSelectOption[]>(
     () => [
-      { value: "ja", label: text.languageJa },
-      { value: "en", label: text.languageEn },
+      { value: "ja",    label: text.languageJa },
+      { value: "en",    label: text.languageEn },
+      { value: "de",    label: text.languageDe },
+      { value: "zh-CN", label: text.languageZhCn },
+      { value: "fr",    label: text.languageFr },
     ],
     [text],
   );

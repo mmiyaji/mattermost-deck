@@ -31,6 +31,8 @@ Dark theme:
 - Supports optional realtime updates with a Mattermost PAT
 - Adapts deck colors to Mattermost theme variables
 - Supports configurable pane identity colors, compact density, font scale, and pane width defaults
+- Multilingual UI: Japanese, English, German, Chinese (Simplified), French
+- Keyboard navigation (↑ / ↓ / Enter / Escape) in all dropdown selects
 
 ## How It Works
 
@@ -100,6 +102,15 @@ Push a tag in `v` format, such as `v0.1.0`, to trigger GitHub Actions.
 ## License
 
 MIT. See [LICENSE](./LICENSE).
+
+## Contributing Translations
+
+Locale files live in `src/ui/locales/`. To add a new language:
+
+1. Copy `en.json` to a new file (e.g. `ko.json`) and translate the values.
+2. Import it in `src/ui/i18n.ts` and register it under the locale code.
+3. Add the locale code to `DeckLanguage` in `src/ui/settings.ts` and to `normaliseLanguage`.
+4. Add a language option to `languageOptions` in `src/options/index.tsx`.
 
 ## Design Notes
 
