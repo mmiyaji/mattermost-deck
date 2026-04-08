@@ -8,9 +8,9 @@ Build a Chrome extension that adds a monitoring-oriented multi-pane deck to the 
 
 ## Product Positioning
 
-- Mattermost remains the primary UI.
-- The extension is a secondary workspace optimized for scanning, monitoring, and quick context switching.
-- The deck should feel persistent and responsive, while avoiding tight coupling to Mattermost internals.
+- Mattermost remains the primary UI
+- The extension is a secondary workspace optimized for scanning, monitoring, and quick context switching
+- The deck should feel persistent and responsive without tightly coupling to Mattermost internals
 
 ## UI Scope
 
@@ -25,10 +25,11 @@ Build a Chrome extension that adds a monitoring-oriented multi-pane deck to the 
 ### Deck Owns
 
 - Multi-pane monitoring layout
-- Mentions, watched channels, DM/group DM, search, saved, and diagnostics panes
+- Mentions, watched channels, DM/group DM, keyword watch, search, saved, and diagnostics panes
 - Pane persistence
 - Saved pane sets
-- Supplemental search and filtering workflow
+- Recent targets
+- Optional per-origin profiles
 - Layout export and import
 
 ## Architecture
@@ -49,7 +50,7 @@ Render only when all of the following are true:
 - optional team slug restriction matches
 - health-check API succeeds
 
-Do not rely on fragile Mattermost DOM signatures as the primary render guard.
+Do not use fragile Mattermost DOM signatures as the primary render guard.
 
 ## Data Model
 
@@ -58,11 +59,12 @@ Do not rely on fragile Mattermost DOM signatures as the primary render guard.
 - `mentions`
 - `channelWatch`
 - `dmWatch`
+- `keywordWatch`
 - `search`
 - `saved`
 - `diagnostics`
 
-### Saved State
+### Persisted State
 
 Persist at least:
 
@@ -70,10 +72,11 @@ Persist at least:
 - pane configuration
 - drawer open state
 - drawer width
-- preferred pane width
+- preferred rail width
 - preferred column width
 - saved pane sets
 - recent targets
+- profile registry
 
 ## Sync Model
 
@@ -100,8 +103,6 @@ Examples:
 - `Degraded / Polling`
 - `Error / Polling`
 
-Use existing REST success and failure as the primary health signal and the configured health-check API as a supplemental signal.
-
 ## Request Control
 
 ### Burst Avoidance
@@ -110,17 +111,16 @@ The extension must avoid synchronized bursts when many panes refresh at once.
 
 Current design:
 
-- all REST requests go through a serialized in-tab queue
-- a minimum request gap is enforced
-- inflight GET deduplication is used
-- a short TTL cache is used for GET requests
+- serialized in-tab REST queue
+- minimum request gap
+- inflight GET deduplication
+- short TTL cache for GET requests
 
 ### Polling Rules
 
 - polling intervals are normalized at load and save time
-- user settings cannot force zero or near-zero polling
-- `All teams` mentions is treated as a heavier mode with a slower effective floor
-- search panes use a slower polling floor than normal monitoring panes
+- all-teams mentions is treated as a heavier mode with a slower effective floor
+- search-like panes use a slower polling floor than normal monitoring panes
 
 ## Security
 
@@ -159,22 +159,29 @@ User-configurable behavior:
 
 Dragging or text selection must not trigger navigation.
 
-### Auto-scroll
+### Loading States
 
-If the user has been idle long enough, new posts may scroll the pane back toward the top. If the user is actively reading, avoid disruptive jumps.
+- Use a full-deck loading state only during initial boot
+- Use per-column loading states for heavier fetches after layout is already available
+- Do not flash empty-state cards before the first successful fetch resolves
 
 ### Pane Reordering
 
 - direct left and right moves from pane controls
 - additional reorder workflow from the Views menu
-- reorder animation should run only when pane order changes, not on ordinary pane content updates
+- animation should run only when pane order changes
+
+## Post Rendering
+
+- Detect `http://` and `https://` URLs inside ordinary text, including cases where multibyte text appears immediately before the URL
+- Truncate only the displayed text for long tokens and long URLs
+- Keep the original URL in the link target and tooltip
 
 ## Search UX
 
 - search highlighting should use dedicated highlight tokens
-- snippets should prefer the first match neighborhood instead of always truncating from the start
-- search syntax help should reflect Mattermost search behavior
-- Search replaces the earlier separate keyword-watch concept
+- snippets should prefer the first-match neighborhood instead of always truncating from the start
+- keyword watch remains a distinct pane type from search
 
 ## Layout Export / Import
 
@@ -185,43 +192,25 @@ If the user has been idle long enough, new posts may scroll the pane back toward
 ## Theming
 
 - default extension theme is `mattermost`
-- Mattermost theme integration should prefer Mattermost CSS variables over fragile DOM heuristics
-- badge colors, button colors, highlights, and topbar text may use different source variables
+- Mattermost theme integration should prefer CSS variables over DOM heuristics
 - pane identity icons are always shown
 - pane color accents are optional and disabled by default
+
+## Options UX
+
+- `Connection` should prioritize the server URL and activation prerequisites
+- `Profiles` should be treated as optional advanced workflow configuration
+- appearance-related settings belong under `Appearance`
+- behavior-related settings belong under `Behavior`
 
 ## Internationalization
 
 The UI uses i18next and react-i18next. Locale files live in `src/ui/locales/`.
 
-### Supported languages
+Supported languages:
 
-| Code | Language |
-|------|----------|
-| `ja` | Japanese (default) |
-| `en` | English (fallback) |
-| `de` | German |
-| `zh-CN` | Chinese (Simplified) |
-| `fr` | French |
-
-### Adding a new language
-
-1. Copy `en.json` to a new locale file (e.g. `ko.json`) and translate the values.
-2. Import and register it in `src/ui/i18n.ts`.
-3. Add the code to `DeckLanguage` in `src/ui/settings.ts` and to `normaliseLanguage`.
-4. Add a language option to `languageOptions` in `src/options/index.tsx`.
-
-### Plural forms
-
-English uses `_one` / `_other` i18next suffix keys. Languages without grammatical number (Japanese, Chinese) use a single base key. i18next falls back to `en` for any missing key.
-
-### Interpolation
-
-Interpolation uses the `{{variable}}` syntax. Values must not be escaped (HTML is safe inside Shadow DOM).
-
-## Documentation and Distribution
-
-- project license: MIT
-- README exists in English and Japanese
-- design guide exists in English and Japanese
-- release packaging is triggered by `v*` tags in GitHub Actions
+- `ja`
+- `en`
+- `de`
+- `zh-CN`
+- `fr`

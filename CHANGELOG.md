@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.1.8] - 2026-04-09
+
+### Added
+
+- Optional per-origin profiles in Options
+- URL detection and truncation for long tokens in post bodies
+- Per-column loading states for heavy fetch panes
+
+### Changed
+
+- Split Options into clearer Connection, Profiles, Appearance, and Behavior responsibilities
+- Moved pane identity color accents into Appearance
+- Switched the Profiles selector to the shared CustomSelect UI
+- Raised the compact-header collapse threshold to avoid title wrapping
+- Refreshed README and design guide documentation
+
+### Fixed
+
+- Prevented empty-state flashes before the first successful column fetch
+- Fixed Profiles tab localization coverage across supported languages
 
 ## [0.1.5] - 2026-04-06
 

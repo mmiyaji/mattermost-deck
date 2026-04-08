@@ -14,13 +14,13 @@ const distDir = path.join(root, "dist");
 await fs.rm(distDir, { recursive: true, force: true });
 await fs.mkdir(distDir, { recursive: true });
 
-// manifest をそのままコピーせず、必要なら書き換えて出力
+// Load the source manifest and override the version when EXT_VERSION is set.
 const manifestPath = path.join(srcDir, "manifest.json");
 const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
 
-// EXT_VERSION が設定されている場合、version を更新
+// If EXT_VERSION is provided, use it for the built manifest version.
 if (process.env.EXT_VERSION) {
-  manifest.version = process.env.EXT_VERSION.replace(/^v/, '');
+  manifest.version = process.env.EXT_VERSION.replace(/^v/, "");
 }
 
 if (storeBuild && Array.isArray(manifest.content_scripts)) {
@@ -62,9 +62,9 @@ await fs.cp(path.join(srcDir, "assets"), path.join(distDir, "assets"), {
   recursive: true,
 });
 
-const appVersion = process.env.EXT_VERSION ? process.env.EXT_VERSION.replace(/^v/, '') : '0.1.0';
+const appVersion = process.env.EXT_VERSION ? process.env.EXT_VERSION.replace(/^v/, "") : "0.1.8";
 
-// version.ts を書き換え
+// Keep the in-app version label aligned with the build version.
 const versionPath = path.join(srcDir, "version.ts");
 const versionContent = `export const APP_VERSION = "${appVersion}";\n`;
 await fs.writeFile(versionPath, versionContent, "utf8");

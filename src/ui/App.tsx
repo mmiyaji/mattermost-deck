@@ -1122,6 +1122,18 @@ type MattermostThemeStyle = React.CSSProperties & {
   ["--deck-danger"]?: string;
 };
 
+function toDeckDebugStyleRecord(style: MattermostThemeStyle | null | undefined): Record<string, string> | null {
+  if (!style) {
+    return null;
+  }
+
+  return Object.fromEntries(
+    Object.entries(style).filter(
+      ([key, value]) => key.startsWith("--deck-") && typeof value === "string" && value.length > 0,
+    ),
+  );
+}
+
 const MATTERMOST_THEME_CACHE_KEY = "mattermostDeck.themeCache.v1";
 
 function getMattermostThemeCacheStorageKey(): string {
@@ -5945,6 +5957,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       return;
     }
 
+    const debugShadowRoot = shadowRoot;
+
     window.__mattermostDeckDebug = {
       getState: () => ({
         contentMounted,
@@ -5962,22 +5976,19 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       getThemeState: () => ({
         initialSource: mattermostThemeState.initialSource,
         activeTheme: deckSettings.theme,
-        style: Object.fromEntries(
-          Object.entries(mattermostThemeStyle ?? {}).filter(
-            ([key, value]) => key.startsWith("--deck-") && typeof value === "string" && value.length > 0,
-          ),
-        ),
+        style: toDeckDebugStyleRecord(mattermostThemeStyle) ?? {},
         cacheKey: deckSettings.theme === "mattermost" ? getMattermostThemeCacheStorageKey() : null,
-        cachedStyle:
-          deckSettings.theme === "mattermost"
-            ? (loadCachedMattermostThemeStyle() ?? null)
-            : null,
+        cachedStyle: deckSettings.theme === "mattermost"
+          ? toDeckDebugStyleRecord(loadCachedMattermostThemeStyle())
+          : null,
       }),
       addColumn: handleAddColumn,
       updateColumn,
       moveColumn,
       removeColumn,
     };
+
+    const debugApi = window.__mattermostDeckDebug;
 
     const handleDebugRequest = (event: Event) => {
       const customEvent = event as CustomEvent<{
@@ -5994,9 +6005,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
       let result: unknown = null;
       if (action === "getState") {
-        result = window.__mattermostDeckDebug.getState();
+        result = debugApi?.getState() ?? null;
       } else if (action === "getThemeState") {
-        result = window.__mattermostDeckDebug.getThemeState();
+        result = debugApi?.getThemeState() ?? null;
       } else if (action === "addColumn") {
         result = handleAddColumn(
           payload.type as DeckColumnType,
@@ -6013,16 +6024,16 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         removeColumn(payload.id as string);
       } else if (action === "getColumnState") {
         result = window.__mattermostDeckDebugColumnState?.[payload.id as string] ?? null;
-      } else if (action === "getHighlightTexts") {
-        result = Array.from(shadowRoot.querySelectorAll("mark.search-highlight"))
+      } else if (action === "getHighlightTexts" && debugShadowRoot) {
+        result = Array.from(debugShadowRoot.querySelectorAll("mark.search-highlight"))
           .map((element) => element.textContent?.trim() ?? "")
           .filter(Boolean);
-      } else if (action === "getLoadingState") {
-        const loadingState = shadowRoot.querySelector(".deck-loading-state");
+      } else if (action === "getLoadingState" && debugShadowRoot) {
+        const loadingState = debugShadowRoot.querySelector(".deck-loading-state");
         result = {
           present: Boolean(loadingState),
-          spinnerPresent: Boolean(shadowRoot.querySelector(".deck-loading-spinner")),
-          skeletonCount: shadowRoot.querySelectorAll(".deck-loading-skeleton").length,
+          spinnerPresent: Boolean(debugShadowRoot.querySelector(".deck-loading-spinner")),
+          skeletonCount: debugShadowRoot.querySelectorAll(".deck-loading-skeleton").length,
           text: loadingState?.querySelector("strong")?.textContent?.trim() ?? null,
         };
       }

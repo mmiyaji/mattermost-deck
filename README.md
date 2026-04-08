@@ -2,7 +2,7 @@
 
 [日本語 README](./README.ja.md)
 
-Mattermost Deck is a Chrome extension that adds a TweetDeck-style multi-pane workspace to the right side of Mattermost Web while keeping the native Mattermost UI as the primary interface.
+Mattermost Deck is a Chrome extension that adds a TweetDeck-style multi-pane workspace to the right side of Mattermost Web while leaving Mattermost itself as the primary UI for login, posting, editing, navigation, and threads.
 
 ## Screenshots
 
@@ -16,31 +16,33 @@ Dark theme:
 
 ## Features
 
-- Keeps Mattermost responsible for login, navigation, posting, editing, and the native RHS thread UI
-- Adds a resizable right-side deck with horizontally scrollable panes
-- Supports pane types for:
-  - Mentions
-  - Channel Watch
-  - DM / Group
-  - Search
-  - Saved
-  - Diagnostics
-- Supports saved pane sets from the Views menu
-- Supports pane reordering from pane controls and from the Views menu reorder mode
-- Supports layout export and import as JSON files
-- Supports optional realtime updates with a Mattermost PAT
-- Adapts deck colors to Mattermost theme variables
-- Supports configurable pane identity colors, compact density, font scale, and pane width defaults
-- Multilingual UI: Japanese, English, German, Chinese (Simplified), French
-- Keyboard navigation (↑ / ↓ / Enter / Escape) in all dropdown selects
+- Resizable right-side deck with horizontally scrollable panes
+- Pane types:
+  - `mentions`
+  - `channelWatch`
+  - `dmWatch`
+  - `keywordWatch`
+  - `search`
+  - `saved`
+  - `diagnostics`
+- Saved pane sets from the Views menu
+- Layout export and import as JSON
+- Optional realtime updates with a Mattermost PAT
+- Optional per-server profiles for switching between multiple saved setting sets
+- Mattermost-aware theme colors, optional pane identity accents, compact mode, and configurable default widths
+- Inline URL detection and truncation for long tokens in post bodies
+- Japanese, English, German, Chinese (Simplified), and French UI
 
 ## How It Works
 
-- Mattermost remains the source of truth for team switching, channel switching, posting, and thread rendering.
-- The extension mounts a Shadow DOM right rail and reduces the Mattermost root width to reserve deck space.
-- REST requests reuse the current browser session.
-- Optional WebSocket realtime mode uses a PAT supplied in Options.
-- Rendering is guarded by the configured Mattermost origin, allowed route kinds, optional team slug, and a health-check API.
+- The extension mounts a Shadow DOM right rail and reserves width from the Mattermost page.
+- REST requests reuse the active browser session.
+- Optional WebSocket mode uses a PAT configured in Options.
+- Rendering is guarded by:
+  - configured Mattermost origin
+  - allowed route kinds
+  - optional team slug restriction
+  - health-check API success
 
 ## Setup
 
@@ -51,45 +53,81 @@ npm run build
 
 Load `dist/` as an unpacked extension in Chrome.
 
-On first install, the extension opens its Options page. Configure:
+On first install, Chrome opens the Options page. The recommended setup order is:
 
-- Mattermost server URL
-- Optional team slug restriction
-- Optional PAT for realtime mode
-- Polling interval and appearance settings
+1. Open `Connection`
+2. Save `Mattermost Server URL`
+3. Optionally set `Team Slug`, PAT, polling, and appearance settings
+4. Use `Profiles` only after the server connection is working
 
-Saving the server URL requests Chrome permission for that Mattermost origin. The extension is designed to inject only into configured Mattermost servers, not all websites.
+Saving the server URL requests Chrome permission for that Mattermost origin. The extension injects only into configured Mattermost servers.
+
+## Options Overview
+
+### Connection
+
+- Mattermost Server URL
+- Optional Team Slug restriction
+- Allowed route kinds
+- Health-check API path
+
+### Profiles
+
+- Optional per-origin setting sets
+- Create, rename, duplicate, switch, and delete profiles
+- Intended for multiple workflows on the same Mattermost server, such as Ops and Support
+
+### Realtime
+
+- Personal Access Token for WebSocket updates
+- Session-only or persistent PAT storage
+- Polling interval when realtime is disabled
+
+### Appearance
+
+- Theme
+- Language
+- Font scale
+- Preferred rail width
+- Preferred column width
+- Compact mode
+- Image previews
+- Pane identity color accents
+
+### Behavior
+
+- Post click action
+- Highlight keywords
+- High Z-index mode
+- Reverse post order
 
 ## Security Notes
 
 - PAT storage defaults to `chrome.storage.session`
 - Persistent PAT storage is opt-in
-- Persistent PAT values are encrypted client-side before being stored
-- This reduces casual plain-text exposure, but it is not a full secret boundary
+- Persistent PAT values are encrypted client-side before storage
 - Health-check paths are restricted to relative `/api/v4/...` paths on the configured Mattermost origin
-- REST requests are serialized in-tab to avoid refresh bursts when multiple panes update together
+- REST requests are serialized in-tab to avoid burst refresh behavior when many panes update together
 
 ## Development
 
 ```powershell
-npm run check
 npm run build
+npm run test
+```
+
+Useful additional commands:
+
+```powershell
+npm run check
 npm run test:e2e
-```
-
-Manual local browser startup:
-
-```powershell
+npm run mm95:start
+npm run mm95:stop
 npm run open:mattermost
-```
-
-Refresh README screenshots:
-
-```powershell
 npm run capture:readme
 ```
 
-The screenshot script requires a reachable Mattermost test environment with valid credentials.
+`test:e2e` and screenshot capture require a reachable Mattermost test environment.
 
 ## Release
 
@@ -107,12 +145,12 @@ MIT. See [LICENSE](./LICENSE).
 
 Locale files live in `src/ui/locales/`. To add a new language:
 
-1. Copy `en.json` to a new file (e.g. `ko.json`) and translate the values.
-2. Import it in `src/ui/i18n.ts` and register it under the locale code.
-3. Add the locale code to `DeckLanguage` in `src/ui/settings.ts` and to `normaliseLanguage`.
-4. Add a language option to `languageOptions` in `src/options/index.tsx`.
+1. Copy `en.json` to a new file such as `ko.json`
+2. Register it in `src/ui/i18n.ts`
+3. Add the locale code to `DeckLanguage` and `normaliseLanguage` in `src/ui/settings.ts`
+4. Add the language option in `src/options/index.tsx`
 
 ## Design Notes
 
 - English design guide: [./docs/design-guidelines.md](./docs/design-guidelines.md)
-- 日本語設計ガイド: [./docs/design-guidelines.ja.md](./docs/design-guidelines.ja.md)
+- Japanese design guide: [./docs/design-guidelines.ja.md](./docs/design-guidelines.ja.md)
