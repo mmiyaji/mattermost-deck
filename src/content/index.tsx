@@ -11,12 +11,14 @@ const BODY_CLASS = "mattermost-deck-body-offset";
 const RAIL_WIDTH_VAR = "--mattermost-deck-rail-width";
 const OFFSET_WIDTH_VAR = "--mattermost-deck-offset-width";
 const ROOT_WIDTH_EXPR = "clamp(320px, 32vw, 420px)";
+const INITIAL_RENDER_DELAY_MS = 100;
 const MATTERMOST_GUARD_SUCCESS_TTL_MS = 30_000;
 const MATTERMOST_GUARD_FAILURE_TTL_MS = 10_000;
 
 let appRoot: ReturnType<typeof createRoot> | null = null;
 let routePoller: number | null = null;
 let lastRenderKey = "";
+let renderVersion = 0;
 let currentSettings: DeckSettings = DEFAULT_SETTINGS;
 let settingsLoaded = false;
 let deckShadowRoot: ShadowRoot | null = null;
@@ -244,6 +246,7 @@ async function render(): Promise<void> {
     return;
   }
 
+  const currentRenderVersion = ++renderVersion;
   const routeKey = `${window.location.pathname}${window.location.hash}`;
   const dialogOpen = hasBlockingDialog();
   const renderKey = `${routeKey}|dialog:${dialogOpen ? "open" : "closed"}`;
@@ -262,9 +265,31 @@ async function render(): Promise<void> {
     return;
   }
 
+  if (currentRenderVersion !== renderVersion) {
+    debugLog("content.render.abort.superseded", { routeKey });
+    return;
+  }
+
   if (routeKey !== `${window.location.pathname}${window.location.hash}`) {
     debugLog("content.render.abort.route-changed", { routeKey });
     return;
+  }
+
+  const isInitialMount = !document.getElementById(ROOT_ID);
+  if (isInitialMount) {
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, INITIAL_RENDER_DELAY_MS);
+    });
+
+    if (currentRenderVersion !== renderVersion) {
+      debugLog("content.render.abort.superseded-after-delay", { routeKey });
+      return;
+    }
+
+    if (routeKey !== `${window.location.pathname}${window.location.hash}` || !matchesConfiguredRoute()) {
+      debugLog("content.render.abort.route-changed-after-delay", { routeKey });
+      return;
+    }
   }
 
   ensureStyle();

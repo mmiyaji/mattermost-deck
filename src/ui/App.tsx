@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { ShadowRootContext } from "./ShadowRootContext";
@@ -9,6 +9,7 @@ import {
   getChannelByName,
   getChannelMembers,
   getChannelsByIds,
+  getChannelMembersForCurrentUser,
   getChannelsForCurrentUser,
   getCurrentUser,
   getDirectChannelsForCurrentUser,
@@ -24,6 +25,7 @@ import {
   readCurrentRoute,
   searchPostsInTeam,
   type MattermostChannel,
+  type MattermostChannelMember,
   type MattermostFileInfo,
   type MattermostPost,
   type MattermostTeam,
@@ -48,6 +50,7 @@ import {
   saveStoredNumber,
 } from "./storage";
 import { APP_VERSION } from "../version";
+import { getDeckDiagnosticsSnapshot, recordRenderCommit, recordSpecialMentionScan } from "../diagnostics";
 import { CustomSelect, type CustomSelectOption } from "./CustomSelect";
 import {
   DEFAULT_COLUMN_COLORS,
@@ -113,6 +116,7 @@ interface RuntimePerformanceSnapshot {
   memoryLimitMb: number | null;
   memoryUsageRatio: number | null;
   api: ReturnType<typeof getApiPerformanceSnapshot>;
+  diagnostics: ReturnType<typeof getDeckDiagnosticsSnapshot>;
 }
 
 type ApiHealthStatus = "healthy" | "degraded" | "error";
@@ -143,6 +147,10 @@ const POST_VIRTUALIZE_THRESHOLD = 40;
 const SEARCH_SYNC_INTERVAL_FLOOR_MS = 120_000;
 const MAX_SAVED_VIEWS = 8;
 const DEBUG_FLAG_KEY = "mattermostDeck.debugLogs";
+const SPECIAL_MENTION_MEMBER_TTL_MS = 45_000;
+const SPECIAL_MENTION_MEMBER_TTL_WS_MS = 180_000;
+const SPECIAL_MENTION_POST_TTL_MS = 30_000;
+const SPECIAL_MENTION_POST_TTL_WS_MS = 120_000;
 
 declare global {
   interface Window {
@@ -159,6 +167,13 @@ declare global {
           query?: string;
           unreadOnly?: boolean;
         }>;
+      };
+      getThemeState: () => {
+        initialSource: "cache" | "extract" | "none";
+        activeTheme: DeckTheme;
+        style: Record<string, string>;
+        cacheKey: string | null;
+        cachedStyle: Record<string, string> | null;
       };
       addColumn: (
         type: DeckColumnType,
@@ -248,6 +263,20 @@ function dedupeRecentTargets(targets: RecentChannelTarget[]): RecentChannelTarge
   }
 
   return next;
+}
+
+function buildMentionSearchTerms(username: string): string {
+  return [`@${username}`, "@all", "@here", "@channel"].join(" ");
+}
+
+function hasSpecialMention(message: string): boolean {
+  return /(^|[^a-z0-9_])@(all|here|channel)\b/i.test(message);
+}
+
+function hasMentionForMentionsColumn(message: string, username: string): boolean {
+  const escapedUsername = escapeRegExp(username);
+  const userMentionPattern = new RegExp(`(^|[^a-z0-9_])@${escapedUsername}\\b`, "i");
+  return userMentionPattern.test(message) || hasSpecialMention(message);
 }
 
 function formatPostTime(timestamp: number): string {
@@ -1062,6 +1091,51 @@ type MattermostThemeStyle = React.CSSProperties & {
   ["--deck-danger"]?: string;
 };
 
+const MATTERMOST_THEME_CACHE_KEY = "mattermostDeck.themeCache.v1";
+
+function getMattermostThemeCacheStorageKey(): string {
+  return `${MATTERMOST_THEME_CACHE_KEY}:${window.location.origin}`;
+}
+function serialiseMattermostThemeStyle(style: MattermostThemeStyle | undefined): string {
+  return JSON.stringify(style ?? {});
+}
+
+function loadCachedMattermostThemeStyle(): MattermostThemeStyle | undefined {
+  try {
+    const raw = window.localStorage.getItem(getMattermostThemeCacheStorageKey());
+    if (!raw) {
+      return undefined;
+    }
+
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") {
+      return undefined;
+    }
+
+    const next: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (key.startsWith("--deck-") && typeof value === "string" && value.length > 0) {
+        next[key] = value;
+      }
+    }
+    return Object.keys(next).length > 0 ? (next as MattermostThemeStyle) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function saveCachedMattermostThemeStyle(style: MattermostThemeStyle): void {
+  try {
+    const next = serialiseMattermostThemeStyle(style);
+    if (window.localStorage.getItem(getMattermostThemeCacheStorageKey()) === next) {
+      return;
+    }
+    window.localStorage.setItem(getMattermostThemeCacheStorageKey(), next);
+  } catch {
+    return;
+  }
+}
+
 function queryFirst(selectors: string[]): Element | null {
   for (const selector of selectors) {
     const element = document.querySelector(selector);
@@ -1144,7 +1218,7 @@ function contrastRatio(left: string, right: string): number {
 function pickBestAccent(background: string, candidates: Array<string | undefined>, fallback: string): string {
   const usable = candidates.filter((candidate): candidate is string => {
     if (!candidate || !candidate.trim()) return false;
-    // Reject transparent colors — parseCssColor ignores the alpha channel, so rgba(0,0,0,0)
+    // Reject transparent colors because parseCssColor ignores alpha.
     // would produce a spuriously high contrast ratio (21) and beat every real accent color.
     const alphaMatch = candidate.match(/rgba\([^)]+,\s*([\d.]+)\s*\)/i);
     if (alphaMatch && parseFloat(alphaMatch[1]) < 0.05) return false;
@@ -1374,21 +1448,88 @@ function extractMattermostThemeStyle(): MattermostThemeStyle {
   };
 }
 
-function useMattermostThemeStyle(theme: DeckTheme, routeKey: string): MattermostThemeStyle | undefined {
-  const [style, setStyle] = useState<MattermostThemeStyle | undefined>(undefined);
+function useMattermostThemeStyle(
+  theme: DeckTheme,
+  routeKey: string,
+): {
+  initialSource: "cache" | "extract" | "none";
+  style: MattermostThemeStyle | undefined;
+} {
+  const initialSourceRef = useRef<"cache" | "extract" | "none">("none");
+  const [style, setStyle] = useState<MattermostThemeStyle | undefined>(() => {
+    if (theme !== "mattermost") {
+      initialSourceRef.current = "none";
+      return undefined;
+    }
+
+    const cached = loadCachedMattermostThemeStyle();
+    if (cached) {
+      initialSourceRef.current = "cache";
+      return cached;
+    }
+
+    initialSourceRef.current = "extract";
+    return extractMattermostThemeStyle();
+  });
+  const serialisedStyleRef = useRef(serialiseMattermostThemeStyle(style));
+
+  useEffect(() => {
+    serialisedStyleRef.current = serialiseMattermostThemeStyle(style);
+  }, [style]);
+
+  useEffect(() => {
+    if (theme !== "mattermost" || !style) {
+      return;
+    }
+    saveCachedMattermostThemeStyle(style);
+  }, [style, theme]);
 
   useEffect(() => {
     if (theme !== "mattermost") {
+      initialSourceRef.current = "none";
+      serialisedStyleRef.current = serialiseMattermostThemeStyle(undefined);
       setStyle(undefined);
       return;
     }
 
+    let frameId: number | null = null;
+
     const apply = () => {
-      setStyle(extractMattermostThemeStyle());
+      frameId = null;
+      const next = extractMattermostThemeStyle();
+      const serialisedNext = serialiseMattermostThemeStyle(next);
+      if (serialisedNext === serialisedStyleRef.current) {
+        return;
+      }
+
+      serialisedStyleRef.current = serialisedNext;
+      setStyle(next);
+      saveCachedMattermostThemeStyle(next);
+    };
+
+    const scheduleApply = () => {
+      if (frameId !== null) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(apply);
     };
 
     apply();
-    const observer = new MutationObserver(() => apply());
+    const observer = new MutationObserver(() => scheduleApply());
+    observer.observe(document.documentElement, {
+      subtree: false,
+      childList: false,
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
+    if (document.head) {
+      observer.observe(document.head, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ["class", "style"],
+      });
+    }
     observer.observe(document.body, {
       subtree: true,
       childList: true,
@@ -1398,10 +1539,16 @@ function useMattermostThemeStyle(theme: DeckTheme, routeKey: string): Mattermost
 
     return () => {
       observer.disconnect();
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
     };
   }, [routeKey, theme]);
 
-  return style;
+  return {
+    initialSource: initialSourceRef.current,
+    style,
+  };
 }
 
 function getSyncInterval(realtimeEnabled: boolean, pollingIntervalSeconds: number): number {
@@ -2068,7 +2215,7 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// ── File-type SVG icons ────────────────────────────────────────────────────────
+// File-type SVG icons
 function IconFileGeneric(): React.JSX.Element {
   return (
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -2167,7 +2314,7 @@ function FileTypeIcon({ mimeType, extension }: { mimeType: string; extension: st
   return <IconFileGeneric />;
 }
 
-// ── Lightbox SVG icons (Feather-style, stroke-based) ──────────────────────────
+// Lightbox SVG icons (Feather-style, stroke-based)
 function IconExternalLink(): React.JSX.Element {
   return (
     <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -2243,19 +2390,16 @@ const MAX_SCALE = 16;
 const MIN_SCALE = 0.02;
 
 function ImageLightbox({ src, name, onClose }: { src: string; name: string; onClose: () => void }): React.JSX.Element | null {
-  // scale=null = 画像未ロード（非表示）
   const [scale, setScale] = useState<number | null>(null);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [grabbing, setGrabbing] = useState(false);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const fitScaleRef = useRef(1);
   const posRef = useRef({ x: 0, y: 0 });
-  // dragRef: null = ドラッグ中でない
   const dragRef = useRef<{ mx: number; my: number; px: number; py: number } | null>(null);
   const hasDragged = useRef(false);
   const stageRef = useRef<HTMLDivElement>(null);
 
-  // pos の最新値を ref で追跡（window イベントハンドラから参照するため）
   useEffect(() => { posRef.current = pos; }, [pos]);
 
   useEffect(() => {
@@ -2277,9 +2421,7 @@ function ImageLightbox({ src, name, onClose }: { src: string; name: string; onCl
     setScale(Math.max(sw / naturalSize.w, sh / naturalSize.h));
     setPos({ x: 0, y: 0 });
   }, [naturalSize]);
-
-  // window レベルの mousemove/mouseup で drag 追跡
-  // → setPointerCapture を使わないので image の click イベントが正常に発火する
+  // Track drag with window-level mousemove/mouseup handlers.
   const onStageMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     hasDragged.current = false;
@@ -2303,19 +2445,18 @@ function ImageLightbox({ src, name, onClose }: { src: string; name: string; onCl
     window.addEventListener("mouseup", onUp);
   }, []);
 
-  // ステージ（暗い部分）クリック → 非ドラッグ時に閉じる
   const onStageClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!hasDragged.current && e.target === e.currentTarget) onClose();
   };
 
-  // 画像クリック → 非ドラッグ時に拡大
+  // Click the image to zoom in when it was not dragged.
   const onImgClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!hasDragged.current) zoomIn();
   };
 
-  // 画像ロード完了 → フィットスケール計算・適用
+  // Recompute fit scale once the image finishes loading.
   const onImgLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     const natW = Math.max(img.naturalWidth, 1);
@@ -2347,12 +2488,12 @@ function ImageLightbox({ src, name, onClose }: { src: string; name: string; onCl
 
   return createPortal(
     <div className="deck-lightbox-backdrop" role="dialog" aria-modal="true" aria-label={name}>
-      {/* 右上ツールバー */}
+      {/* Toolbar */}
       <div className="deck-lightbox-toolbar" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
           className="deck-lightbox-btn"
-          title="別タブで開く"
+          title="Open in new tab"
           onClick={(e) => {
             e.stopPropagation();
             void chrome.runtime.sendMessage({ type: "mattermost-deck:open-tab", url: src });
@@ -2360,15 +2501,15 @@ function ImageLightbox({ src, name, onClose }: { src: string; name: string; onCl
         >
           <IconExternalLink />
         </button>
-        <button type="button" className="deck-lightbox-btn" title="保存" onClick={handleDownload}>
+        <button type="button" className="deck-lightbox-btn" title="Download image" onClick={handleDownload}>
           <IconDownload />
         </button>
-        <button type="button" className="deck-lightbox-btn deck-lightbox-btn--close" title="閉じる" onClick={onClose}>
+        <button type="button" className="deck-lightbox-btn deck-lightbox-btn--close" title="Close" onClick={onClose}>
           <IconClose />
         </button>
       </div>
 
-      {/* 画像ステージ：暗い部分クリックで閉じる、ドラッグで移動 */}
+      {/* Image stage */}
       <div
         ref={stageRef}
         className={`deck-lightbox-stage${grabbing ? " deck-lightbox-stage--grabbing" : ""}`}
@@ -2389,16 +2530,16 @@ function ImageLightbox({ src, name, onClose }: { src: string; name: string; onCl
         />
       </div>
 
-      {/* 下部コントロール */}
+      {/* Bottom controls */}
       <div className="deck-lightbox-controls" onClick={(e) => e.stopPropagation()}>
         <span className="deck-lightbox-filename" title={name}>{name}</span>
         <div className="deck-lightbox-zoom-group">
-          <button type="button" className="deck-lightbox-ctrl" title="縮小" onClick={zoomOut}><IconZoomOut /></button>
-          <button type="button" className="deck-lightbox-ctrl deck-lightbox-ctrl--scale" title="フィットに戻す" onClick={fitScreen}>
+          <button type="button" className="deck-lightbox-ctrl" title="Zoom out" onClick={zoomOut}><IconZoomOut /></button>
+          <button type="button" className="deck-lightbox-ctrl deck-lightbox-ctrl--scale" title="Fit to screen" onClick={fitScreen}>
             {scaleLabel}
           </button>
-          <button type="button" className="deck-lightbox-ctrl" title="拡大" onClick={zoomIn}><IconZoomIn /></button>
-          <button type="button" className="deck-lightbox-ctrl" title="画面いっぱいに表示" onClick={fillScreen}><IconMaximize /></button>
+          <button type="button" className="deck-lightbox-ctrl" title="Zoom in" onClick={zoomIn}><IconZoomIn /></button>
+          <button type="button" className="deck-lightbox-ctrl" title="Fill screen" onClick={fillScreen}><IconMaximize /></button>
         </div>
       </div>
     </div>,
@@ -2434,7 +2575,7 @@ function ImageThumb({
       type="button"
       className="deck-file-thumb-wrap"
       onClick={(e) => { e.stopPropagation(); onOpen(); }}
-      aria-label={`画像を拡大: ${info.name}`}
+      aria-label={`画像を開く: ${info.name}`}
     >
       <img
         className="deck-file-thumb"
@@ -2727,7 +2868,7 @@ function PostList({
     if (entry.type === "unread-separator") {
       return (
         <li key={entry.key} ref={unreadSeparatorRef} className="deck-list-separator deck-list-separator--unread">
-          <span>{language === "ja" ? "新着メッセージ" : "New"}</span>
+          <span>{language === "ja" ? "未読" : "New"}</span>
         </li>
       );
     }
@@ -2825,7 +2966,7 @@ function PostList({
     </div>
   ) : posts.length > 0 ? (
     <div className="deck-list-end">
-      {language === "ja" ? "全件表示済み" : "All posts loaded"}
+      {language === "ja" ? "すべての投稿を読み込みました" : "All posts loaded"}
     </div>
   ) : null;
 
@@ -2912,6 +3053,8 @@ function PostList({
 function MentionsColumn({
   column,
   username,
+  currentTeamId,
+  currentChannelId,
   realtimeEnabled,
   teams,
   unreads,
@@ -2936,6 +3079,8 @@ function MentionsColumn({
 }: {
   column: DeckColumn;
   username: string | null;
+  currentTeamId?: string;
+  currentChannelId?: string;
   realtimeEnabled: boolean;
   teams: MattermostTeam[];
   unreads: TeamUnread[];
@@ -2978,6 +3123,8 @@ function MentionsColumn({
   const [paused, setPaused] = useState(false);
   const refreshStartedAtRef = useRef<number | null>(null);
   const refreshStopTimerRef = useRef<number | null>(null);
+  const specialMentionMembersCacheRef = useRef<Record<string, { expiresAt: number; members: MattermostChannelMember[] }>>({});
+  const specialMentionPostsCacheRef = useRef<Record<string, { expiresAt: number; posts: MattermostPost[] }>>({});
   const selectedTeam = teams.find((team) => team.id === column.teamId);
   const mentionCount = useMemo(
     () =>
@@ -2994,6 +3141,12 @@ function MentionsColumn({
     () => [{ value: "", label: text.allTeams }, ...teams.map((team) => ({ value: team.id, label: team.display_name || team.name }))],
     [teams, text.allTeams],
   );
+  const mentionSearchTerms = useMemo(
+    () => (username ? buildMentionSearchTerms(username) : ""),
+    [username],
+  );
+  const specialMentionMemberTtlMs = realtimeEnabled ? SPECIAL_MENTION_MEMBER_TTL_WS_MS : SPECIAL_MENTION_MEMBER_TTL_MS;
+  const specialMentionPostTtlMs = realtimeEnabled ? SPECIAL_MENTION_POST_TTL_WS_MS : SPECIAL_MENTION_POST_TTL_MS;
 
   const finishRefresh = useCallback(() => {
     if (refreshStartedAtRef.current === null) {
@@ -3019,6 +3172,88 @@ function MentionsColumn({
       }
     };
   }, []);
+
+  const loadSpecialMentionPosts = useCallback(
+    async (teamId: string) => {
+      if (!username) {
+        return [];
+      }
+
+      const teamMentionCount = unreads.find((entry) => entry.team_id === teamId)?.mention_count ?? 0;
+      const includeCurrentChannel = currentTeamId === teamId && Boolean(currentChannelId);
+      if (teamMentionCount <= 0 && !includeCurrentChannel) {
+        recordSpecialMentionScan({ hits: 0, channelsScanned: 0 });
+        return [];
+      }
+
+      const now = Date.now();
+      const cachedMembers = specialMentionMembersCacheRef.current[teamId];
+      let members: MattermostChannelMember[];
+      if (cachedMembers && cachedMembers.expiresAt > now) {
+        members = cachedMembers.members;
+      } else {
+        members = await getChannelMembersForCurrentUser(teamId);
+        specialMentionMembersCacheRef.current[teamId] = {
+          expiresAt: now + specialMentionMemberTtlMs,
+          members,
+        };
+      }
+
+      const candidateChannelIds = new Set(
+        members
+          .filter((member) => (member.mention_count ?? 0) > 0)
+          .map((member) => member.channel_id),
+      );
+      if (includeCurrentChannel && currentChannelId) {
+        candidateChannelIds.add(currentChannelId);
+      }
+
+      if (candidateChannelIds.size === 0) {
+        recordSpecialMentionScan({ hits: 0, channelsScanned: 0 });
+        return [];
+      }
+
+      let cacheHits = 0;
+      let cacheMisses = 0;
+      const channelPosts = await Promise.all(
+        Array.from(candidateChannelIds).map(async (channelId) => {
+          const cachedPosts = specialMentionPostsCacheRef.current[channelId];
+          if (cachedPosts && cachedPosts.expiresAt > now) {
+            cacheHits += 1;
+            return cachedPosts.posts;
+          }
+
+          cacheMisses += 1;
+          const posts = await getRecentPosts(channelId, 0, POSTS_PAGE_SIZE);
+          specialMentionPostsCacheRef.current[channelId] = {
+            expiresAt: Date.now() + specialMentionPostTtlMs,
+            posts,
+          };
+          return posts;
+        }),
+      );
+
+      const posts = channelPosts
+        .flat()
+        .filter((post) => hasSpecialMention(post.message))
+        .filter((post) => hasMentionForMentionsColumn(post.message, username));
+      recordSpecialMentionScan({
+        hits: posts.length,
+        channelsScanned: candidateChannelIds.size,
+        cacheHits,
+        cacheMisses,
+      });
+      return posts;
+    },
+    [
+      currentChannelId,
+      currentTeamId,
+      specialMentionMemberTtlMs,
+      specialMentionPostTtlMs,
+      unreads,
+      username,
+    ],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -3050,16 +3285,19 @@ function MentionsColumn({
       }));
 
       try {
-        const results = await Promise.all(
-          teamIds.map(async (teamId) => ({
-            teamId,
-            posts: await searchPostsInTeam(teamId, `@${username}`, 0, POSTS_PAGE_SIZE),
-          })),
-        );
+        const [results, specialMentionResults] = await Promise.all([
+          Promise.all(
+            teamIds.map(async (teamId) => ({
+              teamId,
+              posts: await searchPostsInTeam(teamId, mentionSearchTerms, 0, POSTS_PAGE_SIZE, { isOrSearch: true }),
+            })),
+          ),
+          Promise.all(teamIds.map(async (teamId) => await loadSpecialMentionPosts(teamId))),
+        ]);
         if (cancelled) {
           return;
         }
-        const posts = mergePosts(results.flatMap((entry) => entry.posts), []);
+        const posts = mergePosts(results.flatMap((entry) => entry.posts), specialMentionResults.flat());
         void ensureUsers(posts.map((post) => post.user_id));
         setPostState({
           status: "ready",
@@ -3106,7 +3344,7 @@ function MentionsColumn({
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [column.teamId, ensureUsers, finishRefresh, paused, pollingIntervalSeconds, realtimeEnabled, reconnectNonce, refreshNonce, teamIds, username]);
+  }, [column.teamId, ensureUsers, finishRefresh, loadSpecialMentionPosts, mentionSearchTerms, paused, pollingIntervalSeconds, realtimeEnabled, reconnectNonce, refreshNonce, teamIds, username]);
 
   useEffect(() => {
     if (!postedEvent || !postedEvent.mentionsUser) {
@@ -3210,7 +3448,7 @@ function MentionsColumn({
   );
 
   const handleLoadMore = async () => {
-    if (teamIds.length === 0 || !username || postState.loadingMore || !postState.hasMore) {
+    if (teamIds.length === 0 || !username || !mentionSearchTerms || postState.loadingMore || !postState.hasMore) {
       return;
     }
 
@@ -3221,7 +3459,7 @@ function MentionsColumn({
         Promise.all(
           teamIds.map(async (teamId) => ({
             teamId,
-            posts: await searchPostsInTeam(teamId, `@${username}`, postState.nextPage, POSTS_PAGE_SIZE),
+            posts: await searchPostsInTeam(teamId, mentionSearchTerms, postState.nextPage, POSTS_PAGE_SIZE, { isOrSearch: true }),
           })),
         ),
         new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
@@ -3245,6 +3483,28 @@ function MentionsColumn({
       }));
     }
   };
+
+  useEffect(() => {
+    if (!isDebugEnabled()) {
+      return;
+    }
+
+    window.__mattermostDeckDebugColumnState ??= {};
+    window.__mattermostDeckDebugColumnState[column.id] = {
+      type: "mentions",
+      postStatus: postState.status,
+      postIds: postState.posts.map((post) => post.id),
+      postMessages: postState.posts.map((post) => post.message),
+      mentionCount,
+      teamId: column.teamId,
+    };
+
+    return () => {
+      if (window.__mattermostDeckDebugColumnState) {
+        delete window.__mattermostDeckDebugColumnState[column.id];
+      }
+    };
+  }, [column.id, column.teamId, mentionCount, postState.posts, postState.status]);
 
   return (
     <section className="deck-column deck-column--mentions" style={getColumnAccentStyle(column.type, columnColors)}>
@@ -3278,16 +3538,16 @@ function MentionsColumn({
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="左に移動" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move left" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="右に移動" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move right" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
             <button
               type="button"
               className="deck-icon-button deck-icon-button--ghost"
-              title="再読み込み"
+              title="Refresh"
               onClick={() => {
                 refreshStartedAtRef.current = Date.now();
                 setIsRefreshing(true);
@@ -3301,12 +3561,12 @@ function MentionsColumn({
               type="button"
               className={`deck-icon-button deck-icon-button--ghost${paused ? " deck-icon-button--active" : ""}`}
               onClick={() => setPaused((v) => !v)}
-              title={paused ? "ポーリングを再開" : "ポーリングを一時停止"}
+              title={paused ? "Resume polling" : "Pause polling"}
               aria-label={paused ? "Resume polling" : "Pause polling"}
             >
               {paused ? <PlayIcon /> : <PauseIcon />}
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="ペインを閉じる" onClick={() => onRemove(column.id)}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Remove column" onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -3394,6 +3654,7 @@ function MentionsColumn({
 function useRuntimePerformanceSnapshot(): RuntimePerformanceSnapshot {
   const [snapshot, setSnapshot] = useState<RuntimePerformanceSnapshot>(() => {
     const api = getApiPerformanceSnapshot();
+    const diagnostics = getDeckDiagnosticsSnapshot();
     const memory = "memory" in performance ? (performance as Performance & { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory : undefined;
     const memoryUsedMb = memory ? memory.usedJSHeapSize / (1024 * 1024) : null;
     const memoryLimitMb = memory ? memory.jsHeapSizeLimit / (1024 * 1024) : null;
@@ -3403,12 +3664,14 @@ function useRuntimePerformanceSnapshot(): RuntimePerformanceSnapshot {
       memoryLimitMb,
       memoryUsageRatio: memory && memory.jsHeapSizeLimit > 0 ? memory.usedJSHeapSize / memory.jsHeapSizeLimit : null,
       api,
+      diagnostics,
     };
   });
 
   useEffect(() => {
     const collect = () => {
       const api = getApiPerformanceSnapshot();
+      const diagnostics = getDeckDiagnosticsSnapshot();
       const performanceWithMemory = performance as Performance & {
         memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number };
       };
@@ -3422,6 +3685,7 @@ function useRuntimePerformanceSnapshot(): RuntimePerformanceSnapshot {
         memoryLimitMb,
         memoryUsageRatio: memory && memory.jsHeapSizeLimit > 0 ? memory.usedJSHeapSize / memory.jsHeapSizeLimit : null,
         api,
+        diagnostics,
       });
     };
 
@@ -3437,6 +3701,10 @@ function ChannelWatchColumn({
   column,
   mode,
   currentUserId,
+  currentTeamId,
+  currentChannelId,
+  currentTeamLabel,
+  currentChannelLabel,
   realtimeEnabled,
   teams,
   userDirectory,
@@ -3447,6 +3715,7 @@ function ChannelWatchColumn({
   canMoveLeft,
   canMoveRight,
   onMove,
+  onAddColumn,
   onRememberTarget,
   onUpdate,
   onRemove,
@@ -3462,6 +3731,10 @@ function ChannelWatchColumn({
   column: DeckColumn;
   mode: "channel" | "dm";
   currentUserId: string | null;
+  currentTeamId?: string;
+  currentChannelId?: string;
+  currentTeamLabel?: string | null;
+  currentChannelLabel?: string | null;
   realtimeEnabled: boolean;
   teams: MattermostTeam[];
   userDirectory: Record<string, MattermostUser>;
@@ -3472,6 +3745,7 @@ function ChannelWatchColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
+  onAddColumn: (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => string;
   onRememberTarget: (target: RecentChannelTarget) => void;
   onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void;
   onRemove: (id: string) => void;
@@ -3666,6 +3940,8 @@ function ChannelWatchColumn({
   const selectedChannelKindLabel = getChannelKindLabel(selectedChannel);
   const selectedTeamLabel = selectedTeam ? selectedTeam.display_name || selectedTeam.name : undefined;
   const highlightTerms = useMemo(() => extractHighlightKeywords(highlightKeywords), [highlightKeywords]);
+  const canWatchCurrentChannel = Boolean(currentChannelId) && (mode === "dm" || Boolean(currentTeamId));
+  const currentWatchLabel = currentChannelLabel ?? (mode === "dm" ? text.directMessage : text.channelLabel);
 
   useEffect(() => {
     if (!isDebugEnabled()) {
@@ -3860,16 +4136,16 @@ function ChannelWatchColumn({
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="左に移動" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move left" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="右に移動" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move right" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
             <button
               type="button"
               className="deck-icon-button deck-icon-button--ghost"
-              title="再読み込み"
+              title="Refresh"
               onClick={() => {
                 refreshStartedAtRef.current = Date.now();
                 setIsRefreshing(true);
@@ -3883,12 +4159,12 @@ function ChannelWatchColumn({
               type="button"
               className={`deck-icon-button deck-icon-button--ghost${paused ? " deck-icon-button--active" : ""}`}
               onClick={() => setPaused((v) => !v)}
-              title={paused ? "ポーリングを再開" : "ポーリングを一時停止"}
+              title={paused ? "Resume polling" : "Pause polling"}
               aria-label={paused ? "Resume polling" : "Pause polling"}
             >
               {paused ? <PlayIcon /> : <PauseIcon />}
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="ペインを閉じる" onClick={() => onRemove(column.id)}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Remove column" onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -3937,7 +4213,56 @@ function ChannelWatchColumn({
         </div>
       ) : null}
 
-      {mode === "channel" && !column.teamId ? null : !column.channelId ? null : postState.status === "error" ? (
+      {mode === "channel" && !column.teamId ? (
+        <article className="deck-card deck-card--muted">
+          <strong>Start with a channel</strong>
+          <p>Pin one watch target first, or add a few recommended columns for a better first pass.</p>
+          <div className="deck-stack deck-stack--empty-actions">
+            {canWatchCurrentChannel ? (
+              <button
+                type="button"
+                className="deck-add-item"
+                onClick={() => onUpdate(column.id, { teamId: currentTeamId, channelId: currentChannelId })}
+              >
+                <span>Watch current channel</span>
+                <small>{currentWatchLabel}{currentTeamLabel ? ` / ${currentTeamLabel}` : ""}</small>
+              </button>
+            ) : null}
+            <button type="button" className="deck-add-item deck-add-item--secondary" onClick={() => onAddColumn("mentions")}>
+              <span>Recommended: Mentions</span>
+              <small>Keep personal mentions visible.</small>
+            </button>
+            <button type="button" className="deck-add-item deck-add-item--secondary" onClick={() => onAddColumn("saved")}>
+              <span>Recommended: Saved</span>
+              <small>Keep follow-up posts close by.</small>
+            </button>
+          </div>
+        </article>
+      ) : !column.channelId ? (
+        <article className="deck-card deck-card--muted">
+          <strong>{mode === "dm" ? text.selectADm : text.selectAChannel}</strong>
+          <p>{mode === "dm" ? text.selectDmDesc : text.selectChannelDesc}</p>
+          <div className="deck-stack deck-stack--empty-actions">
+            {canWatchCurrentChannel ? (
+              <button
+                type="button"
+                className="deck-add-item"
+                onClick={() => onUpdate(column.id, {
+                  teamId: mode === "channel" ? currentTeamId : column.teamId,
+                  channelId: currentChannelId,
+                })}
+              >
+                <span>Use current channel</span>
+                <small>{currentWatchLabel}{currentTeamLabel ? ` / ${currentTeamLabel}` : ""}</small>
+              </button>
+            ) : null}
+            <button type="button" className="deck-add-item deck-add-item--secondary" onClick={() => onAddColumn("diagnostics")}>
+              <span>Recommended: Diagnostics</span>
+              <small>Track sync, reconnects, and render cost.</small>
+            </button>
+          </div>
+        </article>
+      ) : postState.status === "error" ? (
         <article className="deck-card">
           <strong>Failed to load posts</strong>
           <p>{postState.error ?? "Unknown error"}</p>
@@ -4280,16 +4605,16 @@ function SearchLikeColumn({
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="左に移動" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move left" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="右に移動" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move right" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
             <button
               type="button"
               className="deck-icon-button deck-icon-button--ghost"
-              title="再読み込み"
+              title="Refresh"
               onClick={() => {
                 refreshStartedAtRef.current = Date.now();
                 setIsRefreshing(true);
@@ -4303,12 +4628,12 @@ function SearchLikeColumn({
               type="button"
               className={`deck-icon-button deck-icon-button--ghost${paused ? " deck-icon-button--active" : ""}`}
               onClick={() => setPaused((v) => !v)}
-              title={paused ? "ポーリングを再開" : "ポーリングを一時停止"}
+              title={paused ? "Resume polling" : "Pause polling"}
               aria-label={paused ? "Resume polling" : "Pause polling"}
             >
               {paused ? <PlayIcon /> : <PauseIcon />}
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="ペインを閉じる" onClick={() => onRemove(column.id)}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Remove column" onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -4343,7 +4668,7 @@ function SearchLikeColumn({
                 className="deck-icon-button deck-icon-button--ghost"
                 onClick={handleSaveSearch}
                 disabled={!draftQuery.trim() || savedSearches.includes(draftQuery.trim())}
-                title="この検索クエリを保存"
+                title="Save search query"
                 aria-label="Save search query"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -4353,7 +4678,7 @@ function SearchLikeColumn({
             </div>
             {savedSearches.length > 0 && (
               <div className="deck-saved-searches">
-                <span className="deck-saved-searches-label">保存済み</span>
+                <span className="deck-saved-searches-label">Saved</span>
                 <div className="deck-saved-searches-list">
                   {savedSearches.map((q) => (
                     <div key={q} className="deck-saved-search-chip">
@@ -4632,16 +4957,16 @@ function SavedPostsColumn({
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="左に移動" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move left" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="右に移動" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move right" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
             <button
               type="button"
               className="deck-icon-button deck-icon-button--ghost"
-              title="再読み込み"
+              title="Refresh"
               onClick={() => {
                 refreshStartedAtRef.current = Date.now();
                 setIsRefreshing(true);
@@ -4655,12 +4980,12 @@ function SavedPostsColumn({
               type="button"
               className={`deck-icon-button deck-icon-button--ghost${paused ? " deck-icon-button--active" : ""}`}
               onClick={() => setPaused((v) => !v)}
-              title={paused ? "ポーリングを再開" : "ポーリングを一時停止"}
+              title={paused ? "Resume polling" : "Pause polling"}
               aria-label={paused ? "Resume polling" : "Pause polling"}
             >
               {paused ? <PlayIcon /> : <PauseIcon />}
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="ペインを閉じる" onClick={() => onRemove(column.id)}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Remove column" onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -4744,13 +5069,13 @@ function DiagnosticsColumn({
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="左に移動" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move left" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="右に移動" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move right" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="ペインを閉じる" onClick={() => onRemove(column.id)}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Remove column" onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -4779,6 +5104,11 @@ function DiagnosticsColumn({
             <p>{runtimeMetrics.api.totalRequests.toLocaleString()}</p>
           </article>
           <article className="deck-card deck-card--metric">
+            <strong>Special mention scans</strong>
+            <p>{runtimeMetrics.diagnostics.specialMentions.totalScans.toLocaleString()}</p>
+            <span>{runtimeMetrics.diagnostics.specialMentions.totalHits.toLocaleString()} hits</span>
+          </article>
+          <article className="deck-card deck-card--metric">
             <strong>Error rate</strong>
             <p>{formatRate(runtimeMetrics.api.recentErrorRate)}</p>
             <span>{runtimeMetrics.api.recentFailedRequestsPerMinute} / {runtimeMetrics.api.recentRequestsPerMinute} recent</span>
@@ -4792,6 +5122,16 @@ function DiagnosticsColumn({
             <strong>In flight</strong>
             <p>{runtimeMetrics.api.inFlightRequests}</p>
             <span>{runtimeMetrics.api.totalGetRequests} GET / {runtimeMetrics.api.totalPostRequests} POST / {runtimeMetrics.api.totalFailedRequests} failed</span>
+          </article>
+          <article className="deck-card deck-card--metric">
+            <strong>WS reconnects</strong>
+            <p>{runtimeMetrics.diagnostics.websocket.reconnectCount.toLocaleString()}</p>
+            <span>{runtimeMetrics.diagnostics.websocket.lastReconnectAt ? formatPostTime(runtimeMetrics.diagnostics.websocket.lastReconnectAt) : "n/a"}</span>
+          </article>
+          <article className="deck-card deck-card--metric">
+            <strong>Render</strong>
+            <p>{formatLatency(runtimeMetrics.diagnostics.render.averageCommitMs)}</p>
+            <span>{runtimeMetrics.diagnostics.render.commitCount} commits / last {formatLatency(runtimeMetrics.diagnostics.render.lastCommitMs)}</span>
           </article>
         </div>
         <article className="deck-card">
@@ -4808,6 +5148,20 @@ function DiagnosticsColumn({
           </div>
           <Sparkline values={runtimeMetrics.api.latencySeries} ariaLabel="Recent API latency" formatValue={formatLatency} />
           <p className="deck-card-caption">Last {formatLatency(runtimeMetrics.api.lastLatencyMs)}</p>
+        </article>
+        <article className="deck-card">
+          <div className="deck-metric-chart-header">
+            <strong>Render time</strong>
+            <span>p95 {formatLatency(runtimeMetrics.diagnostics.render.p95CommitMs)}</span>
+          </div>
+          <Sparkline
+            values={runtimeMetrics.diagnostics.render.recentCommitMs}
+            ariaLabel="Recent render time"
+            formatValue={formatLatency}
+          />
+          <p className="deck-card-caption">
+            {runtimeMetrics.diagnostics.specialMentions.totalChannelsScanned.toLocaleString()} channels scanned / {runtimeMetrics.diagnostics.specialMentions.cacheHits.toLocaleString()} cache hits / {runtimeMetrics.diagnostics.specialMentions.cacheMisses.toLocaleString()} misses
+          </p>
         </article>
         <article className="deck-card">
           <strong>Recent sync log</strong>
@@ -4886,7 +5240,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const wsStatus = useWebSocketStatus();
   const syncLogs = useSyncLogs();
   const runtimeMetrics = useRuntimePerformanceSnapshot();
-  const mattermostThemeStyle = useMattermostThemeStyle(deckSettings.theme, routeKey);
+  const mattermostThemeState = useMattermostThemeStyle(deckSettings.theme, routeKey);
+  const mattermostThemeStyle = mattermostThemeState.style;
   const apiHealthStatus = useApiHealth(state.status, deckSettings.healthCheckPath, deckSettings.pollingIntervalSeconds);
   const shellStyle = useMemo(
     () =>
@@ -5248,6 +5603,20 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     return nextId;
   };
 
+  const handleAddCurrentChannelWatch = useCallback(() => {
+    if (!state.currentChannelId) {
+      return "";
+    }
+
+    return handleAddColumn(
+      state.currentTeamId ? "channelWatch" : "dmWatch",
+      {
+        teamId: state.currentTeamId,
+        channelId: state.currentChannelId,
+      },
+    );
+  }, [handleAddColumn, state.currentChannelId, state.currentTeamId]);
+
   useEffect(() => {
     if (!pendingScrollColumnId) {
       return;
@@ -5503,6 +5872,20 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
           unreadOnly: column.unreadOnly,
         })),
       }),
+      getThemeState: () => ({
+        initialSource: mattermostThemeState.initialSource,
+        activeTheme: deckSettings.theme,
+        style: Object.fromEntries(
+          Object.entries(mattermostThemeStyle ?? {}).filter(
+            ([key, value]) => key.startsWith("--deck-") && typeof value === "string" && value.length > 0,
+          ),
+        ),
+        cacheKey: deckSettings.theme === "mattermost" ? getMattermostThemeCacheStorageKey() : null,
+        cachedStyle:
+          deckSettings.theme === "mattermost"
+            ? (loadCachedMattermostThemeStyle() ?? null)
+            : null,
+      }),
       addColumn: handleAddColumn,
       updateColumn,
       moveColumn,
@@ -5525,6 +5908,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       let result: unknown = null;
       if (action === "getState") {
         result = window.__mattermostDeckDebug.getState();
+      } else if (action === "getThemeState") {
+        result = window.__mattermostDeckDebug.getThemeState();
       } else if (action === "addColumn") {
         result = handleAddColumn(
           payload.type as DeckColumnType,
@@ -5566,11 +5951,24 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       window.removeEventListener("mattermost-deck-debug-request", handleDebugRequest as EventListener);
       delete window.__mattermostDeckDebug;
     };
-  }, [columns, contentMounted, handleAddColumn, moveColumn, removeColumn, state.status, state.username, updateColumn]);
+  }, [
+    columns,
+    contentMounted,
+    deckSettings.theme,
+    handleAddColumn,
+    mattermostThemeState.initialSource,
+    mattermostThemeStyle,
+    moveColumn,
+    removeColumn,
+    state.status,
+    state.username,
+    updateColumn,
+  ]);
 
   const isInitialLoading = state.status === "loading" || columns === null;
 
   return (
+    <React.Profiler id="mattermost-deck" onRender={(_, __, actualDuration) => recordRenderCommit(actualDuration)}>
     <ShadowRootContext.Provider value={shadowRoot}>
     <aside
       ref={shellRef}
@@ -5768,6 +6166,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                     <button type="button" className="deck-add-item" onClick={() => handleAddColumn("channelWatch")}>
                       <ColumnMenuLabel type="channelWatch" label={text.addChannelWatch} />
                     </button>
+                    {state.currentChannelId ? (
+                      <button type="button" className="deck-add-item deck-add-item--secondary" onClick={handleAddCurrentChannelWatch}>
+                        <span>Watch current channel</span>
+                      </button>
+                    ) : null}
                     <button type="button" className="deck-add-item" onClick={() => handleAddColumn("dmWatch")}>
                       <ColumnMenuLabel type="dmWatch" label={text.addDmWatch} />
                     </button>
@@ -5837,6 +6240,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         <button type="button" className="deck-add-item" onClick={() => handleAddColumn("channelWatch")}>
                           <ColumnMenuLabel type="channelWatch" label={text.addChannelWatch} />
                         </button>
+                        {state.currentChannelId ? (
+                          <button type="button" className="deck-add-item deck-add-item--secondary" onClick={handleAddCurrentChannelWatch}>
+                            <span>Watch current channel</span>
+                          </button>
+                        ) : null}
                         <button type="button" className="deck-add-item" onClick={() => handleAddColumn("dmWatch")}>
                           <ColumnMenuLabel type="dmWatch" label={text.addDmWatch} />
                         </button>
@@ -5958,6 +6366,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         <MentionsColumn
                           column={column}
                           username={state.username}
+                          currentTeamId={state.currentTeamId}
+                          currentChannelId={state.currentChannelId}
                           realtimeEnabled={realtimeEnabled}
                           teams={state.teams}
                           unreads={state.unreads}
@@ -5989,6 +6399,10 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           column={column}
                           mode="channel"
                           currentUserId={state.userId}
+                          currentTeamId={state.currentTeamId}
+                          currentChannelId={state.currentChannelId}
+                          currentTeamLabel={state.currentTeamLabel}
+                          currentChannelLabel={state.currentChannelLabel}
                           realtimeEnabled={realtimeEnabled}
                           teams={state.teams}
                           userDirectory={userDirectory}
@@ -5999,6 +6413,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           canMoveLeft={index > 0}
                           canMoveRight={index < allColumns.length - 1}
                           onMove={moveColumn}
+                          onAddColumn={handleAddColumn}
                           onRememberTarget={rememberRecentTarget}
                           onUpdate={updateColumn}
                           onRemove={removeColumn}
@@ -6020,6 +6435,10 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           column={column}
                           mode="dm"
                           currentUserId={state.userId}
+                          currentTeamId={state.currentTeamId}
+                          currentChannelId={state.currentChannelId}
+                          currentTeamLabel={state.currentTeamLabel}
+                          currentChannelLabel={state.currentChannelLabel}
                           realtimeEnabled={realtimeEnabled}
                           teams={state.teams}
                           userDirectory={userDirectory}
@@ -6030,6 +6449,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           canMoveLeft={index > 0}
                           canMoveRight={index < allColumns.length - 1}
                           onMove={moveColumn}
+                          onAddColumn={handleAddColumn}
                           onRememberTarget={rememberRecentTarget}
                           onUpdate={updateColumn}
                           onRemove={removeColumn}
@@ -6152,6 +6572,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
               <button type="button" className="deck-add-item" onClick={() => handleAddColumn("channelWatch")}>
                 <ColumnMenuLabel type="channelWatch" label={text.addChannelWatch} />
               </button>
+              {state.currentChannelId ? (
+                <button type="button" className="deck-add-item deck-add-item--secondary" onClick={handleAddCurrentChannelWatch}>
+                  <span>Watch current channel</span>
+                </button>
+              ) : null}
               <button type="button" className="deck-add-item" onClick={() => handleAddColumn("dmWatch")}>
                 <ColumnMenuLabel type="dmWatch" label={text.addDmWatch} />
               </button>
@@ -6170,5 +6595,6 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       )}
     </aside>
     </ShadowRootContext.Provider>
+    </React.Profiler>
   );
 }

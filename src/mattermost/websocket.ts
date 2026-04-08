@@ -1,4 +1,5 @@
 import { getWebSocketUrl, type MattermostPost } from "./api";
+import { recordWebSocketReconnectAttempt } from "../diagnostics";
 
 export interface PostedEvent {
   channelId: string;
@@ -174,6 +175,9 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
       return;
     }
 
+    if (reconnectAttempt > 0) {
+      recordWebSocketReconnectAttempt();
+    }
     updateStatus(reconnectAttempt === 0 ? "connecting" : "reconnecting");
     log("info", reconnectAttempt === 0 ? "WS connecting" : "WS reconnecting");
 

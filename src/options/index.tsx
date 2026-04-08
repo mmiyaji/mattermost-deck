@@ -29,7 +29,15 @@ import {
   type DeckTheme,
   type PostClickAction,
 } from "../ui/settings";
-import { createDeckProfile, loadDeckProfiles, switchDeckProfile, type DeckProfileSummary } from "../ui/profiles";
+import {
+  createDeckProfile,
+  deleteDeckProfile,
+  duplicateDeckProfile,
+  loadDeckProfiles,
+  renameDeckProfile,
+  switchDeckProfile,
+  type DeckProfileSummary,
+} from "../ui/profiles";
 
 const REPO_URL = "https://github.com/mmiyaji/mattermost-deck";
 const PRIVACY_URL = "https://github.com/mmiyaji/mattermost-deck/blob/main/PRIVACY.md";
@@ -124,9 +132,6 @@ function useOptionsText() {
   }), [t]);
 }
 
-
-// 髫ｨ貂可髫ｨ貂可 Sidebar nav icons (Feather-style SVG) 髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可
-
 function NavIconGuide(): React.JSX.Element {
   return (
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -182,7 +187,7 @@ function NavIconSecurity(): React.JSX.Element {
   );
 }
 
-// 髫ｨ貂可髫ｨ貂可 CSS 髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可
+// CSS
 
 const pageCss = `
   *, *::before, *::after {
@@ -212,7 +217,7 @@ const pageCss = `
     color: #16263b;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 App shell 髫ｨ貂可髫ｨ貂可 */
+  /* App shell */
   .options-app {
     height: 100vh;
     display: flex;
@@ -220,7 +225,7 @@ const pageCss = `
     overflow: hidden;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Topbar 髫ｨ貂可髫ｨ貂可 */
+  /* Topbar */
   .options-topbar {
     flex: none;
     height: 54px;
@@ -289,7 +294,7 @@ const pageCss = `
     color: #496583;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Body 髫ｨ貂可髫ｨ貂可 */
+  /* Body */
   .options-body {
     flex: 1;
     overflow: hidden;
@@ -297,7 +302,7 @@ const pageCss = `
     min-height: 0;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Sidebar 髫ｨ貂可髫ｨ貂可 */
+  /* Sidebar */
   .options-sidebar {
     width: 196px;
     flex: none;
@@ -449,7 +454,7 @@ const pageCss = `
     color: rgba(73, 101, 131, 0.5);
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Content 髫ｨ貂可髫ｨ貂可 */
+  /* Content */
   .options-content {
     flex: 1;
     display: flex;
@@ -472,7 +477,7 @@ const pageCss = `
     padding: 28px 32px;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Save footer 髫ｨ貂可髫ｨ貂可 */
+  /* Save footer */
   .options-save-footer {
     flex: none;
     padding: 13px 32px;
@@ -518,7 +523,7 @@ const pageCss = `
     color: #496583;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Grid 髫ｨ貂可髫ｨ貂可 */
+  /* Grid */
   .options-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -529,7 +534,7 @@ const pageCss = `
     grid-template-columns: 1fr 200px;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Field 髫ｨ貂可髫ｨ貂可 */
+  /* Field */
   .options-field {
     display: flex;
     flex-direction: column;
@@ -570,7 +575,7 @@ const pageCss = `
     line-height: 1.5;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Inputs 髫ｨ貂可髫ｨ貂可 */
+  /* Inputs */
   .options-input {
     height: 38px;
     padding: 0 12px;
@@ -607,7 +612,7 @@ const pageCss = `
     color: rgba(73, 101, 131, 0.8);
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Buttons 髫ｨ貂可髫ｨ貂可 */
+  /* Buttons */
   .options-button {
     height: 36px;
     padding: 0 16px;
@@ -633,7 +638,7 @@ const pageCss = `
     color: inherit;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Inline row 髫ｨ貂可髫ｨ貂可 */
+  /* Inline row */
   .options-inline {
     display: flex;
     gap: 8px;
@@ -643,7 +648,7 @@ const pageCss = `
     flex: 1;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Radio / Checkbox 髫ｨ貂可髫ｨ貂可 */
+  /* Radio / Checkbox */
   .options-choice-row {
     display: flex;
     gap: 16px;
@@ -664,7 +669,7 @@ const pageCss = `
     margin-top: 1px;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Callout 髫ｨ貂可髫ｨ貂可 */
+  /* Callout */
   .options-callout {
     padding: 12px 14px;
     border-radius: 10px;
@@ -694,7 +699,7 @@ const pageCss = `
     color: #16263b;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Inline links 髫ｨ貂可髫ｨ貂可 */
+  /* Inline links */
   .options-inline-links {
     display: flex;
     gap: 14px;
@@ -711,7 +716,7 @@ const pageCss = `
     text-decoration: underline;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Subsection 髫ｨ貂可髫ｨ貂可 */
+  /* Subsection */
   .options-subsection {
     display: flex;
     flex-direction: column;
@@ -731,7 +736,7 @@ const pageCss = `
     background: rgba(123, 178, 255, 0.1);
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Color grid 髫ｨ貂可髫ｨ貂可 */
+  /* Color grid */
   .options-color-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
@@ -768,7 +773,7 @@ const pageCss = `
     padding: 2px;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Install banner 髫ｨ貂可髫ｨ貂可 */
+  /* Install banner */
   .options-install-banner {
     display: flex;
     align-items: center;
@@ -799,7 +804,7 @@ const pageCss = `
     flex: none;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Setup banner 髫ｨ貂可髫ｨ貂可 */
+  /* Setup banner */
   .options-setup-banner {
     display: flex;
     align-items: flex-start;
@@ -816,7 +821,7 @@ const pageCss = `
     margin: 0;
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 Guide 髫ｨ貂可髫ｨ貂可 */
+  /* Guide */
   .options-guide-diagram {
     border-radius: 10px;
     overflow: hidden;
@@ -924,7 +929,7 @@ const pageCss = `
     .options-col-types { grid-template-columns: repeat(2, 1fr); }
   }
 
-  /* 髫ｨ貂可髫ｨ貂可 CustomSelect (scoped) 髫ｨ貂可髫ｨ貂可 */
+  /* CustomSelect (scoped) */
   .options-content .mm-custom-select {
     position: relative;
   }
@@ -1073,7 +1078,7 @@ const pageCss = `
   }
 `;
 
-// 髫ｨ貂可髫ｨ貂可 Helpers 髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可
+// Helpers
 
 function getManifestVersion(): string {
   try {
@@ -1083,7 +1088,7 @@ function getManifestVersion(): string {
   }
 }
 
-// 髫ｨ貂可髫ｨ貂可 Component 髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可
+// Component
 
 function OptionsApp(): React.JSX.Element {
   const [settings, setSettings] = useState<DeckSettings>(DEFAULT_SETTINGS);
@@ -1092,6 +1097,7 @@ function OptionsApp(): React.JSX.Element {
   const [profiles, setProfiles] = useState<DeckProfileSummary[]>([]);
   const [activeProfileId, setActiveProfileId] = useState("");
   const [newProfileName, setNewProfileName] = useState("");
+  const [renameProfileName, setRenameProfileName] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [showPat, setShowPat] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1140,6 +1146,11 @@ function OptionsApp(): React.JSX.Element {
     setActiveProfileId(snapshot.activeProfileId);
     setProfileOrigin(origin);
   };
+
+  useEffect(() => {
+    const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
+    setRenameProfileName(activeProfile?.name ?? "");
+  }, [activeProfileId, profiles]);
 
   useEffect(() => {
     document.body.dataset.theme = resolveTheme(settings.theme);
@@ -1236,6 +1247,8 @@ function OptionsApp(): React.JSX.Element {
     { id: "security",   icon: <NavIconSecurity />,    label: text.securityTitle },
   ];
   const targetProfileOrigin = normaliseServerUrl(settings.serverUrl) || profileOrigin || initialServerUrl;
+  const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? null;
+  const canDeleteProfile = activeProfile !== null && profiles.length > 1;
 
   const handleSwitchProfile = async (profileId: string) => {
     if (!profileId || !targetProfileOrigin) {
@@ -1275,10 +1288,77 @@ function OptionsApp(): React.JSX.Element {
     window.setTimeout(() => setSavedNotice(false), 2500);
   };
 
+  const handleRenameProfile = async () => {
+    if (!activeProfile) {
+      return;
+    }
+
+    const name = renameProfileName.trim();
+    if (!name) {
+      return;
+    }
+
+    await renameDeckProfile(activeProfile.id, name);
+    await refreshProfiles(targetProfileOrigin);
+    setSavedNotice(true);
+    window.setTimeout(() => setSavedNotice(false), 2500);
+  };
+
+  const handleDuplicateProfile = async () => {
+    if (!activeProfile || !targetProfileOrigin) {
+      return;
+    }
+
+    const duplicate = await duplicateDeckProfile(activeProfile.id, `${activeProfile.name} Copy`);
+    if (!duplicate) {
+      return;
+    }
+
+    await switchDeckProfile(duplicate.id);
+    await saveDeckSettings({
+      ...settings,
+      serverUrl: targetProfileOrigin,
+      healthCheckPath: normaliseHealthCheckPath(settings.healthCheckPath),
+    }, targetProfileOrigin);
+    const next = await loadDeckSettings(targetProfileOrigin);
+    setSettings(next);
+    setInitialServerUrl(next.serverUrl);
+    await refreshProfiles(targetProfileOrigin);
+    setSavedNotice(true);
+    window.setTimeout(() => setSavedNotice(false), 2500);
+  };
+
+  const handleDeleteProfile = async () => {
+    if (!activeProfile || !canDeleteProfile) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete profile \"${activeProfile.name}\"? This cannot be undone.`);
+    if (!confirmed) {
+      return;
+    }
+
+    const result = await deleteDeckProfile(activeProfile.id);
+    if (!result.deleted) {
+      setSaveError("At least one profile must remain for this server.");
+      return;
+    }
+
+    if (result.nextActiveProfileId) {
+      await switchDeckProfile(result.nextActiveProfileId);
+    }
+    const next = await loadDeckSettings(targetProfileOrigin);
+    setSettings(next);
+    setInitialServerUrl(next.serverUrl);
+    await refreshProfiles(targetProfileOrigin);
+    setSavedNotice(true);
+    window.setTimeout(() => setSavedNotice(false), 2500);
+  };
+
   return (
     <div className="options-app">
 
-      {/* 髫ｨ貂可髫ｨ貂可 Topbar 髫ｨ貂可髫ｨ貂可 */}
+      {/* Topbar */}
       <header className="options-topbar">
         <div className="options-topbar-brand">
           <img src="assets/icons/icon-48.png" alt="" width="28" height="28" />
@@ -1287,10 +1367,10 @@ function OptionsApp(): React.JSX.Element {
         </div>
       </header>
 
-      {/* 髫ｨ貂可髫ｨ貂可 Body 髫ｨ貂可髫ｨ貂可 */}
+      {/* Body */}
       <div className="options-body">
 
-        {/* 髫ｨ貂可髫ｨ貂可 Sidebar 髫ｨ貂可髫ｨ貂可 */}
+        {/* Sidebar */}
         <nav className="options-sidebar">
           <div className="options-sidebar-nav">
             {navItems.map(({ id, icon, label }) => (
@@ -1328,7 +1408,7 @@ function OptionsApp(): React.JSX.Element {
           </div>
         </nav>
 
-        {/* 髫ｨ貂可髫ｨ貂可 Content 髫ｨ貂可髫ｨ貂可 */}
+        {/* Content */}
         <main className="options-content">
           <div className="options-panel-scroll">
 
@@ -1365,7 +1445,7 @@ function OptionsApp(): React.JSX.Element {
             </div>
           )}
 
-          {/* 髫ｨ貂可髫ｨ貂可 Panel: 髣厄ｽｴ繝ｻ・ｿ驍ｵ・ｺ郢晢ｽｻ陝・ｿ 髫ｨ貂可髫ｨ貂可 */}
+          {/* Panel: Guide */}
           {activePanel === "guide" && (
             <div className="options-panel">
               <div className="options-panel-header">
@@ -1515,7 +1595,7 @@ function OptionsApp(): React.JSX.Element {
             </div>
           )}
 
-          {/* 髫ｨ貂可髫ｨ貂可 Panel: 髫ｰ證ｦ・ｽ・･鬩搾ｽｯ郢晢ｽｻ髫ｨ貂可髫ｨ貂可 */}
+          {/* Panel: Connection */}
           {activePanel === "conn" && (
             <div className="options-panel">
               <div className="options-panel-header">
@@ -1568,6 +1648,50 @@ function OptionsApp(): React.JSX.Element {
                       </button>
                     </div>
                     <span className="options-hint">A new profile starts as a copy of the current settings for this server.</span>
+                  </label>
+                  <label className="options-field">
+                    <span className="options-label">Manage Current Profile</span>
+                    <div className="options-inline">
+                      <input
+                        className="options-input"
+                        type="text"
+                        value={renameProfileName}
+                        onChange={(e) => setRenameProfileName(e.target.value)}
+                        placeholder="Rename current profile"
+                        autoComplete="off"
+                        spellCheck={false}
+                        disabled={!activeProfile}
+                      />
+                      <button
+                        type="button"
+                        className="options-button options-button--ghost"
+                        onClick={() => void handleRenameProfile()}
+                        disabled={!activeProfile || !renameProfileName.trim() || renameProfileName.trim() === activeProfile.name}
+                      >
+                        Rename
+                      </button>
+                    </div>
+                    <div className="options-inline">
+                      <button
+                        type="button"
+                        className="options-button options-button--ghost"
+                        onClick={() => void handleDuplicateProfile()}
+                        disabled={!activeProfile}
+                      >
+                        Duplicate
+                      </button>
+                      <button
+                        type="button"
+                        className="options-button options-button--ghost"
+                        onClick={() => void handleDeleteProfile()}
+                        disabled={!canDeleteProfile}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                    <span className="options-hint">
+                      Delete always asks for confirmation. One profile must remain for each server.
+                    </span>
                   </label>
                 </div>
               </div>
@@ -1662,7 +1786,7 @@ function OptionsApp(): React.JSX.Element {
             </div>
           )}
 
-          {/* 髫ｨ貂可髫ｨ貂可 Panel: 驛｢譎｢・ｽ・ｪ驛｢・ｧ繝ｻ・｢驛｢譎｢・ｽ・ｫ驛｢・ｧ繝ｻ・ｿ驛｢・ｧ繝ｻ・､驛｢譎｢・｣・ｰ 髫ｨ貂可髫ｨ貂可 */}
+          {/* Panel: Realtime */}
           {activePanel === "realtime" && (
             <div className="options-panel">
               <div className="options-panel-header">
@@ -1765,7 +1889,7 @@ function OptionsApp(): React.JSX.Element {
             </div>
           )}
 
-          {/* 髫ｨ貂可髫ｨ貂可 Panel: 髯樊ｺｷ繝ｻ繝ｻ・ｦ繝ｻ・ｳ 髫ｨ貂可髫ｨ貂可 */}
+          {/* Panel: Appearance */}
           {activePanel === "appearance" && (
             <div className="options-panel">
               <div className="options-panel-header">
@@ -1874,7 +1998,7 @@ function OptionsApp(): React.JSX.Element {
             </div>
           )}
 
-          {/* 髫ｨ貂可髫ｨ貂可 Panel: 髯ｷ蜥ｲ・ｩ繧托ｽｽ・ｽ郢晢ｽｻ髫ｨ貂可髫ｨ貂可 */}
+          {/* Panel: Behavior */}
           {activePanel === "behavior" && (
             <div className="options-panel">
               <div className="options-panel-header">
@@ -1965,7 +2089,7 @@ function OptionsApp(): React.JSX.Element {
             </div>
           )}
 
-          {/* 髫ｨ貂可髫ｨ貂可 Panel: 驛｢・ｧ繝ｻ・ｻ驛｢・ｧ繝ｻ・ｭ驛｢譎｢・ｽ・･驛｢譎｢・ｽ・ｪ驛｢譏ｴ繝ｻ邵ｺ繝ｻ髫ｨ貂可髫ｨ貂可 */}
+          {/* Panel: Security */}
           {activePanel === "security" && (
             <div className="options-panel">
               <div className="options-panel-header">
@@ -1981,7 +2105,7 @@ function OptionsApp(): React.JSX.Element {
 
           </div>{/* options-panel-scroll */}
 
-          {/* 髫ｨ貂可髫ｨ貂可 Save footer 髫ｨ貂可髫ｨ貂可 */}
+          {/* Save footer */}
           <footer className="options-save-footer">
             <div className="options-save-footer-inner">
               <span className="options-status">
@@ -2004,7 +2128,7 @@ function OptionsApp(): React.JSX.Element {
   );
 }
 
-// 髫ｨ貂可髫ｨ貂可 Mount 髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可
+// Mount
 
 const root = document.getElementById("options-root");
 if (!(root instanceof HTMLDivElement)) {

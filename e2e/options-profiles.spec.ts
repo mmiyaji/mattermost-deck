@@ -5,7 +5,7 @@ import path from "node:path";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 
-test("options page can create and switch profiles", async () => {
+test("options page can create, rename, duplicate, and delete profiles", async () => {
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-options-"));
   const context = await chromium.launchPersistentContext(userDataDir, {
@@ -41,8 +41,23 @@ test("options page can create and switch profiles", async () => {
     await expect(profileSelect.locator("option")).toHaveCount(2);
     await expect(profileSelect.locator("option", { hasText: "Night Shift" })).toBeAttached();
 
+    const renameInput = page.getByPlaceholder("Rename current profile");
+    await renameInput.fill("Night Ops");
+    await page.getByRole("button", { name: "Rename" }).click();
+    await expect(profileSelect.locator("option", { hasText: "Night Ops" })).toBeAttached();
+
+    await page.getByRole("button", { name: "Duplicate" }).click();
+    await expect(profileSelect.locator("option")).toHaveCount(3);
+    await expect(profileSelect.locator("option", { hasText: "Night Ops Copy" })).toBeAttached();
+
     await profileSelect.selectOption({ label: "Default" });
     await expect(profileSelect).toHaveValue(await profileSelect.locator("option", { hasText: "Default" }).getAttribute("value"));
+
+    await profileSelect.selectOption({ label: "Night Ops" });
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Delete" }).click();
+    await expect(profileSelect.locator("option")).toHaveCount(2);
+    await expect(profileSelect.locator("option", { hasText: "Night Ops" })).toHaveCount(0);
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });

@@ -168,8 +168,8 @@ export const railCssText = `
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
-    min-width: 220px;
-    max-width: 280px;
+    min-width: 260px;
+    max-width: 320px;
     max-height: min(70vh, 560px);
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -185,7 +185,7 @@ export const railCssText = `
   }
 
   .deck-add-menu--compact {
-    min-width: 200px;
+    min-width: 240px;
   }
 
   .deck-add-menu--views {
@@ -265,6 +265,16 @@ export const railCssText = `
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: var(--deck-text-faint);
+  }
+
+  .deck-stack--empty-actions .deck-add-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .deck-stack--empty-actions .deck-add-item small {
     color: var(--deck-text-faint);
   }
 

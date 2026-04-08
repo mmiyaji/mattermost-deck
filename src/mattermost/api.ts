@@ -24,6 +24,10 @@ export interface MattermostChannelMember {
   channel_id: string;
   user_id: string;
   last_viewed_at?: number;
+  msg_count?: number;
+  mention_count?: number;
+  mention_count_root?: number;
+  urgent_mention_count?: number;
 }
 
 export interface MattermostPost {
@@ -411,6 +415,10 @@ export async function getTeamByName(teamName: string): Promise<MattermostTeam> {
 
 export async function getChannelsForCurrentUser(teamId: string): Promise<MattermostChannel[]> {
   return await apiGet<MattermostChannel[]>(`/users/me/teams/${encodeURIComponent(teamId)}/channels`);
+}
+
+export async function getChannelMembersForCurrentUser(teamId: string): Promise<MattermostChannelMember[]> {
+  return await apiGet<MattermostChannelMember[]>(`/users/me/teams/${encodeURIComponent(teamId)}/channels/members`);
 }
 
 export async function getDirectChannelsForCurrentUser(): Promise<MattermostChannel[]> {
