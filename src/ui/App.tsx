@@ -227,6 +227,29 @@ interface SavedDeckView {
   columns: DeckColumn[];
 }
 
+function getRecentTargetKey(target: Pick<RecentChannelTarget, "teamId" | "channelId">): string {
+  return `${target.teamId}::${target.channelId}`;
+}
+
+function dedupeRecentTargets(targets: RecentChannelTarget[]): RecentChannelTarget[] {
+  const seen = new Set<string>();
+  const next: RecentChannelTarget[] = [];
+
+  for (const target of targets) {
+    const key = getRecentTargetKey(target);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    next.push(target);
+    if (next.length >= MAX_RECENT_TARGETS) {
+      break;
+    }
+  }
+
+  return next;
+}
+
 function formatPostTime(timestamp: number): string {
   const date = new Date(timestamp);
   const now = new Date();
@@ -507,6 +530,10 @@ function getUserLabel(user: MattermostUser | undefined, fallbackId: string): str
   }
 
   return user.nickname?.trim() || `@${user.username}`;
+}
+
+function getUserAvatarUrl(userId: string): string {
+  return `/api/v4/users/${encodeURIComponent(userId)}/image`;
 }
 
 function getRecentTargetLabel(
@@ -1668,19 +1695,22 @@ function useRecentTargets(): [RecentChannelTarget[], (target: RecentChannelTarge
     const run = async () => {
       const stored = await loadStoredJson<RecentChannelTarget[]>(RECENT_TARGETS_STORAGE_KEY, []);
       if (!cancelled) {
-        setTargets(
-          Array.isArray(stored)
-            ? stored.filter(
-                (entry) =>
-                  Boolean(entry) &&
-                  (entry.type === "channelWatch" || entry.type === "dmWatch") &&
-                  typeof entry.teamId === "string" &&
-                  typeof entry.teamLabel === "string" &&
-                  typeof entry.channelId === "string" &&
-                  typeof entry.channelLabel === "string",
-              )
-            : [],
-        );
+        const filtered = Array.isArray(stored)
+          ? stored.filter(
+              (entry) =>
+                Boolean(entry) &&
+                (entry.type === "channelWatch" || entry.type === "dmWatch") &&
+                typeof entry.teamId === "string" &&
+                typeof entry.teamLabel === "string" &&
+                typeof entry.channelId === "string" &&
+                typeof entry.channelLabel === "string",
+            )
+          : [];
+        const deduped = dedupeRecentTargets(filtered);
+        setTargets(deduped);
+        if (filtered.length !== deduped.length) {
+          void saveStoredJson(RECENT_TARGETS_STORAGE_KEY, deduped);
+        }
       }
     };
 
@@ -1692,12 +1722,10 @@ function useRecentTargets(): [RecentChannelTarget[], (target: RecentChannelTarge
 
   const remember = useCallback((target: RecentChannelTarget) => {
     setTargets((current) => {
-      const next = [
+      const next = dedupeRecentTargets([
         target,
-        ...current.filter(
-          (entry) => !(entry.teamId === target.teamId && entry.channelId === target.channelId),
-        ),
-      ].slice(0, MAX_RECENT_TARGETS);
+        ...current,
+      ]);
       void saveStoredJson(RECENT_TARGETS_STORAGE_KEY, next);
       return next;
     });
@@ -2755,7 +2783,19 @@ function PostList({
       >
         <div className="deck-card-header">
           <strong>{formatPostTime(post.create_at)}</strong>
-          <span>{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
+          <span className="deck-card-author">
+            {!compactMode ? (
+              <img
+                className="deck-card-avatar"
+                src={getUserAvatarUrl(post.user_id)}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                referrerPolicy="no-referrer"
+              />
+            ) : null}
+            <span className="deck-card-author-label">{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
+          </span>
         </div>
         {renderMeta ? <div className="deck-card-meta">{renderMeta(post)}</div> : null}
         {(() => {

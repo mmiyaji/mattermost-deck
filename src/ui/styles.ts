@@ -1542,9 +1542,34 @@ export const railCssText = `
   .deck-card-header {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     gap: 12px;
     color: var(--deck-text-faint);
     font-size: calc(12px * var(--deck-font-scale));
+  }
+
+  .deck-card-author {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .deck-card-author-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .deck-card-avatar {
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    flex: none;
+    object-fit: cover;
+    background: color-mix(in srgb, var(--deck-card) 80%, var(--deck-text) 20%);
+    border: 1px solid color-mix(in srgb, var(--deck-border) 60%, transparent);
   }
 
   .deck-shell[data-theme="light"] .deck-card-header {
