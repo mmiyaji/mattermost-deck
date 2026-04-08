@@ -48,7 +48,7 @@ const STORE_URL = ""; // Chrome Web Store URL (fill in after publication)
 const AUTHOR_NAME = "mmiyaji";
 const COPYRIGHT_YEAR = "2026";
 
-type ActivePanel = "guide" | "conn" | "realtime" | "appearance" | "behavior" | "security";
+type ActivePanel = "guide" | "conn" | "profiles" | "realtime" | "appearance" | "behavior" | "security";
 
 function useOptionsText() {
   const { t } = useTranslation();
@@ -58,6 +58,32 @@ function useOptionsText() {
     guideTitle: t("options.guideTitle"),
     connTitle: t("options.connTitle"),
     connDesc: t("options.connDesc"),
+    profilesTitle: t("options.profilesTitle", { defaultValue: "Profiles" }),
+    profilesDesc: t("options.profilesDesc", { defaultValue: "Profiles let you save multiple setting sets for the same Mattermost server after the basic connection is working." }),
+    profilesRecommendedTitle: t("options.profilesRecommendedTitle", { defaultValue: "Recommended order" }),
+    profilesRecommendedBody: t("options.profilesRecommendedBody", { defaultValue: "Set and save your Mattermost Server URL in Connection first. After the extension can connect to the server, use profiles only if you need separate settings for roles such as Ops, Support, or Night Shift." }),
+    profilesHowItWorksLabel: t("options.profilesHowItWorksLabel", { defaultValue: "How profiles work" }),
+    profilesHowItWorksBody1: t("options.profilesHowItWorksBody1", { defaultValue: "Profiles are grouped by server origin. Each profile stores a different settings set for the same Mattermost server." }),
+    profilesHowItWorksBody2: t("options.profilesHowItWorksBody2", { defaultValue: "They are optional. If you only use one server setup, you can ignore this page and keep using the default profile." }),
+    profilesSectionLabel: t("options.profilesSectionLabel", { defaultValue: "Profiles" }),
+    currentProfileLabel: t("options.currentProfileLabel", { defaultValue: "Current Profile" }),
+    currentProfilePlaceholder: t("options.currentProfilePlaceholder", { defaultValue: "Select a profile" }),
+    profilesForOrigin: t("options.profilesForOrigin", { defaultValue: "Profiles for {{origin}}" }),
+    profilesNeedsConnection: t("options.profilesNeedsConnection", { defaultValue: "Save a Mattermost Server URL in Connection before managing profiles." }),
+    createProfileLabel: t("options.createProfileLabel", { defaultValue: "Create Profile" }),
+    createProfilePlaceholder: t("options.createProfilePlaceholder", { defaultValue: "Ops, Support, Night Shift" }),
+    createProfileButton: t("options.createProfileButton", { defaultValue: "Create" }),
+    createProfileHint: t("options.createProfileHint", { defaultValue: "A new profile starts as a copy of the current settings for this server." }),
+    manageCurrentProfileLabel: t("options.manageCurrentProfileLabel", { defaultValue: "Manage Current Profile" }),
+    renameCurrentProfilePlaceholder: t("options.renameCurrentProfilePlaceholder", { defaultValue: "Rename current profile" }),
+    renameProfileButton: t("options.renameProfileButton", { defaultValue: "Rename" }),
+    duplicateProfileButton: t("options.duplicateProfileButton", { defaultValue: "Duplicate" }),
+    deleteProfileButton: t("options.deleteProfileButton", { defaultValue: "Delete" }),
+    deleteProfileHint: t("options.deleteProfileHint", { defaultValue: "Delete always asks for confirmation. One profile must remain for each server." }),
+    profilesCreateNeedsServerUrl: t("options.profilesCreateNeedsServerUrl", { defaultValue: "Save a valid Mattermost Server URL before creating profiles." }),
+    profilesCopySuffix: t("options.profilesCopySuffix", { defaultValue: "Copy" }),
+    profilesDeleteConfirm: t("options.profilesDeleteConfirm", { defaultValue: "Delete profile \"{{name}}\"? This cannot be undone." }),
+    profilesDeleteLastError: t("options.profilesDeleteLastError", { defaultValue: "At least one profile must remain for this server." }),
     serverUrlLabel: t("options.serverUrlLabel"),
     serverUrlPlaceholder: t("options.serverUrlPlaceholder"),
     teamSlugLabel: t("options.teamSlugLabel"),
@@ -147,6 +173,17 @@ function NavIconConn(): React.JSX.Element {
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
       <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  );
+}
+
+function NavIconProfiles(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 19a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4" />
+      <circle cx="12" cy="8" r="3" />
+      <path d="M4 5h4" />
+      <path d="M4 9h3" />
     </svg>
   );
 }
@@ -723,6 +760,22 @@ const pageCss = `
     gap: 12px;
   }
 
+  .options-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .options-copy {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #8facd5;
+  }
+
+  body[data-theme="light"] .options-copy {
+    color: #496583;
+  }
+
   .options-subsection-label {
     font-size: 11px;
     font-weight: 600;
@@ -1241,6 +1294,7 @@ function OptionsApp(): React.JSX.Element {
   const navItems: { id: ActivePanel; icon: React.JSX.Element; label: string }[] = [
     { id: "guide",      icon: <NavIconGuide />,       label: text.guideTitle },
     { id: "conn",       icon: <NavIconConn />,        label: text.connTitle },
+    { id: "profiles",   icon: <NavIconProfiles />,    label: text.profilesTitle },
     { id: "realtime",   icon: <NavIconRealtime />,    label: text.realtimeTitle },
     { id: "appearance", icon: <NavIconAppearance />,  label: text.appearanceTitle },
     { id: "behavior",   icon: <NavIconBehavior />,    label: text.behaviorTitle },
@@ -1249,6 +1303,10 @@ function OptionsApp(): React.JSX.Element {
   const targetProfileOrigin = normaliseServerUrl(settings.serverUrl) || profileOrigin || initialServerUrl;
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? null;
   const canDeleteProfile = activeProfile !== null && profiles.length > 1;
+  const profileOptions = useMemo<CustomSelectOption[]>(
+    () => profiles.map((profile) => ({ value: profile.id, label: profile.name })),
+    [profiles],
+  );
 
   const handleSwitchProfile = async (profileId: string) => {
     if (!profileId || !targetProfileOrigin) {
@@ -1263,7 +1321,7 @@ function OptionsApp(): React.JSX.Element {
 
   const handleCreateProfile = async () => {
     if (!targetProfileOrigin) {
-      setSaveError("Save a valid Mattermost Server URL before creating profiles.");
+      setSaveError(text.profilesCreateNeedsServerUrl);
       return;
     }
 
@@ -1309,7 +1367,7 @@ function OptionsApp(): React.JSX.Element {
       return;
     }
 
-    const duplicate = await duplicateDeckProfile(activeProfile.id, `${activeProfile.name} Copy`);
+    const duplicate = await duplicateDeckProfile(activeProfile.id, `${activeProfile.name} ${text.profilesCopySuffix}`);
     if (!duplicate) {
       return;
     }
@@ -1333,14 +1391,14 @@ function OptionsApp(): React.JSX.Element {
       return;
     }
 
-    const confirmed = window.confirm(`Delete profile \"${activeProfile.name}\"? This cannot be undone.`);
+    const confirmed = window.confirm(t("options.profilesDeleteConfirm", { name: activeProfile.name }));
     if (!confirmed) {
       return;
     }
 
     const result = await deleteDeckProfile(activeProfile.id);
     if (!result.deleted) {
-      setSaveError("At least one profile must remain for this server.");
+      setSaveError(text.profilesDeleteLastError);
       return;
     }
 
@@ -1603,99 +1661,6 @@ function OptionsApp(): React.JSX.Element {
                 <p>{text.connDesc}</p>
               </div>
 
-              <div className="options-subsection">
-                <span className="options-subsection-label">Profiles</span>
-                <div className="options-grid">
-                  <label className="options-field">
-                    <span className="options-label">Current Profile</span>
-                    <select
-                      className="options-input"
-                      value={activeProfileId}
-                      onChange={(e) => void handleSwitchProfile(e.target.value)}
-                      disabled={profiles.length === 0}
-                    >
-                      {profiles.map((profile) => (
-                        <option key={profile.id} value={profile.id}>
-                          {profile.name}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="options-hint">
-                      {targetProfileOrigin
-                        ? `Profiles for ${targetProfileOrigin}`
-                        : "Save a Mattermost Server URL to manage per-origin profiles."}
-                    </span>
-                  </label>
-                  <label className="options-field">
-                    <span className="options-label">Create Profile</span>
-                    <div className="options-inline">
-                      <input
-                        className="options-input"
-                        type="text"
-                        value={newProfileName}
-                        onChange={(e) => setNewProfileName(e.target.value)}
-                        placeholder="Ops, Support, Night Shift"
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                      <button
-                        type="button"
-                        className="options-button"
-                        onClick={() => void handleCreateProfile()}
-                        disabled={!newProfileName.trim()}
-                      >
-                        Create
-                      </button>
-                    </div>
-                    <span className="options-hint">A new profile starts as a copy of the current settings for this server.</span>
-                  </label>
-                  <label className="options-field">
-                    <span className="options-label">Manage Current Profile</span>
-                    <div className="options-inline">
-                      <input
-                        className="options-input"
-                        type="text"
-                        value={renameProfileName}
-                        onChange={(e) => setRenameProfileName(e.target.value)}
-                        placeholder="Rename current profile"
-                        autoComplete="off"
-                        spellCheck={false}
-                        disabled={!activeProfile}
-                      />
-                      <button
-                        type="button"
-                        className="options-button options-button--ghost"
-                        onClick={() => void handleRenameProfile()}
-                        disabled={!activeProfile || !renameProfileName.trim() || renameProfileName.trim() === activeProfile.name}
-                      >
-                        Rename
-                      </button>
-                    </div>
-                    <div className="options-inline">
-                      <button
-                        type="button"
-                        className="options-button options-button--ghost"
-                        onClick={() => void handleDuplicateProfile()}
-                        disabled={!activeProfile}
-                      >
-                        Duplicate
-                      </button>
-                      <button
-                        type="button"
-                        className="options-button options-button--ghost"
-                        onClick={() => void handleDeleteProfile()}
-                        disabled={!canDeleteProfile}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                    <span className="options-hint">
-                      Delete always asks for confirmation. One profile must remain for each server.
-                    </span>
-                  </label>
-                </div>
-              </div>
-
               {loaded && !initialServerUrl && (
                 <div className="options-setup-banner">
                   <span>⚠️</span>
@@ -1780,6 +1745,118 @@ function OptionsApp(): React.JSX.Element {
                       spellCheck={false}
                     />
                     <span className="options-hint">{text.healthCheckHint}</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Panel: Profiles */}
+          {activePanel === "profiles" && (
+            <div className="options-panel">
+              <div className="options-panel-header">
+                <h2>{text.profilesTitle}</h2>
+                <p>{text.profilesDesc}</p>
+              </div>
+
+              <div className="options-callout" role="note">
+                <strong>{text.profilesRecommendedTitle}</strong>
+                <p>
+                  {text.profilesRecommendedBody}
+                </p>
+              </div>
+
+              <div className="options-subsection">
+                <span className="options-subsection-label">{text.profilesHowItWorksLabel}</span>
+                <div className="options-stack">
+                  <p className="options-copy">{text.profilesHowItWorksBody1}</p>
+                  <p className="options-copy">{text.profilesHowItWorksBody2}</p>
+                </div>
+              </div>
+
+              <div className="options-subsection">
+                <span className="options-subsection-label">{text.profilesSectionLabel}</span>
+                <div className="options-grid">
+                  <label className="options-field">
+                    <span className="options-label">{text.currentProfileLabel}</span>
+                    <CustomSelect
+                      options={profileOptions}
+                      value={activeProfileId}
+                      placeholder={text.currentProfilePlaceholder}
+                      allowClear={false}
+                      onChange={(value) => void handleSwitchProfile(value)}
+                      disabled={profiles.length === 0}
+                    />
+                    <span className="options-hint">
+                      {targetProfileOrigin
+                        ? t("options.profilesForOrigin", { origin: targetProfileOrigin })
+                        : text.profilesNeedsConnection}
+                    </span>
+                  </label>
+                  <label className="options-field">
+                    <span className="options-label">{text.createProfileLabel}</span>
+                    <div className="options-inline">
+                      <input
+                        className="options-input"
+                        type="text"
+                        value={newProfileName}
+                        onChange={(e) => setNewProfileName(e.target.value)}
+                        placeholder={text.createProfilePlaceholder}
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <button
+                        type="button"
+                        className="options-button"
+                        onClick={() => void handleCreateProfile()}
+                        disabled={!newProfileName.trim()}
+                      >
+                        {text.createProfileButton}
+                      </button>
+                    </div>
+                    <span className="options-hint">{text.createProfileHint}</span>
+                  </label>
+                  <label className="options-field">
+                    <span className="options-label">{text.manageCurrentProfileLabel}</span>
+                    <div className="options-inline">
+                      <input
+                        className="options-input"
+                        type="text"
+                        value={renameProfileName}
+                        onChange={(e) => setRenameProfileName(e.target.value)}
+                        placeholder={text.renameCurrentProfilePlaceholder}
+                        autoComplete="off"
+                        spellCheck={false}
+                        disabled={!activeProfile}
+                      />
+                      <button
+                        type="button"
+                        className="options-button options-button--ghost"
+                        onClick={() => void handleRenameProfile()}
+                        disabled={!activeProfile || !renameProfileName.trim() || renameProfileName.trim() === activeProfile.name}
+                      >
+                        {text.renameProfileButton}
+                      </button>
+                    </div>
+                    <div className="options-inline">
+                      <button
+                        type="button"
+                        className="options-button options-button--ghost"
+                        onClick={() => void handleDuplicateProfile()}
+                        disabled={!activeProfile}
+                      >
+                        {text.duplicateProfileButton}
+                      </button>
+                      <button
+                        type="button"
+                        className="options-button options-button--ghost"
+                        onClick={() => void handleDeleteProfile()}
+                        disabled={!canDeleteProfile}
+                      >
+                        {text.deleteProfileButton}
+                      </button>
+                    </div>
+                    <span className="options-hint">{text.deleteProfileHint}</span>
                   </label>
                 </div>
               </div>
@@ -1995,6 +2072,38 @@ function OptionsApp(): React.JSX.Element {
                   </label>
                 </label>
               </div>
+
+              <div className="options-divider" />
+
+              <div className="options-subsection">
+                <span className="options-subsection-label">{text.paneIdentityLabel}</span>
+                <p className="options-hint">{text.paneIdentityHint}</p>
+                <label className="options-choice">
+                  <input
+                    type="checkbox"
+                    checked={settings.columnColorEnabled}
+                    onChange={(e) => setSettings((s) => ({ ...s, columnColorEnabled: e.target.checked }))}
+                  />
+                  <span>{text.colorAccentsLabel}</span>
+                </label>
+                <div className="options-color-grid">
+                  {(Object.keys(DEFAULT_COLUMN_COLORS) as ColumnColorKey[]).map((key) => (
+                    <label key={key} className="options-color-item">
+                      <input
+                        type="color"
+                        value={settings.columnColors[key]}
+                        onChange={(e) =>
+                          setSettings((s) => ({
+                            ...s,
+                            columnColors: { ...s.columnColors, [key]: e.target.value },
+                          }))
+                        }
+                      />
+                      <span>{key}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
@@ -2055,37 +2164,6 @@ function OptionsApp(): React.JSX.Element {
                 </label>
               </div>
 
-              <div className="options-divider" />
-
-              <div className="options-subsection">
-                <span className="options-subsection-label">{text.paneIdentityLabel}</span>
-                <p className="options-hint">{text.paneIdentityHint}</p>
-                <label className="options-choice">
-                  <input
-                    type="checkbox"
-                    checked={settings.columnColorEnabled}
-                    onChange={(e) => setSettings((s) => ({ ...s, columnColorEnabled: e.target.checked }))}
-                  />
-                  <span>{text.colorAccentsLabel}</span>
-                </label>
-                <div className="options-color-grid">
-                  {(Object.keys(DEFAULT_COLUMN_COLORS) as ColumnColorKey[]).map((key) => (
-                    <label key={key} className="options-color-item">
-                      <input
-                        type="color"
-                        value={settings.columnColors[key]}
-                        onChange={(e) =>
-                          setSettings((s) => ({
-                            ...s,
-                            columnColors: { ...s.columnColors, [key]: e.target.value },
-                          }))
-                        }
-                      />
-                      <span>{key}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
             </div>
           )}
 

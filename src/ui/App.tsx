@@ -66,6 +66,7 @@ import {
   type DeckTheme,
   type PostClickAction,
 } from "./settings";
+import { extractHighlightKeywords, tokenizePostText } from "./postText";
 
 
 interface AppProps {
@@ -147,6 +148,7 @@ const POST_VIRTUALIZE_THRESHOLD = 40;
 const SEARCH_SYNC_INTERVAL_FLOOR_MS = 120_000;
 const MAX_SAVED_VIEWS = 8;
 const DEBUG_FLAG_KEY = "mattermostDeck.debugLogs";
+const COMPACT_HEADER_BREAKPOINT_PX = 620;
 const SPECIAL_MENTION_MEMBER_TTL_MS = 45_000;
 const SPECIAL_MENTION_MEMBER_TTL_WS_MS = 180_000;
 const SPECIAL_MENTION_POST_TTL_MS = 30_000;
@@ -443,13 +445,6 @@ function renderHighlightedText(text: string, query: string): React.ReactNode {
   return renderHighlightedTextFromTerms(text, terms);
 }
 
-function extractHighlightKeywords(value: string): string[] {
-  return value
-    .split(/[\s,、;；\r\n\t]+/u)
-    .map((term) => term.trim())
-    .filter(Boolean);
-}
-
 function uniqueTerms(terms: string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -464,12 +459,12 @@ function uniqueTerms(terms: string[]): string[] {
   return result;
 }
 
-function renderHighlightedTextFromTerms(text: string, terms: string[]): React.ReactNode {
+function renderTextHighlights(text: string, terms: string[]): React.ReactNode {
   if (terms.length === 0) {
     return text;
   }
 
-  const pattern = new RegExp(`(${terms.map((term) => escapeRegExp(term)).join("|")})`, "gi");
+  const pattern = new RegExp(`(${terms.map((term) => escapeRegExp(term)).join('|')})`, 'gi');
   const segments = text.split(pattern);
   return segments.map((segment, index) =>
     terms.some((term) => segment.toLowerCase() === term.toLowerCase()) ? (
@@ -480,6 +475,42 @@ function renderHighlightedTextFromTerms(text: string, terms: string[]): React.Re
       <React.Fragment key={`${segment}-${index}`}>{segment}</React.Fragment>
     ),
   );
+}
+
+function renderHighlightedTextFromTerms(text: string, terms: string[]): React.ReactNode {
+  const nodes: React.ReactNode[] = [];
+  let index = 0;
+
+  for (const token of tokenizePostText(text)) {
+    if (token.type === 'url' && token.href) {
+      nodes.push(
+        <a
+          key={`token-${index}`}
+          className="deck-inline-link"
+          href={token.href}
+          target="_blank"
+          rel="noreferrer"
+          title={token.raw}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {token.display}
+        </a>,
+      );
+    } else if (token.raw.trim().length === 0) {
+      nodes.push(<React.Fragment key={`token-${index}`}>{token.raw}</React.Fragment>);
+    } else if (token.display !== token.raw) {
+      nodes.push(
+        <span key={`token-${index}`} className="deck-inline-ellipsis" title={token.raw}>
+          {token.display}
+        </span>,
+      );
+    } else {
+      nodes.push(<React.Fragment key={`token-${index}`}>{renderTextHighlights(token.raw, terms)}</React.Fragment>);
+    }
+    index += 1;
+  }
+
+  return nodes.length > 0 ? nodes : renderTextHighlights(text, terms);
 }
 
 function isSelectableChannel(channel: MattermostChannel): boolean {
@@ -3145,6 +3176,11 @@ function MentionsColumn({
     () => (username ? buildMentionSearchTerms(username) : ""),
     [username],
   );
+  const shouldShowLoadingState =
+    postState.posts.length === 0 &&
+    (postState.status === "idle" || postState.status === "loading") &&
+    teamIds.length > 0 &&
+    Boolean(username);
   const specialMentionMemberTtlMs = realtimeEnabled ? SPECIAL_MENTION_MEMBER_TTL_WS_MS : SPECIAL_MENTION_MEMBER_TTL_MS;
   const specialMentionPostTtlMs = realtimeEnabled ? SPECIAL_MENTION_POST_TTL_WS_MS : SPECIAL_MENTION_POST_TTL_MS;
 
@@ -3618,6 +3654,11 @@ function MentionsColumn({
           <strong>Failed to load mentions</strong>
           <p>{postState.error ?? "Unknown error"}</p>
         </article>
+      ) : shouldShowLoadingState ? (
+        <ColumnLoadingState
+          title="Loading mentions"
+          detail="Checking unread mentions and syncing recent mention posts."
+        />
       ) : visiblePosts.length === 0 ? (
         <article className="deck-card">
           <strong>No mentions</strong>
@@ -3774,6 +3815,10 @@ function ChannelWatchColumn({
   const [paused, setPaused] = useState(false);
   const [lastViewedAt, setLastViewedAt] = useState<number | null>(null);
   const hasConfiguredTarget = mode === "dm" ? Boolean(column.channelId) : Boolean(column.teamId && column.channelId);
+  const shouldShowLoadingState =
+    hasConfiguredTarget &&
+    postState.posts.length === 0 &&
+    (postState.status === "idle" || postState.status === "loading");
   const [showControls, setShowControls] = useState(!hasConfiguredTarget);
   const refreshStartedAtRef = useRef<number | null>(null);
   const refreshStopTimerRef = useRef<number | null>(null);
@@ -4267,6 +4312,11 @@ function ChannelWatchColumn({
           <strong>Failed to load posts</strong>
           <p>{postState.error ?? "Unknown error"}</p>
         </article>
+      ) : shouldShowLoadingState ? (
+        <ColumnLoadingState
+          title={mode === "dm" ? "Loading direct messages" : "Loading channel posts"}
+          detail={mode === "dm" ? "Fetching the latest direct message posts for this target." : "Fetching the latest channel posts for this pinned target."}
+        />
       ) : postState.posts.length === 0 ? (
         <article className="deck-card">
           <strong>No posts yet</strong>
@@ -4315,6 +4365,26 @@ function InitialLoadingState({ message }: { message: string }): React.JSX.Elemen
         <div className="deck-loading-skeleton" />
       </div>
     </section>
+  );
+}
+
+function ColumnLoadingState({
+  title,
+  detail,
+}: {
+  title: string;
+  detail: string;
+}): React.JSX.Element {
+  return (
+    <article className="deck-loading-state deck-loading-state--column" aria-live="polite">
+      <div className="deck-loading-spinner" aria-hidden="true" />
+      <strong>{title}</strong>
+      <p>{detail}</p>
+      <div className="deck-loading-skeletons" aria-hidden="true">
+        <div className="deck-loading-skeleton" />
+        <div className="deck-loading-skeleton" />
+      </div>
+    </article>
   );
 }
 
@@ -4403,6 +4473,10 @@ function SearchLikeColumn({
   );
   const apiQuery = useMemo(() => expandSearchQueryForApi(query), [query]);
   const ready = Boolean(column.teamId && query);
+  const shouldShowLoadingState =
+    ready &&
+    postState.posts.length === 0 &&
+    (postState.status === "idle" || postState.status === "loading");
   const title = query || "Search";
 
   const finishRefresh = useCallback(() => {
@@ -4727,6 +4801,11 @@ function SearchLikeColumn({
           <strong>Failed to load results</strong>
           <p>{postState.error ?? "Unknown error"}</p>
         </article>
+      ) : shouldShowLoadingState ? (
+        <ColumnLoadingState
+          title={column.type === "keywordWatch" ? "Loading keyword matches" : "Loading search results"}
+          detail={column.type === "keywordWatch" ? "Searching recent posts that match your keyword watch query." : "Searching Mattermost posts for your query."}
+        />
       ) : postState.posts.length === 0 ? (
         <article className="deck-card">
           <strong>No results</strong>
@@ -4804,6 +4883,9 @@ function SavedPostsColumn({
   const [paused, setPaused] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const highlightTerms = useMemo(() => extractHighlightKeywords(highlightKeywords), [highlightKeywords]);
+  const shouldShowLoadingState =
+    postState.posts.length === 0 &&
+    (postState.status === "idle" || postState.status === "loading");
   const refreshStartedAtRef = useRef<number | null>(null);
   const refreshStopTimerRef = useRef<number | null>(null);
 
@@ -4996,6 +5078,11 @@ function SavedPostsColumn({
           <strong>Failed to load saved posts</strong>
           <p>{postState.error ?? "Unknown error"}</p>
         </article>
+      ) : shouldShowLoadingState ? (
+        <ColumnLoadingState
+          title="Loading saved posts"
+          detail="Fetching your flagged posts and syncing the latest saved items."
+        />
       ) : postState.posts.length === 0 ? (
         <article className="deck-card">
           <strong>No saved posts</strong>
@@ -5382,11 +5469,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
     const observer = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width ?? shell.clientWidth;
-      setIsCompactHeader(width < 520);
+      setIsCompactHeader(width < COMPACT_HEADER_BREAKPOINT_PX);
     });
 
     observer.observe(shell);
-    setIsCompactHeader(shell.clientWidth < 520);
+    setIsCompactHeader(shell.clientWidth < COMPACT_HEADER_BREAKPOINT_PX);
     return () => {
       observer.disconnect();
     };

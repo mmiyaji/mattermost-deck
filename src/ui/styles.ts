@@ -1519,6 +1519,8 @@ export const railCssText = `
 
   .deck-card--post p {
     margin-top: 8px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .deck-card--post-compact {
@@ -1529,6 +1531,26 @@ export const railCssText = `
     margin-top: 6px;
     font-size: calc(12px * var(--deck-font-scale));
     line-height: 1.35;
+  }
+
+  .deck-inline-link,
+  .deck-inline-ellipsis {
+    display: inline-block;
+    max-width: min(100%, 32rem);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+
+  .deck-inline-link {
+    color: var(--deck-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .deck-inline-link:hover {
+    color: var(--deck-accent-strong);
   }
 
   .deck-card--clickable {
@@ -1981,6 +2003,10 @@ export const railCssText = `
     border-radius: 14px;
     background: var(--deck-card);
     color: var(--deck-text);
+  }
+
+  .deck-loading-state--column {
+    margin: 0;
   }
 
   .deck-loading-state p {
