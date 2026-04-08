@@ -19,6 +19,8 @@ import {
   getTeamUnread,
   getTeamsForCurrentUser,
   getUsersByIds,
+  getMyChannelMember,
+  viewChannel,
   readCurrentRoute,
   searchPostsInTeam,
   type MattermostChannel,
@@ -140,12 +142,38 @@ const POST_OVERSCAN = 4;
 const POST_VIRTUALIZE_THRESHOLD = 40;
 const SEARCH_SYNC_INTERVAL_FLOOR_MS = 120_000;
 const MAX_SAVED_VIEWS = 8;
+const DEBUG_FLAG_KEY = "mattermostDeck.debugLogs";
+
+function debugLog(event: string, payload?: Record<string, unknown>): void {
+  try {
+    if (window.localStorage.getItem(DEBUG_FLAG_KEY) !== "1") {
+      return;
+    }
+  } catch {
+    return;
+  }
+
+  if (payload) {
+    console.info(`[deck-debug] ${event}`, payload);
+    return;
+  }
+  console.info(`[deck-debug] ${event}`);
+}
+
+interface OpenPostTarget {
+  teamName?: string;
+  channelName?: string;
+}
 
 type PostListEntry =
   | {
       type: "separator";
       key: string;
       label: string;
+    }
+  | {
+      type: "unread-separator";
+      key: string;
     }
   | {
       type: "post";
@@ -219,8 +247,9 @@ function getPostDayLabel(timestamp: number): string {
   }).format(date);
 }
 
-function buildPostListEntries(posts: MattermostPost[]): PostListEntry[] {
+function buildPostListEntries(posts: MattermostPost[], lastViewedAt?: number | null): PostListEntry[] {
   const entries: PostListEntry[] = [];
+  let unreadInserted = false;
 
   posts.forEach((post, index) => {
     const previous = posts[index - 1];
@@ -230,6 +259,16 @@ function buildPostListEntries(posts: MattermostPost[]): PostListEntry[] {
         key: `separator:${post.id}`,
         label: getPostDayLabel(previous.create_at),
       });
+    }
+
+    // Posts are sorted newest-first. Insert unread separator before the first
+    // post that is older than lastViewedAt (i.e. between new and old posts).
+    if (!unreadInserted && lastViewedAt != null && lastViewedAt > 0 && post.create_at <= lastViewedAt && index > 0) {
+      entries.push({
+        type: "unread-separator",
+        key: "unread-separator",
+      });
+      unreadInserted = true;
     }
 
     entries.push({
@@ -523,13 +562,21 @@ function getApiHealthLabel(status: ApiHealthStatus): string {
   }
 }
 
-function openMattermostThread(teamName: string, postId: string): void {
-  const nextPath = `/${teamName}/pl/${postId}`;
+function openMattermostThread(teamName: string, postId: string, channelName?: string | null): void {
+  const nextPath = channelName
+    ? `/${teamName}/channels/${channelName}/${postId}`
+    : `/${teamName}/pl/${postId}`;
+  debugLog("app.open-thread", {
+    currentPath: window.location.pathname,
+    nextPath,
+    postId,
+  });
   if (window.location.pathname === nextPath) {
     window.dispatchEvent(new PopStateEvent("popstate"));
     return;
   }
 
+  debugLog("app.open-thread.push-state", { nextPath });
   window.history.pushState({}, "", nextPath);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
@@ -1326,7 +1373,6 @@ async function loadAppState(): Promise<Omit<AppState, "status" | "error">> {
 }
 
 function useDeckState(
-  routeKey: string,
   refreshNonce: number,
   realtimeEnabled: boolean,
   pollingIntervalSeconds: number,
@@ -1348,10 +1394,30 @@ function useDeckState(
   useEffect(() => {
     let cancelled = false;
 
-    const run = async () => {
+    const run = async (showLoading: boolean) => {
+      debugLog("app.deck-state.run", {
+        showLoading,
+        refreshNonce,
+        realtimeEnabled,
+        pollingIntervalSeconds,
+        path: window.location.pathname,
+      });
+      if (showLoading) {
+        setState((current) => ({
+          ...current,
+          status: "loading",
+          error: null,
+        }));
+      }
+
       try {
         const data = await loadAppState();
         if (!cancelled) {
+          debugLog("app.deck-state.ready", {
+            currentTeamId: data.currentTeamId ?? null,
+            currentChannelId: data.currentChannelId ?? null,
+            path: window.location.pathname,
+          });
           setState({
             status: "ready",
             error: null,
@@ -1361,6 +1427,10 @@ function useDeckState(
       } catch (error) {
         if (!cancelled) {
           const message = error instanceof Error ? error.message : "Failed to load Mattermost data.";
+          debugLog("app.deck-state.error", {
+            message,
+            path: window.location.pathname,
+          });
           setState((current) => ({
             ...current,
             status: "error",
@@ -1371,16 +1441,10 @@ function useDeckState(
       }
     };
 
-    setState((current) => ({
-      ...current,
-      status: "loading",
-      error: null,
-    }));
-
-    void run();
+    void run(true);
     const startTimer = () =>
       window.setInterval(() => {
-        void run();
+        void run(false);
       }, getSyncInterval(realtimeEnabled, pollingIntervalSeconds));
 
     let timer = startTimer();
@@ -1395,7 +1459,7 @@ function useDeckState(
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [pollingIntervalSeconds, realtimeEnabled, refreshNonce, routeKey]);
+  }, [pollingIntervalSeconds, realtimeEnabled, refreshNonce]);
 
   return state;
 }
@@ -2383,6 +2447,9 @@ function PostList({
   showImagePreviews = true,
   language = "ja",
   reversedPostOrder = false,
+  lastViewedAt,
+  onMarkRead,
+  onMarkReadStart,
 }: {
   posts: MattermostPost[];
   userDirectory: Record<string, MattermostUser>;
@@ -2397,6 +2464,9 @@ function PostList({
   showImagePreviews?: boolean;
   language?: DeckLanguage;
   reversedPostOrder?: boolean;
+  lastViewedAt?: number | null;
+  onMarkRead?: () => void;
+  onMarkReadStart?: () => void;
 }): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -2407,7 +2477,7 @@ function PostList({
   const lastInteractionAtRef = useRef(Date.now());
   const previousTopPostIdRef = useRef<string | null>(posts[0]?.id ?? null);
   const previousPostCountRef = useRef(posts.length);
-  const entries = useMemo(() => buildPostListEntries(posts), [posts]);
+  const entries = useMemo(() => buildPostListEntries(posts, lastViewedAt), [posts, lastViewedAt]);
   const displayEntries = useMemo(
     () => reversedPostOrder ? [...entries].reverse() : entries,
     [entries, reversedPostOrder],
@@ -2505,7 +2575,7 @@ function PostList({
   }, [posts]);
 
   const rowHeights = useMemo(
-    () => displayEntries.map((entry) => (entry.type === "separator" ? POST_SEPARATOR_ESTIMATE : POST_ROW_ESTIMATE)),
+    () => displayEntries.map((entry) => (entry.type === "separator" || entry.type === "unread-separator" ? POST_SEPARATOR_ESTIMATE : POST_ROW_ESTIMATE)),
     [displayEntries],
   );
   const offsets = useMemo(() => {
@@ -2527,11 +2597,47 @@ function PostList({
   const offsetY = offsets[startIndex] ?? 0;
   const spacerHeight = totalHeight;
 
+  const unreadSeparatorRef = useRef<HTMLLIElement | null>(null);
+  const markReadFiredRef = useRef(false);
+
+  useEffect(() => {
+    if (!markReadFiredRef.current) {
+      markReadFiredRef.current = false;
+    }
+  }, [lastViewedAt]);
+
+  useEffect(() => {
+    const el = unreadSeparatorRef.current;
+    const viewport = viewportRef.current;
+    if (!el || !viewport || !onMarkRead || markReadFiredRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (intersections) => {
+        if (intersections.some((entry) => entry.isIntersecting) && !markReadFiredRef.current) {
+          markReadFiredRef.current = true;
+          onMarkReadStart?.();
+          onMarkRead?.();
+        }
+      },
+      { root: viewport, threshold: 0.1 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [onMarkRead, onMarkReadStart, lastViewedAt]);
+
   const renderEntry = (entry: PostListEntry): React.ReactNode => {
     if (entry.type === "separator") {
       return (
         <li key={entry.key} className="deck-list-separator" aria-hidden="true">
           <span>{entry.label}</span>
+        </li>
+      );
+    }
+
+    if (entry.type === "unread-separator") {
+      return (
+        <li key={entry.key} ref={unreadSeparatorRef} className="deck-list-separator deck-list-separator--unread">
+          <span>{language === "ja" ? "新着メッセージ" : "New"}</span>
         </li>
       );
     }
@@ -2740,7 +2846,7 @@ function MentionsColumn({
   onMove: (id: string, direction: "left" | "right") => void;
   onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void;
   onRemove: (id: string) => void;
-  onOpenPost: (post: MattermostPost, teamName?: string) => void;
+  onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
   compactMode: boolean;
   columnColors: ColumnColorSettings;
@@ -3162,8 +3268,12 @@ function MentionsColumn({
           onLoadMore={handleLoadMore}
           renderMeta={renderPostMeta}
           onOpenPost={(post) => {
-            const teamId = channelDirectory[post.channel_id]?.team_id;
-            onOpenPost(post, teamId ? teamDirectory[teamId]?.name : selectedTeam?.name);
+            const channel = channelDirectory[post.channel_id];
+            const teamId = channel?.team_id;
+            onOpenPost(post, {
+              teamName: teamId ? teamDirectory[teamId]?.name : selectedTeam?.name,
+              channelName: channel?.name,
+            });
           }}
           postClickAction={postClickAction}
           showImagePreviews={showImagePreviews}
@@ -3258,7 +3368,7 @@ function ChannelWatchColumn({
   onRememberTarget: (target: RecentChannelTarget) => void;
   onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void;
   onRemove: (id: string) => void;
-  onOpenPost: (post: MattermostPost, teamName?: string) => void;
+  onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
   compactMode: boolean;
   columnColors: ColumnColorSettings;
@@ -3280,10 +3390,12 @@ function ChannelWatchColumn({
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [lastViewedAt, setLastViewedAt] = useState<number | null>(null);
   const hasConfiguredTarget = mode === "dm" ? Boolean(column.channelId) : Boolean(column.teamId && column.channelId);
   const [showControls, setShowControls] = useState(!hasConfiguredTarget);
   const refreshStartedAtRef = useRef<number | null>(null);
   const refreshStopTimerRef = useRef<number | null>(null);
+  const markReadFiredRef = useRef(false);
   const teamDirectory = useMemo(() => Object.fromEntries(teams.map((team) => [team.id, team])), [teams]);
   const selectedTeam = column.teamId ? teamDirectory[column.teamId] : undefined;
 
@@ -3396,7 +3508,36 @@ function ChannelWatchColumn({
     return () => {
       cancelled = true;
     };
-  }, [column.channelId, column.id, column.teamId, ensureUsers, finishRefresh, mode, onUpdate, refreshNonce]);
+  }, [column.channelId, column.id, column.teamId, ensureUsers, finishRefresh, mode, onUpdate]);
+
+  // Fetch lastViewedAt for the channel
+  useEffect(() => {
+    if (!column.channelId) {
+      setLastViewedAt(null);
+      return;
+    }
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const member = await getMyChannelMember(column.channelId as string);
+        if (!cancelled) {
+          setLastViewedAt(member.last_viewed_at ?? null);
+        }
+      } catch {
+        // ignore - lastViewedAt stays null
+      }
+    };
+    void run();
+    return () => { cancelled = true; };
+  }, [column.channelId, reconnectNonce]);
+
+  const handleMarkRead = useCallback(() => {
+    if (!column.channelId) return;
+    // Update lastViewedAt optimistically to remove the separator
+    setLastViewedAt(Date.now());
+    markReadFiredRef.current = true;
+    void viewChannel(column.channelId);
+  }, [column.channelId]);
 
   const channelOptions = useMemo<CustomSelectOption[]>(
     () =>
@@ -3682,11 +3823,14 @@ function ChannelWatchColumn({
           hasMore={postState.hasMore}
           loadingMore={postState.loadingMore}
           onLoadMore={handleLoadMore}
-          onOpenPost={(post) => onOpenPost(post, selectedTeam?.name)}
+          onOpenPost={(post) => onOpenPost(post, { teamName: selectedTeam?.name, channelName: selectedChannel?.name })}
           postClickAction={postClickAction}
           showImagePreviews={showImagePreviews}
           language={language}
           reversedPostOrder={reversedPostOrder}
+          lastViewedAt={lastViewedAt}
+          onMarkRead={handleMarkRead}
+          onMarkReadStart={() => markReadFiredRef.current = true}
         />
       )}
     </section>
@@ -3732,7 +3876,7 @@ function SearchLikeColumn({
   onMove: (id: string, direction: "left" | "right") => void;
   onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void;
   onRemove: (id: string) => void;
-  onOpenPost: (post: MattermostPost, teamName?: string) => void;
+  onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
   compactMode: boolean;
   columnColors: ColumnColorSettings;
@@ -3741,6 +3885,7 @@ function SearchLikeColumn({
   reversedPostOrder: boolean;
 }): React.JSX.Element {
   const text = useAppText();
+  const [searchChannelDirectory, setSearchChannelDirectory] = useState<Record<string, MattermostChannel>>({});
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
     posts: [],
@@ -3813,6 +3958,39 @@ function SearchLikeColumn({
   useEffect(() => {
     setDraftQuery(column.query ?? "");
   }, [column.query]);
+
+  useEffect(() => {
+    const missingChannelIds = Array.from(
+      new Set(postState.posts.map((post) => post.channel_id).filter((channelId) => channelId && !searchChannelDirectory[channelId])),
+    );
+    if (missingChannelIds.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const channels = await getChannelsByIds(missingChannelIds);
+        if (cancelled) {
+          return;
+        }
+        setSearchChannelDirectory((current) => {
+          const next = { ...current };
+          for (const channel of channels) {
+            next[channel.id] = channel;
+          }
+          return next;
+        });
+      } catch {
+        return;
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [postState.posts, searchChannelDirectory]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4085,7 +4263,10 @@ function SearchLikeColumn({
           onLoadMore={handleLoadMore}
           renderMeta={() => (selectedTeam ? selectedTeam.display_name || selectedTeam.name : null)}
           renderBody={(post) => renderHighlightedText(buildSearchSnippet(post.message, query), query)}
-          onOpenPost={(post) => onOpenPost(post, selectedTeam?.name)}
+          onOpenPost={(post) => onOpenPost(post, {
+            teamName: selectedTeam?.name,
+            channelName: searchChannelDirectory[post.channel_id]?.name,
+          })}
           postClickAction={postClickAction}
           showImagePreviews={showImagePreviews}
           language={language}
@@ -4119,7 +4300,7 @@ function SavedPostsColumn({
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
   onRemove: (id: string) => void;
-  onOpenPost: (post: MattermostPost, teamName?: string) => void;
+  onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
   compactMode: boolean;
   columnColors: ColumnColorSettings;
@@ -4127,6 +4308,7 @@ function SavedPostsColumn({
   language: DeckLanguage;
   reversedPostOrder: boolean;
 }): React.JSX.Element {
+  const [savedChannelDirectory, setSavedChannelDirectory] = useState<Record<string, MattermostChannel>>({});
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
     posts: [],
@@ -4212,6 +4394,39 @@ function SavedPostsColumn({
       cancelled = true;
     };
   }, [ensureUsers, finishRefresh, paused, refreshNonce]);
+
+  useEffect(() => {
+    const missingChannelIds = Array.from(
+      new Set(postState.posts.map((post) => post.channel_id).filter((channelId) => channelId && !savedChannelDirectory[channelId])),
+    );
+    if (missingChannelIds.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const channels = await getChannelsByIds(missingChannelIds);
+        if (cancelled) {
+          return;
+        }
+        setSavedChannelDirectory((current) => {
+          const next = { ...current };
+          for (const channel of channels) {
+            next[channel.id] = channel;
+          }
+          return next;
+        });
+      } catch {
+        return;
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [postState.posts, savedChannelDirectory]);
 
   const handleLoadMore = async () => {
     if (postState.loadingMore || !postState.hasMore) {
@@ -4311,7 +4526,9 @@ function SavedPostsColumn({
           hasMore={postState.hasMore}
           loadingMore={postState.loadingMore}
           onLoadMore={handleLoadMore}
-          onOpenPost={(post) => onOpenPost(post)}
+          onOpenPost={(post) => onOpenPost(post, {
+            channelName: savedChannelDirectory[post.channel_id]?.name,
+          })}
           postClickAction={postClickAction}
           showImagePreviews={showImagePreviews}
           language={language}
@@ -4455,6 +4672,17 @@ function DiagnosticsColumn({
 }
 
 export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
+  useEffect(() => {
+    debugLog("app.mount", { routeKey, path: window.location.pathname });
+    return () => {
+      debugLog("app.unmount", { routeKey, path: window.location.pathname });
+    };
+  }, []);
+
+  useEffect(() => {
+    debugLog("app.routeKey", { routeKey, path: window.location.pathname });
+  }, [routeKey]);
+
   const currentRoute = useMemo(() => readCurrentRoute(), [routeKey]);
   const [reconnectNonce, setReconnectNonce] = useState(0);
   const [postedEvent, setPostedEvent] = useState<PostedEvent | null>(null);
@@ -4467,7 +4695,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const text = useAppText();
   useEffect(() => { void i18n.changeLanguage(deckSettings.language); }, [deckSettings.language]);
   const realtimeEnabled = deckSettings.wsPat.trim().length > 0;
-  const state = useDeckState(routeKey, reconnectNonce, realtimeEnabled, deckSettings.pollingIntervalSeconds);
+  const state = useDeckState(reconnectNonce, realtimeEnabled, deckSettings.pollingIntervalSeconds);
   const [columns, addColumn, removeColumn, updateColumn, moveColumn, replaceColumns] = useDeckLayout();
   const [recentTargets, rememberRecentTarget] = useRecentTargets();
   const [savedViews, saveView, removeView, getView] = useSavedViews();
@@ -4591,15 +4819,39 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const modeLabel = realtimeEnabled ? getWebSocketStatusLabel(wsStatus) : "Polling";
   const syncStatusLabel = `${getApiHealthLabel(apiHealthStatus)} / ${modeLabel}`;
   const handleOpenPost = useCallback(
-    (post: MattermostPost, teamName?: string) => {
-      const targetTeam = teamName ?? currentRoute.teamName;
+    (post: MattermostPost, target?: OpenPostTarget) => {
+      const targetTeam = target?.teamName ?? currentRoute.teamName;
       if (!targetTeam) {
         return;
       }
-      openMattermostThread(targetTeam, post.id);
+      openMattermostThread(targetTeam, post.id, target?.channelName ?? currentRoute.channelName);
     },
-    [currentRoute.teamName],
+    [currentRoute.channelName, currentRoute.teamName],
   );
+
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(DEBUG_FLAG_KEY) !== "1") {
+        return;
+      }
+      const handleDebugOpenThread = (event: Event) => {
+        const customEvent = event as CustomEvent<{ teamName?: string; postId?: string; channelName?: string }>;
+        const teamName = customEvent.detail?.teamName;
+        const postId = customEvent.detail?.postId;
+        const channelName = customEvent.detail?.channelName;
+        if (!teamName || !postId) {
+          return;
+        }
+        openMattermostThread(teamName, postId, channelName ?? readCurrentRoute().channelName);
+      };
+      window.addEventListener("mattermost-deck-debug-open-thread", handleDebugOpenThread as EventListener);
+      return () => {
+        window.removeEventListener("mattermost-deck-debug-open-thread", handleDebugOpenThread as EventListener);
+      };
+    } catch {
+      return;
+    }
+  }, []);
 
   useEffect(() => {
     document.body.classList.toggle("mattermost-deck-resizing", isResizing);

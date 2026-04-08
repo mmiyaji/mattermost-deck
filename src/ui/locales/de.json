@@ -69,7 +69,7 @@
     "targetHint": "In den meisten Fällen reicht die Konfiguration der Server-URL aus.",
     "advanced": "Erweitert",
     "routeKindsLabel": "Erlaubte Routentypen",
-    "routeKindsHint": "Standard ist channels,messages. Die Erweiterung aktiviert sich nur bei diesen URL-Mustern.",
+    "routeKindsHint": "Standard ist channels,messages,pl. Die Erweiterung aktiviert sich nur bei diesen URL-Mustern.",
     "healthCheckLabel": "Health-Check-API-Pfad",
     "healthCheckHint": "Standard ist /api/v4/users/me. Die Erweiterung prüft diesen Endpunkt vor dem Rendern.",
     "realtimeTitle": "Echtzeit",

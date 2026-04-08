@@ -28,6 +28,23 @@ let guardCache:
     }
   | null = null;
 let guardInflight: Promise<boolean> | null = null;
+const DEBUG_FLAG_KEY = "mattermostDeck.debugLogs";
+
+function debugLog(event: string, payload?: Record<string, unknown>): void {
+  try {
+    if (window.localStorage.getItem(DEBUG_FLAG_KEY) !== "1") {
+      return;
+    }
+  } catch {
+    return;
+  }
+
+  if (payload) {
+    console.info(`[deck-debug] ${event}`, payload);
+    return;
+  }
+  console.info(`[deck-debug] ${event}`);
+}
 
 function matchesConfiguredRoute(): boolean {
   if (!settingsLoaded) {
@@ -208,6 +225,11 @@ function ensureRoot(): HTMLDivElement {
 }
 
 function cleanup(): void {
+  debugLog("content.cleanup", {
+    path: window.location.pathname,
+    hash: window.location.hash,
+    hasAppRoot: Boolean(appRoot),
+  });
   document.body?.classList.remove(BODY_CLASS);
   document.getElementById(ROOT_ID)?.remove();
   if (appRoot) {
@@ -225,19 +247,23 @@ async function render(): Promise<void> {
   const routeKey = `${window.location.pathname}${window.location.hash}`;
   const dialogOpen = hasBlockingDialog();
   const renderKey = `${routeKey}|dialog:${dialogOpen ? "open" : "closed"}`;
+  debugLog("content.render.start", { routeKey, renderKey });
   lastRenderKey = renderKey;
 
   if (!matchesConfiguredRoute()) {
+    debugLog("content.render.skip.route", { routeKey });
     cleanup();
     return;
   }
 
   if (!(await verifyMattermostSession())) {
+    debugLog("content.render.skip.session", { routeKey });
     cleanup();
     return;
   }
 
   if (routeKey !== `${window.location.pathname}${window.location.hash}`) {
+    debugLog("content.render.abort.route-changed", { routeKey });
     return;
   }
 
@@ -264,9 +290,11 @@ async function render(): Promise<void> {
     reactRoot.id = REACT_ROOT_ID;
     shadowRoot.append(reactRoot);
     appRoot = createRoot(reactRoot);
+    debugLog("content.render.create-root", { routeKey });
   }
 
   appRoot ??= createRoot(reactRoot);
+  debugLog("content.render.commit", { routeKey });
   appRoot.render(<App routeKey={`${window.location.pathname}${window.location.hash}`} shadowRoot={shadowRoot} />);
 }
 
@@ -282,6 +310,7 @@ function installRouteWatcher(): void {
     if (renderKey === lastRenderKey) {
       return;
     }
+    debugLog("content.route.notify", { routeKey, renderKey, previousRenderKey: lastRenderKey });
 
     window.requestAnimationFrame(() => {
       void render();

@@ -23,6 +23,7 @@ export interface MattermostChannel {
 export interface MattermostChannelMember {
   channel_id: string;
   user_id: string;
+  last_viewed_at?: number;
 }
 
 export interface MattermostPost {
@@ -305,6 +306,13 @@ export function readCurrentRoute(): CurrentRoute {
     };
   }
 
+  if (path[1] === "pl") {
+    return {
+      teamName: path[0] ?? null,
+      channelName: null,
+    };
+  }
+
   return {
     teamName: path[0] ?? null,
     channelName: path[2] ?? null,
@@ -408,6 +416,14 @@ export async function searchPostsInTeam(
   return payload.order
     .map((postId) => payload.posts[postId])
     .filter((post): post is MattermostPost => Boolean(post));
+}
+
+export async function getMyChannelMember(channelId: string): Promise<MattermostChannelMember> {
+  return await apiGet<MattermostChannelMember>(`/channels/${encodeURIComponent(channelId)}/members/me`);
+}
+
+export async function viewChannel(channelId: string): Promise<void> {
+  await apiPost<unknown>("/channels/members/me/view", { channel_id: channelId });
 }
 
 export async function fetchPostFileInfos(postId: string): Promise<MattermostFileInfo[]> {

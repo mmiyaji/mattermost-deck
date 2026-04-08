@@ -69,7 +69,7 @@
     "targetHint": "Dans la plupart des cas, configurer l'URL du serveur suffit.",
     "advanced": "Avancé",
     "routeKindsLabel": "Types de routes autorisés",
-    "routeKindsHint": "Par défaut : channels,messages. L'extension s'active uniquement sur ces modèles d'URL.",
+    "routeKindsHint": "Par défaut : channels,messages,pl. L'extension s'active uniquement sur ces modèles d'URL.",
     "healthCheckLabel": "Chemin de l'API de contrôle de santé",
     "healthCheckHint": "Par défaut : /api/v4/users/me. L'extension confirme cet endpoint avant le rendu.",
     "realtimeTitle": "Temps réel",

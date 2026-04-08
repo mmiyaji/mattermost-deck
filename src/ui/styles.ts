@@ -1264,6 +1264,16 @@ export const railCssText = `
     flex: none;
   }
 
+  .deck-list-separator--unread {
+    color: #e8574a;
+    font-weight: 600;
+  }
+
+  .deck-list-separator--unread::before,
+  .deck-list-separator--unread::after {
+    background: #e8574a;
+  }
+
   .deck-post-list {
     display: flex;
     flex: 1 1 auto;

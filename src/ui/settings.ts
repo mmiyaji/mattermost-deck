@@ -75,7 +75,7 @@ export const DEFAULT_SETTINGS: DeckSettings = {
   wsPat: "",
   persistPat: false,
   pollingIntervalSeconds: 45,
-  allowedRouteKinds: "channels,messages",
+  allowedRouteKinds: "channels,messages,pl",
   healthCheckPath: "/api/v4/users/me",
   theme: "mattermost",
   language: "ja",
@@ -166,7 +166,7 @@ export function normaliseAllowedRouteKinds(value: string | null): string {
   const allowed = raw
     .split(",")
     .map((part) => part.trim().toLowerCase())
-    .filter((part) => part === "channels" || part === "messages");
+    .filter((part) => part === "channels" || part === "messages" || part === "pl");
 
   return allowed.length > 0 ? [...new Set(allowed)].join(",") : DEFAULT_SETTINGS.allowedRouteKinds;
 }

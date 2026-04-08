@@ -69,7 +69,7 @@
     "targetHint": "In most cases, configuring the Server URL is enough.",
     "advanced": "Advanced",
     "routeKindsLabel": "Allowed Route Kinds",
-    "routeKindsHint": "Default is channels,messages. The extension activates only on these URL patterns.",
+    "routeKindsHint": "Default is channels,messages,pl. The extension activates only on these URL patterns.",
     "healthCheckLabel": "Health Check API Path",
     "healthCheckHint": "Default is /api/v4/users/me. The extension confirms this endpoint before rendering.",
     "realtimeTitle": "Realtime",
