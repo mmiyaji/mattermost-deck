@@ -144,12 +144,44 @@ const SEARCH_SYNC_INTERVAL_FLOOR_MS = 120_000;
 const MAX_SAVED_VIEWS = 8;
 const DEBUG_FLAG_KEY = "mattermostDeck.debugLogs";
 
-function debugLog(event: string, payload?: Record<string, unknown>): void {
+declare global {
+  interface Window {
+    __mattermostDeckDebug?: {
+      getState: () => {
+        contentMounted: boolean;
+        stateStatus: string;
+        username: string | null;
+        columns: Array<{
+          id: string;
+          type: DeckColumnType;
+          teamId?: string;
+          channelId?: string;
+          query?: string;
+          unreadOnly?: boolean;
+        }>;
+      };
+      addColumn: (
+        type: DeckColumnType,
+        defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>,
+      ) => string;
+      updateColumn: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void;
+      moveColumn: (id: string, direction: "left" | "right") => void;
+      removeColumn: (id: string) => void;
+    };
+    __mattermostDeckDebugColumnState?: Record<string, unknown>;
+  }
+}
+
+function isDebugEnabled(): boolean {
   try {
-    if (window.localStorage.getItem(DEBUG_FLAG_KEY) !== "1") {
-      return;
-    }
+    return window.localStorage.getItem(DEBUG_FLAG_KEY) === "1";
   } catch {
+    return false;
+  }
+}
+
+function debugLog(event: string, payload?: Record<string, unknown>): void {
+  if (!isDebugEnabled()) {
     return;
   }
 
@@ -356,6 +388,31 @@ function buildSearchSnippet(message: string, query: string, limit = 160): string
 
 function renderHighlightedText(text: string, query: string): React.ReactNode {
   const terms = extractSearchTerms(query);
+  return renderHighlightedTextFromTerms(text, terms);
+}
+
+function extractHighlightKeywords(value: string): string[] {
+  return value
+    .split(/[\s,、;；\r\n\t]+/u)
+    .map((term) => term.trim())
+    .filter(Boolean);
+}
+
+function uniqueTerms(terms: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const term of terms) {
+    const key = term.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(term);
+  }
+  return result;
+}
+
+function renderHighlightedTextFromTerms(text: string, terms: string[]): React.ReactNode {
   if (terms.length === 0) {
     return text;
   }
@@ -1756,6 +1813,7 @@ function useDeckSettingsState(): {
   compactMode: boolean;
   columnColorEnabled: boolean;
   postClickAction: PostClickAction;
+  highlightKeywords: string;
   columnColors: ColumnColorSettings;
   showImagePreviews: boolean;
   reversedPostOrder: boolean;
@@ -1773,6 +1831,7 @@ function useDeckSettingsState(): {
     compactMode: boolean;
     columnColorEnabled: boolean;
     postClickAction: PostClickAction;
+    highlightKeywords: string;
     columnColors: ColumnColorSettings;
     showImagePreviews: boolean;
     reversedPostOrder: boolean;
@@ -1789,6 +1848,7 @@ function useDeckSettingsState(): {
     compactMode: DEFAULT_SETTINGS.compactMode,
     columnColorEnabled: DEFAULT_SETTINGS.columnColorEnabled,
     postClickAction: DEFAULT_SETTINGS.postClickAction,
+    highlightKeywords: DEFAULT_SETTINGS.highlightKeywords,
     columnColors: DEFAULT_COLUMN_COLORS,
     showImagePreviews: DEFAULT_SETTINGS.showImagePreviews,
     reversedPostOrder: DEFAULT_SETTINGS.reversedPostOrder,
@@ -2447,6 +2507,7 @@ function PostList({
   showImagePreviews = true,
   language = "ja",
   reversedPostOrder = false,
+  highlightTerms = [],
   lastViewedAt,
   onMarkRead,
   onMarkReadStart,
@@ -2464,6 +2525,7 @@ function PostList({
   showImagePreviews?: boolean;
   language?: DeckLanguage;
   reversedPostOrder?: boolean;
+  highlightTerms?: string[];
   lastViewedAt?: number | null;
   onMarkRead?: () => void;
   onMarkReadStart?: () => void;
@@ -2698,7 +2760,7 @@ function PostList({
         {renderMeta ? <div className="deck-card-meta">{renderMeta(post)}</div> : null}
         {(() => {
           const hasFiles = (post.file_ids?.length ?? 0) > 0;
-          const body = renderBody ? renderBody(post) : summarisePost(post.message);
+          const body = renderBody ? renderBody(post) : renderHighlightedTextFromTerms(summarisePost(post.message), highlightTerms);
           const isEmpty = !renderBody && !post.message.trim();
           return (!isEmpty || !hasFiles) ? <p>{body}</p> : null;
         })()}
@@ -2830,6 +2892,7 @@ function MentionsColumn({
   showImagePreviews,
   language,
   reversedPostOrder,
+  highlightKeywords,
 }: {
   column: DeckColumn;
   username: string | null;
@@ -2853,9 +2916,11 @@ function MentionsColumn({
   showImagePreviews: boolean;
   language: DeckLanguage;
   reversedPostOrder: boolean;
+  highlightKeywords: string;
 }): React.JSX.Element {
   const teamIds = useMemo(() => (column.teamId ? [column.teamId] : teams.map((team) => team.id)), [column.teamId, teams]);
   const text = useAppText();
+  const highlightTerms = useMemo(() => extractHighlightKeywords(highlightKeywords), [highlightKeywords]);
   const teamDirectory = useMemo(() => Object.fromEntries(teams.map((team) => [team.id, team])), [teams]);
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
@@ -3279,6 +3344,7 @@ function MentionsColumn({
           showImagePreviews={showImagePreviews}
           language={language}
           reversedPostOrder={reversedPostOrder}
+          highlightTerms={highlightTerms}
         />
       )}
     </section>
@@ -3351,6 +3417,7 @@ function ChannelWatchColumn({
   showImagePreviews,
   language,
   reversedPostOrder,
+  highlightKeywords,
 }: {
   column: DeckColumn;
   mode: "channel" | "dm";
@@ -3375,6 +3442,7 @@ function ChannelWatchColumn({
   showImagePreviews: boolean;
   language: DeckLanguage;
   reversedPostOrder: boolean;
+  highlightKeywords: string;
 }): React.JSX.Element {
   const text = useAppText();
   const [channelState, setChannelState] = useState<ChannelState>({ status: "idle", channels: [], error: null });
@@ -3557,6 +3625,30 @@ function ChannelWatchColumn({
     : undefined;
   const selectedChannelKindLabel = getChannelKindLabel(selectedChannel);
   const selectedTeamLabel = selectedTeam ? selectedTeam.display_name || selectedTeam.name : undefined;
+  const highlightTerms = useMemo(() => extractHighlightKeywords(highlightKeywords), [highlightKeywords]);
+
+  useEffect(() => {
+    if (!isDebugEnabled()) {
+      return;
+    }
+
+    window.__mattermostDeckDebugColumnState ??= {};
+    window.__mattermostDeckDebugColumnState[column.id] = {
+      kind: "channelWatch",
+      mode,
+      channelStatus: channelState.status,
+      channelOptions,
+      selectedTeamId: column.teamId ?? null,
+      selectedChannelId: column.channelId ?? null,
+      showControls,
+    };
+
+    return () => {
+      if (window.__mattermostDeckDebugColumnState) {
+        delete window.__mattermostDeckDebugColumnState[column.id];
+      }
+    };
+  }, [channelOptions, channelState.status, column.channelId, column.id, column.teamId, mode, showControls]);
 
   useEffect(() => {
     if (!selectedChannel) {
@@ -3828,6 +3920,7 @@ function ChannelWatchColumn({
           showImagePreviews={showImagePreviews}
           language={language}
           reversedPostOrder={reversedPostOrder}
+          highlightTerms={highlightTerms}
           lastViewedAt={lastViewedAt}
           onMarkRead={handleMarkRead}
           onMarkReadStart={() => markReadFiredRef.current = true}
@@ -3842,6 +3935,21 @@ function SearchIcon(): React.JSX.Element {
       <circle cx="7" cy="7" r="4.5" />
       <path d="M10.5 10.5L14 14" />
     </svg>
+  );
+}
+
+function InitialLoadingState({ message }: { message: string }): React.JSX.Element {
+  return (
+    <section className="deck-loading-state" aria-live="polite">
+      <div className="deck-loading-spinner" aria-hidden="true" />
+      <strong>{message}</strong>
+      <p>Preparing your deck layout and syncing the first Mattermost data.</p>
+      <div className="deck-loading-skeletons" aria-hidden="true">
+        <div className="deck-loading-skeleton" />
+        <div className="deck-loading-skeleton" />
+        <div className="deck-loading-skeleton" />
+      </div>
+    </section>
   );
 }
 
@@ -3864,6 +3972,7 @@ function SearchLikeColumn({
   showImagePreviews,
   language,
   reversedPostOrder,
+  highlightKeywords,
 }: {
   column: DeckColumn;
   teams: MattermostTeam[];
@@ -3883,6 +3992,7 @@ function SearchLikeColumn({
   showImagePreviews: boolean;
   language: DeckLanguage;
   reversedPostOrder: boolean;
+  highlightKeywords: string;
 }): React.JSX.Element {
   const text = useAppText();
   const [searchChannelDirectory, setSearchChannelDirectory] = useState<Record<string, MattermostChannel>>({});
@@ -3922,6 +4032,10 @@ function SearchLikeColumn({
   const refreshStopTimerRef = useRef<number | null>(null);
   const selectedTeam = teams.find((team) => team.id === column.teamId);
   const query = column.query?.trim() ?? "";
+  const highlightTerms = useMemo(
+    () => uniqueTerms([...extractSearchTerms(query), ...extractHighlightKeywords(highlightKeywords)]),
+    [highlightKeywords, query],
+  );
   const apiQuery = useMemo(() => expandSearchQueryForApi(query), [query]);
   const ready = Boolean(column.teamId && query);
   const title = query || "Search";
@@ -4262,7 +4376,7 @@ function SearchLikeColumn({
           loadingMore={postState.loadingMore}
           onLoadMore={handleLoadMore}
           renderMeta={() => (selectedTeam ? selectedTeam.display_name || selectedTeam.name : null)}
-          renderBody={(post) => renderHighlightedText(buildSearchSnippet(post.message, query), query)}
+          renderBody={(post) => renderHighlightedTextFromTerms(buildSearchSnippet(post.message, query), highlightTerms)}
           onOpenPost={(post) => onOpenPost(post, {
             teamName: selectedTeam?.name,
             channelName: searchChannelDirectory[post.channel_id]?.name,
@@ -4271,6 +4385,7 @@ function SearchLikeColumn({
           showImagePreviews={showImagePreviews}
           language={language}
           reversedPostOrder={reversedPostOrder}
+          highlightTerms={highlightTerms}
         />
       )}
     </section>
@@ -4292,6 +4407,7 @@ function SavedPostsColumn({
   showImagePreviews,
   language,
   reversedPostOrder,
+  highlightKeywords,
 }: {
   column: DeckColumn;
   userDirectory: Record<string, MattermostUser>;
@@ -4307,6 +4423,7 @@ function SavedPostsColumn({
   showImagePreviews: boolean;
   language: DeckLanguage;
   reversedPostOrder: boolean;
+  highlightKeywords: string;
 }): React.JSX.Element {
   const [savedChannelDirectory, setSavedChannelDirectory] = useState<Record<string, MattermostChannel>>({});
   const [postState, setPostState] = useState<PostState>({
@@ -4321,6 +4438,7 @@ function SavedPostsColumn({
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [paused, setPaused] = useState(false);
   const [showControls, setShowControls] = useState(false);
+  const highlightTerms = useMemo(() => extractHighlightKeywords(highlightKeywords), [highlightKeywords]);
   const refreshStartedAtRef = useRef<number | null>(null);
   const refreshStopTimerRef = useRef<number | null>(null);
 
@@ -4533,6 +4651,7 @@ function SavedPostsColumn({
           showImagePreviews={showImagePreviews}
           language={language}
           reversedPostOrder={reversedPostOrder}
+          highlightTerms={highlightTerms}
         />
       )}
     </section>
@@ -5079,13 +5198,14 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const handleAddColumn = (
     type: DeckColumnType,
     defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>,
-  ) => {
+  ): string => {
     const nextId = addColumn(type, defaults);
     setPendingScrollColumnId(nextId);
     setShowAddMenu(false);
     setShowViewsMenu(false);
     setShowActionsMenu(false);
     setShowRailAddMenu(false);
+    return nextId;
   };
 
   useEffect(() => {
@@ -5322,6 +5442,93 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       return;
     }
   };
+
+  useEffect(() => {
+    if (!isDebugEnabled()) {
+      delete window.__mattermostDeckDebug;
+      return;
+    }
+
+    window.__mattermostDeckDebug = {
+      getState: () => ({
+        contentMounted,
+        stateStatus: state.status,
+        username: state.username,
+        columns: (columns ?? []).map((column) => ({
+          id: column.id,
+          type: column.type,
+          teamId: column.teamId,
+          channelId: column.channelId,
+          query: column.query,
+          unreadOnly: column.unreadOnly,
+        })),
+      }),
+      addColumn: handleAddColumn,
+      updateColumn,
+      moveColumn,
+      removeColumn,
+    };
+
+    const handleDebugRequest = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        id?: string;
+        action?: string;
+        payload?: Record<string, unknown>;
+      }>;
+      const requestId = customEvent.detail?.id;
+      const action = customEvent.detail?.action;
+      const payload = customEvent.detail?.payload ?? {};
+      if (!requestId || !action) {
+        return;
+      }
+
+      let result: unknown = null;
+      if (action === "getState") {
+        result = window.__mattermostDeckDebug.getState();
+      } else if (action === "addColumn") {
+        result = handleAddColumn(
+          payload.type as DeckColumnType,
+          payload.defaults as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">> | undefined,
+        );
+      } else if (action === "updateColumn") {
+        updateColumn(
+          payload.id as string,
+          payload.patch as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>,
+        );
+      } else if (action === "moveColumn") {
+        moveColumn(payload.id as string, payload.direction as "left" | "right");
+      } else if (action === "removeColumn") {
+        removeColumn(payload.id as string);
+      } else if (action === "getColumnState") {
+        result = window.__mattermostDeckDebugColumnState?.[payload.id as string] ?? null;
+      } else if (action === "getHighlightTexts") {
+        result = Array.from(shadowRoot.querySelectorAll("mark.search-highlight"))
+          .map((element) => element.textContent?.trim() ?? "")
+          .filter(Boolean);
+      } else if (action === "getLoadingState") {
+        const loadingState = shadowRoot.querySelector(".deck-loading-state");
+        result = {
+          present: Boolean(loadingState),
+          spinnerPresent: Boolean(shadowRoot.querySelector(".deck-loading-spinner")),
+          skeletonCount: shadowRoot.querySelectorAll(".deck-loading-skeleton").length,
+          text: loadingState?.querySelector("strong")?.textContent?.trim() ?? null,
+        };
+      }
+
+      window.dispatchEvent(new CustomEvent("mattermost-deck-debug-response", {
+        detail: { id: requestId, result },
+      }));
+    };
+
+    window.addEventListener("mattermost-deck-debug-request", handleDebugRequest as EventListener);
+
+    return () => {
+      window.removeEventListener("mattermost-deck-debug-request", handleDebugRequest as EventListener);
+      delete window.__mattermostDeckDebug;
+    };
+  }, [columns, contentMounted, handleAddColumn, moveColumn, removeColumn, state.status, state.username, updateColumn]);
+
+  const isInitialLoading = state.status === "loading" || columns === null;
 
   return (
     <ShadowRootContext.Provider value={shadowRoot}>
@@ -5696,7 +5903,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                   (columns?.length ?? 1) * (normalisePreferredColumnWidth(deckSettings.preferredColumnWidth) + 20) + 32,
               }}
             >
-              {(columns ?? []).map((column, index, allColumns) => {
+              {isInitialLoading ? (
+                <div className="deck-column-motion">
+                  <InitialLoadingState message={text.loading} />
+                </div>
+              ) : (columns ?? []).map((column, index, allColumns) => {
                 const setColumnRef = (element: HTMLDivElement | null) => {
                   columnRefs.current[column.id] = element;
                 };
@@ -5727,6 +5938,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           showImagePreviews={deckSettings.showImagePreviews}
                           language={deckSettings.language}
                           reversedPostOrder={deckSettings.reversedPostOrder}
+                          highlightKeywords={deckSettings.highlightKeywords}
                         />
                       </div>
                     );
@@ -5757,6 +5969,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           showImagePreviews={deckSettings.showImagePreviews}
                           language={deckSettings.language}
                           reversedPostOrder={deckSettings.reversedPostOrder}
+                          highlightKeywords={deckSettings.highlightKeywords}
                         />
                       </div>
                     );
@@ -5787,6 +6000,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           showImagePreviews={deckSettings.showImagePreviews}
                           language={deckSettings.language}
                           reversedPostOrder={deckSettings.reversedPostOrder}
+                          highlightKeywords={deckSettings.highlightKeywords}
                         />
                       </div>
                     );
@@ -5813,6 +6027,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           showImagePreviews={deckSettings.showImagePreviews}
                           language={deckSettings.language}
                           reversedPostOrder={deckSettings.reversedPostOrder}
+                          highlightKeywords={deckSettings.highlightKeywords}
                         />
                       </div>
                     );
@@ -5834,6 +6049,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           showImagePreviews={deckSettings.showImagePreviews}
                           language={deckSettings.language}
                           reversedPostOrder={deckSettings.reversedPostOrder}
+                          highlightKeywords={deckSettings.highlightKeywords}
                         />
                       </div>
                     );
@@ -5916,6 +6132,3 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     </ShadowRootContext.Provider>
   );
 }
-
-
-

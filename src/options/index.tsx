@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useTranslation } from "react-i18next";
 import { CustomSelect, type CustomSelectOption } from "../ui/CustomSelect";
@@ -29,6 +29,7 @@ import {
   type DeckTheme,
   type PostClickAction,
 } from "../ui/settings";
+import { createDeckProfile, loadDeckProfiles, switchDeckProfile, type DeckProfileSummary } from "../ui/profiles";
 
 const REPO_URL = "https://github.com/mmiyaji/mattermost-deck";
 const PRIVACY_URL = "https://github.com/mmiyaji/mattermost-deck/blob/main/PRIVACY.md";
@@ -97,6 +98,8 @@ function useOptionsText() {
     behaviorDesc: t("options.behaviorDesc"),
     postClickActionLabel: t("options.postClickActionLabel"),
     postClickActionHint: t("options.postClickActionHint"),
+    highlightKeywordsLabel: t("options.highlightKeywordsLabel", { defaultValue: "Highlight Keywords" }),
+    highlightKeywordsHint: t("options.highlightKeywordsHint", { defaultValue: "Comma-separated words or phrases to highlight in posts." }),
     highZIndexLabel: t("options.highZIndexLabel"),
     highZIndexHint: t("options.highZIndexHint"),
     reversedPostOrderLabel: t("options.reversedPostOrderLabel"),
@@ -122,7 +125,7 @@ function useOptionsText() {
 }
 
 
-// ── Sidebar nav icons (Feather-style SVG) ────────────────────────────────────
+// 髫ｨ貂可髫ｨ貂可 Sidebar nav icons (Feather-style SVG) 髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可
 
 function NavIconGuide(): React.JSX.Element {
   return (
@@ -179,7 +182,7 @@ function NavIconSecurity(): React.JSX.Element {
   );
 }
 
-// ── CSS ──────────────────────────────────────────────────────────────────────
+// 髫ｨ貂可髫ｨ貂可 CSS 髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可
 
 const pageCss = `
   *, *::before, *::after {
@@ -209,7 +212,7 @@ const pageCss = `
     color: #16263b;
   }
 
-  /* ── App shell ── */
+  /* 髫ｨ貂可髫ｨ貂可 App shell 髫ｨ貂可髫ｨ貂可 */
   .options-app {
     height: 100vh;
     display: flex;
@@ -217,7 +220,7 @@ const pageCss = `
     overflow: hidden;
   }
 
-  /* ── Topbar ── */
+  /* 髫ｨ貂可髫ｨ貂可 Topbar 髫ｨ貂可髫ｨ貂可 */
   .options-topbar {
     flex: none;
     height: 54px;
@@ -286,7 +289,7 @@ const pageCss = `
     color: #496583;
   }
 
-  /* ── Body ── */
+  /* 髫ｨ貂可髫ｨ貂可 Body 髫ｨ貂可髫ｨ貂可 */
   .options-body {
     flex: 1;
     overflow: hidden;
@@ -294,7 +297,7 @@ const pageCss = `
     min-height: 0;
   }
 
-  /* ── Sidebar ── */
+  /* 髫ｨ貂可髫ｨ貂可 Sidebar 髫ｨ貂可髫ｨ貂可 */
   .options-sidebar {
     width: 196px;
     flex: none;
@@ -446,7 +449,7 @@ const pageCss = `
     color: rgba(73, 101, 131, 0.5);
   }
 
-  /* ── Content ── */
+  /* 髫ｨ貂可髫ｨ貂可 Content 髫ｨ貂可髫ｨ貂可 */
   .options-content {
     flex: 1;
     display: flex;
@@ -469,7 +472,7 @@ const pageCss = `
     padding: 28px 32px;
   }
 
-  /* ── Save footer ── */
+  /* 髫ｨ貂可髫ｨ貂可 Save footer 髫ｨ貂可髫ｨ貂可 */
   .options-save-footer {
     flex: none;
     padding: 13px 32px;
@@ -515,7 +518,7 @@ const pageCss = `
     color: #496583;
   }
 
-  /* ── Grid ── */
+  /* 髫ｨ貂可髫ｨ貂可 Grid 髫ｨ貂可髫ｨ貂可 */
   .options-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -526,7 +529,7 @@ const pageCss = `
     grid-template-columns: 1fr 200px;
   }
 
-  /* ── Field ── */
+  /* 髫ｨ貂可髫ｨ貂可 Field 髫ｨ貂可髫ｨ貂可 */
   .options-field {
     display: flex;
     flex-direction: column;
@@ -567,7 +570,7 @@ const pageCss = `
     line-height: 1.5;
   }
 
-  /* ── Inputs ── */
+  /* 髫ｨ貂可髫ｨ貂可 Inputs 髫ｨ貂可髫ｨ貂可 */
   .options-input {
     height: 38px;
     padding: 0 12px;
@@ -604,7 +607,7 @@ const pageCss = `
     color: rgba(73, 101, 131, 0.8);
   }
 
-  /* ── Buttons ── */
+  /* 髫ｨ貂可髫ｨ貂可 Buttons 髫ｨ貂可髫ｨ貂可 */
   .options-button {
     height: 36px;
     padding: 0 16px;
@@ -630,7 +633,7 @@ const pageCss = `
     color: inherit;
   }
 
-  /* ── Inline row ── */
+  /* 髫ｨ貂可髫ｨ貂可 Inline row 髫ｨ貂可髫ｨ貂可 */
   .options-inline {
     display: flex;
     gap: 8px;
@@ -640,7 +643,7 @@ const pageCss = `
     flex: 1;
   }
 
-  /* ── Radio / Checkbox ── */
+  /* 髫ｨ貂可髫ｨ貂可 Radio / Checkbox 髫ｨ貂可髫ｨ貂可 */
   .options-choice-row {
     display: flex;
     gap: 16px;
@@ -661,7 +664,7 @@ const pageCss = `
     margin-top: 1px;
   }
 
-  /* ── Callout ── */
+  /* 髫ｨ貂可髫ｨ貂可 Callout 髫ｨ貂可髫ｨ貂可 */
   .options-callout {
     padding: 12px 14px;
     border-radius: 10px;
@@ -691,7 +694,7 @@ const pageCss = `
     color: #16263b;
   }
 
-  /* ── Inline links ── */
+  /* 髫ｨ貂可髫ｨ貂可 Inline links 髫ｨ貂可髫ｨ貂可 */
   .options-inline-links {
     display: flex;
     gap: 14px;
@@ -708,7 +711,7 @@ const pageCss = `
     text-decoration: underline;
   }
 
-  /* ── Subsection ── */
+  /* 髫ｨ貂可髫ｨ貂可 Subsection 髫ｨ貂可髫ｨ貂可 */
   .options-subsection {
     display: flex;
     flex-direction: column;
@@ -728,7 +731,7 @@ const pageCss = `
     background: rgba(123, 178, 255, 0.1);
   }
 
-  /* ── Color grid ── */
+  /* 髫ｨ貂可髫ｨ貂可 Color grid 髫ｨ貂可髫ｨ貂可 */
   .options-color-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
@@ -765,7 +768,7 @@ const pageCss = `
     padding: 2px;
   }
 
-  /* ── Install banner ── */
+  /* 髫ｨ貂可髫ｨ貂可 Install banner 髫ｨ貂可髫ｨ貂可 */
   .options-install-banner {
     display: flex;
     align-items: center;
@@ -796,7 +799,7 @@ const pageCss = `
     flex: none;
   }
 
-  /* ── Setup banner ── */
+  /* 髫ｨ貂可髫ｨ貂可 Setup banner 髫ｨ貂可髫ｨ貂可 */
   .options-setup-banner {
     display: flex;
     align-items: flex-start;
@@ -813,7 +816,7 @@ const pageCss = `
     margin: 0;
   }
 
-  /* ── Guide ── */
+  /* 髫ｨ貂可髫ｨ貂可 Guide 髫ｨ貂可髫ｨ貂可 */
   .options-guide-diagram {
     border-radius: 10px;
     overflow: hidden;
@@ -921,7 +924,7 @@ const pageCss = `
     .options-col-types { grid-template-columns: repeat(2, 1fr); }
   }
 
-  /* ── CustomSelect (scoped) ── */
+  /* 髫ｨ貂可髫ｨ貂可 CustomSelect (scoped) 髫ｨ貂可髫ｨ貂可 */
   .options-content .mm-custom-select {
     position: relative;
   }
@@ -1070,7 +1073,7 @@ const pageCss = `
   }
 `;
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// 髫ｨ貂可髫ｨ貂可 Helpers 髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可
 
 function getManifestVersion(): string {
   try {
@@ -1080,11 +1083,15 @@ function getManifestVersion(): string {
   }
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
+// 髫ｨ貂可髫ｨ貂可 Component 髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可
 
 function OptionsApp(): React.JSX.Element {
   const [settings, setSettings] = useState<DeckSettings>(DEFAULT_SETTINGS);
   const [initialServerUrl, setInitialServerUrl] = useState("");
+  const [profileOrigin, setProfileOrigin] = useState("");
+  const [profiles, setProfiles] = useState<DeckProfileSummary[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState("");
+  const [newProfileName, setNewProfileName] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [showPat, setShowPat] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1114,12 +1121,25 @@ function OptionsApp(): React.JSX.Element {
       if (!cancelled) {
         setSettings(next);
         setInitialServerUrl(next.serverUrl);
+        setProfileOrigin(next.serverUrl);
         setLoaded(true);
+        const profileSnapshot = await loadDeckProfiles(next.serverUrl || undefined);
+        if (!cancelled) {
+          setProfiles(profileSnapshot.profiles);
+          setActiveProfileId(profileSnapshot.activeProfileId);
+        }
       }
     };
     void run();
     return () => { cancelled = true; };
   }, []);
+
+  const refreshProfiles = async (origin: string) => {
+    const snapshot = await loadDeckProfiles(origin || undefined);
+    setProfiles(snapshot.profiles);
+    setActiveProfileId(snapshot.activeProfileId);
+    setProfileOrigin(origin);
+  };
 
   useEffect(() => {
     document.body.dataset.theme = resolveTheme(settings.theme);
@@ -1192,12 +1212,13 @@ function OptionsApp(): React.JSX.Element {
         ...settings,
         serverUrl: normalizedServerUrl,
         healthCheckPath: normaliseHealthCheckPath(settings.healthCheckPath),
-      });
+      }, normalizedServerUrl);
       if (previousOrigin && previousOrigin !== requestedOrigin) {
         await chrome.permissions.remove({ origins: [previousOrigin] }).catch(() => undefined);
       }
       await chrome.runtime.sendMessage({ type: "mattermost-deck:sync-content-script" }).catch(() => undefined);
       setInitialServerUrl(normalizedServerUrl);
+      await refreshProfiles(normalizedServerUrl);
       setSavedNotice(true);
       if (isFirstSave) setShowInstallBanner(true);
       window.setTimeout(() => setSavedNotice(false), 2500);
@@ -1214,11 +1235,50 @@ function OptionsApp(): React.JSX.Element {
     { id: "behavior",   icon: <NavIconBehavior />,    label: text.behaviorTitle },
     { id: "security",   icon: <NavIconSecurity />,    label: text.securityTitle },
   ];
+  const targetProfileOrigin = normaliseServerUrl(settings.serverUrl) || profileOrigin || initialServerUrl;
+
+  const handleSwitchProfile = async (profileId: string) => {
+    if (!profileId || !targetProfileOrigin) {
+      return;
+    }
+    await switchDeckProfile(profileId);
+    const next = await loadDeckSettings(targetProfileOrigin);
+    setSettings(next);
+    setInitialServerUrl(next.serverUrl);
+    await refreshProfiles(targetProfileOrigin);
+  };
+
+  const handleCreateProfile = async () => {
+    if (!targetProfileOrigin) {
+      setSaveError("Save a valid Mattermost Server URL before creating profiles.");
+      return;
+    }
+
+    const name = newProfileName.trim();
+    if (!name) {
+      return;
+    }
+
+    const profile = await createDeckProfile(name, targetProfileOrigin);
+    await switchDeckProfile(profile.id);
+    await saveDeckSettings({
+      ...settings,
+      serverUrl: targetProfileOrigin,
+      healthCheckPath: normaliseHealthCheckPath(settings.healthCheckPath),
+    }, targetProfileOrigin);
+    const next = await loadDeckSettings(targetProfileOrigin);
+    setSettings(next);
+    setInitialServerUrl(next.serverUrl);
+    setNewProfileName("");
+    await refreshProfiles(targetProfileOrigin);
+    setSavedNotice(true);
+    window.setTimeout(() => setSavedNotice(false), 2500);
+  };
 
   return (
     <div className="options-app">
 
-      {/* ── Topbar ── */}
+      {/* 髫ｨ貂可髫ｨ貂可 Topbar 髫ｨ貂可髫ｨ貂可 */}
       <header className="options-topbar">
         <div className="options-topbar-brand">
           <img src="assets/icons/icon-48.png" alt="" width="28" height="28" />
@@ -1227,10 +1287,10 @@ function OptionsApp(): React.JSX.Element {
         </div>
       </header>
 
-      {/* ── Body ── */}
+      {/* 髫ｨ貂可髫ｨ貂可 Body 髫ｨ貂可髫ｨ貂可 */}
       <div className="options-body">
 
-        {/* ── Sidebar ── */}
+        {/* 髫ｨ貂可髫ｨ貂可 Sidebar 髫ｨ貂可髫ｨ貂可 */}
         <nav className="options-sidebar">
           <div className="options-sidebar-nav">
             {navItems.map(({ id, icon, label }) => (
@@ -1264,11 +1324,11 @@ function OptionsApp(): React.JSX.Element {
             <a href={PRIVACY_URL} target="_blank" rel="noreferrer">{text.privacyPolicy}</a>
             <a href={TERMS_URL} target="_blank" rel="noreferrer">{text.termsOfUse}</a>
             <a href={REPO_URL} target="_blank" rel="noreferrer">{text.github}</a>
-            <span className="options-sidebar-copyright">© {COPYRIGHT_YEAR} {AUTHOR_NAME}</span>
+            <span className="options-sidebar-copyright">(c) {COPYRIGHT_YEAR} {AUTHOR_NAME}</span>
           </div>
         </nav>
 
-        {/* ── Content ── */}
+        {/* 髫ｨ貂可髫ｨ貂可 Content 髫ｨ貂可髫ｨ貂可 */}
         <main className="options-content">
           <div className="options-panel-scroll">
 
@@ -1305,7 +1365,7 @@ function OptionsApp(): React.JSX.Element {
             </div>
           )}
 
-          {/* ── Panel: 使い方 ── */}
+          {/* 髫ｨ貂可髫ｨ貂可 Panel: 髣厄ｽｴ繝ｻ・ｿ驍ｵ・ｺ郢晢ｽｻ陝・ｿ 髫ｨ貂可髫ｨ貂可 */}
           {activePanel === "guide" && (
             <div className="options-panel">
               <div className="options-panel-header">
@@ -1379,7 +1439,7 @@ function OptionsApp(): React.JSX.Element {
                   <rect x="550" y="160" width="60" height="6" rx="2" fill="#1a2838" />
                   {/* label arrow */}
                   <text x="414" y="250" fill="#496583" fontSize="9" fontFamily="sans-serif">Mattermost</text>
-                  <text x="544" y="250" fill="#7bb2ff" fontSize="9" fontFamily="sans-serif">Deck ペイン</text>
+                  <text x="544" y="250" fill="#7bb2ff" fontSize="9" fontFamily="sans-serif">Deck overlay</text>
                   <line x1="400" y1="244" x2="400" y2="236" stroke="#496583" strokeWidth="1" />
                 </svg>
               </div>
@@ -1455,12 +1515,61 @@ function OptionsApp(): React.JSX.Element {
             </div>
           )}
 
-          {/* ── Panel: 接続 ── */}
+          {/* 髫ｨ貂可髫ｨ貂可 Panel: 髫ｰ證ｦ・ｽ・･鬩搾ｽｯ郢晢ｽｻ髫ｨ貂可髫ｨ貂可 */}
           {activePanel === "conn" && (
             <div className="options-panel">
               <div className="options-panel-header">
                 <h2>{text.connTitle}</h2>
                 <p>{text.connDesc}</p>
+              </div>
+
+              <div className="options-subsection">
+                <span className="options-subsection-label">Profiles</span>
+                <div className="options-grid">
+                  <label className="options-field">
+                    <span className="options-label">Current Profile</span>
+                    <select
+                      className="options-input"
+                      value={activeProfileId}
+                      onChange={(e) => void handleSwitchProfile(e.target.value)}
+                      disabled={profiles.length === 0}
+                    >
+                      {profiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="options-hint">
+                      {targetProfileOrigin
+                        ? `Profiles for ${targetProfileOrigin}`
+                        : "Save a Mattermost Server URL to manage per-origin profiles."}
+                    </span>
+                  </label>
+                  <label className="options-field">
+                    <span className="options-label">Create Profile</span>
+                    <div className="options-inline">
+                      <input
+                        className="options-input"
+                        type="text"
+                        value={newProfileName}
+                        onChange={(e) => setNewProfileName(e.target.value)}
+                        placeholder="Ops, Support, Night Shift"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <button
+                        type="button"
+                        className="options-button"
+                        onClick={() => void handleCreateProfile()}
+                        disabled={!newProfileName.trim()}
+                      >
+                        Create
+                      </button>
+                    </div>
+                    <span className="options-hint">A new profile starts as a copy of the current settings for this server.</span>
+                  </label>
+                </div>
               </div>
 
               {loaded && !initialServerUrl && (
@@ -1553,7 +1662,7 @@ function OptionsApp(): React.JSX.Element {
             </div>
           )}
 
-          {/* ── Panel: リアルタイム ── */}
+          {/* 髫ｨ貂可髫ｨ貂可 Panel: 驛｢譎｢・ｽ・ｪ驛｢・ｧ繝ｻ・｢驛｢譎｢・ｽ・ｫ驛｢・ｧ繝ｻ・ｿ驛｢・ｧ繝ｻ・､驛｢譎｢・｣・ｰ 髫ｨ貂可髫ｨ貂可 */}
           {activePanel === "realtime" && (
             <div className="options-panel">
               <div className="options-panel-header">
@@ -1656,7 +1765,7 @@ function OptionsApp(): React.JSX.Element {
             </div>
           )}
 
-          {/* ── Panel: 外観 ── */}
+          {/* 髫ｨ貂可髫ｨ貂可 Panel: 髯樊ｺｷ繝ｻ繝ｻ・ｦ繝ｻ・ｳ 髫ｨ貂可髫ｨ貂可 */}
           {activePanel === "appearance" && (
             <div className="options-panel">
               <div className="options-panel-header">
@@ -1765,7 +1874,7 @@ function OptionsApp(): React.JSX.Element {
             </div>
           )}
 
-          {/* ── Panel: 動作 ── */}
+          {/* 髫ｨ貂可髫ｨ貂可 Panel: 髯ｷ蜥ｲ・ｩ繧托ｽｽ・ｽ郢晢ｽｻ髫ｨ貂可髫ｨ貂可 */}
           {activePanel === "behavior" && (
             <div className="options-panel">
               <div className="options-panel-header">
@@ -1784,6 +1893,19 @@ function OptionsApp(): React.JSX.Element {
                     onChange={(v) => setSettings((s) => ({ ...s, postClickAction: v as PostClickAction }))}
                   />
                   <span className="options-hint">{text.postClickActionHint}</span>
+                </label>
+                <label className="options-field">
+                  <span className="options-label">{text.highlightKeywordsLabel}</span>
+                  <input
+                    className="options-input"
+                    type="text"
+                    value={settings.highlightKeywords}
+                    onChange={(e) => setSettings((s) => ({ ...s, highlightKeywords: e.target.value }))}
+                    placeholder="deploy,error,customer"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <span className="options-hint">{text.highlightKeywordsHint}</span>
                 </label>
                 <label className="options-field">
                   <span className="options-label">{text.highZIndexLabel}</span>
@@ -1843,7 +1965,7 @@ function OptionsApp(): React.JSX.Element {
             </div>
           )}
 
-          {/* ── Panel: セキュリティ ── */}
+          {/* 髫ｨ貂可髫ｨ貂可 Panel: 驛｢・ｧ繝ｻ・ｻ驛｢・ｧ繝ｻ・ｭ驛｢譎｢・ｽ・･驛｢譎｢・ｽ・ｪ驛｢譏ｴ繝ｻ邵ｺ繝ｻ髫ｨ貂可髫ｨ貂可 */}
           {activePanel === "security" && (
             <div className="options-panel">
               <div className="options-panel-header">
@@ -1859,7 +1981,7 @@ function OptionsApp(): React.JSX.Element {
 
           </div>{/* options-panel-scroll */}
 
-          {/* ── Save footer ── */}
+          {/* 髫ｨ貂可髫ｨ貂可 Save footer 髫ｨ貂可髫ｨ貂可 */}
           <footer className="options-save-footer">
             <div className="options-save-footer-inner">
               <span className="options-status">
@@ -1882,7 +2004,7 @@ function OptionsApp(): React.JSX.Element {
   );
 }
 
-// ── Mount ─────────────────────────────────────────────────────────────────────
+// 髫ｨ貂可髫ｨ貂可 Mount 髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可髫ｨ貂可
 
 const root = document.getElementById("options-root");
 if (!(root instanceof HTMLDivElement)) {

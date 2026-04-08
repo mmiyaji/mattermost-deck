@@ -4,12 +4,45 @@ import os from "node:os";
 import path from "node:path";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
-const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.json");
+const stateFile = process.env.CAB_MATTERMOST_E2E_STATE_FILE ?? path.resolve("e2e/mm95-compat-state.json");
 
-async function readState(): Promise<{ memberUser: { username: string; password: string } }> {
-  return JSON.parse(await fs.readFile(stateFile, "utf8")) as {
-    memberUser: { username: string; password: string };
-  };
+interface E2EState {
+  team: { id: string; name: string };
+  memberUser: { username: string; password: string; token: string };
+}
+
+async function readState(): Promise<E2EState> {
+  return JSON.parse(await fs.readFile(stateFile, "utf8")) as E2EState;
+}
+
+async function apiGet<T>(token: string, pathname: string): Promise<T> {
+  const res = await fetch(`${baseUrl}/api/v4${pathname}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    throw new Error(`GET ${pathname} failed with ${res.status}`);
+  }
+  return (await res.json()) as T;
+}
+
+async function apiPost<T>(token: string, pathname: string, body: unknown): Promise<T> {
+  const res = await fetch(`${baseUrl}/api/v4${pathname}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`POST ${pathname} failed with ${res.status}: ${text}`);
+  }
+  return (await res.json()) as T;
+}
+
+async function apiDelete(token: string, pathname: string): Promise<void> {
+  await fetch(`${baseUrl}/api/v4${pathname}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(() => undefined);
 }
 
 async function login(page: import("@playwright/test").Page, username: string, password: string) {
@@ -21,7 +54,6 @@ async function login(page: import("@playwright/test").Page, username: string, pa
     browserChoice.waitFor({ state: "visible", timeout: 15_000 }).catch(() => undefined),
     loginId.waitFor({ state: "visible", timeout: 15_000 }).catch(() => undefined),
   ]);
-
   if (await browserChoice.isVisible().catch(() => false)) {
     await browserChoice.click();
   }
@@ -57,9 +89,24 @@ async function debugRequest<T>(
   }, { action, payload });
 }
 
-test("injects the right rail into Mattermost", async () => {
+test("highlight keywords are rendered inside deck posts", async () => {
+  const state = await readState();
   const extensionPath = path.resolve("./dist");
-  const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-"));
+  const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-highlight-"));
+  const ignoredKeyword = `deploy-${Date.now()}`;
+  const keyword = `urgent-${Date.now()}`;
+  let postId = "";
+
+  const channels = await apiGet<Array<{ id: string; name: string }>>(state.memberUser.token, `/users/me/teams/${state.team.id}/channels`);
+  const townSquare = channels.find((channel) => channel.name === "town-square");
+  expect(townSquare).toBeTruthy();
+
+  const created = await apiPost<{ id: string }>(state.memberUser.token, "/posts", {
+    channel_id: townSquare!.id,
+    message: `Deck keyword highlight check ${keyword}`,
+  });
+  postId = created.id;
+
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: "chromium",
     headless: true,
@@ -70,33 +117,47 @@ test("injects the right rail into Mattermost", async () => {
   });
 
   try {
-    const state = await readState();
     const [existingSw] = context.serviceWorkers();
     const sw = existingSw ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
-
-    await sw.evaluate((serverUrl: string) => {
+    await sw.evaluate(({ serverUrl, ignoredKeyword, keyword }) => {
       return new Promise<void>((resolve) => {
-        chrome.storage.local.set({ "mattermostDeck.serverUrl.v1": serverUrl }, () => resolve());
+        chrome.storage.local.set({
+          "mattermostDeck.serverUrl.v1": serverUrl,
+          "mattermostDeck.highlightKeywords.v1": `${ignoredKeyword}、${keyword}`,
+        }, () => resolve());
       });
-    }, baseUrl);
+    }, { serverUrl: baseUrl, ignoredKeyword, keyword });
 
     const page = await context.newPage();
     await page.addInitScript(() => {
       window.localStorage.setItem("mattermostDeck.debugLogs", "1");
     });
-
     await login(page, state.memberUser.username, state.memberUser.password);
 
     await expect(page.locator("#mattermost-deck-root")).toBeAttached({ timeout: 20_000 });
-    await expect(page.locator("body")).toHaveClass(/mattermost-deck-body-offset/, { timeout: 10_000 });
     await expect
       .poll(async () => {
         const result = await debugRequest<{ stateStatus?: string }>(page, "getState");
         return result?.stateStatus ?? "missing";
-      }, { timeout: 20_000 })
+      }, { timeout: 60_000 })
       .toBe("ready");
+
+    const columnId = await debugRequest<string>(page, "addColumn", { type: "channelWatch" });
+    await debugRequest(page, "updateColumn", {
+      id: columnId,
+      patch: { teamId: state.team.id, channelId: townSquare!.id },
+    });
+
+    await expect
+      .poll(async () => {
+        return await debugRequest<string[]>(page, "getHighlightTexts");
+      }, { timeout: 30_000 })
+      .toContain(keyword);
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });
+    if (postId) {
+      await apiDelete(state.memberUser.token, `/posts/${postId}`);
+    }
   }
 });

@@ -1,4 +1,5 @@
-import { loadStoredEncryptedString, loadStoredString, saveStoredEncryptedString, saveStoredString } from "./storage";
+import { loadStoredEncryptedString, loadStoredString, saveStoredEncryptedString, saveStoredString, hasStoredValue } from "./storage";
+import { getProfileStorageKey, loadCurrentDeckProfile, PROFILES_STORAGE_KEY } from "./profiles";
 
 export type DeckTheme = "system" | "dark" | "light" | "mattermost";
 export type DeckLanguage = "ja" | "en" | "de" | "zh-CN" | "fr";
@@ -30,6 +31,7 @@ export interface DeckSettings {
   compactMode: boolean;
   columnColorEnabled: boolean;
   postClickAction: PostClickAction;
+  highlightKeywords: string;
   columnColors: ColumnColorSettings;
   showImagePreviews: boolean;
   highZIndex: boolean;
@@ -53,6 +55,7 @@ export const SETTINGS_KEYS = {
   columnColorEnabled: "mattermostDeck.columnColorEnabled.v1",
   columnIdentityMode: "mattermostDeck.columnIdentityMode.v1",
   postClickAction: "mattermostDeck.postClickAction.v1",
+  highlightKeywords: "mattermostDeck.highlightKeywords.v1",
   columnColors: "mattermostDeck.columnColors.v1",
   showImagePreviews: "mattermostDeck.showImagePreviews.v1",
   highZIndex: "mattermostDeck.highZIndex.v1",
@@ -85,6 +88,7 @@ export const DEFAULT_SETTINGS: DeckSettings = {
   compactMode: false,
   columnColorEnabled: false,
   postClickAction: "ask",
+  highlightKeywords: "",
   columnColors: DEFAULT_COLUMN_COLORS,
   showImagePreviews: true,
   highZIndex: false,
@@ -264,7 +268,31 @@ function normalisePostClickAction(value: string | null): PostClickAction {
   return value === "none" || value === "ask" || value === "navigate" ? value : DEFAULT_SETTINGS.postClickAction;
 }
 
-export async function loadDeckSettings(): Promise<DeckSettings> {
+function normaliseHighlightKeywords(value: string | null): string {
+  return value?.trim() ?? "";
+}
+
+async function loadScopedStoredString(baseKey: string, area: "local" | "session" = "local", origin?: string): Promise<string | null> {
+  const profile = await loadCurrentDeckProfile(origin);
+  const profileKey = getProfileStorageKey(profile.id, baseKey);
+  if (await hasStoredValue(profileKey, area)) {
+    return await loadStoredString(profileKey, area);
+  }
+
+  return await loadStoredString(baseKey, area);
+}
+
+async function loadScopedStoredEncryptedString(baseKey: string, area: "local" | "session" = "local", origin?: string): Promise<string | null> {
+  const profile = await loadCurrentDeckProfile(origin);
+  const profileKey = getProfileStorageKey(profile.id, baseKey);
+  if (await hasStoredValue(profileKey, area)) {
+    return await loadStoredEncryptedString(profileKey, area);
+  }
+
+  return await loadStoredEncryptedString(baseKey, area);
+}
+
+export async function loadDeckSettings(origin?: string): Promise<DeckSettings> {
   const [
     serverUrl,
     teamSlug,
@@ -283,34 +311,35 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
     columnColorEnabled,
     columnIdentityMode,
     postClickAction,
+    highlightKeywords,
     columnColors,
     showImagePreviews,
     highZIndex,
     reversedPostOrder,
-  ] =
-    await Promise.all([
-    loadStoredString(SETTINGS_KEYS.serverUrl),
-    loadStoredString(SETTINGS_KEYS.teamSlug),
-    loadStoredEncryptedString(SETTINGS_KEYS.wsPat, "local"),
-    loadStoredEncryptedString(SETTINGS_KEYS.wsPat, "session"),
-    loadStoredString(SETTINGS_KEYS.persistPat),
-    loadStoredString(SETTINGS_KEYS.pollingIntervalSeconds),
-    loadStoredString(SETTINGS_KEYS.allowedRouteKinds),
-    loadStoredString(SETTINGS_KEYS.healthCheckPath),
-    loadStoredString(SETTINGS_KEYS.theme),
-    loadStoredString(SETTINGS_KEYS.language),
-    loadStoredString(SETTINGS_KEYS.fontScalePercent),
-    loadStoredString(SETTINGS_KEYS.preferredRailWidth),
-    loadStoredString(SETTINGS_KEYS.preferredColumnWidth),
-    loadStoredString(SETTINGS_KEYS.compactMode),
-    loadStoredString(SETTINGS_KEYS.columnColorEnabled),
-    loadStoredString(SETTINGS_KEYS.columnIdentityMode),
-    loadStoredString(SETTINGS_KEYS.postClickAction),
-    loadStoredString(SETTINGS_KEYS.columnColors),
-    loadStoredString(SETTINGS_KEYS.showImagePreviews),
-    loadStoredString(SETTINGS_KEYS.highZIndex),
-    loadStoredString(SETTINGS_KEYS.reversedPostOrder),
-    ]);
+  ] = await Promise.all([
+    loadScopedStoredString(SETTINGS_KEYS.serverUrl, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.teamSlug, "local", origin),
+    loadScopedStoredEncryptedString(SETTINGS_KEYS.wsPat, "local", origin),
+    loadScopedStoredEncryptedString(SETTINGS_KEYS.wsPat, "session", origin),
+    loadScopedStoredString(SETTINGS_KEYS.persistPat, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.pollingIntervalSeconds, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.allowedRouteKinds, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.healthCheckPath, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.theme, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.language, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.fontScalePercent, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.preferredRailWidth, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.preferredColumnWidth, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.compactMode, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.columnColorEnabled, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.columnIdentityMode, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.postClickAction, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.highlightKeywords, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.columnColors, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.showImagePreviews, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.highZIndex, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.reversedPostOrder, "local", origin),
+  ]);
 
   return {
     serverUrl: normaliseServerUrl(serverUrl),
@@ -328,6 +357,7 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
     compactMode: normaliseBoolean(compactMode, DEFAULT_SETTINGS.compactMode),
     columnColorEnabled: normaliseColumnColorEnabled(columnColorEnabled, columnIdentityMode),
     postClickAction: normalisePostClickAction(postClickAction),
+    highlightKeywords: normaliseHighlightKeywords(highlightKeywords),
     columnColors: normaliseColumnColors(parseJsonObject(columnColors)),
     showImagePreviews: normaliseBoolean(showImagePreviews, DEFAULT_SETTINGS.showImagePreviews),
     highZIndex: normaliseBoolean(highZIndex, DEFAULT_SETTINGS.highZIndex),
@@ -335,34 +365,41 @@ export async function loadDeckSettings(): Promise<DeckSettings> {
   };
 }
 
-export async function saveDeckSettings(settings: DeckSettings): Promise<void> {
+export async function saveDeckSettings(settings: DeckSettings, origin?: string): Promise<void> {
+  const profile = await loadCurrentDeckProfile(origin);
+  const profileKey = (baseKey: string) => getProfileStorageKey(profile.id, baseKey);
   const normalizedServerUrl = normaliseServerUrl(settings.serverUrl);
   const normalizedPat = settings.wsPat.trim();
   const persistPat = normalisePersistPat(settings.persistPat);
 
   await Promise.all([
-    saveStoredString(SETTINGS_KEYS.serverUrl, normalizedServerUrl),
-    saveStoredString(SETTINGS_KEYS.teamSlug, normaliseTeamSlug(settings.teamSlug)),
-    saveStoredString(SETTINGS_KEYS.persistPat, persistPat ? "true" : "false"),
-    saveStoredEncryptedString(SETTINGS_KEYS.wsPat, persistPat ? normalizedPat : "", "local"),
-    saveStoredEncryptedString(SETTINGS_KEYS.wsPat, persistPat ? "" : normalizedPat, "session"),
-    saveStoredString(SETTINGS_KEYS.pollingIntervalSeconds, String(normalisePollingIntervalSeconds(settings.pollingIntervalSeconds))),
-    saveStoredString(SETTINGS_KEYS.allowedRouteKinds, normaliseAllowedRouteKinds(settings.allowedRouteKinds)),
-    saveStoredString(SETTINGS_KEYS.healthCheckPath, normaliseHealthCheckPath(settings.healthCheckPath)),
-    saveStoredString(SETTINGS_KEYS.theme, settings.theme),
-    saveStoredString(SETTINGS_KEYS.language, settings.language),
-    saveStoredString(SETTINGS_KEYS.fontScalePercent, String(normaliseFontScalePercent(settings.fontScalePercent))),
-    saveStoredString(SETTINGS_KEYS.preferredRailWidth, String(normalisePreferredRailWidth(settings.preferredRailWidth))),
-    saveStoredString(SETTINGS_KEYS.preferredColumnWidth, String(normalisePreferredColumnWidth(settings.preferredColumnWidth))),
-    saveStoredString(SETTINGS_KEYS.compactMode, settings.compactMode ? "true" : "false"),
-    saveStoredString(SETTINGS_KEYS.columnColorEnabled, settings.columnColorEnabled ? "true" : "false"),
-    saveStoredString(SETTINGS_KEYS.columnIdentityMode, settings.columnColorEnabled ? "color" : "icon"),
-    saveStoredString(SETTINGS_KEYS.postClickAction, normalisePostClickAction(settings.postClickAction)),
-    saveStoredString(SETTINGS_KEYS.columnColors, JSON.stringify(normaliseColumnColors(settings.columnColors))),
-    saveStoredString(SETTINGS_KEYS.showImagePreviews, settings.showImagePreviews ? "true" : "false"),
-    saveStoredString(SETTINGS_KEYS.highZIndex, settings.highZIndex ? "true" : "false"),
-    saveStoredString(SETTINGS_KEYS.reversedPostOrder, settings.reversedPostOrder ? "true" : "false"),
+    saveStoredString(profileKey(SETTINGS_KEYS.serverUrl), normalizedServerUrl),
+    saveStoredString(profileKey(SETTINGS_KEYS.teamSlug), normaliseTeamSlug(settings.teamSlug)),
+    saveStoredString(profileKey(SETTINGS_KEYS.persistPat), persistPat ? "true" : "false"),
+    saveStoredEncryptedString(profileKey(SETTINGS_KEYS.wsPat), persistPat ? normalizedPat : "", "local"),
+    saveStoredEncryptedString(profileKey(SETTINGS_KEYS.wsPat), persistPat ? "" : normalizedPat, "session"),
+    saveStoredString(profileKey(SETTINGS_KEYS.pollingIntervalSeconds), String(normalisePollingIntervalSeconds(settings.pollingIntervalSeconds))),
+    saveStoredString(profileKey(SETTINGS_KEYS.allowedRouteKinds), normaliseAllowedRouteKinds(settings.allowedRouteKinds)),
+    saveStoredString(profileKey(SETTINGS_KEYS.healthCheckPath), normaliseHealthCheckPath(settings.healthCheckPath)),
+    saveStoredString(profileKey(SETTINGS_KEYS.theme), settings.theme),
+    saveStoredString(profileKey(SETTINGS_KEYS.language), settings.language),
+    saveStoredString(profileKey(SETTINGS_KEYS.fontScalePercent), String(normaliseFontScalePercent(settings.fontScalePercent))),
+    saveStoredString(profileKey(SETTINGS_KEYS.preferredRailWidth), String(normalisePreferredRailWidth(settings.preferredRailWidth))),
+    saveStoredString(profileKey(SETTINGS_KEYS.preferredColumnWidth), String(normalisePreferredColumnWidth(settings.preferredColumnWidth))),
+    saveStoredString(profileKey(SETTINGS_KEYS.compactMode), settings.compactMode ? "true" : "false"),
+    saveStoredString(profileKey(SETTINGS_KEYS.columnColorEnabled), settings.columnColorEnabled ? "true" : "false"),
+    saveStoredString(profileKey(SETTINGS_KEYS.columnIdentityMode), settings.columnColorEnabled ? "color" : "icon"),
+    saveStoredString(profileKey(SETTINGS_KEYS.postClickAction), normalisePostClickAction(settings.postClickAction)),
+    saveStoredString(profileKey(SETTINGS_KEYS.highlightKeywords), normaliseHighlightKeywords(settings.highlightKeywords)),
+    saveStoredString(profileKey(SETTINGS_KEYS.columnColors), JSON.stringify(normaliseColumnColors(settings.columnColors))),
+    saveStoredString(profileKey(SETTINGS_KEYS.showImagePreviews), settings.showImagePreviews ? "true" : "false"),
+    saveStoredString(profileKey(SETTINGS_KEYS.highZIndex), settings.highZIndex ? "true" : "false"),
+    saveStoredString(profileKey(SETTINGS_KEYS.reversedPostOrder), settings.reversedPostOrder ? "true" : "false"),
   ]);
+}
+
+function isSettingsChangeKey(key: string): boolean {
+  return Object.values(SETTINGS_KEYS).some((baseKey) => key === baseKey || key === `${baseKey}.profile.` || key.startsWith(`${baseKey}.profile.`));
 }
 
 export function subscribeDeckSettings(listener: (settings: DeckSettings) => void): () => void {
@@ -375,31 +412,8 @@ export function subscribeDeckSettings(listener: (settings: DeckSettings) => void
       return;
     }
 
-    if (
-      !(SETTINGS_KEYS.wsPat in changes) &&
-      (areaName === "session" ||
-        !(
-          SETTINGS_KEYS.serverUrl in changes ||
-          SETTINGS_KEYS.teamSlug in changes ||
-          SETTINGS_KEYS.persistPat in changes ||
-          SETTINGS_KEYS.pollingIntervalSeconds in changes ||
-          SETTINGS_KEYS.allowedRouteKinds in changes ||
-          SETTINGS_KEYS.healthCheckPath in changes ||
-          SETTINGS_KEYS.theme in changes ||
-          SETTINGS_KEYS.language in changes ||
-          SETTINGS_KEYS.fontScalePercent in changes ||
-          SETTINGS_KEYS.preferredRailWidth in changes ||
-          SETTINGS_KEYS.preferredColumnWidth in changes ||
-          SETTINGS_KEYS.compactMode in changes ||
-          SETTINGS_KEYS.columnColorEnabled in changes ||
-          SETTINGS_KEYS.columnIdentityMode in changes ||
-          SETTINGS_KEYS.postClickAction in changes ||
-          SETTINGS_KEYS.columnColors in changes ||
-          SETTINGS_KEYS.showImagePreviews in changes ||
-          SETTINGS_KEYS.highZIndex in changes ||
-          SETTINGS_KEYS.reversedPostOrder in changes
-        ))
-    ) {
+    const changedKeys = Object.keys(changes);
+    if (!changedKeys.some((key) => key === PROFILES_STORAGE_KEY || isSettingsChangeKey(key))) {
       return;
     }
 

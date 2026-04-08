@@ -43,6 +43,24 @@ interface MattermostEventEnvelope {
 const RECONNECT_BASE_MS = 1_500;
 const RECONNECT_MAX_MS = 30_000;
 const BACKGROUND_MIN_MS = 10_000;
+const SPECIAL_MENTION_PATTERN = /(^|[^a-z0-9_])@(all|here|channel)\b/i;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function createUserMentionPattern(username: string | null): RegExp | null {
+  if (!username) {
+    return null;
+  }
+
+  return new RegExp(`(^|[^a-z0-9_])@${escapeRegExp(username)}\\b`, "i");
+}
+
+function hasMentionForDeck(message: string, username: string | null): boolean {
+  const userMentionPattern = createUserMentionPattern(username);
+  return (userMentionPattern?.test(message) ?? false) || SPECIAL_MENTION_PATTERN.test(message);
+}
 
 function jitter(ms: number): number {
   const variance = Math.floor(ms * 0.2);
@@ -70,13 +88,8 @@ function parsePostedEvent(
       return null;
     }
 
-    const mentionToken = username ? `@${username.toLowerCase()}` : null;
     const mentionsUser =
-      Boolean(
-        mentionToken &&
-          typeof post.message === "string" &&
-          post.message.toLowerCase().includes(mentionToken),
-      ) ||
+      (typeof post.message === "string" && hasMentionForDeck(post.message, username)) ||
       (typeof payload.data.mentions === "string" &&
         payload.data.mentions.toLowerCase().includes(username?.toLowerCase() ?? ""));
 

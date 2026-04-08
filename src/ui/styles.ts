@@ -1572,7 +1572,7 @@ export const railCssText = `
     gap: 10px;
   }
 
-  /* ── ファイル添付 ─────────────────────────────── */
+  /* File attachments */
   .deck-post-files {
     display: flex;
     flex-wrap: wrap;
@@ -1610,7 +1610,7 @@ export const railCssText = `
     background: rgba(0, 0, 0, 0.88);
   }
 
-  /* ── top-right toolbar ─────────────────────────────────────────── */
+  /* Top-right toolbar */
   .deck-lightbox-toolbar {
     position: absolute;
     top: 12px;
@@ -1646,7 +1646,7 @@ export const railCssText = `
     background: rgba(220, 53, 69, 0.75);
   }
 
-  /* ── image stage ────────────────────────────────────────────────── */
+  /* Image stage */
   .deck-lightbox-stage {
     position: absolute;
     inset: 0 0 52px 0;
@@ -1675,7 +1675,7 @@ export const railCssText = `
     cursor: grabbing;
   }
 
-  /* ── bottom controls ────────────────────────────────────────────── */
+  /* Bottom controls */
   .deck-lightbox-controls {
     position: absolute;
     bottom: 0;
@@ -1780,7 +1780,7 @@ export const railCssText = `
     color: var(--deck-text-faint);
   }
 
-  /* ── 保存済み検索 ─────────────────────────────── */
+  /* Saved searches list */
   .deck-saved-searches {
     margin-top: 4px;
   }
@@ -1935,6 +1935,66 @@ export const railCssText = `
 
     .deck-field--inline {
       min-width: 0;
+    }
+  }
+  .deck-loading-state {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--deck-border);
+    border-radius: 14px;
+    background: var(--deck-card);
+    color: var(--deck-text);
+  }
+
+  .deck-loading-state p {
+    margin: 0;
+    color: var(--deck-text-faint);
+    font-size: calc(12px * var(--deck-font-scale));
+    line-height: 1.5;
+  }
+
+  .deck-loading-spinner {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 2px solid color-mix(in srgb, var(--deck-accent) 22%, transparent);
+    border-top-color: var(--deck-accent);
+    animation: deck-spin 0.85s linear infinite;
+  }
+
+  .deck-loading-skeletons {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .deck-loading-skeleton {
+    height: 58px;
+    border-radius: 12px;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--deck-card) 88%, var(--deck-text) 12%) 0%,
+      color-mix(in srgb, var(--deck-card) 76%, var(--deck-text) 24%) 50%,
+      color-mix(in srgb, var(--deck-card) 88%, var(--deck-text) 12%) 100%
+    );
+    background-size: 200% 100%;
+    animation: deck-skeleton-wave 1.2s ease-in-out infinite;
+  }
+
+  @keyframes deck-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes deck-skeleton-wave {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
     }
   }
 `;

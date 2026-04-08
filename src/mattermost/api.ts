@@ -90,8 +90,27 @@ const API_METRICS_RETENTION_MS = 60_000;
 const API_METRICS_TPS_BUCKET_MS = 3_000;
 const API_METRICS_TPS_BUCKETS = 20;
 const API_METRICS_LATENCY_POINTS = 20;
+const API_GLOBAL_RATE_LIMIT_PER_MINUTE = 180;
+const API_GLOBAL_RATE_LIMIT_BURST = 24;
+const API_GET_RATE_LIMIT_PER_MINUTE = 150;
+const API_GET_RATE_LIMIT_BURST = 18;
+const API_POST_RATE_LIMIT_PER_MINUTE = 45;
+const API_POST_RATE_LIMIT_BURST = 10;
+
+type ApiRateBucket = {
+  capacity: number;
+  refillPerMs: number;
+  tokens: number;
+  lastRefillAt: number;
+};
+
 const inflightGetRequests = new Map<string, Promise<unknown>>();
 const recentGetResponses = new Map<string, { expiresAt: number; value: unknown }>();
+const globalRateBucket: ApiRateBucket = createRateBucket(API_GLOBAL_RATE_LIMIT_BURST, API_GLOBAL_RATE_LIMIT_PER_MINUTE);
+const methodRateBuckets: Record<"GET" | "POST", ApiRateBucket> = {
+  GET: createRateBucket(API_GET_RATE_LIMIT_BURST, API_GET_RATE_LIMIT_PER_MINUTE),
+  POST: createRateBucket(API_POST_RATE_LIMIT_BURST, API_POST_RATE_LIMIT_PER_MINUTE),
+};
 let requestQueue = Promise.resolve();
 let nextRequestAt = 0;
 let totalRequests = 0;
@@ -125,6 +144,47 @@ function emitApiLog(level: ApiLogLevel, message: string): void {
   );
 }
 
+function createRateBucket(capacity: number, refillPerMinute: number): ApiRateBucket {
+  return {
+    capacity,
+    refillPerMs: refillPerMinute / 60_000,
+    tokens: capacity,
+    lastRefillAt: Date.now(),
+  };
+}
+
+function refillRateBucket(bucket: ApiRateBucket, now: number): void {
+  const elapsed = Math.max(0, now - bucket.lastRefillAt);
+  if (elapsed <= 0) {
+    return;
+  }
+
+  bucket.tokens = Math.min(bucket.capacity, bucket.tokens + elapsed * bucket.refillPerMs);
+  bucket.lastRefillAt = now;
+}
+
+async function waitForRateLimit(method: "GET" | "POST"): Promise<number> {
+  const buckets = [globalRateBucket, methodRateBuckets[method]];
+  let waitedMs = 0;
+
+  while (true) {
+    const now = Date.now();
+    buckets.forEach((bucket) => refillRateBucket(bucket, now));
+    const blockingBucket = buckets.find((bucket) => bucket.tokens < 1);
+
+    if (!blockingBucket) {
+      buckets.forEach((bucket) => {
+        bucket.tokens = Math.max(0, bucket.tokens - 1);
+      });
+      return waitedMs;
+    }
+
+    const waitMs = Math.max(50, Math.ceil((1 - blockingBucket.tokens) / blockingBucket.refillPerMs));
+    waitedMs += waitMs;
+    await new Promise((resolve) => window.setTimeout(resolve, waitMs));
+  }
+}
+
 async function performMeasuredFetch(
   method: "GET" | "POST",
   pathname: string,
@@ -144,7 +204,7 @@ async function performMeasuredFetch(
 
   try {
     const queueEnteredAt = Date.now();
-    const response = await scheduleApiRequest(async () => {
+    const response = await scheduleApiRequest(method, async () => {
       queueWaitMs = Date.now() - queueEnteredAt;
       return await request();
     });
@@ -180,7 +240,7 @@ async function performMeasuredFetch(
   }
 }
 
-async function scheduleApiRequest<T>(task: () => Promise<T>): Promise<T> {
+async function scheduleApiRequest<T>(method: "GET" | "POST", task: () => Promise<T>): Promise<T> {
   let release!: () => void;
   const waitTurn = new Promise<void>((resolve) => {
     release = () => resolve();
@@ -188,6 +248,11 @@ async function scheduleApiRequest<T>(task: () => Promise<T>): Promise<T> {
   const previous = requestQueue;
   requestQueue = previous.then(() => waitTurn);
   await previous;
+
+  const rateLimitWaitMs = await waitForRateLimit(method);
+  if (rateLimitWaitMs > 0) {
+    emitApiLog("warn", `${method} rate-limit ${Math.round(rateLimitWaitMs)}ms`);
+  }
 
   const delay = Math.max(0, nextRequestAt - Date.now());
   if (delay > 0) {
@@ -403,12 +468,13 @@ export async function searchPostsInTeam(
   terms: string,
   page = 0,
   perPage = 20,
+  options?: { isOrSearch?: boolean },
 ): Promise<MattermostPost[]> {
   const payload = await apiPost<MattermostPostList>(
     `/teams/${encodeURIComponent(teamId)}/posts/search?page=${page}&per_page=${perPage}`,
     {
       terms,
-      is_or_search: false,
+      is_or_search: options?.isOrSearch ?? false,
       include_deleted_channels: false,
     },
   );
