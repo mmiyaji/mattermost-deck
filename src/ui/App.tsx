@@ -347,14 +347,17 @@ function buildPostListEntries(posts: MattermostPost[], lastViewedAt?: number | n
       });
     }
 
-    // Posts are sorted newest-first. Insert unread separator before the first
-    // post that is older than lastViewedAt (i.e. between new and old posts).
-    if (!unreadInserted && lastViewedAt != null && lastViewedAt > 0 && post.create_at <= lastViewedAt && index > 0) {
-      entries.push({
-        type: "unread-separator",
-        key: "unread-separator",
-      });
+    // Posts are sorted newest-first. Insert the unread separator before the
+    // first post older than lastViewedAt. If the very first post is already
+    // older than lastViewedAt, there are no unread posts left to separate.
+    if (!unreadInserted && lastViewedAt != null && lastViewedAt > 0 && post.create_at <= lastViewedAt) {
       unreadInserted = true;
+      if (index > 0) {
+        entries.push({
+          type: "unread-separator",
+          key: "unread-separator",
+        });
+      }
     }
 
     entries.push({
@@ -1033,6 +1036,15 @@ function PlayIcon(): React.JSX.Element {
   );
 }
 
+function JumpToLatestIcon({ reversed = false }: { reversed?: boolean }): React.JSX.Element {
+  return (
+    <svg className={`deck-jump-latest-icon${reversed ? " deck-jump-latest-icon--reversed" : ""}`} viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M8 3.5v9" />
+      <path d="M4.8 6.7 8 3.5l3.2 3.2" />
+    </svg>
+  );
+}
+
 function useAppText() {
   const { t } = useTranslation();
   return useMemo(() => ({
@@ -1065,6 +1077,10 @@ function useAppText() {
     mentionBadge: (count: number, perTeam: boolean) =>
       t(perTeam ? "deck.mentionBadgePerTeam" : "deck.mentionBadgeAllTeams", { count }),
     unreadOnlyNote: t("deck.unreadOnlyNote"),
+    unreadSeparatorLabel: t("deck.unreadSeparatorLabel"),
+    markRead: t("deck.markRead"),
+    jumpToLatest: t("deck.jumpToLatest"),
+    newPosts: (count: number) => t("deck.newPosts", { count }),
     allTeamsNote: t("deck.allTeamsNote"),
     channelLabel: t("deck.channelLabel"),
     selectChannel: t("deck.selectChannel"),
@@ -2722,7 +2738,10 @@ function PostList({
   highlightTerms = [],
   lastViewedAt,
   onMarkRead,
-  onMarkReadStart,
+  unreadSeparatorLabel = "Unread",
+  markReadLabel = "Mark as read",
+  jumpToLatestLabel = "Latest",
+  newPostsLabel = (count: number) => `${count} new`,
 }: {
   posts: MattermostPost[];
   userDirectory: Record<string, MattermostUser>;
@@ -2740,7 +2759,10 @@ function PostList({
   highlightTerms?: string[];
   lastViewedAt?: number | null;
   onMarkRead?: () => void;
-  onMarkReadStart?: () => void;
+  unreadSeparatorLabel?: string;
+  markReadLabel?: string;
+  jumpToLatestLabel?: string;
+  newPostsLabel?: (count: number) => string;
 }): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -2748,6 +2770,7 @@ function PostList({
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
   const [newPostCount, setNewPostCount] = useState(0);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const lastInteractionAtRef = useRef(Date.now());
   const previousTopPostIdRef = useRef<string | null>(posts[0]?.id ?? null);
   const previousPostCountRef = useRef(posts.length);
@@ -2764,6 +2787,24 @@ function PostList({
   const markInteraction = useCallback(() => {
     lastInteractionAtRef.current = Date.now();
   }, []);
+
+  const scrollToLatest = useCallback(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) {
+      return;
+    }
+    if (reversedPostOrderRef.current) {
+      const target = viewport.scrollHeight - viewport.clientHeight;
+      viewport.scrollTo({ top: target, behavior: "smooth" });
+      setScrollTop(target);
+    } else {
+      viewport.scrollTo({ top: 0, behavior: "smooth" });
+      setScrollTop(0);
+    }
+    setNewPostCount(0);
+    setShowJumpToLatest(false);
+    markInteraction();
+  }, [markInteraction]);
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -2827,6 +2868,7 @@ function PostList({
 
       if (Date.now() - lastInteractionAtRef.current < IDLE_AUTOSCROLL_MS && !isNearBottom) {
         setNewPostCount((current) => current + Math.max(1, posts.length - previousCount));
+        setShowJumpToLatest(true);
         return;
       }
       if (!viewport) return;
@@ -2834,17 +2876,20 @@ function PostList({
       viewport.scrollTo({ top: target, behavior: "smooth" });
       setScrollTop(target);
       setNewPostCount(0);
+      setShowJumpToLatest(false);
     } else {
       const isNearTop = !viewport || viewport.scrollTop < 24;
 
       if (Date.now() - lastInteractionAtRef.current < IDLE_AUTOSCROLL_MS && !isNearTop) {
         setNewPostCount((current) => current + Math.max(1, posts.length - previousCount));
+        setShowJumpToLatest(true);
         return;
       }
       if (!viewport) return;
       viewport.scrollTo({ top: 0, behavior: "smooth" });
       setScrollTop(0);
       setNewPostCount(0);
+      setShowJumpToLatest(false);
     }
   }, [posts]);
 
@@ -2871,7 +2916,6 @@ function PostList({
   const offsetY = offsets[startIndex] ?? 0;
   const spacerHeight = totalHeight;
 
-  const unreadSeparatorRef = useRef<HTMLLIElement | null>(null);
   const markReadFiredRef = useRef(false);
 
   useEffect(() => {
@@ -2879,25 +2923,6 @@ function PostList({
       markReadFiredRef.current = false;
     }
   }, [lastViewedAt]);
-
-  useEffect(() => {
-    const el = unreadSeparatorRef.current;
-    const viewport = viewportRef.current;
-    if (!el || !viewport || !onMarkRead || markReadFiredRef.current) return;
-
-    const observer = new IntersectionObserver(
-      (intersections) => {
-        if (intersections.some((entry) => entry.isIntersecting) && !markReadFiredRef.current) {
-          markReadFiredRef.current = true;
-          onMarkReadStart?.();
-          onMarkRead?.();
-        }
-      },
-      { root: viewport, threshold: 0.1 },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [onMarkRead, onMarkReadStart, lastViewedAt]);
 
   const renderEntry = (entry: PostListEntry): React.ReactNode => {
     if (entry.type === "separator") {
@@ -2910,8 +2935,29 @@ function PostList({
 
     if (entry.type === "unread-separator") {
       return (
-        <li key={entry.key} ref={unreadSeparatorRef} className="deck-list-separator deck-list-separator--unread">
-          <span>{language === "ja" ? "未読" : "New"}</span>
+        <li key={entry.key} className="deck-list-separator deck-list-separator--unread">
+          {onMarkRead ? (
+            <button
+              type="button"
+              className="deck-unread-mark-read-toggle"
+              onClick={(event) => {
+                event.stopPropagation();
+                markReadFiredRef.current = true;
+                onMarkRead();
+              }}
+              aria-label={markReadLabel}
+              title={markReadLabel}
+            >
+              <span className="deck-unread-mark-read-toggle-label deck-unread-mark-read-toggle-label--idle">
+                {unreadSeparatorLabel}
+              </span>
+              <span className="deck-unread-mark-read-toggle-label deck-unread-mark-read-toggle-label--action">
+                {markReadLabel}
+              </span>
+            </button>
+          ) : (
+            <span>{unreadSeparatorLabel}</span>
+          )}
         </li>
       );
     }
@@ -3015,29 +3061,16 @@ function PostList({
 
   return (
     <div className="deck-post-list">
-      {newPostCount > 0 ? (
+      {newPostCount > 0 || showJumpToLatest ? (
         <div className="deck-list-floating-action">
           <button
             type="button"
             className="deck-new-posts-button"
-            onClick={() => {
-              const viewport = viewportRef.current;
-              if (!viewport) {
-                return;
-              }
-              if (reversedPostOrder) {
-                const target = viewport.scrollHeight - viewport.clientHeight;
-                viewport.scrollTo({ top: target, behavior: "smooth" });
-                setScrollTop(target);
-              } else {
-                viewport.scrollTo({ top: 0, behavior: "smooth" });
-                setScrollTop(0);
-              }
-              setNewPostCount(0);
-              markInteraction();
-            }}
+            onClick={scrollToLatest}
+            title={newPostCount > 0 ? newPostsLabel(newPostCount) : jumpToLatestLabel}
+            aria-label={newPostCount > 0 ? newPostsLabel(newPostCount) : jumpToLatestLabel}
           >
-            {newPostCount} new
+            <JumpToLatestIcon reversed={reversedPostOrder} />
           </button>
         </div>
       ) : null}
@@ -3053,6 +3086,9 @@ function PostList({
               : el.scrollTop < 24;
             if (nearEdge) {
               setNewPostCount(0);
+              setShowJumpToLatest(false);
+            } else {
+              setShowJumpToLatest(true);
             }
             markInteraction();
           }}
@@ -3078,6 +3114,9 @@ function PostList({
               : el.scrollTop < 24;
             if (nearEdge) {
               setNewPostCount(0);
+              setShowJumpToLatest(false);
+            } else {
+              setShowJumpToLatest(true);
             }
             markInteraction();
           }}
@@ -3971,11 +4010,20 @@ function ChannelWatchColumn({
   }, [column.channelId, reconnectNonce]);
 
   const handleMarkRead = useCallback(() => {
-    if (!column.channelId) return;
-    // Update lastViewedAt optimistically to remove the separator
-    setLastViewedAt(Date.now());
+    const channelId = column.channelId;
+    if (!channelId) return;
     markReadFiredRef.current = true;
-    void viewChannel(column.channelId);
+    const optimisticAt = Date.now();
+    setLastViewedAt(optimisticAt);
+    void (async () => {
+      try {
+        await viewChannel(channelId);
+        const member = await getMyChannelMember(channelId);
+        setLastViewedAt(member.last_viewed_at ?? optimisticAt);
+      } catch {
+        markReadFiredRef.current = false;
+      }
+    })();
   }, [column.channelId]);
 
   const channelOptions = useMemo<CustomSelectOption[]>(
@@ -4350,7 +4398,10 @@ function ChannelWatchColumn({
           highlightTerms={highlightTerms}
           lastViewedAt={lastViewedAt}
           onMarkRead={handleMarkRead}
-          onMarkReadStart={() => markReadFiredRef.current = true}
+          unreadSeparatorLabel={text.unreadSeparatorLabel}
+          markReadLabel={text.markRead}
+          jumpToLatestLabel={text.jumpToLatest}
+          newPostsLabel={text.newPosts}
         />
       )}
     </section>

@@ -1274,6 +1274,48 @@ export const railCssText = `
     flex: none;
   }
 
+  .deck-unread-mark-read-toggle {
+    border: 1px solid transparent;
+    background: transparent;
+    color: inherit;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.35;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+
+  .deck-unread-mark-read-toggle-label {
+    display: inline-block;
+  }
+
+  .deck-unread-mark-read-toggle-label--action {
+    display: none;
+  }
+
+  .deck-list-separator--unread:hover .deck-unread-mark-read-toggle-label--idle,
+  .deck-list-separator--unread:focus-within .deck-unread-mark-read-toggle-label--idle {
+    display: none;
+  }
+
+  .deck-list-separator--unread:hover .deck-unread-mark-read-toggle-label--action,
+  .deck-list-separator--unread:focus-within .deck-unread-mark-read-toggle-label--action {
+    display: inline-block;
+  }
+
+  .deck-list-separator--unread:hover .deck-unread-mark-read-toggle,
+  .deck-list-separator--unread:focus-within .deck-unread-mark-read-toggle {
+    background: color-mix(in srgb, #e8574a 28%, transparent);
+    border-color: #e8574a;
+    color: #ffd7d2;
+  }
+
+  .deck-unread-mark-read-toggle:focus-visible {
+    outline: none;
+  }
+
   .deck-list-separator--unread {
     color: #e8574a;
     font-weight: 600;
@@ -1285,6 +1327,7 @@ export const railCssText = `
   }
 
   .deck-post-list {
+    position: relative;
     display: flex;
     flex: 1 1 auto;
     min-height: 0;
@@ -1356,22 +1399,47 @@ export const railCssText = `
   }
 
   .deck-list-floating-action {
-    display: flex;
-    justify-content: center;
+    position: absolute;
+    right: 14px;
+    bottom: 14px;
+    z-index: 2;
   }
 
   .deck-new-posts-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 88px;
-    height: 30px;
-    padding: 0 12px;
-    border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--deck-column-accent, var(--deck-accent)) 36%, var(--deck-border) 64%);
-    background: color-mix(in srgb, var(--deck-column-accent, var(--deck-accent)) 14%, var(--deck-panel) 86%);
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid color-mix(in srgb, var(--deck-border) 68%, transparent);
+    background: color-mix(in srgb, var(--deck-panel) 74%, transparent);
     color: var(--deck-text);
     cursor: pointer;
+    box-shadow: var(--deck-shadow);
+    backdrop-filter: blur(10px);
+    opacity: 0.78;
+  }
+
+  .deck-new-posts-button:hover,
+  .deck-new-posts-button:focus-visible {
+    opacity: 1;
+    outline: none;
+  }
+
+  .deck-jump-latest-icon {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .deck-jump-latest-icon--reversed {
+    transform: rotate(180deg);
   }
 
   .deck-load-more {
