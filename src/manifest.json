@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Mattermost Deck",
+  "name": "__MSG_appName__",
   "version": "0.1.8",
-  "description": "Add a multi-pane workspace to Mattermost Web for easier tracking of mentions, watched channels, DMs, and search results.",
+  "description": "__MSG_appDescription__",
+  "default_locale": "en",
   "icons": {
     "16": "assets/icons/icon-16.png",
     "32": "assets/icons/icon-32.png",

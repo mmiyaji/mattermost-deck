@@ -388,6 +388,12 @@ export const railCssText = `
     white-space: nowrap;
   }
 
+  .deck-status-badge--compact {
+    gap: 6px;
+    padding: 8px;
+    min-width: 0;
+  }
+
   .deck-status-badge--action {
     cursor: pointer;
   }
@@ -406,6 +412,25 @@ export const railCssText = `
     height: 8px;
     border-radius: 50%;
     background: var(--deck-topbar-text-soft);
+  }
+
+  .deck-status-badge-copy {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .deck-status-mode-icon {
+    width: 12px;
+    height: 12px;
+    color: currentColor;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex: none;
   }
 
   .deck-status-badge--connected .deck-status-badge-dot {
@@ -429,6 +454,10 @@ export const railCssText = `
   .deck-status-badge--offline .deck-status-badge-dot,
   .deck-status-badge--error .deck-status-badge-dot {
     background: var(--deck-danger);
+  }
+
+  .deck-status-badge--compact .deck-status-mode-icon {
+    color: var(--deck-topbar-text);
   }
 
   .deck-topbar h1,
@@ -1296,20 +1325,23 @@ export const railCssText = `
   }
 
   .deck-list-separator--unread:hover .deck-unread-mark-read-toggle-label--idle,
-  .deck-list-separator--unread:focus-within .deck-unread-mark-read-toggle-label--idle {
+  .deck-list-separator--unread:focus-within .deck-unread-mark-read-toggle-label--idle,
+  .deck-list-separator--unread.deck-list-separator--preview-active .deck-unread-mark-read-toggle-label--idle {
     display: none;
   }
 
   .deck-list-separator--unread:hover .deck-unread-mark-read-toggle-label--action,
-  .deck-list-separator--unread:focus-within .deck-unread-mark-read-toggle-label--action {
+  .deck-list-separator--unread:focus-within .deck-unread-mark-read-toggle-label--action,
+  .deck-list-separator--unread.deck-list-separator--preview-active .deck-unread-mark-read-toggle-label--action {
     display: inline-block;
   }
 
   .deck-list-separator--unread:hover .deck-unread-mark-read-toggle,
-  .deck-list-separator--unread:focus-within .deck-unread-mark-read-toggle {
-    background: color-mix(in srgb, #e8574a 28%, transparent);
-    border-color: #e8574a;
-    color: #ffd7d2;
+  .deck-list-separator--unread:focus-within .deck-unread-mark-read-toggle,
+  .deck-list-separator--unread.deck-list-separator--preview-active .deck-unread-mark-read-toggle {
+    background: color-mix(in srgb, var(--deck-danger) 18%, var(--deck-panel));
+    border-color: color-mix(in srgb, var(--deck-danger) 68%, var(--deck-border));
+    color: color-mix(in srgb, var(--deck-danger) 82%, var(--deck-text));
   }
 
   .deck-unread-mark-read-toggle:focus-visible {

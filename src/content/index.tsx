@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "../ui/App";
 import { DEFAULT_SETTINGS, loadDeckSettings, subscribeDeckSettings, type DeckSettings } from "../ui/settings";
 import { railCssText } from "../ui/styles";
+import { addTraceEntry } from "../traceLog";
 
 const ROOT_ID = "mattermost-deck-root";
 const STYLE_ID = "mattermost-deck-page-style";
@@ -43,9 +44,11 @@ function debugLog(event: string, payload?: Record<string, unknown>): void {
 
   if (payload) {
     console.info(`[deck-debug] ${event}`, payload);
+    addTraceEntry({ source: "content", level: "info", event, payload });
     return;
   }
   console.info(`[deck-debug] ${event}`);
+  addTraceEntry({ source: "content", level: "info", event });
 }
 
 function matchesConfiguredRoute(): boolean {

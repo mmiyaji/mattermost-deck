@@ -1,0 +1,8 @@
+{
+  "appName": {
+    "message": "Mattermost Deck"
+  },
+  "appDescription": {
+    "message": "Ajoute à Mattermost Web un espace de travail multi-volets pour suivre plus facilement les mentions, canaux, messages directs et résultats de recherche."
+  }
+}

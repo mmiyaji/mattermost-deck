@@ -61,6 +61,9 @@ await fs.copyFile(
 await fs.cp(path.join(srcDir, "assets"), path.join(distDir, "assets"), {
   recursive: true,
 });
+await fs.cp(path.join(srcDir, "_locales"), path.join(distDir, "_locales"), {
+  recursive: true,
+});
 
 const appVersion = process.env.EXT_VERSION ? process.env.EXT_VERSION.replace(/^v/, "") : "0.1.8";
 

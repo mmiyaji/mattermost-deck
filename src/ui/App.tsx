@@ -51,6 +51,7 @@ import {
 } from "./storage";
 import { APP_VERSION } from "../version";
 import { getDeckDiagnosticsSnapshot, recordRenderCommit, recordSpecialMentionScan } from "../diagnostics";
+import { addTraceEntry } from "../traceLog";
 import { CustomSelect, type CustomSelectOption } from "./CustomSelect";
 import {
   DEFAULT_COLUMN_COLORS,
@@ -67,6 +68,9 @@ import {
   type PostClickAction,
 } from "./settings";
 import { extractHighlightKeywords, tokenizePostText } from "./postText";
+import { focusMattermostPost } from "./mattermostNavigation";
+import { dedupeRecentTargets, type RecentChannelTarget } from "./recentTargets";
+import { mapInBatches } from "./asyncBatch";
 
 
 interface AppProps {
@@ -153,6 +157,10 @@ const SPECIAL_MENTION_MEMBER_TTL_MS = 45_000;
 const SPECIAL_MENTION_MEMBER_TTL_WS_MS = 180_000;
 const SPECIAL_MENTION_POST_TTL_MS = 30_000;
 const SPECIAL_MENTION_POST_TTL_WS_MS = 120_000;
+const TEAM_FANOUT_BATCH_SIZE = 2;
+const TEAM_FANOUT_GAP_MS = 250;
+const CHANNEL_FANOUT_BATCH_SIZE = 3;
+const CHANNEL_FANOUT_GAP_MS = 150;
 
 declare global {
   interface Window {
@@ -204,9 +212,11 @@ function debugLog(event: string, payload?: Record<string, unknown>): void {
 
   if (payload) {
     console.info(`[deck-debug] ${event}`, payload);
+    addTraceEntry({ source: "app", level: "info", event, payload });
     return;
   }
   console.info(`[deck-debug] ${event}`);
+  addTraceEntry({ source: "app", level: "info", event });
 }
 
 interface OpenPostTarget {
@@ -230,41 +240,10 @@ type PostListEntry =
       post: MattermostPost;
     };
 
-interface RecentChannelTarget {
-  type: "channelWatch" | "dmWatch";
-  teamId: string;
-  teamLabel: string;
-  channelId: string;
-  channelLabel: string;
-}
-
 interface SavedDeckView {
   id: string;
   name: string;
   columns: DeckColumn[];
-}
-
-function getRecentTargetKey(target: Pick<RecentChannelTarget, "teamId" | "channelId">): string {
-  return `${target.teamId}::${target.channelId}`;
-}
-
-function dedupeRecentTargets(targets: RecentChannelTarget[]): RecentChannelTarget[] {
-  const seen = new Set<string>();
-  const next: RecentChannelTarget[] = [];
-
-  for (const target of targets) {
-    const key = getRecentTargetKey(target);
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    next.push(target);
-    if (next.length >= MAX_RECENT_TARGETS) {
-      break;
-    }
-  }
-
-  return next;
 }
 
 function buildMentionSearchTerms(username: string): string {
@@ -681,23 +660,6 @@ function stopDeckInputPropagation(event: React.SyntheticEvent): void {
   event.stopPropagation();
 }
 
-function getWebSocketStatusLabel(status: WebSocketStatus): string {
-  switch (status) {
-    case "connected":
-      return "Realtime";
-    case "reconnecting":
-      return "Reconnecting";
-    case "offline":
-      return "Offline";
-    case "error":
-      return "Error";
-    case "connecting":
-      return "Connecting";
-    default:
-      return "Idle";
-  }
-}
-
 function getApiHealthLabel(status: ApiHealthStatus): string {
   switch (status) {
     case "healthy":
@@ -720,12 +682,14 @@ function openMattermostThread(teamName: string, postId: string, channelName?: st
   });
   if (window.location.pathname === nextPath) {
     window.dispatchEvent(new PopStateEvent("popstate"));
+    void focusMattermostPost(postId);
     return;
   }
 
   debugLog("app.open-thread.push-state", { nextPath });
   window.history.pushState({}, "", nextPath);
   window.dispatchEvent(new PopStateEvent("popstate"));
+  void focusMattermostPost(postId);
 }
 
 function ChevronIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
@@ -770,6 +734,22 @@ function SettingsIcon(): React.JSX.Element {
     <svg className="deck-settings-icon" viewBox="0 0 16 16" aria-hidden="true">
       <path d="M6.9 1.6h2.2l.4 1.6c.4.1.8.3 1.2.5l1.5-.8 1.5 1.5-.8 1.5c.2.4.4.8.5 1.2l1.6.4v2.2l-1.6.4c-.1.4-.3.8-.5 1.2l.8 1.5-1.5 1.5-1.5-.8c-.4.2-.8.4-1.2.5l-.4 1.6H6.9l-.4-1.6c-.4-.1-.8-.3-1.2-.5l-1.5.8-1.5-1.5.8-1.5c-.2-.4-.4-.8-.5-1.2L.9 9.1V6.9l1.6-.4c.1-.4.3-.8.5-1.2l-.8-1.5 1.5-1.5 1.5.8c.4-.2.8-.4 1.2-.5l.4-1.6Z" />
       <circle cx="8" cy="8" r="2.3" />
+    </svg>
+  );
+}
+
+function StatusModeIcon({ realtimeEnabled }: { realtimeEnabled: boolean }): React.JSX.Element {
+  return realtimeEnabled ? (
+    <svg className="deck-status-mode-icon" viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M1.8 5.6a6.2 6.2 0 0 1 8.4 0" />
+      <path d="M3.5 7.4a3.8 3.8 0 0 1 5 0" />
+      <path d="M5.1 9a1.8 1.8 0 0 1 1.8 0" />
+      <circle cx="6" cy="10.1" r="0.7" fill="currentColor" stroke="none" />
+    </svg>
+  ) : (
+    <svg className="deck-status-mode-icon" viewBox="0 0 12 12" aria-hidden="true">
+      <circle cx="6" cy="6" r="4.2" />
+      <path d="M6 3.5v2.8l1.8 1" />
     </svg>
   );
 }
@@ -3302,8 +3282,10 @@ function MentionsColumn({
 
       let cacheHits = 0;
       let cacheMisses = 0;
-      const channelPosts = await Promise.all(
-        Array.from(candidateChannelIds).map(async (channelId) => {
+      const channelPosts = await mapInBatches(
+        Array.from(candidateChannelIds),
+        CHANNEL_FANOUT_BATCH_SIZE,
+        async (channelId) => {
           const cachedPosts = specialMentionPostsCacheRef.current[channelId];
           if (cachedPosts && cachedPosts.expiresAt > now) {
             cacheHits += 1;
@@ -3317,7 +3299,8 @@ function MentionsColumn({
             posts,
           };
           return posts;
-        }),
+        },
+        candidateChannelIds.size > CHANNEL_FANOUT_BATCH_SIZE ? CHANNEL_FANOUT_GAP_MS : 0,
       );
 
       const posts = channelPosts
@@ -3373,13 +3356,21 @@ function MentionsColumn({
 
       try {
         const [results, specialMentionResults] = await Promise.all([
-          Promise.all(
-            teamIds.map(async (teamId) => ({
+          mapInBatches(
+            teamIds,
+            TEAM_FANOUT_BATCH_SIZE,
+            async (teamId) => ({
               teamId,
               posts: await searchPostsInTeam(teamId, mentionSearchTerms, 0, POSTS_PAGE_SIZE, { isOrSearch: true }),
-            })),
+            }),
+            teamIds.length > TEAM_FANOUT_BATCH_SIZE ? TEAM_FANOUT_GAP_MS : 0,
           ),
-          Promise.all(teamIds.map(async (teamId) => await loadSpecialMentionPosts(teamId))),
+          mapInBatches(
+            teamIds,
+            TEAM_FANOUT_BATCH_SIZE,
+            async (teamId) => await loadSpecialMentionPosts(teamId),
+            teamIds.length > TEAM_FANOUT_BATCH_SIZE ? TEAM_FANOUT_GAP_MS : 0,
+          ),
         ]);
         if (cancelled) {
           return;
@@ -3543,11 +3534,14 @@ function MentionsColumn({
 
     try {
       const [results] = await Promise.all([
-        Promise.all(
-          teamIds.map(async (teamId) => ({
+        mapInBatches(
+          teamIds,
+          TEAM_FANOUT_BATCH_SIZE,
+          async (teamId) => ({
             teamId,
             posts: await searchPostsInTeam(teamId, mentionSearchTerms, postState.nextPage, POSTS_PAGE_SIZE, { isOrSearch: true }),
-          })),
+          }),
+          teamIds.length > TEAM_FANOUT_BATCH_SIZE ? TEAM_FANOUT_GAP_MS : 0,
         ),
         new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
       ]);
@@ -5184,6 +5178,7 @@ function DiagnosticsColumn({
   canMoveRight,
   onMove,
   onRemove,
+  onOpenSettings,
   columnColors,
   language = "ja",
 }: {
@@ -5197,6 +5192,7 @@ function DiagnosticsColumn({
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
   onRemove: (id: string) => void;
+  onOpenSettings: () => void;
   columnColors: ColumnColorSettings;
   language?: DeckLanguage;
 }): React.JSX.Element {
@@ -5208,7 +5204,7 @@ function DiagnosticsColumn({
       <header className="deck-column-header">
         <div className="deck-column-heading">
           <h2><span className="deck-title-with-icon"><ColumnTypeBadge type="diagnostics" /><span>Diagnostics</span></span></h2>
-          <p>Sync and request diagnostics</p>
+          <p>Operational health at a glance</p>
         </div>
         <div className="deck-column-actions">
           <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => setShowControls((current) => !current)}>
@@ -5229,13 +5225,17 @@ function DiagnosticsColumn({
               <CloseIcon />
             </button>
           </div>
+          <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.settingsButton} onClick={onOpenSettings}>
+            <SettingsIcon />
+          </button>
         </div>
       ) : null}
       <div className="deck-stack">
         <div className="deck-metric-grid">
           <article className="deck-card deck-card--metric">
-            <strong>DOM nodes</strong>
-            <p>{runtimeMetrics.domNodeCount.toLocaleString()}</p>
+            <strong>Status</strong>
+            <p>{apiHealthStatus}</p>
+            <span>{realtimeEnabled ? wsStatus : "polling"}</span>
           </article>
           <article className="deck-card deck-card--metric">
             <strong>API TPS</strong>
@@ -5246,27 +5246,9 @@ function DiagnosticsColumn({
             <p>{formatLatency(runtimeMetrics.api.averageLatencyMs)}</p>
           </article>
           <article className="deck-card deck-card--metric">
-            <strong>Queue wait</strong>
-            <p>{formatLatency(runtimeMetrics.api.averageQueueWaitMs)}</p>
-          </article>
-          <article className="deck-card deck-card--metric">
-            <strong>Requests</strong>
-            <p>{runtimeMetrics.api.totalRequests.toLocaleString()}</p>
-          </article>
-          <article className="deck-card deck-card--metric">
-            <strong>Special mention scans</strong>
-            <p>{runtimeMetrics.diagnostics.specialMentions.totalScans.toLocaleString()}</p>
-            <span>{runtimeMetrics.diagnostics.specialMentions.totalHits.toLocaleString()} hits</span>
-          </article>
-          <article className="deck-card deck-card--metric">
             <strong>Error rate</strong>
             <p>{formatRate(runtimeMetrics.api.recentErrorRate)}</p>
             <span>{runtimeMetrics.api.recentFailedRequestsPerMinute} / {runtimeMetrics.api.recentRequestsPerMinute} recent</span>
-          </article>
-          <article className="deck-card deck-card--metric">
-            <strong>Memory</strong>
-            <p>{formatMemoryUsage(runtimeMetrics.memoryUsageRatio)}</p>
-            <span>{formatMemoryValue(runtimeMetrics.memoryUsedMb)} / {formatMemoryValue(runtimeMetrics.memoryLimitMb)}</span>
           </article>
           <article className="deck-card deck-card--metric">
             <strong>In flight</strong>
@@ -5280,43 +5262,14 @@ function DiagnosticsColumn({
           </article>
           <article className="deck-card deck-card--metric">
             <strong>Render</strong>
-            <p>{formatLatency(runtimeMetrics.diagnostics.render.averageCommitMs)}</p>
-            <span>{runtimeMetrics.diagnostics.render.commitCount} commits / last {formatLatency(runtimeMetrics.diagnostics.render.lastCommitMs)}</span>
+            <p>{formatLatency(runtimeMetrics.diagnostics.render.p95CommitMs)}</p>
+            <span>avg {formatLatency(runtimeMetrics.diagnostics.render.averageCommitMs)} / last {formatLatency(runtimeMetrics.diagnostics.render.lastCommitMs)}</span>
           </article>
         </div>
         <article className="deck-card">
-          <div className="deck-metric-chart-header">
-            <strong>Request rate</strong>
-            <span>{formatMetricNumber(runtimeMetrics.api.recentRequestsPerMinute)} req/min</span>
-          </div>
-          <Sparkline values={runtimeMetrics.api.tpsSeries} ariaLabel="Recent API request rate" formatValue={(v) => `${v.toFixed(1)} req/s`} />
-        </article>
-        <article className="deck-card">
-          <div className="deck-metric-chart-header">
-            <strong>Latency</strong>
-            <span>p95 {formatLatency(runtimeMetrics.api.p95LatencyMs)}</span>
-          </div>
-          <Sparkline values={runtimeMetrics.api.latencySeries} ariaLabel="Recent API latency" formatValue={formatLatency} />
-          <p className="deck-card-caption">Last {formatLatency(runtimeMetrics.api.lastLatencyMs)}</p>
-        </article>
-        <article className="deck-card">
-          <div className="deck-metric-chart-header">
-            <strong>Render time</strong>
-            <span>p95 {formatLatency(runtimeMetrics.diagnostics.render.p95CommitMs)}</span>
-          </div>
-          <Sparkline
-            values={runtimeMetrics.diagnostics.render.recentCommitMs}
-            ariaLabel="Recent render time"
-            formatValue={formatLatency}
-          />
-          <p className="deck-card-caption">
-            {runtimeMetrics.diagnostics.specialMentions.totalChannelsScanned.toLocaleString()} channels scanned / {runtimeMetrics.diagnostics.specialMentions.cacheHits.toLocaleString()} cache hits / {runtimeMetrics.diagnostics.specialMentions.cacheMisses.toLocaleString()} misses
-          </p>
-        </article>
-        <article className="deck-card">
           <strong>Recent sync log</strong>
           <ul className="deck-log-list">
-            {syncLogs.length > 0 ? syncLogs.slice(0, 20).map((entry) => (
+            {syncLogs.length > 0 ? syncLogs.slice(0, 8).map((entry) => (
               <li key={`${entry.timestamp}-${entry.message}`} className={`deck-log-entry deck-log-entry--${entry.level}`}>
                 <span className="deck-log-time">{formatPostTime(entry.timestamp)}</span>
                 <span className="deck-log-text" title={entry.message}>{entry.message}</span>
@@ -5328,6 +5281,7 @@ function DiagnosticsColumn({
               </li>
             )}
           </ul>
+          <p className="deck-card-caption">Detailed traces and endpoint analysis are available in Settings &gt; Performance.</p>
         </article>
       </div>
     </section>
@@ -5480,8 +5434,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     };
   }, []);
 
-  const modeLabel = realtimeEnabled ? getWebSocketStatusLabel(wsStatus) : "Polling";
-  const syncStatusLabel = `${getApiHealthLabel(apiHealthStatus)} / ${modeLabel}`;
+  const healthStatusLabel = getApiHealthLabel(apiHealthStatus);
+  const connectionModeLabel = realtimeEnabled ? "Realtime" : "Polling";
+  const syncStatusLabel = `${healthStatusLabel} / ${connectionModeLabel}`;
   const handleOpenPost = useCallback(
     (post: MattermostPost, target?: OpenPostTarget) => {
       const targetTeam = target?.teamName ?? currentRoute.teamName;
@@ -6087,6 +6042,34 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
           skeletonCount: debugShadowRoot.querySelectorAll(".deck-loading-skeleton").length,
           text: loadingState?.querySelector("strong")?.textContent?.trim() ?? null,
         };
+      } else if (action === "getUnreadDebugInfo" && debugShadowRoot) {
+        result = {
+          shellTheme: debugShadowRoot.querySelector(".deck-shell")?.getAttribute("data-theme") ?? null,
+          postCardCount: debugShadowRoot.querySelectorAll(".deck-post-card").length,
+          unreadSeparatorCount: debugShadowRoot.querySelectorAll(".deck-list-separator--unread").length,
+          separatorLabels: Array.from(debugShadowRoot.querySelectorAll(".deck-list-separator"))
+            .map((element) => element.textContent?.trim() ?? "")
+            .filter(Boolean),
+        };
+      } else if (action === "getUnreadMarkReadStyle" && debugShadowRoot) {
+        const separator = debugShadowRoot.querySelector(".deck-list-separator--unread");
+        const toggle = separator?.querySelector(".deck-unread-mark-read-toggle");
+        if (separator instanceof HTMLElement && toggle instanceof HTMLElement) {
+          separator.classList.add("deck-list-separator--preview-active");
+          const style = window.getComputedStyle(toggle);
+          result = {
+            color: style.color,
+            backgroundColor: style.backgroundColor,
+            borderColor: style.borderColor,
+            shellTheme: debugShadowRoot.querySelector(".deck-shell")?.getAttribute("data-theme") ?? null,
+            actionLabelVisible: window.getComputedStyle(
+              toggle.querySelector(".deck-unread-mark-read-toggle-label--action") as Element,
+            ).display,
+          };
+          separator.classList.remove("deck-list-separator--preview-active");
+        } else {
+          result = null;
+        }
       }
 
       window.dispatchEvent(new CustomEvent("mattermost-deck-debug-response", {
@@ -6169,19 +6152,30 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
             </div>
             <div className="deck-topbar-actions">
               {realtimeEnabled ? (
-                <div className={`deck-status-badge deck-status-badge--${apiHealthStatus}`}>
+                <div
+                  className={`deck-status-badge deck-status-badge--${apiHealthStatus}${isCompactHeader ? " deck-status-badge--compact" : ""}`}
+                  title={syncStatusLabel}
+                  aria-label={syncStatusLabel}
+                >
                   <span className="deck-status-badge-dot" />
-                  <span>{syncStatusLabel}</span>
+                  <span className="deck-status-badge-copy">
+                    <StatusModeIcon realtimeEnabled={realtimeEnabled} />
+                    {!isCompactHeader ? <span>{healthStatusLabel}</span> : null}
+                  </span>
                 </div>
               ) : (
                 <button
                   type="button"
-                  className={`deck-status-badge deck-status-badge--${apiHealthStatus} deck-status-badge--action`}
+                  className={`deck-status-badge deck-status-badge--${apiHealthStatus} deck-status-badge--action${isCompactHeader ? " deck-status-badge--compact" : ""}`}
                   onClick={handleOpenSettings}
-                  title={text.settingsHint}
+                  title={`${text.settingsHint} (${syncStatusLabel})`}
+                  aria-label={`${text.settingsHint} (${syncStatusLabel})`}
                 >
                   <span className="deck-status-badge-dot" />
-                  <span>{syncStatusLabel}</span>
+                  <span className="deck-status-badge-copy">
+                    <StatusModeIcon realtimeEnabled={realtimeEnabled} />
+                    {!isCompactHeader ? <span>{healthStatusLabel}</span> : null}
+                  </span>
                 </button>
               )}
               <div className="deck-add-wrap deck-views-wrap" ref={viewsMenuRef}>
@@ -6676,6 +6670,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           canMoveRight={index < allColumns.length - 1}
                           onMove={moveColumn}
                           onRemove={removeColumn}
+                          onOpenSettings={handleOpenSettings}
                           columnColors={deckSettings.columnColors}
                           language={deckSettings.language}
                         />

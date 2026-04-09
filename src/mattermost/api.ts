@@ -1,3 +1,5 @@
+import { addTraceEntry } from "../traceLog";
+
 export interface MattermostUser {
   id: string;
   username: string;
@@ -101,6 +103,67 @@ const API_GET_RATE_LIMIT_BURST = 18;
 const API_POST_RATE_LIMIT_PER_MINUTE = 45;
 const API_POST_RATE_LIMIT_BURST = 10;
 
+function describeApiPath(pathname: string, method: "GET" | "POST"): string {
+  const normalized = pathname.replace(/\?.*$/, "");
+
+  if (normalized === "/users/me") {
+    return "Current user profile";
+  }
+  if (normalized === "/users/ids" && method === "POST") {
+    return "Batch user lookup";
+  }
+  if (normalized === "/users/me/teams") {
+    return "Joined teams";
+  }
+  if (normalized === "/users/me/channels") {
+    return "Direct and group channels";
+  }
+  if (/^\/teams\/[^/]+\/channels\/name\/[^/]+$/.test(normalized)) {
+    return "Resolve channel by team and name";
+  }
+  if (/^\/teams\/name\/[^/]+$/.test(normalized)) {
+    return "Resolve team by name";
+  }
+  if (/^\/users\/me\/teams\/[^/]+\/channels$/.test(normalized)) {
+    return "Team channel list";
+  }
+  if (/^\/users\/me\/teams\/[^/]+\/channels\/members$/.test(normalized)) {
+    return "Current user channel membership list";
+  }
+  if (/^\/channels\/members\/me\/view$/.test(normalized)) {
+    return "Mark channel as viewed";
+  }
+  if (/^\/channels\/[^/]+\/members\/me$/.test(normalized)) {
+    return "Current user channel membership";
+  }
+  if (/^\/channels\/[^/]+\/members$/.test(normalized)) {
+    return "Channel members";
+  }
+  if (/^\/channels\/[^/]+\/posts$/.test(normalized)) {
+    return "Recent channel posts";
+  }
+  if (/^\/channels\/[^/]+$/.test(normalized)) {
+    return "Channel details";
+  }
+  if (/^\/users\/me\/posts\/flagged$/.test(normalized)) {
+    return "Saved or flagged posts";
+  }
+  if (/^\/users\/[^/]+\/teams\/unread$/.test(normalized)) {
+    return "Team unread counts";
+  }
+  if (/^\/teams\/[^/]+\/posts\/search$/.test(normalized) && method === "POST") {
+    return "Team post search";
+  }
+  if (/^\/posts\/[^/]+\/files\/info$/.test(normalized)) {
+    return "Post attachment metadata";
+  }
+  if (normalized === "/api/v4/users/me") {
+    return "Health check";
+  }
+
+  return "Other API request";
+}
+
 type ApiRateBucket = {
   capacity: number;
   refillPerMs: number;
@@ -137,6 +200,12 @@ function trimRequestSamples(now = Date.now()): void {
 }
 
 function emitApiLog(level: ApiLogLevel, message: string): void {
+  addTraceEntry({
+    source: "api",
+    level,
+    event: "api.log",
+    payload: { message },
+  });
   window.dispatchEvent(
     new CustomEvent("mattermost-deck-api-log", {
       detail: {
@@ -218,9 +287,25 @@ async function performMeasuredFetch(
     if (failed) {
       totalFailedRequests += 1;
     }
+    const purpose = describeApiPath(pathname, method);
+    addTraceEntry({
+      source: "api",
+      level: response.ok ? "info" : response.status >= 500 ? "error" : "warn",
+      event: "request.complete",
+      payload: {
+        method,
+        path: pathname.replace(/\?.*$/, ""),
+        fullPath: pathname,
+        purpose,
+        status: response.status,
+        durationMs,
+        queueWaitMs,
+        failed,
+      },
+    });
     emitApiLog(
       response.ok ? "info" : response.status >= 500 ? "error" : "warn",
-      `${method} ${response.status} ${durationMs}ms ${pathname}`,
+      `${purpose} | ${method} ${response.status} ${durationMs}ms ${pathname}`,
     );
     return response;
   } catch (error) {
@@ -228,7 +313,22 @@ async function performMeasuredFetch(
     const durationMs = finishedAt - startedAt;
     failed = true;
     totalFailedRequests += 1;
-    emitApiLog("error", `${method} failed ${durationMs}ms ${pathname}`);
+    const purpose = describeApiPath(pathname, method);
+    addTraceEntry({
+      source: "api",
+      level: "error",
+      event: "request.error",
+      payload: {
+        method,
+        path: pathname.replace(/\?.*$/, ""),
+        fullPath: pathname,
+        purpose,
+        durationMs,
+        queueWaitMs,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    });
+    emitApiLog("error", `${purpose} | ${method} failed ${durationMs}ms ${pathname}`);
     throw error;
   } finally {
     inFlightRequests = Math.max(0, inFlightRequests - 1);
@@ -255,6 +355,15 @@ async function scheduleApiRequest<T>(method: "GET" | "POST", task: () => Promise
 
   const rateLimitWaitMs = await waitForRateLimit(method);
   if (rateLimitWaitMs > 0) {
+    addTraceEntry({
+      source: "api",
+      level: "warn",
+      event: "request.rate_limit_wait",
+      payload: {
+        method,
+        waitMs: Math.round(rateLimitWaitMs),
+      },
+    });
     emitApiLog("warn", `${method} rate-limit ${Math.round(rateLimitWaitMs)}ms`);
   }
 

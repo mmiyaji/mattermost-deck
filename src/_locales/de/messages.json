@@ -1,0 +1,8 @@
+{
+  "appName": {
+    "message": "Mattermost Deck"
+  },
+  "appDescription": {
+    "message": "Fügt Mattermost Web einen Multi-Pane-Arbeitsbereich hinzu, um Erwähnungen, Kanäle, Direktnachrichten und Suchergebnisse besser im Blick zu behalten."
+  }
+}

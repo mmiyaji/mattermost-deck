@@ -38,6 +38,7 @@ import {
   switchDeckProfile,
   type DeckProfileSummary,
 } from "../ui/profiles";
+import { clearTraceEntries, getTraceEntries, isTraceCaptureEnabled, setTraceCaptureEnabled, subscribeTraceEntries, type TraceLogEntry } from "../traceLog";
 
 const REPO_URL = "https://github.com/mmiyaji/mattermost-deck";
 const PRIVACY_URL = "https://github.com/mmiyaji/mattermost-deck/blob/main/PRIVACY.md";
@@ -48,7 +49,7 @@ const STORE_URL = ""; // Chrome Web Store URL (fill in after publication)
 const AUTHOR_NAME = "mmiyaji";
 const COPYRIGHT_YEAR = "2026";
 
-type ActivePanel = "guide" | "conn" | "profiles" | "realtime" | "appearance" | "behavior" | "security";
+type ActivePanel = "guide" | "conn" | "profiles" | "realtime" | "appearance" | "behavior" | "performance" | "security";
 
 function useOptionsText() {
   const { t } = useTranslation();
@@ -130,10 +131,57 @@ function useOptionsText() {
     languageFr: t("options.languageFr"),
     behaviorTitle: t("options.behaviorTitle"),
     behaviorDesc: t("options.behaviorDesc"),
+    performanceTitle: t("options.performanceTitle", { defaultValue: "Performance" }),
+    performanceDesc: t("options.performanceDesc", { defaultValue: "Review request trends, latency, and trace logs captured from large Mattermost workspaces." }),
+    performanceCaptureLabel: t("options.performanceCaptureLabel", { defaultValue: "Trace capture" }),
+    performanceCaptureHint: t("options.performanceCaptureHint", { defaultValue: "Enable this only while reproducing a problem. Logs are stored inside the extension and can be exported as JSONL." }),
+    performanceRetentionHint: t("options.performanceRetentionHint", { defaultValue: "Turning trace capture off clears stored entries. Logs older than 24 hours are removed automatically." }),
+    performanceExpandWide: t("options.performanceExpandWide", { defaultValue: "Expand performance view" }),
+    performanceCollapseWide: t("options.performanceCollapseWide", { defaultValue: "Collapse performance view" }),
+    performanceExport: t("options.performanceExport", { defaultValue: "Export JSONL" }),
+    performanceClear: t("options.performanceClear", { defaultValue: "Clear logs" }),
+    performanceEmpty: t("options.performanceEmpty", { defaultValue: "No trace logs captured yet." }),
+    performanceEntries: t("options.performanceEntries", { defaultValue: "Entries" }),
+    performanceApiRequests: t("options.performanceApiRequests", { defaultValue: "API requests" }),
+    performanceErrorRate: t("options.performanceErrorRate", { defaultValue: "Error rate" }),
+    performanceAvgLatency: t("options.performanceAvgLatency", { defaultValue: "Avg latency" }),
+    performanceP95Latency: t("options.performanceP95Latency", { defaultValue: "P95 latency" }),
+    performanceQueueWait: t("options.performanceQueueWait", { defaultValue: "Avg queue wait" }),
+    performanceApiRate: t("options.performanceApiRate", { defaultValue: "API request trend" }),
+    performanceLatencyTrend: t("options.performanceLatencyTrend", { defaultValue: "Latency trend" }),
+    performanceTopEndpoints: t("options.performanceTopEndpoints", { defaultValue: "Top endpoints" }),
+    performanceSlowEndpoints: t("options.performanceSlowEndpoints", { defaultValue: "Slow endpoints" }),
+    performanceEndpointSummary: t("options.performanceEndpointSummary", { defaultValue: "API endpoint summary" }),
+    performanceMethodMix: t("options.performanceMethodMix", { defaultValue: "Method mix" }),
+    performanceRateLimitWaits: t("options.performanceRateLimitWaits", { defaultValue: "Rate-limit waits" }),
+    performanceEndpointUrl: t("options.performanceEndpointUrl", { defaultValue: "Endpoint URL" }),
+    performanceRecentTrace: t("options.performanceRecentTrace", { defaultValue: "Recent trace" }),
+    performancePurpose: t("options.performancePurpose", { defaultValue: "Purpose" }),
+    performanceEndpoint: t("options.performanceEndpoint", { defaultValue: "Endpoint" }),
+    performanceRequests: t("options.performanceRequests", { defaultValue: "Requests" }),
+    performanceAvg: t("options.performanceAvg", { defaultValue: "Avg" }),
+    performanceP95: t("options.performanceP95", { defaultValue: "P95" }),
+    performanceErrors: t("options.performanceErrors", { defaultValue: "Errors" }),
+    performanceErrorRateShort: t("options.performanceErrorRateShort", { defaultValue: "Error %" }),
+    performanceTime: t("options.performanceTime", { defaultValue: "Time" }),
+    performanceSource: t("options.performanceSource", { defaultValue: "Source" }),
+    performanceEvent: t("options.performanceEvent", { defaultValue: "Event" }),
+    performanceStatus: t("options.performanceStatus", { defaultValue: "Status" }),
+    performanceDuration: t("options.performanceDuration", { defaultValue: "Duration" }),
+    performanceQueue: t("options.performanceQueue", { defaultValue: "Queue" }),
+    performanceMethod: t("options.performanceMethod", { defaultValue: "Method" }),
+    performanceSortBy: t("options.performanceSortBy", { defaultValue: "Sort by" }),
     postClickActionLabel: t("options.postClickActionLabel"),
     postClickActionHint: t("options.postClickActionHint"),
     highlightKeywordsLabel: t("options.highlightKeywordsLabel", { defaultValue: "Highlight Keywords" }),
     highlightKeywordsHint: t("options.highlightKeywordsHint", { defaultValue: "Comma-separated words or phrases to highlight in posts." }),
+    highlightKeywordsPlaceholder: t("options.highlightKeywordsPlaceholder", { defaultValue: "deploy,error,customer" }),
+    patStorageLabel: t("options.patStorageLabel", { defaultValue: "PAT storage" }),
+    guideDiagramTitle: t("options.guideDiagramTitle", { defaultValue: "Mattermost Deck" }),
+    guideDiagramMentions: t("options.guideDiagramMentions", { defaultValue: "@ mentions" }),
+    guideDiagramDm: t("options.guideDiagramDm", { defaultValue: "DM Watch" }),
+    guideDiagramMattermost: t("options.guideDiagramMattermost", { defaultValue: "Mattermost" }),
+    guideDiagramDeck: t("options.guideDiagramDeck", { defaultValue: "Deck overlay" }),
     highZIndexLabel: t("options.highZIndexLabel"),
     highZIndexHint: t("options.highZIndexHint"),
     reversedPostOrderLabel: t("options.reversedPostOrderLabel"),
@@ -215,12 +263,147 @@ function NavIconBehavior(): React.JSX.Element {
   );
 }
 
+function NavIconPerformance(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 19h16" />
+      <path d="M7 16l3-4 3 2 4-6" />
+      <circle cx="7" cy="16" r="1" fill="currentColor" stroke="none" />
+      <circle cx="10" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="13" cy="14" r="1" fill="currentColor" stroke="none" />
+      <circle cx="17" cy="8" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 function NavIconSecurity(): React.JSX.Element {
   return (
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
       <path d="M7 11V7a5 5 0 0 1 10 0v4" />
     </svg>
+  );
+}
+
+type TraceApiEntry = TraceLogEntry & {
+  payload?: {
+    method?: string;
+    path?: string;
+    fullPath?: string;
+    purpose?: string;
+    status?: number;
+    durationMs?: number;
+    queueWaitMs?: number;
+    failed?: boolean;
+  };
+};
+
+type PerformanceEndpointRow = {
+  path: string;
+  purpose: string;
+  count: number;
+  avgLatencyMs: number;
+  p95LatencyMs: number;
+  errorCount: number;
+};
+
+type EndpointSummarySortKey = "purpose" | "count" | "avgLatencyMs" | "p95LatencyMs" | "errorRate";
+type ApiTraceSortKey = "timestamp" | "purpose" | "status" | "durationMs";
+
+function useTraceLogSnapshot(): [TraceLogEntry[], boolean] {
+  const [entries, setEntries] = useState<TraceLogEntry[]>(() => getTraceEntries());
+  const [enabled, setEnabled] = useState(() => isTraceCaptureEnabled());
+
+  useEffect(() => subscribeTraceEntries(() => {
+    setEntries(getTraceEntries());
+    setEnabled(isTraceCaptureEnabled());
+  }), []);
+
+  return [entries, enabled];
+}
+
+function computeAverage(values: number[]): number {
+  if (values.length === 0) {
+    return 0;
+  }
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function computeP95(values: number[]): number {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = values.slice().sort((left, right) => left - right);
+  const index = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95));
+  return sorted[index] ?? 0;
+}
+
+function formatMs(value: number): string {
+  return `${Math.round(value)} ms`;
+}
+
+function formatPercent(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function buildBucketSeries(entries: TraceLogEntry[], bucketMs: number, buckets: number, filter: (entry: TraceLogEntry) => boolean): number[] {
+  const now = Date.now();
+  const series = Array.from({ length: buckets }, () => 0);
+
+  for (const entry of entries) {
+    if (!filter(entry)) {
+      continue;
+    }
+    const age = now - entry.timestamp;
+    if (age < 0 || age >= bucketMs * buckets) {
+      continue;
+    }
+    const index = buckets - 1 - Math.floor(age / bucketMs);
+    if (index >= 0 && index < buckets) {
+      series[index] += 1;
+    }
+  }
+
+  return series;
+}
+
+function MiniBarChart({ values, ariaLabel }: { values: number[]; ariaLabel: string }): React.JSX.Element {
+  const width = 320;
+  const height = 88;
+  const maxValue = Math.max(...values, 1);
+  const barWidth = width / Math.max(values.length, 1);
+
+  return (
+    <svg className="options-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
+      {values.map((value, index) => {
+        const normalized = value / maxValue;
+        const barHeight = Math.max(2, normalized * (height - 12));
+        const x = index * barWidth + 2;
+        const y = height - barHeight - 4;
+        return <rect key={index} x={x} y={y} width={Math.max(4, barWidth - 4)} height={barHeight} rx="3" />;
+      })}
+    </svg>
+  );
+}
+
+function SortableHeader({
+  active,
+  direction,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  direction: "asc" | "desc";
+  label: string;
+  onClick: () => void;
+}): React.JSX.Element {
+  return (
+    <button type="button" className={`options-table-sort${active ? " is-active" : ""}`} onClick={onClick}>
+      <span>{label}</span>
+      <span className="options-table-sort-indicator" aria-hidden="true">
+        {active ? (direction === "asc" ? "↑" : "↓") : "↕"}
+      </span>
+    </button>
   );
 }
 
@@ -514,6 +697,10 @@ const pageCss = `
     padding: 28px 32px;
   }
 
+  .options-panel--wide {
+    max-width: min(1480px, calc(100vw - 120px));
+  }
+
   /* Save footer */
   .options-save-footer {
     flex: none;
@@ -542,6 +729,15 @@ const pageCss = `
   .options-panel-header {
     padding-bottom: 16px;
     border-bottom: 1px solid rgba(123, 178, 255, 0.1);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .options-panel-header-copy {
+    min-width: 0;
+    flex: 1;
   }
 
   .options-panel-header h2 {
@@ -554,6 +750,24 @@ const pageCss = `
     font-size: 13px;
     color: #8facd5;
     line-height: 1.55;
+  }
+
+  .options-panel-expand {
+    flex: none;
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    border: 1px solid rgba(123, 178, 255, 0.18);
+    background: rgba(123, 178, 255, 0.08);
+    color: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  .options-panel-expand:hover {
+    background: rgba(123, 178, 255, 0.14);
   }
 
   body[data-theme="light"] .options-panel-header p {
@@ -978,6 +1192,204 @@ const pageCss = `
     color: #496583;
   }
 
+  .options-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+  }
+
+  .options-metric-card,
+  .options-analysis-card {
+    padding: 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(123, 178, 255, 0.12);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  body[data-theme="light"] .options-metric-card,
+  body[data-theme="light"] .options-analysis-card {
+    background: rgba(255, 255, 255, 0.72);
+    border-color: rgba(84, 120, 168, 0.14);
+  }
+
+  .options-analysis-card--full {
+    grid-column: 1 / -1;
+  }
+
+  .options-metric-card strong,
+  .options-analysis-card strong {
+    display: block;
+    font-size: 12px;
+    color: #8facd5;
+  }
+
+  .options-metric-card p {
+    margin-top: 8px;
+    font-size: 24px;
+    font-weight: 700;
+    color: #e5eefb;
+  }
+
+  body[data-theme="light"] .options-metric-card p {
+    color: #16263b;
+  }
+
+  .options-analysis-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .options-analysis-header span {
+    font-size: 12px;
+    color: #8facd5;
+  }
+
+  .options-chart {
+    width: 100%;
+    height: 88px;
+    display: block;
+  }
+
+  .options-chart rect {
+    fill: rgba(123, 178, 255, 0.75);
+  }
+
+  .options-table-wrap {
+    overflow-x: auto;
+  }
+
+  .options-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .options-table th,
+  .options-table td {
+    padding: 8px 0;
+    text-align: left;
+    vertical-align: top;
+    border-top: 1px solid rgba(123, 178, 255, 0.08);
+  }
+
+  .options-table thead th {
+    padding-top: 0;
+    border-top: none;
+  }
+
+  .options-table-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #8facd5;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .options-table-sort.is-active,
+  .options-table-sort:hover {
+    color: #e5eefb;
+  }
+
+  .options-table-sort-indicator {
+    font-size: 11px;
+  }
+
+  .options-table-main {
+    min-width: 0;
+    color: #e5eefb;
+  }
+
+  .options-table-url {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 11px;
+    color: #8facd5;
+    word-break: break-all;
+  }
+
+  .options-log-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .options-log-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    font-size: 12px;
+  }
+
+  .options-log-row--stack {
+    display: block;
+  }
+
+  .options-log-main {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #e5eefb;
+  }
+
+  .options-log-meta {
+    flex: none;
+    color: #8facd5;
+  }
+
+  body[data-theme="light"] .options-log-main {
+    color: #16263b;
+  }
+
+  body[data-theme="light"] .options-table-sort {
+    color: #496583;
+  }
+
+  body[data-theme="light"] .options-table-sort.is-active,
+  body[data-theme="light"] .options-table-sort:hover,
+  body[data-theme="light"] .options-table-main {
+    color: #16263b;
+  }
+
+  body[data-theme="light"] .options-table-url {
+    color: #496583;
+  }
+
+  .options-endpoint-details {
+    margin-top: 6px;
+    color: #8facd5;
+  }
+
+  .options-endpoint-details summary {
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .options-endpoint-url {
+    margin-top: 6px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    word-break: break-all;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 11px;
+    color: #e5eefb;
+  }
+
+  body[data-theme="light"] .options-endpoint-url {
+    background: rgba(255, 255, 255, 0.88);
+    color: #16263b;
+  }
+
   @media (max-width: 520px) {
     .options-col-types { grid-template-columns: repeat(2, 1fr); }
   }
@@ -1158,6 +1570,7 @@ function OptionsApp(): React.JSX.Element {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [activePanel, setActivePanel] = useState<ActivePanel>("conn");
+  const [performanceWide, setPerformanceWide] = useState(false);
   const installBannerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1245,6 +1658,153 @@ function OptionsApp(): React.JSX.Element {
     ],
     [t],
   );
+  const paneColorLabels = useMemo<Record<ColumnColorKey, string>>(
+    () => ({
+      mentions: t("options.paneTypeMentions"),
+      channelWatch: t("options.paneTypeChannelWatch"),
+      dmWatch: t("options.paneTypeDmWatch"),
+      keywordWatch: t("options.paneTypeKeywordWatch"),
+      search: t("options.paneTypeSearch"),
+      saved: t("options.paneTypeSaved"),
+      diagnostics: t("options.paneTypeDiagnostics", { defaultValue: "Diagnostics" }),
+    }),
+    [t],
+  );
+  const [traceEntries, traceCaptureEnabled] = useTraceLogSnapshot();
+  const [endpointSummarySort, setEndpointSummarySort] = useState<{ key: EndpointSummarySortKey; direction: "asc" | "desc" }>({
+    key: "count",
+    direction: "desc",
+  });
+  const [recentTraceSort, setRecentTraceSort] = useState<{ key: ApiTraceSortKey; direction: "asc" | "desc" }>({
+    key: "timestamp",
+    direction: "desc",
+  });
+  const apiTraceEntries = useMemo(
+    () => traceEntries.filter((entry): entry is TraceApiEntry => entry.source === "api" && entry.event === "request.complete"),
+    [traceEntries],
+  );
+  const apiTraceLogEntries = useMemo(
+    () => traceEntries.filter((entry): entry is TraceApiEntry => entry.source === "api" && (entry.event === "request.complete" || entry.event === "request.error")),
+    [traceEntries],
+  );
+  const requestTimeline = useMemo(
+    () => buildBucketSeries(traceEntries, 60_000, 20, (entry) => entry.source === "api" && entry.event === "request.complete"),
+    [traceEntries],
+  );
+  const latencyTimeline = useMemo(
+    () =>
+      Array.from({ length: 20 }, (_, index) => {
+        const now = Date.now();
+        const bucketEnd = now - ((19 - index) * 60_000);
+        const bucketStart = bucketEnd - 60_000;
+        const values = apiTraceEntries
+          .filter((entry) => entry.timestamp >= bucketStart && entry.timestamp < bucketEnd)
+          .map((entry) => Number(entry.payload?.durationMs ?? 0))
+          .filter((value) => Number.isFinite(value) && value > 0);
+        return values.length > 0 ? computeAverage(values) : 0;
+      }),
+    [apiTraceEntries],
+  );
+  const performanceSummary = useMemo(() => {
+    const durations = apiTraceEntries
+      .map((entry) => Number(entry.payload?.durationMs ?? 0))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    const queueWaits = apiTraceEntries
+      .map((entry) => Number(entry.payload?.queueWaitMs ?? 0))
+      .filter((value) => Number.isFinite(value) && value >= 0);
+    const failures = apiTraceEntries.filter((entry) => Boolean(entry.payload?.failed)).length;
+    const endpointCounts = new Map<string, number>();
+    const endpointPurpose = new Map<string, string>();
+    const endpointDurations = new Map<string, number[]>();
+    const endpointErrors = new Map<string, number>();
+    let getCount = 0;
+    let postCount = 0;
+
+    for (const entry of apiTraceEntries) {
+      const path = entry.payload?.path ?? "(unknown)";
+      endpointCounts.set(path, (endpointCounts.get(path) ?? 0) + 1);
+      if (entry.payload?.purpose) {
+        endpointPurpose.set(path, entry.payload.purpose);
+      }
+      const duration = Number(entry.payload?.durationMs ?? 0);
+      if (Number.isFinite(duration) && duration > 0) {
+        endpointDurations.set(path, [...(endpointDurations.get(path) ?? []), duration]);
+      }
+      if (Boolean(entry.payload?.failed)) {
+        endpointErrors.set(path, (endpointErrors.get(path) ?? 0) + 1);
+      }
+      if (entry.payload?.method === "GET") {
+        getCount += 1;
+      } else if (entry.payload?.method === "POST") {
+        postCount += 1;
+      }
+    }
+
+    const rateLimitWaits = traceEntries.filter((entry) => entry.source === "api" && entry.event === "request.rate_limit_wait").length;
+
+    const endpointRows = [...endpointCounts.entries()]
+      .map(([path, count]) => ({
+        path,
+        count,
+        purpose: endpointPurpose.get(path) ?? "Other API request",
+        avgLatencyMs: computeAverage(endpointDurations.get(path) ?? []),
+        p95LatencyMs: computeP95(endpointDurations.get(path) ?? []),
+        errorCount: endpointErrors.get(path) ?? 0,
+      }))
+      .filter((row) => row.count > 0);
+
+    return {
+      totalEntries: traceEntries.length,
+      apiRequests: apiTraceEntries.length,
+      errorRate: apiTraceEntries.length > 0 ? failures / apiTraceEntries.length : 0,
+      avgLatencyMs: computeAverage(durations),
+      p95LatencyMs: computeP95(durations),
+      avgQueueWaitMs: computeAverage(queueWaits),
+      getCount,
+      postCount,
+      rateLimitWaits,
+      endpointRows,
+    };
+  }, [apiTraceEntries, traceEntries]);
+  const endpointSummaryRows = useMemo(() => {
+    const multiplier = endpointSummarySort.direction === "asc" ? 1 : -1;
+    return performanceSummary.endpointRows
+      .slice()
+      .sort((left, right) => {
+        if (endpointSummarySort.key === "purpose") {
+          return left.purpose.localeCompare(right.purpose) * multiplier;
+        }
+        if (endpointSummarySort.key === "avgLatencyMs") {
+          return (left.avgLatencyMs - right.avgLatencyMs) * multiplier;
+        }
+        if (endpointSummarySort.key === "p95LatencyMs") {
+          return (left.p95LatencyMs - right.p95LatencyMs) * multiplier;
+        }
+        if (endpointSummarySort.key === "errorRate") {
+          return (((left.errorCount / left.count) || 0) - ((right.errorCount / right.count) || 0)) * multiplier;
+        }
+        return (left.count - right.count) * multiplier;
+      })
+      .slice(0, 10);
+  }, [endpointSummarySort, performanceSummary.endpointRows]);
+  const recentTraceRows = useMemo(() => {
+    const multiplier = recentTraceSort.direction === "asc" ? 1 : -1;
+    return apiTraceLogEntries
+      .slice()
+      .sort((left, right) => {
+        if (recentTraceSort.key === "purpose") {
+          return String(left.payload?.purpose ?? "").localeCompare(String(right.payload?.purpose ?? "")) * multiplier;
+        }
+        if (recentTraceSort.key === "status") {
+          return ((Number(left.payload?.status ?? 0)) - Number(right.payload?.status ?? 0)) * multiplier;
+        }
+        if (recentTraceSort.key === "durationMs") {
+          return ((Number(left.payload?.durationMs ?? 0)) - Number(right.payload?.durationMs ?? 0)) * multiplier;
+        }
+        return (left.timestamp - right.timestamp) * multiplier;
+      })
+      .slice(0, 40);
+  }, [apiTraceLogEntries, recentTraceSort]);
   const serverUrlMissing = settings.serverUrl.trim().length === 0;
 
   const handleSave = async () => {
@@ -1298,6 +1858,7 @@ function OptionsApp(): React.JSX.Element {
     { id: "realtime",   icon: <NavIconRealtime />,    label: text.realtimeTitle },
     { id: "appearance", icon: <NavIconAppearance />,  label: text.appearanceTitle },
     { id: "behavior",   icon: <NavIconBehavior />,    label: text.behaviorTitle },
+    { id: "performance", icon: <NavIconPerformance />, label: text.performanceTitle },
     { id: "security",   icon: <NavIconSecurity />,    label: text.securityTitle },
   ];
   const targetProfileOrigin = normaliseServerUrl(settings.serverUrl) || profileOrigin || initialServerUrl;
@@ -1411,6 +1972,38 @@ function OptionsApp(): React.JSX.Element {
     await refreshProfiles(targetProfileOrigin);
     setSavedNotice(true);
     window.setTimeout(() => setSavedNotice(false), 2500);
+  };
+
+  const handleToggleTraceCapture = () => {
+    setTraceCaptureEnabled(!traceCaptureEnabled);
+  };
+
+  const handleExportTraceJsonl = () => {
+    const lines = traceEntries
+      .slice()
+      .reverse()
+      .map((entry) =>
+        JSON.stringify({
+          ts: new Date(entry.timestamp).toISOString(),
+          source: entry.source,
+          level: entry.level,
+          event: entry.event,
+          ...(entry.payload ? { payload: entry.payload } : {}),
+        }),
+      );
+    const blob = new Blob([lines.join("\n")], { type: "application/x-ndjson" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `mattermost-deck-trace-${Date.now()}.jsonl`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const handleClearTraceLog = () => {
+    clearTraceEntries();
   };
 
   return (
@@ -1549,12 +2142,12 @@ function OptionsApp(): React.JSX.Element {
                   <rect x="400" y="32" width="280" height="228" fill="#0f1a2b" />
                   {/* deck header */}
                   <rect x="400" y="32" width="280" height="36" fill="#0b1322" />
-                  <text x="416" y="55" fill="#7bb2ff" fontSize="12" fontWeight="600" fontFamily="sans-serif">Mattermost Deck</text>
+                  <text x="416" y="55" fill="#7bb2ff" fontSize="12" fontWeight="600" fontFamily="sans-serif">{text.guideDiagramTitle}</text>
                   {/* column dividers */}
                   <line x1="540" y1="68" x2="540" y2="260" stroke="#1a2a3f" strokeWidth="1" />
                   {/* column 1 header */}
                   <rect x="404" y="72" width="128" height="22" rx="4" fill="#1a2842" />
-                  <text x="468" y="87" textAnchor="middle" fill="#2f6fed" fontSize="10" fontFamily="sans-serif">@ mentions</text>
+                  <text x="468" y="87" textAnchor="middle" fill="#2f6fed" fontSize="10" fontFamily="sans-serif">{text.guideDiagramMentions}</text>
                   {/* column 1 cards */}
                   <rect x="404" y="100" width="128" height="36" rx="4" fill="#162030" />
                   <rect x="410" y="106" width="80" height="7" rx="2" fill="#1f2e42" />
@@ -1567,7 +2160,7 @@ function OptionsApp(): React.JSX.Element {
                   <rect x="410" y="202" width="80" height="6" rx="2" fill="#1a2838" />
                   {/* column 2 header */}
                   <rect x="544" y="72" width="128" height="22" rx="4" fill="#1a2842" />
-                  <text x="608" y="87" textAnchor="middle" fill="#8b5cf6" fontSize="10" fontFamily="sans-serif">DM Watch</text>
+                  <text x="608" y="87" textAnchor="middle" fill="#8b5cf6" fontSize="10" fontFamily="sans-serif">{text.guideDiagramDm}</text>
                   {/* column 2 cards */}
                   <rect x="544" y="100" width="128" height="36" rx="4" fill="#162030" />
                   <rect x="550" y="106" width="70" height="7" rx="2" fill="#1f2e42" />
@@ -1576,8 +2169,8 @@ function OptionsApp(): React.JSX.Element {
                   <rect x="550" y="148" width="100" height="7" rx="2" fill="#1f2e42" />
                   <rect x="550" y="160" width="60" height="6" rx="2" fill="#1a2838" />
                   {/* label arrow */}
-                  <text x="414" y="250" fill="#496583" fontSize="9" fontFamily="sans-serif">Mattermost</text>
-                  <text x="544" y="250" fill="#7bb2ff" fontSize="9" fontFamily="sans-serif">Deck overlay</text>
+                  <text x="414" y="250" fill="#496583" fontSize="9" fontFamily="sans-serif">{text.guideDiagramMattermost}</text>
+                  <text x="544" y="250" fill="#7bb2ff" fontSize="9" fontFamily="sans-serif">{text.guideDiagramDeck}</text>
                   <line x1="400" y1="244" x2="400" y2="236" stroke="#496583" strokeWidth="1" />
                 </svg>
               </div>
@@ -1917,7 +2510,7 @@ function OptionsApp(): React.JSX.Element {
                       {showPat ? text.hide : text.show}
                     </button>
                   </div>
-                  <div className="options-choice-row" role="radiogroup" aria-label="PAT Storage">
+                  <div className="options-choice-row" role="radiogroup" aria-label={text.patStorageLabel}>
                     <label className="options-choice">
                       <input
                         type="radio"
@@ -2099,7 +2692,7 @@ function OptionsApp(): React.JSX.Element {
                           }))
                         }
                       />
-                      <span>{key}</span>
+                      <span>{paneColorLabels[key]}</span>
                     </label>
                   ))}
                 </div>
@@ -2121,7 +2714,7 @@ function OptionsApp(): React.JSX.Element {
                   <CustomSelect
                     options={postClickActionOptions}
                     value={settings.postClickAction}
-                    placeholder="Navigate"
+                    placeholder={t("options.postClickNavigate")}
                     allowClear={false}
                     onChange={(v) => setSettings((s) => ({ ...s, postClickAction: v as PostClickAction }))}
                   />
@@ -2134,7 +2727,7 @@ function OptionsApp(): React.JSX.Element {
                     type="text"
                     value={settings.highlightKeywords}
                     onChange={(e) => setSettings((s) => ({ ...s, highlightKeywords: e.target.value }))}
-                    placeholder="deploy,error,customer"
+                    placeholder={text.highlightKeywordsPlaceholder}
                     autoComplete="off"
                     spellCheck={false}
                   />
@@ -2164,6 +2757,316 @@ function OptionsApp(): React.JSX.Element {
                 </label>
               </div>
 
+            </div>
+          )}
+
+          {/* Panel: Performance */}
+          {activePanel === "performance" && (
+            <div className={`options-panel${performanceWide ? " options-panel--wide" : ""}`}>
+              <div className="options-panel-header">
+                <div className="options-panel-header-copy">
+                  <h2>{text.performanceTitle}</h2>
+                  <p>{text.performanceDesc}</p>
+                </div>
+                <button
+                  type="button"
+                  className="options-panel-expand"
+                  onClick={() => setPerformanceWide((current) => !current)}
+                  title={performanceWide ? text.performanceCollapseWide : text.performanceExpandWide}
+                  aria-label={performanceWide ? text.performanceCollapseWide : text.performanceExpandWide}
+                >
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    {performanceWide ? (
+                      <>
+                        <path d="M9 4H4v5" />
+                        <path d="M15 4h5v5" />
+                        <path d="M20 15v5h-5" />
+                        <path d="M4 15v5h5" />
+                        <path d="M4 9l5-5" />
+                        <path d="M20 9l-5-5" />
+                        <path d="M20 15l-5 5" />
+                        <path d="M4 15l5 5" />
+                      </>
+                    ) : (
+                      <>
+                        <path d="M9 4H4v5" />
+                        <path d="M15 4h5v5" />
+                        <path d="M20 15v5h-5" />
+                        <path d="M4 15v5h5" />
+                        <path d="M9 9L4 4" />
+                        <path d="M15 9l5-5" />
+                        <path d="M15 15l5 5" />
+                        <path d="M9 15l-5 5" />
+                      </>
+                    )}
+                  </svg>
+                </button>
+              </div>
+
+              <div className="options-callout" role="note">
+                <strong>{text.performanceCaptureLabel}</strong>
+                <p>{text.performanceCaptureHint}</p>
+                <p style={{ marginTop: "6px" }}>{text.performanceRetentionHint}</p>
+                <div className="options-inline" style={{ marginTop: "12px" }}>
+                  <label className="options-choice">
+                    <input
+                      type="checkbox"
+                      checked={traceCaptureEnabled}
+                      onChange={handleToggleTraceCapture}
+                    />
+                    <span>{traceCaptureEnabled ? "ON" : "OFF"}</span>
+                  </label>
+                  <button
+                    type="button"
+                    className="options-button options-button--ghost"
+                    onClick={handleExportTraceJsonl}
+                    disabled={traceEntries.length === 0}
+                  >
+                    {text.performanceExport}
+                  </button>
+                  <button
+                    type="button"
+                    className="options-button options-button--ghost"
+                    onClick={handleClearTraceLog}
+                    disabled={traceEntries.length === 0}
+                  >
+                    {text.performanceClear}
+                  </button>
+                </div>
+              </div>
+
+              <div className="options-metric-grid">
+                <article className="options-metric-card">
+                  <strong>{text.performanceEntries}</strong>
+                  <p>{performanceSummary.totalEntries.toLocaleString()}</p>
+                </article>
+                <article className="options-metric-card">
+                  <strong>{text.performanceApiRequests}</strong>
+                  <p>{performanceSummary.apiRequests.toLocaleString()}</p>
+                </article>
+                <article className="options-metric-card">
+                  <strong>{text.performanceErrorRate}</strong>
+                  <p>{formatPercent(performanceSummary.errorRate)}</p>
+                </article>
+                <article className="options-metric-card">
+                  <strong>{text.performanceAvgLatency}</strong>
+                  <p>{formatMs(performanceSummary.avgLatencyMs)}</p>
+                </article>
+                <article className="options-metric-card">
+                  <strong>{text.performanceP95Latency}</strong>
+                  <p>{formatMs(performanceSummary.p95LatencyMs)}</p>
+                </article>
+                <article className="options-metric-card">
+                  <strong>{text.performanceQueueWait}</strong>
+                  <p>{formatMs(performanceSummary.avgQueueWaitMs)}</p>
+                </article>
+                <article className="options-metric-card">
+                  <strong>{text.performanceMethodMix}</strong>
+                  <p>{performanceSummary.getCount} / {performanceSummary.postCount}</p>
+                </article>
+                <article className="options-metric-card">
+                  <strong>{text.performanceRateLimitWaits}</strong>
+                  <p>{performanceSummary.rateLimitWaits.toLocaleString()}</p>
+                </article>
+              </div>
+
+              <div className="options-grid">
+                <article className="options-analysis-card">
+                  <div className="options-analysis-header">
+                    <strong>{text.performanceApiRate}</strong>
+                    <span>{performanceSummary.apiRequests.toLocaleString()}</span>
+                  </div>
+                  <MiniBarChart values={requestTimeline} ariaLabel={text.performanceApiRate} />
+                </article>
+                <article className="options-analysis-card">
+                  <div className="options-analysis-header">
+                    <strong>{text.performanceLatencyTrend}</strong>
+                    <span>{formatMs(performanceSummary.p95LatencyMs)}</span>
+                  </div>
+                  <MiniBarChart values={latencyTimeline} ariaLabel={text.performanceLatencyTrend} />
+                </article>
+              </div>
+
+              <div className="options-grid">
+                <article className="options-analysis-card options-analysis-card--full">
+                  <div className="options-analysis-header">
+                    <strong>{text.performanceEndpointSummary}</strong>
+                    <span>{endpointSummaryRows.length}</span>
+                  </div>
+                  {endpointSummaryRows.length > 0 ? (
+                    <div className="options-table-wrap">
+                      <table className="options-table">
+                        <thead>
+                          <tr>
+                            <th>
+                              <SortableHeader
+                                active={endpointSummarySort.key === "purpose"}
+                                direction={endpointSummarySort.direction}
+                                label={text.performancePurpose}
+                                onClick={() => setEndpointSummarySort((current) => ({
+                                  key: "purpose",
+                                  direction: current.key === "purpose" && current.direction === "desc" ? "asc" : "desc",
+                                }))}
+                              />
+                            </th>
+                            <th>
+                              <span className="options-table-sort is-active">{text.performanceEndpoint}</span>
+                            </th>
+                            <th>
+                              <SortableHeader
+                                active={endpointSummarySort.key === "count"}
+                                direction={endpointSummarySort.direction}
+                                label={text.performanceRequests}
+                                onClick={() => setEndpointSummarySort((current) => ({
+                                  key: "count",
+                                  direction: current.key === "count" && current.direction === "desc" ? "asc" : "desc",
+                                }))}
+                              />
+                            </th>
+                            <th>
+                              <SortableHeader
+                                active={endpointSummarySort.key === "avgLatencyMs"}
+                                direction={endpointSummarySort.direction}
+                                label={text.performanceAvg}
+                                onClick={() => setEndpointSummarySort((current) => ({
+                                  key: "avgLatencyMs",
+                                  direction: current.key === "avgLatencyMs" && current.direction === "desc" ? "asc" : "desc",
+                                }))}
+                              />
+                            </th>
+                            <th>
+                              <SortableHeader
+                                active={endpointSummarySort.key === "p95LatencyMs"}
+                                direction={endpointSummarySort.direction}
+                                label={text.performanceP95}
+                                onClick={() => setEndpointSummarySort((current) => ({
+                                  key: "p95LatencyMs",
+                                  direction: current.key === "p95LatencyMs" && current.direction === "desc" ? "asc" : "desc",
+                                }))}
+                              />
+                            </th>
+                            <th>
+                              <SortableHeader
+                                active={endpointSummarySort.key === "errorRate"}
+                                direction={endpointSummarySort.direction}
+                                label={text.performanceErrorRateShort}
+                                onClick={() => setEndpointSummarySort((current) => ({
+                                  key: "errorRate",
+                                  direction: current.key === "errorRate" && current.direction === "desc" ? "asc" : "desc",
+                                }))}
+                              />
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {endpointSummaryRows.map(({ path, count, purpose, avgLatencyMs, p95LatencyMs, errorCount }) => (
+                            <tr key={path}>
+                              <td>
+                                <div className="options-table-url">{path}</div>
+                              </td>
+                              <td>
+                                <div className="options-table-main" title={`${purpose}\n${path}`}>{purpose}</div>
+                              </td>
+                              <td>{count}</td>
+                              <td>{formatMs(avgLatencyMs)}</td>
+                              <td>{formatMs(p95LatencyMs)}</td>
+                              <td>{formatPercent(count > 0 ? errorCount / count : 0)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="options-hint">{text.performanceEmpty}</p>
+                  )}
+                </article>
+                <article className="options-analysis-card options-analysis-card--full">
+                  <div className="options-analysis-header">
+                    <strong>{text.performanceRecentTrace}</strong>
+                    <span>{apiTraceLogEntries.length}</span>
+                  </div>
+                  {apiTraceLogEntries.length > 0 ? (
+                    <div className="options-table-wrap">
+                      <table className="options-table">
+                        <thead>
+                          <tr>
+                            <th>
+                              <SortableHeader
+                                active={recentTraceSort.key === "timestamp"}
+                                direction={recentTraceSort.direction}
+                                label={text.performanceTime}
+                                onClick={() => setRecentTraceSort((current) => ({
+                                  key: "timestamp",
+                                  direction: current.key === "timestamp" && current.direction === "desc" ? "asc" : "desc",
+                                }))}
+                              />
+                            </th>
+                            <th>
+                              <SortableHeader
+                                active={recentTraceSort.key === "purpose"}
+                                direction={recentTraceSort.direction}
+                                label={text.performancePurpose}
+                                onClick={() => setRecentTraceSort((current) => ({
+                                  key: "purpose",
+                                  direction: current.key === "purpose" && current.direction === "desc" ? "asc" : "desc",
+                                }))}
+                              />
+                            </th>
+                            <th>
+                              <span className="options-table-sort is-active">{text.performanceEndpointUrl}</span>
+                            </th>
+                            <th>
+                              <SortableHeader
+                                active={recentTraceSort.key === "status"}
+                                direction={recentTraceSort.direction}
+                                label={text.performanceStatus}
+                                onClick={() => setRecentTraceSort((current) => ({
+                                  key: "status",
+                                  direction: current.key === "status" && current.direction === "desc" ? "asc" : "desc",
+                                }))}
+                              />
+                            </th>
+                            <th>
+                              <SortableHeader
+                                active={recentTraceSort.key === "durationMs"}
+                                direction={recentTraceSort.direction}
+                                label={text.performanceDuration}
+                                onClick={() => setRecentTraceSort((current) => ({
+                                  key: "durationMs",
+                                  direction: current.key === "durationMs" && current.direction === "desc" ? "asc" : "desc",
+                                }))}
+                              />
+                            </th>
+                            <th>
+                              <span className="options-table-sort is-active">{text.performanceMethod}</span>
+                            </th>
+                            <th>
+                              <span className="options-table-sort is-active">{text.performanceQueue}</span>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {recentTraceRows.map((entry) => (
+                            <tr key={`${entry.timestamp}-${entry.source}-${entry.event}`}>
+                              <td>{new Date(entry.timestamp).toLocaleTimeString()}</td>
+                              <td>{entry.payload?.purpose ?? "-"}</td>
+                              <td>
+                                <div className="options-table-url">{String(entry.payload?.fullPath ?? entry.payload?.path ?? "-")}</div>
+                              </td>
+                              <td>{entry.payload?.status ?? "-"}</td>
+                              <td>{formatMs(Number(entry.payload?.durationMs ?? 0))}</td>
+                              <td>{entry.payload?.method ?? "-"}</td>
+                              <td>{formatMs(Number(entry.payload?.queueWaitMs ?? 0))}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="options-hint">{text.performanceEmpty}</p>
+                  )}
+                </article>
+              </div>
             </div>
           )}
 

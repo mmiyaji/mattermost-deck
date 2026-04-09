@@ -1,5 +1,6 @@
 import { getWebSocketUrl, type MattermostPost } from "./api";
 import { recordWebSocketReconnectAttempt } from "../diagnostics";
+import { addTraceEntry } from "../traceLog";
 
 export interface PostedEvent {
   channelId: string;
@@ -123,6 +124,12 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
   let authenticated = false;
 
   const log = (level: WebSocketLogEntry["level"], message: string) => {
+    addTraceEntry({
+      source: "ws",
+      level,
+      event: "ws.log",
+      payload: { message },
+    });
     window.dispatchEvent(
       new CustomEvent("mattermost-deck-ws-log", {
         detail: {

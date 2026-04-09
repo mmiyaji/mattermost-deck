@@ -1,0 +1,8 @@
+{
+  "appName": {
+    "message": "Mattermost Deck"
+  },
+  "appDescription": {
+    "message": "Mattermost Web にマルチペインの補助ワークスペースを追加し、メンション、チャンネル、ダイレクトメッセージ、検索結果を一覧しやすくします。"
+  }
+}

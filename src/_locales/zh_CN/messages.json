@@ -1,0 +1,8 @@
+{
+  "appName": {
+    "message": "Mattermost Deck"
+  },
+  "appDescription": {
+    "message": "为 Mattermost Web 添加多面板辅助工作区，便于同时查看提及、频道、私信和搜索结果。"
+  }
+}

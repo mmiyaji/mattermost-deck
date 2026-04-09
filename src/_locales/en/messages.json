@@ -1,0 +1,8 @@
+{
+  "appName": {
+    "message": "Mattermost Deck"
+  },
+  "appDescription": {
+    "message": "Adds a multi-pane workspace to Mattermost Web for monitoring mentions, channels, direct messages, and search results."
+  }
+}
