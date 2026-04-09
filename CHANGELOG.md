@@ -7,6 +7,28 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-04-09
+
+### Added
+
+- Performance tab with trace capture, API endpoint summary, recent trace table, and JSONL export
+- Localized extension package metadata through `src/_locales/`
+- Web Store promotion image generation assets and script
+- Jump-to-latest floating control for long panes
+- E2E coverage for all-teams mention fan-out and unread mark-read styling
+
+### Changed
+
+- Staggered all-teams mentions fan-out instead of firing all team requests at once
+- Recent channel dedupe now keys on channel identity
+- Post click navigation now attempts to scroll the target post into view inside Mattermost
+- Diagnostics now focuses on lightweight operational signals while deeper analysis moved to Performance
+
+### Fixed
+
+- Improved unread mark-read hover contrast under Mattermost-driven light palettes
+- Prevented long request investigations from retaining trace logs indefinitely by clearing on disable and pruning after 24 hours
+
 ## [0.1.8] - 2026-04-09
 
 ### Added

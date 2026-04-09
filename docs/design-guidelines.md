@@ -98,10 +98,10 @@ Display health separately from sync mode, but present them together in the topba
 
 Examples:
 
-- `Healthy / Realtime`
-- `Healthy / Polling`
-- `Degraded / Polling`
-- `Error / Polling`
+- `Healthy`
+- `Healthy` with realtime icon
+- `Healthy` with polling icon
+- `Degraded` with polling icon
 
 ## Request Control
 
@@ -115,12 +115,48 @@ Current design:
 - minimum request gap
 - inflight GET deduplication
 - short TTL cache for GET requests
+- staggered fan-out for heavy all-teams mentions work
 
 ### Polling Rules
 
 - polling intervals are normalized at load and save time
 - all-teams mentions is treated as a heavier mode with a slower effective floor
 - search-like panes use a slower polling floor than normal monitoring panes
+- team-level and channel-level fan-out should prefer small batches over `Promise.all`
+
+## Diagnostics And Performance
+
+### Diagnostics Pane
+
+Use Diagnostics as a lightweight operational view that can stay visible during normal use.
+
+Show only:
+
+- current health state
+- sync mode
+- basic request rate
+- average latency
+- error rate
+- in-flight count
+- recent reconnect or sync hints
+
+### Performance Tab
+
+Use the Options `Performance` tab for deeper analysis.
+
+It should own:
+
+- trace capture controls
+- API endpoint summary
+- recent trace log table
+- JSONL export
+- heavier analysis and sorting UI
+
+### Trace Retention
+
+- turning trace capture off clears stored trace entries
+- trace entries older than 24 hours are removed automatically
+- the retained trace should stay bounded and safe for extension storage
 
 ## Security
 
@@ -158,6 +194,8 @@ User-configurable behavior:
 - ask
 
 Dragging or text selection must not trigger navigation.
+
+When Deck opens a post in Mattermost, it should also try to bring the target post into view.
 
 ### Loading States
 
@@ -202,12 +240,15 @@ Dragging or text selection must not trigger navigation.
 - `Profiles` should be treated as optional advanced workflow configuration
 - appearance-related settings belong under `Appearance`
 - behavior-related settings belong under `Behavior`
+- performance analysis belongs under `Performance`, not the always-visible Diagnostics pane
 
 ## Internationalization
 
 The UI uses i18next and react-i18next. Locale files live in `src/ui/locales/`.
 
-Supported languages:
+The extension package metadata uses `src/_locales/`.
+
+Supported UI languages:
 
 - `ja`
 - `en`

@@ -2,7 +2,7 @@
 
 [日本語 README](./README.ja.md)
 
-Mattermost Deck is a Chrome extension that adds a TweetDeck-style multi-pane workspace to the right side of Mattermost Web while leaving Mattermost itself as the primary UI for login, posting, editing, navigation, and threads.
+Mattermost Deck is a Chrome extension that adds a monitoring-oriented multi-pane workspace to the right side of Mattermost Web while keeping Mattermost itself as the primary UI for login, posting, editing, navigation, and threads.
 
 ## Screenshots
 
@@ -31,7 +31,10 @@ Dark theme:
 - Optional per-server profiles for switching between multiple saved setting sets
 - Mattermost-aware theme colors, optional pane identity accents, compact mode, and configurable default widths
 - Inline URL detection and truncation for long tokens in post bodies
+- Jump-to-latest floating control for long panes
+- Performance tab with API endpoint summary, recent trace logs, and JSONL export
 - Japanese, English, German, Chinese (Simplified), and French UI
+- Localized extension package name and description for Chrome
 
 ## How It Works
 
@@ -101,13 +104,23 @@ Saving the server URL requests Chrome permission for that Mattermost origin. The
 - High Z-index mode
 - Reverse post order
 
+### Performance
+
+- Trace capture toggle for detailed troubleshooting
+- API endpoint summary with request count, latency, and error rate
+- Recent trace log table with full request URL, status, duration, and queue wait
+- JSONL export for offline analysis
+- Automatic retention policy:
+  - turning trace capture off clears stored logs
+  - logs older than 24 hours are removed automatically
+
 ## Security Notes
 
 - PAT storage defaults to `chrome.storage.session`
 - Persistent PAT storage is opt-in
 - Persistent PAT values are encrypted client-side before storage
 - Health-check paths are restricted to relative `/api/v4/...` paths on the configured Mattermost origin
-- REST requests are serialized in-tab to avoid burst refresh behavior when many panes update together
+- REST requests are serialized in-tab and heavier fan-out paths are batched to avoid burst refresh behavior when many panes update together
 
 ## Development
 
@@ -131,7 +144,7 @@ npm run capture:readme
 
 ## Release
 
-Push a tag in `v` format, such as `v0.1.0`, to trigger GitHub Actions.
+Push a tag in `v` format, such as `v0.1.9`, to trigger GitHub Actions.
 
 - Runs `npm ci`, `npm run check`, and `npm run build`
 - Packages `dist/` as `mattermost-deck-<tag>.zip`
@@ -143,12 +156,16 @@ MIT. See [LICENSE](./LICENSE).
 
 ## Contributing Translations
 
-Locale files live in `src/ui/locales/`. To add a new language:
+UI locale files live in `src/ui/locales/`. Extension package locale files live in `src/_locales/`.
 
-1. Copy `en.json` to a new file such as `ko.json`
+To add a new UI language:
+
+1. Copy `src/ui/locales/en.json` to a new file such as `ko.json`
 2. Register it in `src/ui/i18n.ts`
 3. Add the locale code to `DeckLanguage` and `normaliseLanguage` in `src/ui/settings.ts`
 4. Add the language option in `src/options/index.tsx`
+
+To localize the extension package metadata, add a matching `src/_locales/<locale>/messages.json`.
 
 ## Design Notes
 

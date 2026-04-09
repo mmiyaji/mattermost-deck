@@ -65,7 +65,7 @@ await fs.cp(path.join(srcDir, "_locales"), path.join(distDir, "_locales"), {
   recursive: true,
 });
 
-const appVersion = process.env.EXT_VERSION ? process.env.EXT_VERSION.replace(/^v/, "") : "0.1.8";
+const appVersion = process.env.EXT_VERSION ? process.env.EXT_VERSION.replace(/^v/, "") : "0.1.9";
 
 // Keep the in-app version label aligned with the build version.
 const versionPath = path.join(srcDir, "version.ts");

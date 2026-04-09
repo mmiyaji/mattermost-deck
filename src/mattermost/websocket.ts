@@ -15,7 +15,8 @@ export type WebSocketStatus =
   | "connected"
   | "reconnecting"
   | "offline"
-  | "error";
+  | "error"
+  | "auth_failed";
 
 interface WebSocketLogEntry {
   level: "info" | "warn" | "error";
@@ -29,6 +30,7 @@ interface HookOptions {
   token: string | null;
   onReconnect: () => void;
   onPosted: (event: PostedEvent) => void;
+  onAuthFailure: (message: string) => void;
 }
 
 interface MattermostEventEnvelope {
@@ -209,16 +211,27 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
       socket.addEventListener("message", (event) => {
         const payload = JSON.parse(event.data as string) as MattermostEventEnvelope;
 
-        if (payload.status === "OK" && payload.seq_reply) {
-          const wasReconnecting = reconnectAttempt > 0 || authenticated;
-          authenticated = true;
-          reconnectAttempt = 0;
-          clearReconnectTimer();
-          updateStatus("connected");
-          log("info", "WS authenticated");
-          if (wasReconnecting) {
-            options.onReconnect();
+        if (payload.seq_reply) {
+          if (payload.status === "OK") {
+            const wasReconnecting = reconnectAttempt > 0 || authenticated;
+            authenticated = true;
+            reconnectAttempt = 0;
+            clearReconnectTimer();
+            updateStatus("connected");
+            log("info", "WS authenticated");
+            if (wasReconnecting) {
+              options.onReconnect();
+            }
+            return;
           }
+
+          clearReconnectTimer();
+          disposed = true;
+          updateStatus("auth_failed");
+          log("error", `WS authentication failed${payload.status ? ` status=${payload.status}` : ""}`);
+          socket?.close();
+          socket = null;
+          options.onAuthFailure("Realtime authentication failed. Falling back to polling.");
           return;
         }
 

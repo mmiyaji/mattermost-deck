@@ -732,6 +732,7 @@ const pageCss = `
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 16px;
   }
 
@@ -740,12 +741,19 @@ const pageCss = `
     flex: 1;
   }
 
+  .options-panel-header > h2,
+  .options-panel-header > p {
+    flex: 0 0 100%;
+  }
+
   .options-panel-header h2 {
+    margin: 0;
     font-size: 17px;
     font-weight: 600;
   }
 
   .options-panel-header p {
+    margin: 5px 0 0;
     margin-top: 5px;
     font-size: 13px;
     color: #8facd5;

@@ -1642,11 +1642,7 @@ async function loadAppState(): Promise<Omit<AppState, "status" | "error">> {
   };
 }
 
-function useDeckState(
-  refreshNonce: number,
-  realtimeEnabled: boolean,
-  pollingIntervalSeconds: number,
-): AppState {
+function useDeckState(refreshNonce: number, realtimeEnabled: boolean, pollingIntervalSeconds: number): AppState {
   const [state, setState] = useState<AppState>({
     status: "loading",
     userId: null,
@@ -1662,6 +1658,10 @@ function useDeckState(
   });
 
   useEffect(() => {
+    if (state.sessionExpired) {
+      return;
+    }
+
     let cancelled = false;
 
     const run = async (showLoading: boolean) => {
@@ -1701,12 +1701,27 @@ function useDeckState(
             message,
             path: window.location.pathname,
           });
-          setState((current) => ({
-            ...current,
-            status: "error",
-            error: message,
-            sessionExpired: /401/.test(message),
-          }));
+          setState((current) => /401/.test(message)
+            ? {
+                ...current,
+                status: "error",
+                userId: null,
+                username: null,
+                teams: [],
+                unreads: [],
+                currentTeamId: undefined,
+                currentChannelId: undefined,
+                currentTeamLabel: null,
+                currentChannelLabel: null,
+                error: message,
+                sessionExpired: true,
+              }
+            : {
+                ...current,
+                status: "error",
+                error: message,
+                sessionExpired: false,
+              });
         }
       }
     };
@@ -1729,7 +1744,7 @@ function useDeckState(
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [pollingIntervalSeconds, realtimeEnabled, refreshNonce]);
+  }, [pollingIntervalSeconds, realtimeEnabled, refreshNonce, state.sessionExpired]);
 
   return state;
 }
@@ -5303,6 +5318,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const currentRoute = useMemo(() => readCurrentRoute(), [routeKey]);
   const [reconnectNonce, setReconnectNonce] = useState(0);
   const [postedEvent, setPostedEvent] = useState<PostedEvent | null>(null);
+  const [realtimeAuthError, setRealtimeAuthError] = useState<string | null>(null);
   const [userDirectory, setUserDirectory] = useState<Record<string, MattermostUser>>({});
   const userDirectoryRef = useRef<Record<string, MattermostUser>>({});
   const [drawerOpen, setDrawerOpen] = useStoredBoolean(DRAWER_OPEN_STORAGE_KEY, true);
@@ -5362,6 +5378,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     userDirectoryRef.current = userDirectory;
   }, [userDirectory]);
 
+  useEffect(() => {
+    setRealtimeAuthError(null);
+  }, [deckSettings.wsPat]);
   useEffect(() => {
     if (!state.userId || !state.username) {
       return;
@@ -5435,8 +5454,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   }, []);
 
   const healthStatusLabel = getApiHealthLabel(apiHealthStatus);
-  const connectionModeLabel = realtimeEnabled ? "Realtime" : "Polling";
+  const connectionModeLabel = realtimeAuthError ? "Polling (realtime auth failed)" : realtimeEnabled ? "Realtime" : "Polling";
   const syncStatusLabel = `${healthStatusLabel} / ${connectionModeLabel}`;
+  const shouldSafeStop = state.sessionExpired;
   const handleOpenPost = useCallback(
     (post: MattermostPost, target?: OpenPostTarget) => {
       const targetTeam = target?.teamName ?? currentRoute.teamName;
@@ -5596,7 +5616,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
     return connectMattermostWebSocket({
       username: state.username,
-      enabled: realtimeEnabled,
+      enabled: realtimeEnabled && !state.sessionExpired && !realtimeAuthError,
       token: deckSettings.wsPat,
       onReconnect: () => {
         setReconnectNonce((current) => current + 1);
@@ -5607,8 +5627,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
           setReconnectNonce((current) => current + 1);
         }
       },
+      onAuthFailure: (message) => {
+        setRealtimeAuthError(message);
+      },
     });
-  }, [columns, deckSettings.wsPat, realtimeEnabled, state.username]);
+  }, [columns, deckSettings.wsPat, realtimeAuthError, realtimeEnabled, state.sessionExpired, state.username]);
 
   useEffect(() => {
     if (!isResizing || !drawerOpen) {
@@ -6497,6 +6520,23 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
               {isInitialLoading ? (
                 <div className="deck-column-motion">
                   <InitialLoadingState message={text.loading} />
+                </div>
+              ) : shouldSafeStop ? (
+                <div className="deck-column-motion">
+                  <section className="deck-column">
+                    <article className="deck-card">
+                      <strong>{text.sessionExpired}</strong>
+                      <p>{state.error ?? "Your Mattermost session is no longer valid. Sign in again and reload this page."}</p>
+                      <div className="deck-inline-actions">
+                        <button type="button" className="deck-add-item deck-add-item--secondary" onClick={() => window.location.reload()}>
+                          Reload Mattermost
+                        </button>
+                        <button type="button" className="deck-add-item deck-add-item--secondary" onClick={handleOpenSettings}>
+                          {text.settingsButton}
+                        </button>
+                      </div>
+                    </article>
+                  </section>
                 </div>
               ) : (columns ?? []).map((column, index, allColumns) => {
                 const setColumnRef = (element: HTMLDivElement | null) => {
