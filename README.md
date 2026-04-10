@@ -29,10 +29,11 @@ Dark theme:
 - Layout export and import as JSON
 - Optional realtime updates with a Mattermost PAT
 - Optional per-server profiles for switching between multiple saved setting sets
-- Mattermost-aware theme colors, optional pane identity accents, compact mode, and configurable default widths
+- Mattermost-aware theme colors, optional pane identity accents, configurable default widths, and a compact mode that switches to dense `time author: content` rows with stable per-author colors
 - Inline URL detection and truncation for long tokens in post bodies
 - Jump-to-latest floating control for long panes
-- Performance tab with API endpoint summary, recent trace logs, and JSONL export
+- Reply post indicator and reply-aware navigation that opens standalone replies in Mattermost thread view
+- Diagnostics pane with lightweight recent sync hints, plus a Performance tab with API endpoint summary, recent trace logs, and JSONL export
 - Japanese, English, German, Chinese (Simplified), and French UI
 - Localized extension package name and description for Chrome
 
@@ -94,12 +95,16 @@ Saving the server URL requests Chrome permission for that Mattermost origin. The
 - Preferred rail width
 - Preferred column width
 - Compact mode
+  - compact mode removes cards and uses a dense single-line layout like `time author: content`
+  - your own author name uses the theme accent color and other authors use stable per-user colors
+  - regular mode keeps the standard layout and only tightens nearby posts from the same person
 - Image previews
 - Pane identity color accents
 
 ### Behavior
 
 - Post click action
+  - replies open via permalink/thread view so posts that exist only inside a thread can still be shown reliably in Mattermost
 - Highlight keywords
 - High Z-index mode
 - Reverse post order
@@ -110,6 +115,7 @@ Saving the server URL requests Chrome permission for that Mattermost origin. The
 - API endpoint summary with request count, latency, and error rate
 - Recent trace log table with full request URL, status, duration, and queue wait
 - JSONL export for offline analysis
+- Diagnostics keeps a shortened recent sync log for day-to-day use; the detailed request table remains in Performance
 - Automatic retention policy:
   - turning trace capture off clears stored logs
   - logs older than 24 hours are removed automatically
@@ -121,6 +127,7 @@ Saving the server URL requests Chrome permission for that Mattermost origin. The
 - Persistent PAT values are encrypted client-side before storage
 - Health-check paths are restricted to relative `/api/v4/...` paths on the configured Mattermost origin
 - REST requests are serialized in-tab and heavier fan-out paths are batched to avoid burst refresh behavior when many panes update together
+- After an empty state has been shown once, background refresh keeps that empty state visible instead of flashing a loading spinner
 
 ## Development
 
@@ -144,7 +151,7 @@ npm run capture:readme
 
 ## Release
 
-Push a tag in `v` format, such as `v0.1.9`, to trigger GitHub Actions.
+Push a tag in `v` format, such as `v0.2.0`, to trigger GitHub Actions.
 
 - Runs `npm ci`, `npm run check`, and `npm run build`
 - Packages `dist/` as `mattermost-deck-<tag>.zip`

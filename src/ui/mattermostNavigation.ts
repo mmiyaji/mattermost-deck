@@ -32,8 +32,8 @@ function scrollElementIntoView(element: HTMLElement): void {
   });
 }
 
-export async function focusMattermostPost(postId: string, timeoutMs = 5000): Promise<boolean> {
-  const existing = findPostElement(postId);
+export async function focusMattermostPost(postId: string, timeoutMs = 5000, fallbackPostId?: string): Promise<boolean> {
+  const existing = findPostElement(postId) ?? (fallbackPostId ? findPostElement(fallbackPostId) : null);
   if (existing) {
     scrollElementIntoView(existing);
     return true;
@@ -53,7 +53,7 @@ export async function focusMattermostPost(postId: string, timeoutMs = 5000): Pro
     };
 
     const check = () => {
-      const element = findPostElement(postId);
+      const element = findPostElement(postId) ?? (fallbackPostId ? findPostElement(fallbackPostId) : null);
       if (!element) {
         return;
       }

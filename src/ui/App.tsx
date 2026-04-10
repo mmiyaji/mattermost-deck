@@ -69,6 +69,7 @@ import {
   type PostClickAction,
 } from "./settings";
 import { extractHighlightKeywords, tokenizePostText } from "./postText";
+import { shouldGroupAdjacentPosts } from "./postGrouping";
 import { focusMattermostPost } from "./mattermostNavigation";
 import { dedupeRecentTargets, type RecentChannelTarget } from "./recentTargets";
 import { mapInBatches } from "./asyncBatch";
@@ -115,6 +116,11 @@ interface WsLogEntry {
 }
 
 type SyncLogEntry = WsLogEntry;
+
+interface DiagnosticsLogEntry extends SyncLogEntry {
+  summary: string;
+  count: number;
+}
 
 interface RuntimePerformanceSnapshot {
   domNodeCount: number;
@@ -232,6 +238,11 @@ interface OpenPostTarget {
   channelName?: string;
 }
 
+interface OpenThreadTarget {
+  postId: string;
+  rootId?: string;
+}
+
 type PostListEntry =
   | {
       type: "separator";
@@ -318,6 +329,35 @@ function getPostDayLabel(timestamp: number): string {
     month: "2-digit",
     day: "2-digit",
   }).format(date);
+}
+
+const COMPACT_AUTHOR_COLORS = [
+  "#57c7ff",
+  "#7ee787",
+  "#f2cc60",
+  "#ff9e64",
+  "#f7768e",
+  "#bb9af7",
+  "#4fd6be",
+  "#9ece6a",
+  "#e0af68",
+  "#7dcfff",
+];
+
+function hashString(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function getCompactAuthorColor(userId: string, currentUserId?: string | null): string {
+  if (currentUserId && userId === currentUserId) {
+    return "var(--deck-accent-strong)";
+  }
+  return COMPACT_AUTHOR_COLORS[hashString(userId) % COMPACT_AUTHOR_COLORS.length] ?? COMPACT_AUTHOR_COLORS[0];
 }
 
 function buildPostListEntries(posts: MattermostPost[], lastViewedAt?: number | null): PostListEntry[] {
@@ -689,25 +729,27 @@ function getApiHealthLabel(status: ApiHealthStatus): string {
   }
 }
 
-function openMattermostThread(teamName: string, postId: string, channelName?: string | null): void {
-  const nextPath = channelName
-    ? `/${teamName}/channels/${channelName}/${postId}`
-    : `/${teamName}/pl/${postId}`;
+function openMattermostThread(teamName: string, target: OpenThreadTarget, channelName?: string | null): void {
+  const isReply = Boolean(target.rootId?.trim());
+  const nextPath = !isReply && channelName
+    ? `/${teamName}/channels/${channelName}/${target.postId}`
+    : `/${teamName}/pl/${target.postId}`;
   debugLog("app.open-thread", {
     currentPath: window.location.pathname,
     nextPath,
-    postId,
+    postId: target.postId,
+    rootId: target.rootId ?? null,
   });
   if (window.location.pathname === nextPath) {
     window.dispatchEvent(new PopStateEvent("popstate"));
-    void focusMattermostPost(postId);
+    void focusMattermostPost(target.postId, 5000, target.rootId);
     return;
   }
 
   debugLog("app.open-thread.push-state", { nextPath });
   window.history.pushState({}, "", nextPath);
   window.dispatchEvent(new PopStateEvent("popstate"));
-  void focusMattermostPost(postId);
+  void focusMattermostPost(target.postId, 5000, target.rootId);
 }
 
 function ChevronIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
@@ -1090,10 +1132,22 @@ function useAppText() {
     addSearch: t("deck.addSearch"),
     addSaved: t("deck.addSaved"),
     addDiagnostics: t("deck.addDiagnostics"),
+    viewsLabel: t("deck.viewsLabel"),
+    savedSetsLabel: t("deck.savedSetsLabel"),
+    menuLabel: t("deck.menuLabel"),
+    layoutLabel: t("deck.layoutLabel"),
+    reorderPanes: t("deck.reorderPanes"),
+    applyOrder: t("deck.applyOrder"),
+    cancel: t("deck.cancel"),
+    saveCurrentSet: t("deck.saveCurrentSet"),
+    savedColumns: (count: number) => t("deck.savedColumns", { count }),
+    exportLayout: t("deck.exportLayout"),
+    importLayout: t("deck.importLayout"),
     choosePane: t("deck.choosePane"),
     loading: t("deck.loading"),
     sessionExpired: t("deck.sessionExpired"),
     failedToLoad: t("deck.failedToLoad"),
+    failedToLoadMentions: t("deck.failedToLoadMentions"),
     column: t("deck.column"),
     columns: t("deck.columns"),
     teamLabel: t("deck.teamLabel"),
@@ -1103,6 +1157,9 @@ function useAppText() {
     scope: t("deck.scope"),
     mentionBadge: (count: number, perTeam: boolean) =>
       t(perTeam ? "deck.mentionBadgePerTeam" : "deck.mentionBadgeAllTeams", { count }),
+    noMentions: t("deck.noMentions"),
+    noUnreadMentions: t("deck.noUnreadMentions"),
+    mentionsWillAppear: t("deck.mentionsWillAppear"),
     unreadOnlyNote: t("deck.unreadOnlyNote"),
     unreadSeparatorLabel: t("deck.unreadSeparatorLabel"),
     markRead: t("deck.markRead"),
@@ -1127,6 +1184,34 @@ function useAppText() {
     searchTerms: t("deck.searchTerms"),
     applySearch: t("deck.applySearch"),
     noRecentEvents: t("deck.noRecentEvents"),
+    diagnosticsTitle: t("deck.diagnosticsTitle"),
+    diagnosticsDesc: t("deck.diagnosticsDesc"),
+    diagnosticsStatus: t("deck.diagnosticsStatus"),
+    diagnosticsApiTps: t("deck.diagnosticsApiTps"),
+    diagnosticsAvgLatency: t("deck.diagnosticsAvgLatency"),
+    diagnosticsErrorRate: t("deck.diagnosticsErrorRate"),
+    diagnosticsRecentSuffix: t("deck.diagnosticsRecentSuffix"),
+    diagnosticsInFlight: t("deck.diagnosticsInFlight"),
+    diagnosticsFailedSuffix: t("deck.diagnosticsFailedSuffix"),
+    diagnosticsWsReconnects: t("deck.diagnosticsWsReconnects"),
+    diagnosticsRender: t("deck.diagnosticsRender"),
+    diagnosticsAverageShort: t("deck.diagnosticsAverageShort"),
+    diagnosticsLastShort: t("deck.diagnosticsLastShort"),
+    diagnosticsNotAvailable: t("deck.diagnosticsNotAvailable"),
+    diagnosticsRecentSyncLog: t("deck.diagnosticsRecentSyncLog"),
+    diagnosticsPerformanceHint: t("deck.diagnosticsPerformanceHint"),
+    diagnosticsStatusHealthy: t("deck.diagnosticsStatusHealthy"),
+    diagnosticsStatusDegraded: t("deck.diagnosticsStatusDegraded"),
+    diagnosticsStatusError: t("deck.diagnosticsStatusError"),
+    diagnosticsWsIdle: t("deck.diagnosticsWsIdle"),
+    diagnosticsWsConnecting: t("deck.diagnosticsWsConnecting"),
+    diagnosticsWsConnected: t("deck.diagnosticsWsConnected"),
+    diagnosticsWsReconnecting: t("deck.diagnosticsWsReconnecting"),
+    diagnosticsWsOffline: t("deck.diagnosticsWsOffline"),
+    diagnosticsWsError: t("deck.diagnosticsWsError"),
+    diagnosticsWsAuthFailed: t("deck.diagnosticsWsAuthFailed"),
+    diagnosticsPolling: t("deck.diagnosticsPolling"),
+    recommendedDiagnostics: t("deck.recommendedDiagnostics"),
     resizeLabel: t("deck.resizeLabel"),
     resizeDrag: t("deck.resizeDrag"),
     moreActionsLabel: t("deck.moreActionsLabel"),
@@ -1976,6 +2061,53 @@ function useSyncLogs(): SyncLogEntry[] {
   }, []);
 
   return logs;
+}
+
+function summariseSyncLogMessage(message: string): string {
+  if (/^WS reconnect scheduled in \d+ms$/.test(message)) {
+    return "WS reconnect scheduled";
+  }
+  if (/^WS closed code=/.test(message)) {
+    return message.replace(/ reason=.*/, "");
+  }
+  if (/^[A-Za-z ].+ \| (GET|POST) \d+ \d+ms /.test(message)) {
+    const match = message.match(/^(.+?) \| (GET|POST) (\d+) (\d+)ms /);
+    if (match) {
+      const [, purpose, method, status, duration] = match;
+      return `${purpose} ${method} ${status} ${duration}ms`;
+    }
+  }
+  if (/^[A-Za-z ].+ \| (GET|POST) failed \d+ms /.test(message)) {
+    const match = message.match(/^(.+?) \| (GET|POST) failed (\d+)ms /);
+    if (match) {
+      const [, purpose, method, duration] = match;
+      return `${purpose} ${method} failed ${duration}ms`;
+    }
+  }
+  if (/^(GET|POST) rate-limit \d+ms$/.test(message)) {
+    return message.replace(/ \d+ms$/, " wait");
+  }
+  return message;
+}
+
+function buildDiagnosticsLogEntries(logs: SyncLogEntry[], limit = 5): DiagnosticsLogEntry[] {
+  const entries: DiagnosticsLogEntry[] = [];
+
+  for (const entry of logs) {
+    const summary = summariseSyncLogMessage(entry.message);
+    const previous = entries[entries.length - 1];
+    if (previous && previous.level === entry.level && previous.summary === summary) {
+      previous.count += 1;
+      previous.timestamp = Math.max(previous.timestamp, entry.timestamp);
+      continue;
+    }
+    entries.push({ ...entry, summary, count: 1 });
+    if (entries.length >= limit) {
+      break;
+    }
+  }
+
+  return entries;
 }
 
 function useDeckLayout(): [
@@ -2917,6 +3049,7 @@ function PostList({
   language = "ja",
   reversedPostOrder = false,
   highlightTerms = [],
+  currentUserId,
   lastViewedAt,
   onMarkRead,
   unreadSeparatorLabel = "Unread",
@@ -2938,6 +3071,7 @@ function PostList({
   language?: DeckLanguage;
   reversedPostOrder?: boolean;
   highlightTerms?: string[];
+  currentUserId?: string | null;
   lastViewedAt?: number | null;
   onMarkRead?: () => void;
   unreadSeparatorLabel?: string;
@@ -3105,7 +3239,7 @@ function PostList({
     }
   }, [lastViewedAt]);
 
-  const renderEntry = (entry: PostListEntry): React.ReactNode => {
+  const renderEntry = (entry: PostListEntry, entryIndex: number): React.ReactNode => {
     if (entry.type === "separator") {
       return (
         <li key={entry.key} className="deck-list-separator" aria-hidden="true">
@@ -3144,10 +3278,13 @@ function PostList({
     }
 
     const { post } = entry;
+    const previousEntry = displayEntries[entryIndex - 1];
+    const groupedWithPrevious = !compactMode && previousEntry?.type === "post" && shouldGroupAdjacentPosts(previousEntry.post, post);
+    const isReplyPost = Boolean(post.root_id?.trim());
     return (
       <li
         key={entry.key}
-        className={`deck-card deck-card--post${compactMode ? " deck-card--post-compact" : ""}${onOpenPost && postClickAction !== "none" ? " deck-card--clickable" : ""}`}
+        className={`deck-card deck-card--post${compactMode ? " deck-card--post-compact" : ""}${groupedWithPrevious ? " deck-card--post-grouped" : ""}${isReplyPost ? " deck-card--reply" : ""}${onOpenPost && postClickAction !== "none" ? " deck-card--clickable" : ""}`}
         onPointerDown={
           onOpenPost && postClickAction !== "none"
             ? (event) => {
@@ -3192,10 +3329,10 @@ function PostList({
             : undefined
         }
       >
-        <div className="deck-card-header">
-          <strong>{formatPostTime(post.create_at)}</strong>
-          <span className="deck-card-author">
-            {!compactMode ? (
+        {!compactMode && !groupedWithPrevious ? (
+          <div className="deck-card-header">
+            <strong>{formatPostTime(post.create_at)}</strong>
+            <span className="deck-card-author">
               <img
                 className="deck-card-avatar"
                 src={getUserAvatarUrl(post.user_id)}
@@ -3204,16 +3341,28 @@ function PostList({
                 decoding="async"
                 referrerPolicy="no-referrer"
               />
-            ) : null}
-            <span className="deck-card-author-label">{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
-          </span>
-        </div>
+              <span className="deck-card-author-label">{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
+            </span>
+          </div>
+        ) : null}
         {renderMeta ? <div className="deck-card-meta">{renderMeta(post)}</div> : null}
         {(() => {
           const hasFiles = (post.file_ids?.length ?? 0) > 0;
           const body = renderBody ? renderBody(post) : renderHighlightedTextFromTerms(summarisePost(post.message), highlightTerms);
           const isEmpty = !renderBody && !post.message.trim();
-          return (!isEmpty || !hasFiles) ? <p>{body}</p> : null;
+          return (!isEmpty || !hasFiles) ? (
+            compactMode ? (
+              <p className="deck-post-compact-line">
+                <span className="deck-post-compact-time">{formatPostTime(post.create_at)}</span>
+                <span className="deck-post-compact-author" style={{ color: getCompactAuthorColor(post.user_id, currentUserId) }}>
+                  {getUserLabel(userDirectory[post.user_id], post.user_id)}:
+                </span>
+                <span className="deck-post-compact-body">{body}</span>
+              </p>
+            ) : (
+              <p>{body}</p>
+            )
+          ) : null;
         })()}
         {post.file_ids && post.file_ids.length > 0 && (
           <PostFileAttachments fileIds={post.file_ids} postId={post.id} showImagePreviews={showImagePreviews} />
@@ -3278,8 +3427,8 @@ function PostList({
         >
           {reversedPostOrder && footerNode}
           <div className="deck-list-spacer" style={{ height: `${Math.max(spacerHeight, viewportHeight)}px` }}>
-            <ul className="deck-list deck-list--virtual" style={{ transform: `translateY(${offsetY}px)` }}>
-              {visibleEntries.map((entry) => renderEntry(entry))}
+            <ul className={`deck-list deck-list--virtual${compactMode ? " deck-list--post-compact" : ""}`} style={{ transform: `translateY(${offsetY}px)` }}>
+              {visibleEntries.map((entry, index) => renderEntry(entry, startIndex + index))}
             </ul>
           </div>
           {!reversedPostOrder && footerNode}
@@ -3305,7 +3454,7 @@ function PostList({
           onPointerDown={markInteraction}
         >
           {reversedPostOrder && footerNode}
-          <ul className="deck-list">{displayEntries.map((entry) => renderEntry(entry))}</ul>
+          <ul className={`deck-list${compactMode ? " deck-list--post-compact" : ""}`}>{displayEntries.map((entry, index) => renderEntry(entry, index))}</ul>
           {!reversedPostOrder && footerNode}
         </div>
       )}
@@ -3316,6 +3465,7 @@ function PostList({
 function MentionsColumn({
   column,
   username,
+  currentUserId,
   mentionsLastReadAt,
   onSetMentionsLastReadAt,
   currentTeamId,
@@ -3344,6 +3494,7 @@ function MentionsColumn({
 }: {
   column: DeckColumn;
   username: string | null;
+  currentUserId?: string | null;
   mentionsLastReadAt: number | null;
   onSetMentionsLastReadAt: (value: number | null) => void;
   currentTeamId?: string;
@@ -3386,6 +3537,7 @@ function MentionsColumn({
   const [memberDirectory, setMemberDirectory] = useState<Record<string, string[]>>({});
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const [paused, setPaused] = useState(false);
   const refreshStartedAtRef = useRef<number | null>(null);
@@ -3416,7 +3568,8 @@ function MentionsColumn({
     postState.posts.length === 0 &&
     (postState.status === "idle" || postState.status === "loading") &&
     teamIds.length > 0 &&
-    Boolean(username);
+    Boolean(username) &&
+    !hasCompletedInitialLoad;
   const specialMentionMemberTtlMs = realtimeEnabled ? SPECIAL_MENTION_MEMBER_TTL_WS_MS : SPECIAL_MENTION_MEMBER_TTL_MS;
   const specialMentionPostTtlMs = realtimeEnabled ? SPECIAL_MENTION_POST_TTL_WS_MS : SPECIAL_MENTION_POST_TTL_MS;
   const handleMarkRead = useCallback(() => {
@@ -3424,6 +3577,10 @@ function MentionsColumn({
     const nextReadAt = latestVisiblePostAt > 0 ? latestVisiblePostAt : Date.now();
     onSetMentionsLastReadAt(nextReadAt);
   }, [onSetMentionsLastReadAt, visiblePosts]);
+
+  useEffect(() => {
+    setHasCompletedInitialLoad(false);
+  }, [column.teamId, username]);
 
   const finishRefresh = useCallback(() => {
     if (refreshStartedAtRef.current === null) {
@@ -3543,6 +3700,7 @@ function MentionsColumn({
     }
 
     if (teamIds.length === 0 || !username) {
+      setHasCompletedInitialLoad(false);
       setPostState({
         status: "idle",
         posts: [],
@@ -3595,6 +3753,7 @@ function MentionsColumn({
           hasMore: results.some((entry) => entry.posts.length === POSTS_PAGE_SIZE),
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       } catch (error) {
         if (cancelled) {
@@ -3608,6 +3767,7 @@ function MentionsColumn({
           hasMore: false,
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       }
     };
@@ -3906,18 +4066,18 @@ function MentionsColumn({
 
       {postState.status === "error" ? (
         <article className="deck-card">
-          <strong>Failed to load mentions</strong>
+          <strong>{text.failedToLoadMentions}</strong>
           <p>{postState.error ?? "Unknown error"}</p>
         </article>
       ) : shouldShowLoadingState ? (
         <ColumnLoadingState
-          title="Loading mentions"
-          detail="Checking unread mentions and syncing recent mention posts."
+          title={text.loading}
+          detail={text.mentionsWillAppear}
         />
       ) : visiblePosts.length === 0 ? (
         <article className="deck-card">
-          <strong>No mentions</strong>
-          <p>{column.unreadOnly ? "No unread mentions are currently available." : "Mentions will appear here."}</p>
+          <strong>{text.noMentions}</strong>
+          <p>{column.unreadOnly ? text.noUnreadMentions : text.mentionsWillAppear}</p>
         </article>
       ) : (
         <PostList
@@ -3941,6 +4101,7 @@ function MentionsColumn({
           language={language}
           reversedPostOrder={reversedPostOrder}
           highlightTerms={highlightTerms}
+          currentUserId={currentUserId}
           lastViewedAt={mentionsLastReadAt}
           onMarkRead={handleMarkRead}
           unreadSeparatorLabel={text.unreadSeparatorLabel}
@@ -4077,17 +4238,23 @@ function ChannelWatchColumn({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [paused, setPaused] = useState(false);
   const [lastViewedAt, setLastViewedAt] = useState<number | null>(null);
+  const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
   const hasConfiguredTarget = mode === "dm" ? Boolean(column.channelId) : Boolean(column.teamId && column.channelId);
   const shouldShowLoadingState =
     hasConfiguredTarget &&
     postState.posts.length === 0 &&
-    (postState.status === "idle" || postState.status === "loading");
+    (postState.status === "idle" || postState.status === "loading") &&
+    !hasCompletedInitialLoad;
   const [showControls, setShowControls] = useState(!hasConfiguredTarget);
   const refreshStartedAtRef = useRef<number | null>(null);
   const refreshStopTimerRef = useRef<number | null>(null);
   const markReadFiredRef = useRef(false);
   const teamDirectory = useMemo(() => Object.fromEntries(teams.map((team) => [team.id, team])), [teams]);
   const selectedTeam = column.teamId ? teamDirectory[column.teamId] : undefined;
+
+  useEffect(() => {
+    setHasCompletedInitialLoad(false);
+  }, [mode, column.teamId, column.channelId]);
 
   const finishRefresh = useCallback(() => {
     if (refreshStartedAtRef.current === null) {
@@ -4304,6 +4471,7 @@ function ChannelWatchColumn({
     }
 
     if ((mode === "channel" && !column.teamId) || !column.channelId) {
+      setHasCompletedInitialLoad(false);
       setPostState({
         status: "idle",
         posts: [],
@@ -4338,6 +4506,7 @@ function ChannelWatchColumn({
           hasMore: posts.length === POSTS_PAGE_SIZE,
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       } catch (error) {
         if (cancelled) {
@@ -4351,6 +4520,7 @@ function ChannelWatchColumn({
           hasMore: false,
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       }
     };
@@ -4574,7 +4744,7 @@ function ChannelWatchColumn({
               </button>
             ) : null}
             <button type="button" className="deck-add-item deck-add-item--secondary" onClick={() => onAddColumn("diagnostics")}>
-              <span>Recommended: Diagnostics</span>
+              <span>{text.recommendedDiagnostics}</span>
               <small>Track sync, reconnects, and render cost.</small>
             </button>
           </div>
@@ -4608,6 +4778,7 @@ function ChannelWatchColumn({
           language={language}
           reversedPostOrder={reversedPostOrder}
           highlightTerms={highlightTerms}
+          currentUserId={currentUserId}
           lastViewedAt={lastViewedAt}
           onMarkRead={handleMarkRead}
           unreadSeparatorLabel={text.unreadSeparatorLabel}
@@ -4666,6 +4837,7 @@ function ColumnLoadingState({
 function SearchLikeColumn({
   column,
   currentUsername,
+  currentUserId,
   teams,
   userDirectory,
   ensureUsers,
@@ -4687,6 +4859,7 @@ function SearchLikeColumn({
 }: {
   column: DeckColumn;
   currentUsername: string | null;
+  currentUserId?: string | null;
   teams: MattermostTeam[];
   userDirectory: Record<string, MattermostUser>;
   ensureUsers: (userIds: string[]) => Promise<void>;
@@ -4722,6 +4895,7 @@ function SearchLikeColumn({
   const [showControls, setShowControls] = useState(!(column.teamId && column.query?.trim()));
   const [draftQuery, setDraftQuery] = useState(column.query ?? "");
   const [savedSearches, setSavedSearches] = useState<string[]>([]);
+  const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
 
   useEffect(() => {
     void loadStoredJson<string[]>(SAVED_SEARCHES_KEY, []).then(setSavedSearches);
@@ -4753,8 +4927,13 @@ function SearchLikeColumn({
   const shouldShowLoadingState =
     ready &&
     postState.posts.length === 0 &&
-    (postState.status === "idle" || postState.status === "loading");
+    (postState.status === "idle" || postState.status === "loading") &&
+    !hasCompletedInitialLoad;
   const title = query || "Search";
+
+  useEffect(() => {
+    setHasCompletedInitialLoad(false);
+  }, [column.teamId, query]);
 
   const finishRefresh = useCallback(() => {
     if (refreshStartedAtRef.current === null) {
@@ -4830,6 +5009,7 @@ function SearchLikeColumn({
     }
 
     if (!ready) {
+      setHasCompletedInitialLoad(false);
       setPostState({
         status: "idle",
         posts: [],
@@ -4865,6 +5045,7 @@ function SearchLikeColumn({
           hasMore: posts.length === POSTS_PAGE_SIZE,
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       } catch (error) {
         if (cancelled) {
@@ -4878,6 +5059,7 @@ function SearchLikeColumn({
           hasMore: false,
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       }
     };
@@ -5107,6 +5289,7 @@ function SearchLikeColumn({
           language={language}
           reversedPostOrder={reversedPostOrder}
           highlightTerms={highlightTerms}
+          currentUserId={currentUserId}
         />
       )}
     </section>
@@ -5116,6 +5299,7 @@ function SearchLikeColumn({
 function SavedPostsColumn({
   column,
   currentUsername,
+  currentUserId,
   userDirectory,
   ensureUsers,
   canMoveLeft,
@@ -5133,6 +5317,7 @@ function SavedPostsColumn({
 }: {
   column: DeckColumn;
   currentUsername: string | null;
+  currentUserId?: string | null;
   userDirectory: Record<string, MattermostUser>;
   ensureUsers: (userIds: string[]) => Promise<void>;
   canMoveLeft: boolean;
@@ -5162,9 +5347,11 @@ function SavedPostsColumn({
   const [paused, setPaused] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const highlightTerms = useMemo(() => resolveHighlightTerms(highlightKeywords, currentUsername), [currentUsername, highlightKeywords]);
+  const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
   const shouldShowLoadingState =
     postState.posts.length === 0 &&
-    (postState.status === "idle" || postState.status === "loading");
+    (postState.status === "idle" || postState.status === "loading") &&
+    !hasCompletedInitialLoad;
   const refreshStartedAtRef = useRef<number | null>(null);
   const refreshStopTimerRef = useRef<number | null>(null);
 
@@ -5216,6 +5403,7 @@ function SavedPostsColumn({
           hasMore: posts.length === POSTS_PAGE_SIZE,
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       } catch (error) {
         if (cancelled) {
@@ -5229,6 +5417,7 @@ function SavedPostsColumn({
           hasMore: false,
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       }
     };
@@ -5383,6 +5572,7 @@ function SavedPostsColumn({
           language={language}
           reversedPostOrder={reversedPostOrder}
           highlightTerms={highlightTerms}
+          currentUserId={currentUserId}
         />
       )}
     </section>
@@ -5420,13 +5610,38 @@ function DiagnosticsColumn({
 }): React.JSX.Element {
   const text = useAppText();
   const [showControls, setShowControls] = useState(false);
+  const diagnosticsLogs = useMemo(() => buildDiagnosticsLogEntries(syncLogs), [syncLogs]);
+  const healthLabel =
+    apiHealthStatus === "healthy"
+      ? text.diagnosticsStatusHealthy
+      : apiHealthStatus === "degraded"
+        ? text.diagnosticsStatusDegraded
+        : text.diagnosticsStatusError;
+  const wsStatusLabel = (() => {
+    switch (wsStatus) {
+      case "idle":
+        return text.diagnosticsWsIdle;
+      case "connecting":
+        return text.diagnosticsWsConnecting;
+      case "connected":
+        return text.diagnosticsWsConnected;
+      case "reconnecting":
+        return text.diagnosticsWsReconnecting;
+      case "offline":
+        return text.diagnosticsWsOffline;
+      case "auth_failed":
+        return text.diagnosticsWsAuthFailed;
+      default:
+        return text.diagnosticsWsError;
+    }
+  })();
 
   return (
     <section className="deck-column deck-column--diagnostics" style={getColumnAccentStyle(column.type, columnColors)}>
       <header className="deck-column-header">
         <div className="deck-column-heading">
-          <h2><span className="deck-title-with-icon"><ColumnTypeBadge type="diagnostics" /><span>Diagnostics</span></span></h2>
-          <p>Operational health at a glance</p>
+          <h2><span className="deck-title-with-icon"><ColumnTypeBadge type="diagnostics" /><span>{text.diagnosticsTitle}</span></span></h2>
+          <p>{text.diagnosticsDesc}</p>
         </div>
         <div className="deck-column-actions">
           <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => setShowControls((current) => !current)}>
@@ -5455,46 +5670,47 @@ function DiagnosticsColumn({
       <div className="deck-stack">
         <div className="deck-metric-grid">
           <article className="deck-card deck-card--metric">
-            <strong>Status</strong>
-            <p>{apiHealthStatus}</p>
-            <span>{realtimeEnabled ? wsStatus : "polling"}</span>
+            <strong>{text.diagnosticsStatus}</strong>
+            <p>{healthLabel}</p>
+            <span>{realtimeEnabled ? wsStatusLabel : text.diagnosticsPolling}</span>
           </article>
           <article className="deck-card deck-card--metric">
-            <strong>API TPS</strong>
+            <strong>{text.diagnosticsApiTps}</strong>
             <p>{runtimeMetrics.api.recentTps.toFixed(1)}</p>
           </article>
           <article className="deck-card deck-card--metric">
-            <strong>Avg latency</strong>
+            <strong>{text.diagnosticsAvgLatency}</strong>
             <p>{formatLatency(runtimeMetrics.api.averageLatencyMs)}</p>
           </article>
           <article className="deck-card deck-card--metric">
-            <strong>Error rate</strong>
+            <strong>{text.diagnosticsErrorRate}</strong>
             <p>{formatRate(runtimeMetrics.api.recentErrorRate)}</p>
-            <span>{runtimeMetrics.api.recentFailedRequestsPerMinute} / {runtimeMetrics.api.recentRequestsPerMinute} recent</span>
+            <span>{runtimeMetrics.api.recentFailedRequestsPerMinute} / {runtimeMetrics.api.recentRequestsPerMinute} {text.diagnosticsRecentSuffix}</span>
           </article>
           <article className="deck-card deck-card--metric">
-            <strong>In flight</strong>
+            <strong>{text.diagnosticsInFlight}</strong>
             <p>{runtimeMetrics.api.inFlightRequests}</p>
-            <span>{runtimeMetrics.api.totalGetRequests} GET / {runtimeMetrics.api.totalPostRequests} POST / {runtimeMetrics.api.totalFailedRequests} failed</span>
+            <span>{runtimeMetrics.api.totalGetRequests} GET / {runtimeMetrics.api.totalPostRequests} POST / {runtimeMetrics.api.totalFailedRequests} {text.diagnosticsFailedSuffix}</span>
           </article>
           <article className="deck-card deck-card--metric">
-            <strong>WS reconnects</strong>
+            <strong>{text.diagnosticsWsReconnects}</strong>
             <p>{runtimeMetrics.diagnostics.websocket.reconnectCount.toLocaleString()}</p>
-            <span>{runtimeMetrics.diagnostics.websocket.lastReconnectAt ? formatPostTime(runtimeMetrics.diagnostics.websocket.lastReconnectAt) : "n/a"}</span>
+            <span>{runtimeMetrics.diagnostics.websocket.lastReconnectAt ? formatPostTime(runtimeMetrics.diagnostics.websocket.lastReconnectAt) : text.diagnosticsNotAvailable}</span>
           </article>
           <article className="deck-card deck-card--metric">
-            <strong>Render</strong>
+            <strong>{text.diagnosticsRender}</strong>
             <p>{formatLatency(runtimeMetrics.diagnostics.render.p95CommitMs)}</p>
-            <span>avg {formatLatency(runtimeMetrics.diagnostics.render.averageCommitMs)} / last {formatLatency(runtimeMetrics.diagnostics.render.lastCommitMs)}</span>
+            <span>{text.diagnosticsAverageShort} {formatLatency(runtimeMetrics.diagnostics.render.averageCommitMs)} / {text.diagnosticsLastShort} {formatLatency(runtimeMetrics.diagnostics.render.lastCommitMs)}</span>
           </article>
         </div>
         <article className="deck-card">
-          <strong>Recent sync log</strong>
+          <strong>{text.diagnosticsRecentSyncLog}</strong>
           <ul className="deck-log-list">
-            {syncLogs.length > 0 ? syncLogs.slice(0, 8).map((entry) => (
+            {diagnosticsLogs.length > 0 ? diagnosticsLogs.map((entry) => (
               <li key={`${entry.timestamp}-${entry.message}`} className={`deck-log-entry deck-log-entry--${entry.level}`}>
                 <span className="deck-log-time">{formatPostTime(entry.timestamp)}</span>
-                <span className="deck-log-text" title={entry.message}>{entry.message}</span>
+                <span className="deck-log-text" title={entry.message}>{entry.summary}</span>
+                {entry.count > 1 ? <span className="deck-log-count">x{entry.count}</span> : null}
               </li>
             )) : (
               <li className="deck-log-entry deck-log-entry--info">
@@ -5503,7 +5719,7 @@ function DiagnosticsColumn({
               </li>
             )}
           </ul>
-          <p className="deck-card-caption">Detailed traces and endpoint analysis are available in Settings &gt; Performance.</p>
+          <p className="deck-card-caption">{text.diagnosticsPerformanceHint}</p>
         </article>
       </div>
     </section>
@@ -5676,7 +5892,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       if (!targetTeam) {
         return;
       }
-      openMattermostThread(targetTeam, post.id, target?.channelName ?? currentRoute.channelName);
+      openMattermostThread(targetTeam, { postId: post.id, rootId: post.root_id }, target?.channelName ?? currentRoute.channelName);
     },
     [currentRoute.channelName, currentRoute.teamName],
   );
@@ -5687,14 +5903,15 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         return;
       }
       const handleDebugOpenThread = (event: Event) => {
-        const customEvent = event as CustomEvent<{ teamName?: string; postId?: string; channelName?: string }>;
+        const customEvent = event as CustomEvent<{ teamName?: string; postId?: string; rootId?: string; channelName?: string }>;
         const teamName = customEvent.detail?.teamName;
         const postId = customEvent.detail?.postId;
+        const rootId = customEvent.detail?.rootId;
         const channelName = customEvent.detail?.channelName;
         if (!teamName || !postId) {
           return;
         }
-        openMattermostThread(teamName, postId, channelName ?? readCurrentRoute().channelName);
+        openMattermostThread(teamName, { postId, rootId }, channelName ?? readCurrentRoute().channelName);
       };
       window.addEventListener("mattermost-deck-debug-open-thread", handleDebugOpenThread as EventListener);
       return () => {
@@ -6412,6 +6629,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                 >
                   <span className="deck-status-badge-copy">
                     <HealthStatusIcon status={apiHealthStatus} />
+                    {!isCompactHeader ? <span>{healthStatusLabel}</span> : null}
                     <StatusModeIcon realtimeEnabled={realtimeEnabled} />
                   </span>
                 </div>
@@ -6425,6 +6643,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                 >
                   <span className="deck-status-badge-copy">
                     <HealthStatusIcon status={apiHealthStatus} />
+                    {!isCompactHeader ? <span>{healthStatusLabel}</span> : null}
                     <StatusModeIcon realtimeEnabled={realtimeEnabled} />
                   </span>
                 </button>
@@ -6447,23 +6666,23 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                   disabled={columns === null || state.status === "loading"}
                 >
                   <ViewsIcon />
-                  <span className="deck-button-label">Views</span>
+                  <span className="deck-button-label">{text.viewsLabel}</span>
                 </button>
                 {showViewsMenu ? (
                   <div className="deck-add-menu deck-add-menu--views">
-                    <div className="deck-add-menu-title">Views</div>
+                    <div className="deck-add-menu-title">{text.viewsLabel}</div>
                     <div className="deck-menu-row deck-menu-row--toolbar">
                       {!viewReorderMode ? (
                         <button type="button" className="deck-add-item" onClick={handleStartViewReorder}>
-                          Reorder panes
+                          {text.reorderPanes}
                         </button>
                       ) : (
                         <>
                           <button type="button" className="deck-add-item" onClick={handleApplyViewReorder}>
-                            Apply order
+                            {text.applyOrder}
                           </button>
                           <button type="button" className="deck-add-item deck-add-item--secondary" onClick={handleCancelViewReorder}>
-                            Cancel
+                            {text.cancel}
                           </button>
                         </>
                       )}
@@ -6509,9 +6728,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         </div>
                       );
                     })}
-                    <div className="deck-add-menu-title deck-add-menu-title--secondary">Saved sets</div>
+                    <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.savedSetsLabel}</div>
                     <button type="button" className="deck-add-item" onClick={handleSaveCurrentView}>
-                      Save current set
+                      {text.saveCurrentSet}
                     </button>
                     {savedViews.length > 0 ? (
                       <>
@@ -6519,7 +6738,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           <div key={view.id} className="deck-menu-row">
                             <button type="button" className="deck-add-item deck-add-item--recent" onClick={() => handleLoadSavedView(view.id)}>
                               <span>{view.name}</span>
-                              <small>{view.columns.length} columns</small>
+                              <small>{text.savedColumns(view.columns.length)}</small>
                             </button>
                             <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => removeView(view.id)} aria-label={`Remove ${view.name}`}>
                               <CloseIcon />
@@ -6673,7 +6892,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                             ))}
                           </>
                         ) : null}
-                        <div className="deck-add-menu-title deck-add-menu-title--secondary">Views</div>
+                        <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.viewsLabel}</div>
                         {(columns ?? []).map((column, index) => {
                           const meta = getColumnViewMeta(column);
                           return (
@@ -6692,9 +6911,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                             </div>
                           );
                         })}
-                        <div className="deck-add-menu-title deck-add-menu-title--secondary">Saved sets</div>
+                        <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.savedSetsLabel}</div>
                         <button type="button" className="deck-add-item" onClick={handleSaveCurrentView}>
-                          Save current set
+                          {text.saveCurrentSet}
                         </button>
                         {savedViews.length > 0 ? (
                           <>
@@ -6702,7 +6921,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                               <div key={view.id} className="deck-menu-row">
                                 <button type="button" className="deck-add-item deck-add-item--recent" onClick={() => handleLoadSavedView(view.id)}>
                                   <span>{view.name}</span>
-                                  <small>{view.columns.length} columns</small>
+                                  <small>{text.savedColumns(view.columns.length)}</small>
                                 </button>
                                 <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => removeView(view.id)} aria-label={`Remove ${view.name}`}>
                                   <CloseIcon />
@@ -6713,7 +6932,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         ) : null}
                       </>
                     ) : null}
-                    <div className="deck-add-menu-title deck-add-menu-title--secondary">Menu</div>
+                    <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.menuLabel}</div>
                     <button
                       type="button"
                       className="deck-add-item"
@@ -6724,12 +6943,12 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                     >
                       <SettingsMenuLabel label={text.settingsButton} />
                     </button>
-                    <div className="deck-add-menu-title deck-add-menu-title--secondary">Layout</div>
+                    <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.layoutLabel}</div>
                     <button type="button" className="deck-add-item" onClick={handleExportLayout}>
-                      Export layout
+                      {text.exportLayout}
                     </button>
                     <button type="button" className="deck-add-item" onClick={handleImportLayout}>
-                      Import layout
+                      {text.importLayout}
                     </button>
                   </div>
                 ) : null}
@@ -6774,10 +6993,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                   case "mentions":
                     return (
                       <div key={column.id} ref={setColumnRef} className="deck-column-motion">
-                        <MentionsColumn
-                          column={column}
-                          username={state.username}
-                          mentionsLastReadAt={mentionsLastReadAt}
+        <MentionsColumn
+          column={column}
+          username={state.username}
+          currentUserId={state.userId}
+          mentionsLastReadAt={mentionsLastReadAt}
                           onSetMentionsLastReadAt={setMentionsLastReadAt}
                           currentTeamId={state.currentTeamId}
                           currentChannelId={state.currentChannelId}
@@ -6886,6 +7106,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         <SearchLikeColumn
                           column={column}
                           currentUsername={state.username}
+                          currentUserId={state.userId}
                           teams={state.teams}
                           userDirectory={userDirectory}
                           ensureUsers={ensureUsers}
@@ -6913,6 +7134,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         <SavedPostsColumn
                           column={column}
                           currentUsername={state.username}
+                          currentUserId={state.userId}
                           userDirectory={userDirectory}
                           ensureUsers={ensureUsers}
                           canMoveLeft={index > 0}

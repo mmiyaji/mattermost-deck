@@ -140,6 +140,12 @@ Show only:
 - in-flight count
 - recent reconnect or sync hints
 
+Recent sync hints should stay low-noise:
+
+- summarize long request messages into short labels
+- collapse repeated adjacent items into a count such as `x3`
+- keep the list visually compact enough for routine monitoring
+
 ### Performance Tab
 
 Use the Options `Performance` tab for deeper analysis.
@@ -197,11 +203,14 @@ Dragging or text selection must not trigger navigation.
 
 When Deck opens a post in Mattermost, it should also try to bring the target post into view.
 
+Replies should prefer a reply-safe route such as permalink or thread view so posts that only exist inside a collapsed thread can still be opened reliably.
+
 ### Loading States
 
 - Use a full-deck loading state only during initial boot
 - Use per-column loading states for heavier fetches after layout is already available
 - Do not flash empty-state cards before the first successful fetch resolves
+- After an empty state has resolved once, background refresh should keep the empty state visible instead of replacing it with a transient loading spinner
 
 ### Pane Reordering
 
@@ -214,6 +223,10 @@ When Deck opens a post in Mattermost, it should also try to bring the target pos
 - Detect `http://` and `https://` URLs inside ordinary text, including cases where multibyte text appears immediately before the URL
 - Truncate only the displayed text for long tokens and long URLs
 - Keep the original URL in the link target and tooltip
+- In regular mode, nearby posts from the same author should keep the standard layout but may use slightly tighter vertical spacing
+- In compact mode, use a dense row layout without cards, close to `time author: content`
+- Compact mode author names may use stable per-user colors; the current user should use the active theme accent
+- Replies should remain visually distinguishable from normal posts
 
 ## Search UX
 
