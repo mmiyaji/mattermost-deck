@@ -102,6 +102,7 @@ const API_GET_RATE_LIMIT_PER_MINUTE = 150;
 const API_GET_RATE_LIMIT_BURST = 18;
 const API_POST_RATE_LIMIT_PER_MINUTE = 45;
 const API_POST_RATE_LIMIT_BURST = 10;
+const USER_LOOKUP_CACHE_TTL_MS = 5 * 60 * 1_000;
 
 function describeApiPath(pathname: string, method: "GET" | "POST"): string {
   const normalized = pathname.replace(/\?.*$/, "");
@@ -173,6 +174,8 @@ type ApiRateBucket = {
 
 const inflightGetRequests = new Map<string, Promise<unknown>>();
 const recentGetResponses = new Map<string, { expiresAt: number; value: unknown }>();
+const userLookupCache = new Map<string, { expiresAt: number; user: MattermostUser }>();
+const inflightUserLookups = new Map<string, Promise<MattermostUser[]>>();
 const globalRateBucket: ApiRateBucket = createRateBucket(API_GLOBAL_RATE_LIMIT_BURST, API_GLOBAL_RATE_LIMIT_PER_MINUTE);
 const methodRateBuckets: Record<"GET" | "POST", ApiRateBucket> = {
   GET: createRateBucket(API_GET_RATE_LIMIT_BURST, API_GET_RATE_LIMIT_PER_MINUTE),
@@ -511,7 +514,55 @@ export async function getUsersByIds(userIds: string[]): Promise<MattermostUser[]
     return [];
   }
 
-  return await apiPost<MattermostUser[]>("/users/ids", userIds);
+  const now = Date.now();
+  const orderedUniqueIds = Array.from(new Set(userIds));
+  const cachedUsers: MattermostUser[] = [];
+  const missingIds: string[] = [];
+
+  for (const userId of orderedUniqueIds) {
+    const cached = userLookupCache.get(userId);
+    if (cached && cached.expiresAt > now) {
+      cachedUsers.push(cached.user);
+      continue;
+    }
+    if (cached) {
+      userLookupCache.delete(userId);
+    }
+    missingIds.push(userId);
+  }
+
+  if (missingIds.length === 0) {
+    return orderedUniqueIds.map((userId) => cachedUsers.find((user) => user.id === userId)).filter((user): user is MattermostUser => Boolean(user));
+  }
+
+  const cacheKey = missingIds.join(",");
+  let inflight = inflightUserLookups.get(cacheKey);
+  if (!inflight) {
+    inflight = apiPost<MattermostUser[]>("/users/ids", missingIds);
+    inflightUserLookups.set(cacheKey, inflight);
+  }
+
+  try {
+    const fetchedUsers = await inflight;
+    const expiresAt = Date.now() + USER_LOOKUP_CACHE_TTL_MS;
+    for (const user of fetchedUsers) {
+      userLookupCache.set(user.id, { expiresAt, user });
+    }
+
+    const userDirectory = new Map<string, MattermostUser>();
+    for (const user of cachedUsers) {
+      userDirectory.set(user.id, user);
+    }
+    for (const user of fetchedUsers) {
+      userDirectory.set(user.id, user);
+    }
+
+    return orderedUniqueIds
+      .map((userId) => userDirectory.get(userId))
+      .filter((user): user is MattermostUser => Boolean(user));
+  } finally {
+    inflightUserLookups.delete(cacheKey);
+  }
 }
 
 export async function getTeamsForCurrentUser(): Promise<MattermostTeam[]> {
