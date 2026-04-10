@@ -101,6 +101,8 @@
     "resizeLabel": "Resize deck area",
     "resizeDrag": "Drag to resize deck area",
     "moreActionsLabel": "Open more actions",
+    "focusPane": "Focus pane",
+    "exitFocus": "Exit focus",
     "collapseControls": "Collapse {{name}} controls",
     "expandControls": "Expand {{name}} controls"
   },

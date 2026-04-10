@@ -102,6 +102,8 @@ export function useAppText() {
     resizeLabel: t("deck.resizeLabel"),
     resizeDrag: t("deck.resizeDrag"),
     moreActionsLabel: t("deck.moreActionsLabel"),
+    focusPane: t("deck.focusPane"),
+    exitFocus: t("deck.exitFocus"),
     collapseControls: (name: string) => t("deck.collapseControls", { name }),
     expandControls: (name: string) => t("deck.expandControls", { name }),
   }), [t]);

@@ -73,6 +73,8 @@
     "resizeLabel": "Deck-Bereich anpassen",
     "resizeDrag": "Ziehen um den Deck-Bereich anzupassen",
     "moreActionsLabel": "Weitere Aktionen \u00f6ffnen",
+    "focusPane": "Bereich fokussieren",
+    "exitFocus": "Fokus beenden",
     "collapseControls": "{{name}}-Steuerung einklappen",
     "expandControls": "{{name}}-Steuerung ausklappen"
   },

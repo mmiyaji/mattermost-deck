@@ -576,6 +576,26 @@ function ArrowIcon({ direction }: { direction: "left" | "right" }): React.JSX.El
   );
 }
 
+function FocusIcon({ active }: { active: boolean }): React.JSX.Element {
+  return active ? (
+    <svg className="deck-focus-icon" viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M1.8 4V1.8H4" />
+      <path d="M8 1.8h2.2V4" />
+      <path d="M10.2 8V10.2H8" />
+      <path d="M4 10.2H1.8V8" />
+      <path d="M4.2 4.2L7.8 7.8" />
+      <path d="M7.8 4.2L4.2 7.8" />
+    </svg>
+  ) : (
+    <svg className="deck-focus-icon" viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M4.5 1.8H1.8V4.5" />
+      <path d="M7.5 1.8h2.7V4.5" />
+      <path d="M10.2 7.5v2.7H7.5" />
+      <path d="M4.5 10.2H1.8V7.5" />
+    </svg>
+  );
+}
+
 function DrawerToggleIcon({ open }: { open: boolean }): React.JSX.Element {
   return (
     <svg className={`deck-drawer-icon${open ? " deck-drawer-icon--open" : ""}`} viewBox="0 0 12 12" aria-hidden="true">
@@ -3265,6 +3285,8 @@ function MentionsColumn({
   language,
   reversedPostOrder,
   highlightKeywords,
+  isFocusedPane,
+  onToggleFocus,
 }: {
   column: DeckColumn;
   username: string | null;
@@ -3294,6 +3316,8 @@ function MentionsColumn({
   language: DeckLanguage;
   reversedPostOrder: boolean;
   highlightKeywords: string;
+  isFocusedPane: boolean;
+  onToggleFocus: (id: string) => void;
 }): React.JSX.Element {
   const teamIds = useMemo(() => (column.teamId ? [column.teamId] : teams.map((team) => team.id)), [column.teamId, teams]);
   const text = useAppText();
@@ -3357,6 +3381,12 @@ function MentionsColumn({
   useEffect(() => {
     setHasCompletedInitialLoad(false);
   }, [column.teamId, username]);
+
+  useEffect(() => {
+    if (isFocusedPane) {
+      setShowControls(false);
+    }
+  }, [isFocusedPane]);
 
   const finishRefresh = useCallback(() => {
     if (refreshStartedAtRef.current === null) {
@@ -3735,7 +3765,11 @@ function MentionsColumn({
   }, [column.id, column.teamId, mentionCount, postState.posts, postState.status]);
 
   return (
-    <section ref={setSectionNode} className="deck-column deck-column--mentions" style={getColumnAccentStyle(column.type, columnColors)}>
+    <section
+      ref={setSectionNode}
+      className={`deck-column deck-column--mentions${isFocusedPane ? " deck-column--pane-focused" : ""}`}
+      style={getColumnAccentStyle(column.type, columnColors)}
+    >
       <header className="deck-column-header">
         <div className="deck-column-heading">
           <h2 title="Mentions">
@@ -3752,6 +3786,17 @@ function MentionsColumn({
           <div className="deck-badge" title={text.mentionBadge(mentionCount, Boolean(column.teamId))}>
             {mentionCount}
           </div>
+          {isFocusedPane ? (
+            <button
+              type="button"
+              className="deck-icon-button deck-icon-button--ghost deck-icon-button--active"
+              title={text.exitFocus}
+              aria-label={text.exitFocus}
+              onClick={() => onToggleFocus(column.id)}
+            >
+              <FocusIcon active />
+            </button>
+          ) : null}
           <button
             type="button"
             className="deck-icon-button deck-icon-button--ghost"
@@ -3793,6 +3838,15 @@ function MentionsColumn({
               aria-label={paused ? "Resume polling" : "Pause polling"}
             >
               {paused ? <PlayIcon /> : <PauseIcon />}
+            </button>
+            <button
+              type="button"
+              className={`deck-icon-button deck-icon-button--ghost${isFocusedPane ? " deck-icon-button--active" : ""}`}
+              title={isFocusedPane ? text.exitFocus : text.focusPane}
+              aria-label={isFocusedPane ? text.exitFocus : text.focusPane}
+              onClick={() => onToggleFocus(column.id)}
+            >
+              <FocusIcon active={isFocusedPane} />
             </button>
             <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Remove column" onClick={() => onRemove(column.id)}>
               <CloseIcon />
@@ -3968,6 +4022,8 @@ function ChannelWatchColumn({
   language,
   reversedPostOrder,
   highlightKeywords,
+  isFocusedPane,
+  onToggleFocus,
 }: {
   column: DeckColumn;
   mode: "channel" | "dm";
@@ -3999,6 +4055,8 @@ function ChannelWatchColumn({
   language: DeckLanguage;
   reversedPostOrder: boolean;
   highlightKeywords: string;
+  isFocusedPane: boolean;
+  onToggleFocus: (id: string) => void;
 }): React.JSX.Element {
   const text = useAppText();
   const [channelState, setChannelState] = useState<ChannelState>({ status: "idle", channels: [], error: null });
@@ -4034,6 +4092,12 @@ function ChannelWatchColumn({
   useEffect(() => {
     setHasCompletedInitialLoad(false);
   }, [mode, column.teamId, column.channelId]);
+
+  useEffect(() => {
+    if (isFocusedPane) {
+      setShowControls(false);
+    }
+  }, [isFocusedPane]);
 
   const finishRefresh = useCallback(() => {
     if (refreshStartedAtRef.current === null) {
@@ -4371,7 +4435,11 @@ function ChannelWatchColumn({
   }, [channelOptions, channelState.status, column.channelId, column.id, column.teamId, mode, showControls]);
 
   return (
-    <section ref={setSectionNode} className={`deck-column deck-column--${mode === "dm" ? "dm" : "channel"}`} style={getColumnAccentStyle(column.type, columnColors)}>
+    <section
+      ref={setSectionNode}
+      className={`deck-column deck-column--${mode === "dm" ? "dm" : "channel"}${isFocusedPane ? " deck-column--pane-focused" : ""}`}
+      style={getColumnAccentStyle(column.type, columnColors)}
+    >
       <header className="deck-column-header">
         <div className="deck-column-heading">
           <h2 title={selectedChannelLabel ?? (mode === "dm" ? "DM / Group" : "Channel Watch")}>
@@ -4401,6 +4469,17 @@ function ChannelWatchColumn({
           </p>
         </div>
         <div className="deck-column-actions">
+          {isFocusedPane ? (
+            <button
+              type="button"
+              className="deck-icon-button deck-icon-button--ghost deck-icon-button--active"
+              title={text.exitFocus}
+              aria-label={text.exitFocus}
+              onClick={() => onToggleFocus(column.id)}
+            >
+              <FocusIcon active />
+            </button>
+          ) : null}
           <button
             type="button"
             className="deck-icon-button deck-icon-button--ghost"
@@ -4438,6 +4517,15 @@ function ChannelWatchColumn({
               aria-label={paused ? "Resume polling" : "Pause polling"}
             >
               {paused ? <PlayIcon /> : <PauseIcon />}
+            </button>
+            <button
+              type="button"
+              className={`deck-icon-button deck-icon-button--ghost${isFocusedPane ? " deck-icon-button--active" : ""}`}
+              title={isFocusedPane ? text.exitFocus : text.focusPane}
+              aria-label={isFocusedPane ? text.exitFocus : text.focusPane}
+              onClick={() => onToggleFocus(column.id)}
+            >
+              <FocusIcon active={isFocusedPane} />
             </button>
             <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Remove column" onClick={() => onRemove(column.id)}>
               <CloseIcon />
@@ -4644,6 +4732,8 @@ function SearchLikeColumn({
   language,
   reversedPostOrder,
   highlightKeywords,
+  isFocusedPane,
+  onToggleFocus,
 }: {
   column: DeckColumn;
   currentUsername: string | null;
@@ -4666,6 +4756,8 @@ function SearchLikeColumn({
   language: DeckLanguage;
   reversedPostOrder: boolean;
   highlightKeywords: string;
+  isFocusedPane: boolean;
+  onToggleFocus: (id: string) => void;
 }): React.JSX.Element {
   const text = useAppText();
   const [searchChannelDirectory, setSearchChannelDirectory] = useState<Record<string, MattermostChannel>>({});
@@ -4725,6 +4817,12 @@ function SearchLikeColumn({
     setHasCompletedInitialLoad(false);
   }, [column.teamId, query]);
 
+  useEffect(() => {
+    if (isFocusedPane) {
+      setShowControls(false);
+    }
+  }, [isFocusedPane]);
+
   const finishRefresh = useCallback(() => {
     if (refreshStartedAtRef.current === null) {
       setIsRefreshing(false);
@@ -4749,6 +4847,12 @@ function SearchLikeColumn({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (isFocusedPane) {
+      setShowControls(false);
+    }
+  }, [isFocusedPane]);
 
   useEffect(() => {
     setShowControls(!(column.teamId && column.query?.trim()));
@@ -4907,7 +5011,11 @@ function SearchLikeColumn({
   };
 
   return (
-    <section ref={setSectionNode} className="deck-column deck-column--search" style={getColumnAccentStyle(column.type, columnColors)}>
+    <section
+      ref={setSectionNode}
+      className={`deck-column deck-column--search${isFocusedPane ? " deck-column--pane-focused" : ""}`}
+      style={getColumnAccentStyle(column.type, columnColors)}
+    >
       <header className="deck-column-header">
         <div className="deck-column-heading">
           <h2 title={title}>
@@ -4921,6 +5029,17 @@ function SearchLikeColumn({
           </p>
         </div>
         <div className="deck-column-actions">
+          {isFocusedPane ? (
+            <button
+              type="button"
+              className="deck-icon-button deck-icon-button--ghost deck-icon-button--active"
+              title={text.exitFocus}
+              aria-label={text.exitFocus}
+              onClick={() => onToggleFocus(column.id)}
+            >
+              <FocusIcon active />
+            </button>
+          ) : null}
           <button
             type="button"
             className="deck-icon-button deck-icon-button--ghost"
@@ -4962,6 +5081,15 @@ function SearchLikeColumn({
               aria-label={paused ? "Resume polling" : "Pause polling"}
             >
               {paused ? <PlayIcon /> : <PauseIcon />}
+            </button>
+            <button
+              type="button"
+              className={`deck-icon-button deck-icon-button--ghost${isFocusedPane ? " deck-icon-button--active" : ""}`}
+              title={isFocusedPane ? text.exitFocus : text.focusPane}
+              aria-label={isFocusedPane ? text.exitFocus : text.focusPane}
+              onClick={() => onToggleFocus(column.id)}
+            >
+              <FocusIcon active={isFocusedPane} />
             </button>
             <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Remove column" onClick={() => onRemove(column.id)}>
               <CloseIcon />
@@ -5116,6 +5244,8 @@ function SavedPostsColumn({
   language,
   reversedPostOrder,
   highlightKeywords,
+  isFocusedPane,
+  onToggleFocus,
 }: {
   column: DeckColumn;
   currentUsername: string | null;
@@ -5136,7 +5266,10 @@ function SavedPostsColumn({
   language: DeckLanguage;
   reversedPostOrder: boolean;
   highlightKeywords: string;
+  isFocusedPane: boolean;
+  onToggleFocus: (id: string) => void;
 }): React.JSX.Element {
+  const text = useAppText();
   const [savedChannelDirectory, setSavedChannelDirectory] = useState<Record<string, MattermostChannel>>({});
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
@@ -5309,13 +5442,28 @@ function SavedPostsColumn({
   };
 
   return (
-    <section ref={setSectionNode} className="deck-column deck-column--saved" style={getColumnAccentStyle(column.type, columnColors)}>
+    <section
+      ref={setSectionNode}
+      className={`deck-column deck-column--saved${isFocusedPane ? " deck-column--pane-focused" : ""}`}
+      style={getColumnAccentStyle(column.type, columnColors)}
+    >
       <header className="deck-column-header">
         <div className="deck-column-heading">
           <h2><span className="deck-title-with-icon"><ColumnTypeBadge type="saved" /><span>Saved</span></span></h2>
           <p>Flagged posts</p>
         </div>
         <div className="deck-column-actions">
+          {isFocusedPane ? (
+            <button
+              type="button"
+              className="deck-icon-button deck-icon-button--ghost deck-icon-button--active"
+              title={text.exitFocus}
+              aria-label={text.exitFocus}
+              onClick={() => onToggleFocus(column.id)}
+            >
+              <FocusIcon active />
+            </button>
+          ) : null}
           <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => setShowControls((current) => !current)}>
             <ChevronIcon expanded={showControls} />
           </button>
@@ -5351,6 +5499,15 @@ function SavedPostsColumn({
               aria-label={paused ? "Resume polling" : "Pause polling"}
             >
               {paused ? <PlayIcon /> : <PauseIcon />}
+            </button>
+            <button
+              type="button"
+              className={`deck-icon-button deck-icon-button--ghost${isFocusedPane ? " deck-icon-button--active" : ""}`}
+              title={isFocusedPane ? text.exitFocus : text.focusPane}
+              aria-label={isFocusedPane ? text.exitFocus : text.focusPane}
+              onClick={() => onToggleFocus(column.id)}
+            >
+              <FocusIcon active={isFocusedPane} />
             </button>
             <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Remove column" onClick={() => onRemove(column.id)}>
               <CloseIcon />
@@ -5410,6 +5567,8 @@ function DiagnosticsColumn({
   onOpenSettings,
   columnColors,
   language = "ja",
+  isFocusedPane,
+  onToggleFocus,
 }: {
   column: DeckColumn;
   wsStatus: WebSocketStatus;
@@ -5424,6 +5583,8 @@ function DiagnosticsColumn({
   onOpenSettings: () => void;
   columnColors: ColumnColorSettings;
   language?: DeckLanguage;
+  isFocusedPane: boolean;
+  onToggleFocus: (id: string) => void;
 }): React.JSX.Element {
   const text = useAppText();
   const [showControls, setShowControls] = useState(false);
@@ -5453,14 +5614,31 @@ function DiagnosticsColumn({
     }
   })();
 
+  useEffect(() => {
+    if (isFocusedPane) {
+      setShowControls(false);
+    }
+  }, [isFocusedPane]);
+
   return (
-    <section className="deck-column deck-column--diagnostics" style={getColumnAccentStyle(column.type, columnColors)}>
+    <section className={`deck-column deck-column--diagnostics${isFocusedPane ? " deck-column--pane-focused" : ""}`} style={getColumnAccentStyle(column.type, columnColors)}>
       <header className="deck-column-header">
         <div className="deck-column-heading">
           <h2><span className="deck-title-with-icon"><ColumnTypeBadge type="diagnostics" /><span>{text.diagnosticsTitle}</span></span></h2>
           <p>{text.diagnosticsDesc}</p>
         </div>
         <div className="deck-column-actions">
+          {isFocusedPane ? (
+            <button
+              type="button"
+              className="deck-icon-button deck-icon-button--ghost deck-icon-button--active"
+              title={text.exitFocus}
+              aria-label={text.exitFocus}
+              onClick={() => onToggleFocus(column.id)}
+            >
+              <FocusIcon active />
+            </button>
+          ) : null}
           <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => setShowControls((current) => !current)}>
             <ChevronIcon expanded={showControls} />
           </button>
@@ -5474,6 +5652,15 @@ function DiagnosticsColumn({
             </button>
             <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move right" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
+            </button>
+            <button
+              type="button"
+              className={`deck-icon-button deck-icon-button--ghost${isFocusedPane ? " deck-icon-button--active" : ""}`}
+              title={isFocusedPane ? text.exitFocus : text.focusPane}
+              aria-label={isFocusedPane ? text.exitFocus : text.focusPane}
+              onClick={() => onToggleFocus(column.id)}
+            >
+              <FocusIcon active={isFocusedPane} />
             </button>
             <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Remove column" onClick={() => onRemove(column.id)}>
               <CloseIcon />
@@ -5588,6 +5775,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const [viewReorderDraft, setViewReorderDraft] = useState<DeckColumn[] | null>(null);
   const [railAddMenuPosition, setRailAddMenuPosition] = useState<{ top: number; right: number } | null>(null);
   const [isCompactHeader, setIsCompactHeader] = useState(false);
+  const [focusedColumnId, setFocusedColumnId] = useState<string | null>(null);
   const [pendingScrollColumnId, setPendingScrollColumnId] = useState<string | null>(null);
   const shellRef = useRef<HTMLElement | null>(null);
   const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -5745,6 +5933,16 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       document.body.classList.remove("mattermost-deck-resizing");
     };
   }, [isResizing]);
+
+  useEffect(() => {
+    if (!focusedColumnId) {
+      return;
+    }
+    if ((columns ?? []).some((column) => column.id === focusedColumnId)) {
+      return;
+    }
+    setFocusedColumnId(null);
+  }, [columns, focusedColumnId]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -6775,10 +6973,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
           <div className="deck-scroll-wrap">
             <main
-              className="deck-columns"
+              className={`deck-columns${focusedColumnId ? " deck-columns--focus" : ""}`}
               style={{
-                minWidth:
-                  (columns?.length ?? 1) * (normalisePreferredColumnWidth(deckSettings.preferredColumnWidth) + 20) + 32,
+                minWidth: focusedColumnId
+                  ? "100%"
+                  : (columns?.length ?? 1) * (normalisePreferredColumnWidth(deckSettings.preferredColumnWidth) + 20) + 32,
               }}
             >
               {isInitialLoading ? (
@@ -6806,10 +7005,13 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                 const setColumnRef = (element: HTMLDivElement | null) => {
                   columnRefs.current[column.id] = element;
                 };
+                const isFocusedPane = focusedColumnId === column.id;
+                const isHiddenByFocus = Boolean(focusedColumnId) && !isFocusedPane;
+                const motionClassName = `deck-column-motion${isFocusedPane ? " deck-column-motion--focused" : ""}${isHiddenByFocus ? " deck-column-motion--hidden" : ""}`;
                 switch (column.type) {
                   case "mentions":
                     return (
-                      <div key={column.id} ref={setColumnRef} className="deck-column-motion">
+                      <div key={column.id} ref={setColumnRef} className={motionClassName}>
         <MentionsColumn
           column={column}
           username={state.username}
@@ -6839,12 +7041,14 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           language={deckSettings.language}
                           reversedPostOrder={deckSettings.reversedPostOrder}
                           highlightKeywords={deckSettings.highlightKeywords}
+                          isFocusedPane={isFocusedPane}
+                          onToggleFocus={(id) => setFocusedColumnId((current) => (current === id ? null : id))}
                         />
                       </div>
                     );
                   case "channelWatch":
                     return (
-                      <div key={column.id} ref={setColumnRef} className="deck-column-motion">
+                      <div key={column.id} ref={setColumnRef} className={motionClassName}>
                         <ChannelWatchColumn
                           column={column}
                           mode="channel"
@@ -6876,12 +7080,14 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           language={deckSettings.language}
                           reversedPostOrder={deckSettings.reversedPostOrder}
                           highlightKeywords={deckSettings.highlightKeywords}
+                          isFocusedPane={isFocusedPane}
+                          onToggleFocus={(id) => setFocusedColumnId((current) => (current === id ? null : id))}
                         />
                       </div>
                     );
                   case "dmWatch":
                     return (
-                      <div key={column.id} ref={setColumnRef} className="deck-column-motion">
+                      <div key={column.id} ref={setColumnRef} className={motionClassName}>
                         <ChannelWatchColumn
                           column={column}
                           mode="dm"
@@ -6913,13 +7119,15 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           language={deckSettings.language}
                           reversedPostOrder={deckSettings.reversedPostOrder}
                           highlightKeywords={deckSettings.highlightKeywords}
+                          isFocusedPane={isFocusedPane}
+                          onToggleFocus={(id) => setFocusedColumnId((current) => (current === id ? null : id))}
                         />
                       </div>
                     );
                   case "search":
                   case "keywordWatch":
                     return (
-                      <div key={column.id} ref={setColumnRef} className="deck-column-motion">
+                      <div key={column.id} ref={setColumnRef} className={motionClassName}>
                         <SearchLikeColumn
                           column={column}
                           currentUsername={state.username}
@@ -6942,12 +7150,14 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           language={deckSettings.language}
                           reversedPostOrder={deckSettings.reversedPostOrder}
                           highlightKeywords={deckSettings.highlightKeywords}
+                          isFocusedPane={isFocusedPane}
+                          onToggleFocus={(id) => setFocusedColumnId((current) => (current === id ? null : id))}
                         />
                       </div>
                     );
                   case "saved":
                     return (
-                      <div key={column.id} ref={setColumnRef} className="deck-column-motion">
+                      <div key={column.id} ref={setColumnRef} className={motionClassName}>
                         <SavedPostsColumn
                           column={column}
                           currentUsername={state.username}
@@ -6968,12 +7178,14 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           language={deckSettings.language}
                           reversedPostOrder={deckSettings.reversedPostOrder}
                           highlightKeywords={deckSettings.highlightKeywords}
+                          isFocusedPane={isFocusedPane}
+                          onToggleFocus={(id) => setFocusedColumnId((current) => (current === id ? null : id))}
                         />
                       </div>
                     );
                   case "diagnostics":
                     return (
-                      <div key={column.id} ref={setColumnRef} className="deck-column-motion">
+                      <div key={column.id} ref={setColumnRef} className={motionClassName}>
                         <DiagnosticsColumn
                           column={column}
                           wsStatus={wsStatus}
@@ -6988,6 +7200,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           onOpenSettings={handleOpenSettings}
                           columnColors={deckSettings.columnColors}
                           language={deckSettings.language}
+                          isFocusedPane={isFocusedPane}
+                          onToggleFocus={(id) => setFocusedColumnId((current) => (current === id ? null : id))}
                         />
                       </div>
                   );
