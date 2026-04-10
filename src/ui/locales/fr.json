@@ -98,7 +98,7 @@
     "columnWidthLabel": "Largeur de colonne (px)",
     "columnWidthHint": "Configurable de {{min}}px \u00e0 {{max}}px.",
     "compactModeLabel": "Mode compact",
-    "compactModeHint": "Utiliser des cartes plus denses et un espacement plus serr\u00e9 dans le deck.",
+    "compactModeHint": "Utiliser des cartes plus denses et un espacement plus serr\u00e9 dans le deck. En mode normal, les messages proches d'une m\u00eame personne sont affich\u00e9s avec moins d'espace et sans en-t\u00eate r\u00e9p\u00e9t\u00e9 ; le mode compact conserve l'affichage standard de chaque message s\u00e9par\u00e9ment.",
     "showImagePreviewsLabel": "Afficher les aper\u00e7us d'images",
     "showImagePreviewsHint": "Afficher les pi\u00e8ces jointes d'images en miniatures. D\u00e9sactiv\u00e9, les images apparaissent comme des cartes de fichiers.",
     "themeSystem": "Syst\u00e8me",

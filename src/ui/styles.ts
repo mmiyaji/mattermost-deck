@@ -1623,6 +1623,44 @@ export const railCssText = `
     line-height: 1.35;
   }
 
+  .deck-card--reply {
+    position: relative;
+    padding-left: 18px;
+  }
+
+  .deck-card--reply::after {
+    content: "";
+    position: absolute;
+    left: 8px;
+    top: 10px;
+    bottom: 10px;
+    width: 2px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--deck-accent) 42%, var(--deck-border) 58%);
+    opacity: 0.9;
+  }
+
+  .deck-card--post-compact.deck-card--reply {
+    padding-left: 16px;
+  }
+
+  .deck-card--post-compact.deck-card--reply::after {
+    left: 7px;
+  }
+
+  .deck-card--post-grouped {
+    margin-top: -4px;
+    padding-top: 10px;
+  }
+
+  .deck-card--post-grouped .deck-card-meta {
+    margin-top: 0;
+  }
+
+  .deck-card--post-grouped p {
+    margin-top: 4px;
+  }
+
   .deck-inline-link,
   .deck-inline-ellipsis {
     display: inline-block;

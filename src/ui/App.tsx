@@ -69,6 +69,7 @@ import {
   type PostClickAction,
 } from "./settings";
 import { extractHighlightKeywords, tokenizePostText } from "./postText";
+import { shouldGroupAdjacentPosts } from "./postGrouping";
 import { focusMattermostPost } from "./mattermostNavigation";
 import { dedupeRecentTargets, type RecentChannelTarget } from "./recentTargets";
 import { mapInBatches } from "./asyncBatch";
@@ -1127,6 +1128,34 @@ function useAppText() {
     searchTerms: t("deck.searchTerms"),
     applySearch: t("deck.applySearch"),
     noRecentEvents: t("deck.noRecentEvents"),
+    diagnosticsTitle: t("deck.diagnosticsTitle"),
+    diagnosticsDesc: t("deck.diagnosticsDesc"),
+    diagnosticsStatus: t("deck.diagnosticsStatus"),
+    diagnosticsApiTps: t("deck.diagnosticsApiTps"),
+    diagnosticsAvgLatency: t("deck.diagnosticsAvgLatency"),
+    diagnosticsErrorRate: t("deck.diagnosticsErrorRate"),
+    diagnosticsRecentSuffix: t("deck.diagnosticsRecentSuffix"),
+    diagnosticsInFlight: t("deck.diagnosticsInFlight"),
+    diagnosticsFailedSuffix: t("deck.diagnosticsFailedSuffix"),
+    diagnosticsWsReconnects: t("deck.diagnosticsWsReconnects"),
+    diagnosticsRender: t("deck.diagnosticsRender"),
+    diagnosticsAverageShort: t("deck.diagnosticsAverageShort"),
+    diagnosticsLastShort: t("deck.diagnosticsLastShort"),
+    diagnosticsNotAvailable: t("deck.diagnosticsNotAvailable"),
+    diagnosticsRecentSyncLog: t("deck.diagnosticsRecentSyncLog"),
+    diagnosticsPerformanceHint: t("deck.diagnosticsPerformanceHint"),
+    diagnosticsStatusHealthy: t("deck.diagnosticsStatusHealthy"),
+    diagnosticsStatusDegraded: t("deck.diagnosticsStatusDegraded"),
+    diagnosticsStatusError: t("deck.diagnosticsStatusError"),
+    diagnosticsWsIdle: t("deck.diagnosticsWsIdle"),
+    diagnosticsWsConnecting: t("deck.diagnosticsWsConnecting"),
+    diagnosticsWsConnected: t("deck.diagnosticsWsConnected"),
+    diagnosticsWsReconnecting: t("deck.diagnosticsWsReconnecting"),
+    diagnosticsWsOffline: t("deck.diagnosticsWsOffline"),
+    diagnosticsWsError: t("deck.diagnosticsWsError"),
+    diagnosticsWsAuthFailed: t("deck.diagnosticsWsAuthFailed"),
+    diagnosticsPolling: t("deck.diagnosticsPolling"),
+    recommendedDiagnostics: t("deck.recommendedDiagnostics"),
     resizeLabel: t("deck.resizeLabel"),
     resizeDrag: t("deck.resizeDrag"),
     moreActionsLabel: t("deck.moreActionsLabel"),
@@ -3105,7 +3134,7 @@ function PostList({
     }
   }, [lastViewedAt]);
 
-  const renderEntry = (entry: PostListEntry): React.ReactNode => {
+  const renderEntry = (entry: PostListEntry, entryIndex: number): React.ReactNode => {
     if (entry.type === "separator") {
       return (
         <li key={entry.key} className="deck-list-separator" aria-hidden="true">
@@ -3144,10 +3173,13 @@ function PostList({
     }
 
     const { post } = entry;
+    const previousEntry = displayEntries[entryIndex - 1];
+    const groupedWithPrevious = !compactMode && previousEntry?.type === "post" && shouldGroupAdjacentPosts(previousEntry.post, post);
+    const isReplyPost = Boolean(post.root_id?.trim());
     return (
       <li
         key={entry.key}
-        className={`deck-card deck-card--post${compactMode ? " deck-card--post-compact" : ""}${onOpenPost && postClickAction !== "none" ? " deck-card--clickable" : ""}`}
+        className={`deck-card deck-card--post${compactMode ? " deck-card--post-compact" : ""}${groupedWithPrevious ? " deck-card--post-grouped" : ""}${isReplyPost ? " deck-card--reply" : ""}${onOpenPost && postClickAction !== "none" ? " deck-card--clickable" : ""}`}
         onPointerDown={
           onOpenPost && postClickAction !== "none"
             ? (event) => {
@@ -3192,22 +3224,24 @@ function PostList({
             : undefined
         }
       >
-        <div className="deck-card-header">
-          <strong>{formatPostTime(post.create_at)}</strong>
-          <span className="deck-card-author">
-            {!compactMode ? (
-              <img
-                className="deck-card-avatar"
-                src={getUserAvatarUrl(post.user_id)}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                referrerPolicy="no-referrer"
-              />
-            ) : null}
-            <span className="deck-card-author-label">{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
-          </span>
-        </div>
+        {!groupedWithPrevious ? (
+          <div className="deck-card-header">
+            <strong>{formatPostTime(post.create_at)}</strong>
+            <span className="deck-card-author">
+              {!compactMode ? (
+                <img
+                  className="deck-card-avatar"
+                  src={getUserAvatarUrl(post.user_id)}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  referrerPolicy="no-referrer"
+                />
+              ) : null}
+              <span className="deck-card-author-label">{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
+            </span>
+          </div>
+        ) : null}
         {renderMeta ? <div className="deck-card-meta">{renderMeta(post)}</div> : null}
         {(() => {
           const hasFiles = (post.file_ids?.length ?? 0) > 0;
@@ -3279,7 +3313,7 @@ function PostList({
           {reversedPostOrder && footerNode}
           <div className="deck-list-spacer" style={{ height: `${Math.max(spacerHeight, viewportHeight)}px` }}>
             <ul className="deck-list deck-list--virtual" style={{ transform: `translateY(${offsetY}px)` }}>
-              {visibleEntries.map((entry) => renderEntry(entry))}
+              {visibleEntries.map((entry, index) => renderEntry(entry, startIndex + index))}
             </ul>
           </div>
           {!reversedPostOrder && footerNode}
@@ -3305,7 +3339,7 @@ function PostList({
           onPointerDown={markInteraction}
         >
           {reversedPostOrder && footerNode}
-          <ul className="deck-list">{displayEntries.map((entry) => renderEntry(entry))}</ul>
+          <ul className="deck-list">{displayEntries.map((entry, index) => renderEntry(entry, index))}</ul>
           {!reversedPostOrder && footerNode}
         </div>
       )}
@@ -4574,7 +4608,7 @@ function ChannelWatchColumn({
               </button>
             ) : null}
             <button type="button" className="deck-add-item deck-add-item--secondary" onClick={() => onAddColumn("diagnostics")}>
-              <span>Recommended: Diagnostics</span>
+              <span>{text.recommendedDiagnostics}</span>
               <small>Track sync, reconnects, and render cost.</small>
             </button>
           </div>
@@ -5420,13 +5454,37 @@ function DiagnosticsColumn({
 }): React.JSX.Element {
   const text = useAppText();
   const [showControls, setShowControls] = useState(false);
+  const healthLabel =
+    apiHealthStatus === "healthy"
+      ? text.diagnosticsStatusHealthy
+      : apiHealthStatus === "degraded"
+        ? text.diagnosticsStatusDegraded
+        : text.diagnosticsStatusError;
+  const wsStatusLabel = (() => {
+    switch (wsStatus) {
+      case "idle":
+        return text.diagnosticsWsIdle;
+      case "connecting":
+        return text.diagnosticsWsConnecting;
+      case "connected":
+        return text.diagnosticsWsConnected;
+      case "reconnecting":
+        return text.diagnosticsWsReconnecting;
+      case "offline":
+        return text.diagnosticsWsOffline;
+      case "auth_failed":
+        return text.diagnosticsWsAuthFailed;
+      default:
+        return text.diagnosticsWsError;
+    }
+  })();
 
   return (
     <section className="deck-column deck-column--diagnostics" style={getColumnAccentStyle(column.type, columnColors)}>
       <header className="deck-column-header">
         <div className="deck-column-heading">
-          <h2><span className="deck-title-with-icon"><ColumnTypeBadge type="diagnostics" /><span>Diagnostics</span></span></h2>
-          <p>Operational health at a glance</p>
+          <h2><span className="deck-title-with-icon"><ColumnTypeBadge type="diagnostics" /><span>{text.diagnosticsTitle}</span></span></h2>
+          <p>{text.diagnosticsDesc}</p>
         </div>
         <div className="deck-column-actions">
           <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => setShowControls((current) => !current)}>
@@ -5455,41 +5513,41 @@ function DiagnosticsColumn({
       <div className="deck-stack">
         <div className="deck-metric-grid">
           <article className="deck-card deck-card--metric">
-            <strong>Status</strong>
-            <p>{apiHealthStatus}</p>
-            <span>{realtimeEnabled ? wsStatus : "polling"}</span>
+            <strong>{text.diagnosticsStatus}</strong>
+            <p>{healthLabel}</p>
+            <span>{realtimeEnabled ? wsStatusLabel : text.diagnosticsPolling}</span>
           </article>
           <article className="deck-card deck-card--metric">
-            <strong>API TPS</strong>
+            <strong>{text.diagnosticsApiTps}</strong>
             <p>{runtimeMetrics.api.recentTps.toFixed(1)}</p>
           </article>
           <article className="deck-card deck-card--metric">
-            <strong>Avg latency</strong>
+            <strong>{text.diagnosticsAvgLatency}</strong>
             <p>{formatLatency(runtimeMetrics.api.averageLatencyMs)}</p>
           </article>
           <article className="deck-card deck-card--metric">
-            <strong>Error rate</strong>
+            <strong>{text.diagnosticsErrorRate}</strong>
             <p>{formatRate(runtimeMetrics.api.recentErrorRate)}</p>
-            <span>{runtimeMetrics.api.recentFailedRequestsPerMinute} / {runtimeMetrics.api.recentRequestsPerMinute} recent</span>
+            <span>{runtimeMetrics.api.recentFailedRequestsPerMinute} / {runtimeMetrics.api.recentRequestsPerMinute} {text.diagnosticsRecentSuffix}</span>
           </article>
           <article className="deck-card deck-card--metric">
-            <strong>In flight</strong>
+            <strong>{text.diagnosticsInFlight}</strong>
             <p>{runtimeMetrics.api.inFlightRequests}</p>
-            <span>{runtimeMetrics.api.totalGetRequests} GET / {runtimeMetrics.api.totalPostRequests} POST / {runtimeMetrics.api.totalFailedRequests} failed</span>
+            <span>{runtimeMetrics.api.totalGetRequests} GET / {runtimeMetrics.api.totalPostRequests} POST / {runtimeMetrics.api.totalFailedRequests} {text.diagnosticsFailedSuffix}</span>
           </article>
           <article className="deck-card deck-card--metric">
-            <strong>WS reconnects</strong>
+            <strong>{text.diagnosticsWsReconnects}</strong>
             <p>{runtimeMetrics.diagnostics.websocket.reconnectCount.toLocaleString()}</p>
-            <span>{runtimeMetrics.diagnostics.websocket.lastReconnectAt ? formatPostTime(runtimeMetrics.diagnostics.websocket.lastReconnectAt) : "n/a"}</span>
+            <span>{runtimeMetrics.diagnostics.websocket.lastReconnectAt ? formatPostTime(runtimeMetrics.diagnostics.websocket.lastReconnectAt) : text.diagnosticsNotAvailable}</span>
           </article>
           <article className="deck-card deck-card--metric">
-            <strong>Render</strong>
+            <strong>{text.diagnosticsRender}</strong>
             <p>{formatLatency(runtimeMetrics.diagnostics.render.p95CommitMs)}</p>
-            <span>avg {formatLatency(runtimeMetrics.diagnostics.render.averageCommitMs)} / last {formatLatency(runtimeMetrics.diagnostics.render.lastCommitMs)}</span>
+            <span>{text.diagnosticsAverageShort} {formatLatency(runtimeMetrics.diagnostics.render.averageCommitMs)} / {text.diagnosticsLastShort} {formatLatency(runtimeMetrics.diagnostics.render.lastCommitMs)}</span>
           </article>
         </div>
         <article className="deck-card">
-          <strong>Recent sync log</strong>
+          <strong>{text.diagnosticsRecentSyncLog}</strong>
           <ul className="deck-log-list">
             {syncLogs.length > 0 ? syncLogs.slice(0, 8).map((entry) => (
               <li key={`${entry.timestamp}-${entry.message}`} className={`deck-log-entry deck-log-entry--${entry.level}`}>
@@ -5503,7 +5561,7 @@ function DiagnosticsColumn({
               </li>
             )}
           </ul>
-          <p className="deck-card-caption">Detailed traces and endpoint analysis are available in Settings &gt; Performance.</p>
+          <p className="deck-card-caption">{text.diagnosticsPerformanceHint}</p>
         </article>
       </div>
     </section>
@@ -6412,6 +6470,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                 >
                   <span className="deck-status-badge-copy">
                     <HealthStatusIcon status={apiHealthStatus} />
+                    {!isCompactHeader ? <span>{healthStatusLabel}</span> : null}
                     <StatusModeIcon realtimeEnabled={realtimeEnabled} />
                   </span>
                 </div>
@@ -6425,6 +6484,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                 >
                   <span className="deck-status-badge-copy">
                     <HealthStatusIcon status={apiHealthStatus} />
+                    {!isCompactHeader ? <span>{healthStatusLabel}</span> : null}
                     <StatusModeIcon realtimeEnabled={realtimeEnabled} />
                   </span>
                 </button>

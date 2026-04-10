@@ -98,7 +98,7 @@
     "columnWidthLabel": "Spaltenbreite (px)",
     "columnWidthHint": "Einstellbar von {{min}}px bis {{max}}px.",
     "compactModeLabel": "Kompaktmodus",
-    "compactModeHint": "Kompaktere Karten und engere Abst\u00e4nde im Deck verwenden.",
+    "compactModeHint": "Kompaktere Karten und engere Abst\u00e4nde im Deck verwenden. Im normalen Modus werden nahe Beitr\u00e4ge derselben Person ohne wiederholten Kopfbereich mit etwas geringerem Abstand angezeigt; im Kompaktmodus bleibt jeder Beitrag in der normalen Einzelansicht.",
     "showImagePreviewsLabel": "Bildvorschauen anzeigen",
     "showImagePreviewsHint": "Bildanh\u00e4nge als Vorschaubilder anzeigen. Wenn deaktiviert, werden Bilder als Dateikarten angezeigt.",
     "themeSystem": "System",
