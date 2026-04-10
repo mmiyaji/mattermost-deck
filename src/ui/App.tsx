@@ -117,6 +117,11 @@ interface WsLogEntry {
 
 type SyncLogEntry = WsLogEntry;
 
+interface DiagnosticsLogEntry extends SyncLogEntry {
+  summary: string;
+  count: number;
+}
+
 interface RuntimePerformanceSnapshot {
   domNodeCount: number;
   memoryUsedMb: number | null;
@@ -324,6 +329,35 @@ function getPostDayLabel(timestamp: number): string {
     month: "2-digit",
     day: "2-digit",
   }).format(date);
+}
+
+const COMPACT_AUTHOR_COLORS = [
+  "#57c7ff",
+  "#7ee787",
+  "#f2cc60",
+  "#ff9e64",
+  "#f7768e",
+  "#bb9af7",
+  "#4fd6be",
+  "#9ece6a",
+  "#e0af68",
+  "#7dcfff",
+];
+
+function hashString(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function getCompactAuthorColor(userId: string, currentUserId?: string | null): string {
+  if (currentUserId && userId === currentUserId) {
+    return "var(--deck-accent-strong)";
+  }
+  return COMPACT_AUTHOR_COLORS[hashString(userId) % COMPACT_AUTHOR_COLORS.length] ?? COMPACT_AUTHOR_COLORS[0];
 }
 
 function buildPostListEntries(posts: MattermostPost[], lastViewedAt?: number | null): PostListEntry[] {
@@ -2014,6 +2048,53 @@ function useSyncLogs(): SyncLogEntry[] {
   return logs;
 }
 
+function summariseSyncLogMessage(message: string): string {
+  if (/^WS reconnect scheduled in \d+ms$/.test(message)) {
+    return "WS reconnect scheduled";
+  }
+  if (/^WS closed code=/.test(message)) {
+    return message.replace(/ reason=.*/, "");
+  }
+  if (/^[A-Za-z ].+ \| (GET|POST) \d+ \d+ms /.test(message)) {
+    const match = message.match(/^(.+?) \| (GET|POST) (\d+) (\d+)ms /);
+    if (match) {
+      const [, purpose, method, status, duration] = match;
+      return `${purpose} ${method} ${status} ${duration}ms`;
+    }
+  }
+  if (/^[A-Za-z ].+ \| (GET|POST) failed \d+ms /.test(message)) {
+    const match = message.match(/^(.+?) \| (GET|POST) failed (\d+)ms /);
+    if (match) {
+      const [, purpose, method, duration] = match;
+      return `${purpose} ${method} failed ${duration}ms`;
+    }
+  }
+  if (/^(GET|POST) rate-limit \d+ms$/.test(message)) {
+    return message.replace(/ \d+ms$/, " wait");
+  }
+  return message;
+}
+
+function buildDiagnosticsLogEntries(logs: SyncLogEntry[], limit = 5): DiagnosticsLogEntry[] {
+  const entries: DiagnosticsLogEntry[] = [];
+
+  for (const entry of logs) {
+    const summary = summariseSyncLogMessage(entry.message);
+    const previous = entries[entries.length - 1];
+    if (previous && previous.level === entry.level && previous.summary === summary) {
+      previous.count += 1;
+      previous.timestamp = Math.max(previous.timestamp, entry.timestamp);
+      continue;
+    }
+    entries.push({ ...entry, summary, count: 1 });
+    if (entries.length >= limit) {
+      break;
+    }
+  }
+
+  return entries;
+}
+
 function useDeckLayout(): [
   DeckColumn[] | null,
   (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => string,
@@ -2953,6 +3034,7 @@ function PostList({
   language = "ja",
   reversedPostOrder = false,
   highlightTerms = [],
+  currentUserId,
   lastViewedAt,
   onMarkRead,
   unreadSeparatorLabel = "Unread",
@@ -2974,6 +3056,7 @@ function PostList({
   language?: DeckLanguage;
   reversedPostOrder?: boolean;
   highlightTerms?: string[];
+  currentUserId?: string | null;
   lastViewedAt?: number | null;
   onMarkRead?: () => void;
   unreadSeparatorLabel?: string;
@@ -3231,20 +3314,18 @@ function PostList({
             : undefined
         }
       >
-        {!groupedWithPrevious ? (
+        {!compactMode && !groupedWithPrevious ? (
           <div className="deck-card-header">
             <strong>{formatPostTime(post.create_at)}</strong>
             <span className="deck-card-author">
-              {!compactMode ? (
-                <img
-                  className="deck-card-avatar"
-                  src={getUserAvatarUrl(post.user_id)}
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  referrerPolicy="no-referrer"
-                />
-              ) : null}
+              <img
+                className="deck-card-avatar"
+                src={getUserAvatarUrl(post.user_id)}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                referrerPolicy="no-referrer"
+              />
               <span className="deck-card-author-label">{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
             </span>
           </div>
@@ -3254,7 +3335,19 @@ function PostList({
           const hasFiles = (post.file_ids?.length ?? 0) > 0;
           const body = renderBody ? renderBody(post) : renderHighlightedTextFromTerms(summarisePost(post.message), highlightTerms);
           const isEmpty = !renderBody && !post.message.trim();
-          return (!isEmpty || !hasFiles) ? <p>{body}</p> : null;
+          return (!isEmpty || !hasFiles) ? (
+            compactMode ? (
+              <p className="deck-post-compact-line">
+                <span className="deck-post-compact-time">{formatPostTime(post.create_at)}</span>
+                <span className="deck-post-compact-author" style={{ color: getCompactAuthorColor(post.user_id, currentUserId) }}>
+                  {getUserLabel(userDirectory[post.user_id], post.user_id)}:
+                </span>
+                <span className="deck-post-compact-body">{body}</span>
+              </p>
+            ) : (
+              <p>{body}</p>
+            )
+          ) : null;
         })()}
         {post.file_ids && post.file_ids.length > 0 && (
           <PostFileAttachments fileIds={post.file_ids} postId={post.id} showImagePreviews={showImagePreviews} />
@@ -3319,7 +3412,7 @@ function PostList({
         >
           {reversedPostOrder && footerNode}
           <div className="deck-list-spacer" style={{ height: `${Math.max(spacerHeight, viewportHeight)}px` }}>
-            <ul className="deck-list deck-list--virtual" style={{ transform: `translateY(${offsetY}px)` }}>
+            <ul className={`deck-list deck-list--virtual${compactMode ? " deck-list--post-compact" : ""}`} style={{ transform: `translateY(${offsetY}px)` }}>
               {visibleEntries.map((entry, index) => renderEntry(entry, startIndex + index))}
             </ul>
           </div>
@@ -3346,7 +3439,7 @@ function PostList({
           onPointerDown={markInteraction}
         >
           {reversedPostOrder && footerNode}
-          <ul className="deck-list">{displayEntries.map((entry, index) => renderEntry(entry, index))}</ul>
+          <ul className={`deck-list${compactMode ? " deck-list--post-compact" : ""}`}>{displayEntries.map((entry, index) => renderEntry(entry, index))}</ul>
           {!reversedPostOrder && footerNode}
         </div>
       )}
@@ -3357,6 +3450,7 @@ function PostList({
 function MentionsColumn({
   column,
   username,
+  currentUserId,
   mentionsLastReadAt,
   onSetMentionsLastReadAt,
   currentTeamId,
@@ -3385,6 +3479,7 @@ function MentionsColumn({
 }: {
   column: DeckColumn;
   username: string | null;
+  currentUserId?: string | null;
   mentionsLastReadAt: number | null;
   onSetMentionsLastReadAt: (value: number | null) => void;
   currentTeamId?: string;
@@ -3427,6 +3522,7 @@ function MentionsColumn({
   const [memberDirectory, setMemberDirectory] = useState<Record<string, string[]>>({});
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const [paused, setPaused] = useState(false);
   const refreshStartedAtRef = useRef<number | null>(null);
@@ -3457,7 +3553,8 @@ function MentionsColumn({
     postState.posts.length === 0 &&
     (postState.status === "idle" || postState.status === "loading") &&
     teamIds.length > 0 &&
-    Boolean(username);
+    Boolean(username) &&
+    !hasCompletedInitialLoad;
   const specialMentionMemberTtlMs = realtimeEnabled ? SPECIAL_MENTION_MEMBER_TTL_WS_MS : SPECIAL_MENTION_MEMBER_TTL_MS;
   const specialMentionPostTtlMs = realtimeEnabled ? SPECIAL_MENTION_POST_TTL_WS_MS : SPECIAL_MENTION_POST_TTL_MS;
   const handleMarkRead = useCallback(() => {
@@ -3465,6 +3562,10 @@ function MentionsColumn({
     const nextReadAt = latestVisiblePostAt > 0 ? latestVisiblePostAt : Date.now();
     onSetMentionsLastReadAt(nextReadAt);
   }, [onSetMentionsLastReadAt, visiblePosts]);
+
+  useEffect(() => {
+    setHasCompletedInitialLoad(false);
+  }, [column.teamId, username]);
 
   const finishRefresh = useCallback(() => {
     if (refreshStartedAtRef.current === null) {
@@ -3584,6 +3685,7 @@ function MentionsColumn({
     }
 
     if (teamIds.length === 0 || !username) {
+      setHasCompletedInitialLoad(false);
       setPostState({
         status: "idle",
         posts: [],
@@ -3636,6 +3738,7 @@ function MentionsColumn({
           hasMore: results.some((entry) => entry.posts.length === POSTS_PAGE_SIZE),
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       } catch (error) {
         if (cancelled) {
@@ -3649,6 +3752,7 @@ function MentionsColumn({
           hasMore: false,
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       }
     };
@@ -3982,6 +4086,7 @@ function MentionsColumn({
           language={language}
           reversedPostOrder={reversedPostOrder}
           highlightTerms={highlightTerms}
+          currentUserId={currentUserId}
           lastViewedAt={mentionsLastReadAt}
           onMarkRead={handleMarkRead}
           unreadSeparatorLabel={text.unreadSeparatorLabel}
@@ -4118,17 +4223,23 @@ function ChannelWatchColumn({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [paused, setPaused] = useState(false);
   const [lastViewedAt, setLastViewedAt] = useState<number | null>(null);
+  const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
   const hasConfiguredTarget = mode === "dm" ? Boolean(column.channelId) : Boolean(column.teamId && column.channelId);
   const shouldShowLoadingState =
     hasConfiguredTarget &&
     postState.posts.length === 0 &&
-    (postState.status === "idle" || postState.status === "loading");
+    (postState.status === "idle" || postState.status === "loading") &&
+    !hasCompletedInitialLoad;
   const [showControls, setShowControls] = useState(!hasConfiguredTarget);
   const refreshStartedAtRef = useRef<number | null>(null);
   const refreshStopTimerRef = useRef<number | null>(null);
   const markReadFiredRef = useRef(false);
   const teamDirectory = useMemo(() => Object.fromEntries(teams.map((team) => [team.id, team])), [teams]);
   const selectedTeam = column.teamId ? teamDirectory[column.teamId] : undefined;
+
+  useEffect(() => {
+    setHasCompletedInitialLoad(false);
+  }, [mode, column.teamId, column.channelId]);
 
   const finishRefresh = useCallback(() => {
     if (refreshStartedAtRef.current === null) {
@@ -4345,6 +4456,7 @@ function ChannelWatchColumn({
     }
 
     if ((mode === "channel" && !column.teamId) || !column.channelId) {
+      setHasCompletedInitialLoad(false);
       setPostState({
         status: "idle",
         posts: [],
@@ -4379,6 +4491,7 @@ function ChannelWatchColumn({
           hasMore: posts.length === POSTS_PAGE_SIZE,
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       } catch (error) {
         if (cancelled) {
@@ -4392,6 +4505,7 @@ function ChannelWatchColumn({
           hasMore: false,
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       }
     };
@@ -4649,6 +4763,7 @@ function ChannelWatchColumn({
           language={language}
           reversedPostOrder={reversedPostOrder}
           highlightTerms={highlightTerms}
+          currentUserId={currentUserId}
           lastViewedAt={lastViewedAt}
           onMarkRead={handleMarkRead}
           unreadSeparatorLabel={text.unreadSeparatorLabel}
@@ -4707,6 +4822,7 @@ function ColumnLoadingState({
 function SearchLikeColumn({
   column,
   currentUsername,
+  currentUserId,
   teams,
   userDirectory,
   ensureUsers,
@@ -4728,6 +4844,7 @@ function SearchLikeColumn({
 }: {
   column: DeckColumn;
   currentUsername: string | null;
+  currentUserId?: string | null;
   teams: MattermostTeam[];
   userDirectory: Record<string, MattermostUser>;
   ensureUsers: (userIds: string[]) => Promise<void>;
@@ -4763,6 +4880,7 @@ function SearchLikeColumn({
   const [showControls, setShowControls] = useState(!(column.teamId && column.query?.trim()));
   const [draftQuery, setDraftQuery] = useState(column.query ?? "");
   const [savedSearches, setSavedSearches] = useState<string[]>([]);
+  const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
 
   useEffect(() => {
     void loadStoredJson<string[]>(SAVED_SEARCHES_KEY, []).then(setSavedSearches);
@@ -4794,8 +4912,13 @@ function SearchLikeColumn({
   const shouldShowLoadingState =
     ready &&
     postState.posts.length === 0 &&
-    (postState.status === "idle" || postState.status === "loading");
+    (postState.status === "idle" || postState.status === "loading") &&
+    !hasCompletedInitialLoad;
   const title = query || "Search";
+
+  useEffect(() => {
+    setHasCompletedInitialLoad(false);
+  }, [column.teamId, query]);
 
   const finishRefresh = useCallback(() => {
     if (refreshStartedAtRef.current === null) {
@@ -4871,6 +4994,7 @@ function SearchLikeColumn({
     }
 
     if (!ready) {
+      setHasCompletedInitialLoad(false);
       setPostState({
         status: "idle",
         posts: [],
@@ -4906,6 +5030,7 @@ function SearchLikeColumn({
           hasMore: posts.length === POSTS_PAGE_SIZE,
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       } catch (error) {
         if (cancelled) {
@@ -4919,6 +5044,7 @@ function SearchLikeColumn({
           hasMore: false,
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       }
     };
@@ -5148,6 +5274,7 @@ function SearchLikeColumn({
           language={language}
           reversedPostOrder={reversedPostOrder}
           highlightTerms={highlightTerms}
+          currentUserId={currentUserId}
         />
       )}
     </section>
@@ -5157,6 +5284,7 @@ function SearchLikeColumn({
 function SavedPostsColumn({
   column,
   currentUsername,
+  currentUserId,
   userDirectory,
   ensureUsers,
   canMoveLeft,
@@ -5174,6 +5302,7 @@ function SavedPostsColumn({
 }: {
   column: DeckColumn;
   currentUsername: string | null;
+  currentUserId?: string | null;
   userDirectory: Record<string, MattermostUser>;
   ensureUsers: (userIds: string[]) => Promise<void>;
   canMoveLeft: boolean;
@@ -5203,9 +5332,11 @@ function SavedPostsColumn({
   const [paused, setPaused] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const highlightTerms = useMemo(() => resolveHighlightTerms(highlightKeywords, currentUsername), [currentUsername, highlightKeywords]);
+  const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
   const shouldShowLoadingState =
     postState.posts.length === 0 &&
-    (postState.status === "idle" || postState.status === "loading");
+    (postState.status === "idle" || postState.status === "loading") &&
+    !hasCompletedInitialLoad;
   const refreshStartedAtRef = useRef<number | null>(null);
   const refreshStopTimerRef = useRef<number | null>(null);
 
@@ -5257,6 +5388,7 @@ function SavedPostsColumn({
           hasMore: posts.length === POSTS_PAGE_SIZE,
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       } catch (error) {
         if (cancelled) {
@@ -5270,6 +5402,7 @@ function SavedPostsColumn({
           hasMore: false,
           loadingMore: false,
         });
+        setHasCompletedInitialLoad(true);
         finishRefresh();
       }
     };
@@ -5424,6 +5557,7 @@ function SavedPostsColumn({
           language={language}
           reversedPostOrder={reversedPostOrder}
           highlightTerms={highlightTerms}
+          currentUserId={currentUserId}
         />
       )}
     </section>
@@ -5461,6 +5595,7 @@ function DiagnosticsColumn({
 }): React.JSX.Element {
   const text = useAppText();
   const [showControls, setShowControls] = useState(false);
+  const diagnosticsLogs = useMemo(() => buildDiagnosticsLogEntries(syncLogs), [syncLogs]);
   const healthLabel =
     apiHealthStatus === "healthy"
       ? text.diagnosticsStatusHealthy
@@ -5556,10 +5691,11 @@ function DiagnosticsColumn({
         <article className="deck-card">
           <strong>{text.diagnosticsRecentSyncLog}</strong>
           <ul className="deck-log-list">
-            {syncLogs.length > 0 ? syncLogs.slice(0, 8).map((entry) => (
+            {diagnosticsLogs.length > 0 ? diagnosticsLogs.map((entry) => (
               <li key={`${entry.timestamp}-${entry.message}`} className={`deck-log-entry deck-log-entry--${entry.level}`}>
                 <span className="deck-log-time">{formatPostTime(entry.timestamp)}</span>
-                <span className="deck-log-text" title={entry.message}>{entry.message}</span>
+                <span className="deck-log-text" title={entry.message}>{entry.summary}</span>
+                {entry.count > 1 ? <span className="deck-log-count">x{entry.count}</span> : null}
               </li>
             )) : (
               <li className="deck-log-entry deck-log-entry--info">
@@ -6842,10 +6978,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                   case "mentions":
                     return (
                       <div key={column.id} ref={setColumnRef} className="deck-column-motion">
-                        <MentionsColumn
-                          column={column}
-                          username={state.username}
-                          mentionsLastReadAt={mentionsLastReadAt}
+        <MentionsColumn
+          column={column}
+          username={state.username}
+          currentUserId={state.userId}
+          mentionsLastReadAt={mentionsLastReadAt}
                           onSetMentionsLastReadAt={setMentionsLastReadAt}
                           currentTeamId={state.currentTeamId}
                           currentChannelId={state.currentChannelId}
@@ -6954,6 +7091,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         <SearchLikeColumn
                           column={column}
                           currentUsername={state.username}
+                          currentUserId={state.userId}
                           teams={state.teams}
                           userDirectory={userDirectory}
                           ensureUsers={ensureUsers}
@@ -6981,6 +7119,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         <SavedPostsColumn
                           column={column}
                           currentUsername={state.username}
+                          currentUserId={state.userId}
                           userDirectory={userDirectory}
                           ensureUsers={ensureUsers}
                           canMoveLeft={index > 0}

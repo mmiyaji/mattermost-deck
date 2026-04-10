@@ -823,6 +823,7 @@ export const railCssText = `
     font-size: 12px;
     line-height: 1.4;
     min-width: 0;
+    align-items: flex-start;
   }
 
   .deck-log-entry--warn .deck-log-text {
@@ -842,9 +843,18 @@ export const railCssText = `
     color: var(--deck-text);
     flex: 1 1 auto;
     min-width: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  }
+
+  .deck-log-count {
+    flex: none;
+    min-width: 24px;
+    text-align: right;
+    color: var(--deck-text-faint);
+    font-size: 11px;
   }
 
   .deck-columns {
@@ -1267,6 +1277,10 @@ export const railCssText = `
     list-style: none;
   }
 
+  .deck-list--post-compact {
+    gap: 2px;
+  }
+
   .deck-list-separator {
     display: flex;
     align-items: center;
@@ -1614,13 +1628,16 @@ export const railCssText = `
   }
 
   .deck-card--post-compact {
-    padding: 10px;
+    padding: 5px 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
   }
 
   .deck-card--post-compact p {
-    margin-top: 6px;
+    margin-top: 1px;
     font-size: calc(12px * var(--deck-font-scale));
-    line-height: 1.35;
+    line-height: 1.28;
   }
 
   .deck-card--reply {
@@ -1641,11 +1658,13 @@ export const railCssText = `
   }
 
   .deck-card--post-compact.deck-card--reply {
-    padding-left: 16px;
+    padding-left: 14px;
   }
 
   .deck-card--post-compact.deck-card--reply::after {
-    left: 7px;
+    left: 5px;
+    top: 5px;
+    bottom: 5px;
   }
 
   .deck-card--post-grouped {
@@ -1659,6 +1678,11 @@ export const railCssText = `
 
   .deck-card--post-grouped p {
     margin-top: 4px;
+  }
+
+  .deck-card--post-compact.deck-card--post-grouped {
+    margin-top: 0;
+    padding-top: 5px;
   }
 
   .deck-inline-link,
@@ -1690,6 +1714,12 @@ export const railCssText = `
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--deck-accent) 18%, transparent);
   }
 
+  .deck-card--post-compact.deck-card--clickable:hover {
+    border-color: transparent;
+    box-shadow: none;
+    background: color-mix(in srgb, var(--deck-bg-soft) 86%, transparent);
+  }
+
   .deck-card-meta {
     margin-top: 6px;
     font-size: calc(11px * var(--deck-font-scale));
@@ -1697,6 +1727,11 @@ export const railCssText = `
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .deck-card--post-compact .deck-card-meta {
+    margin-top: 1px;
+    font-size: calc(10px * var(--deck-font-scale));
   }
 
   .deck-card-header {
@@ -1730,6 +1765,33 @@ export const railCssText = `
     object-fit: cover;
     background: color-mix(in srgb, var(--deck-card) 80%, var(--deck-text) 20%);
     border: 1px solid color-mix(in srgb, var(--deck-border) 60%, transparent);
+  }
+
+  .deck-post-compact-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  .deck-post-compact-time {
+    flex: none;
+    color: var(--deck-text-faint);
+    white-space: nowrap;
+    font-size: calc(10px * var(--deck-font-scale));
+  }
+
+  .deck-post-compact-author {
+    flex: none;
+    color: var(--deck-text);
+    font-weight: 600;
+    min-width: 0;
+  }
+
+  .deck-post-compact-body {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .deck-shell[data-theme="light"] .deck-card-header {
