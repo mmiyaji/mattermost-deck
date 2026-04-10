@@ -233,6 +233,11 @@ interface OpenPostTarget {
   channelName?: string;
 }
 
+interface OpenThreadTarget {
+  postId: string;
+  rootId?: string;
+}
+
 type PostListEntry =
   | {
       type: "separator";
@@ -690,25 +695,27 @@ function getApiHealthLabel(status: ApiHealthStatus): string {
   }
 }
 
-function openMattermostThread(teamName: string, postId: string, channelName?: string | null): void {
-  const nextPath = channelName
-    ? `/${teamName}/channels/${channelName}/${postId}`
-    : `/${teamName}/pl/${postId}`;
+function openMattermostThread(teamName: string, target: OpenThreadTarget, channelName?: string | null): void {
+  const isReply = Boolean(target.rootId?.trim());
+  const nextPath = !isReply && channelName
+    ? `/${teamName}/channels/${channelName}/${target.postId}`
+    : `/${teamName}/pl/${target.postId}`;
   debugLog("app.open-thread", {
     currentPath: window.location.pathname,
     nextPath,
-    postId,
+    postId: target.postId,
+    rootId: target.rootId ?? null,
   });
   if (window.location.pathname === nextPath) {
     window.dispatchEvent(new PopStateEvent("popstate"));
-    void focusMattermostPost(postId);
+    void focusMattermostPost(target.postId, 5000, target.rootId);
     return;
   }
 
   debugLog("app.open-thread.push-state", { nextPath });
   window.history.pushState({}, "", nextPath);
   window.dispatchEvent(new PopStateEvent("popstate"));
-  void focusMattermostPost(postId);
+  void focusMattermostPost(target.postId, 5000, target.rootId);
 }
 
 function ChevronIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
@@ -5734,7 +5741,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       if (!targetTeam) {
         return;
       }
-      openMattermostThread(targetTeam, post.id, target?.channelName ?? currentRoute.channelName);
+      openMattermostThread(targetTeam, { postId: post.id, rootId: post.root_id }, target?.channelName ?? currentRoute.channelName);
     },
     [currentRoute.channelName, currentRoute.teamName],
   );
@@ -5745,14 +5752,15 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         return;
       }
       const handleDebugOpenThread = (event: Event) => {
-        const customEvent = event as CustomEvent<{ teamName?: string; postId?: string; channelName?: string }>;
+        const customEvent = event as CustomEvent<{ teamName?: string; postId?: string; rootId?: string; channelName?: string }>;
         const teamName = customEvent.detail?.teamName;
         const postId = customEvent.detail?.postId;
+        const rootId = customEvent.detail?.rootId;
         const channelName = customEvent.detail?.channelName;
         if (!teamName || !postId) {
           return;
         }
-        openMattermostThread(teamName, postId, channelName ?? readCurrentRoute().channelName);
+        openMattermostThread(teamName, { postId, rootId }, channelName ?? readCurrentRoute().channelName);
       };
       window.addEventListener("mattermost-deck-debug-open-thread", handleDebugOpenThread as EventListener);
       return () => {
