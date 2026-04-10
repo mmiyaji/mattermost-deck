@@ -1132,10 +1132,22 @@ function useAppText() {
     addSearch: t("deck.addSearch"),
     addSaved: t("deck.addSaved"),
     addDiagnostics: t("deck.addDiagnostics"),
+    viewsLabel: t("deck.viewsLabel"),
+    savedSetsLabel: t("deck.savedSetsLabel"),
+    menuLabel: t("deck.menuLabel"),
+    layoutLabel: t("deck.layoutLabel"),
+    reorderPanes: t("deck.reorderPanes"),
+    applyOrder: t("deck.applyOrder"),
+    cancel: t("deck.cancel"),
+    saveCurrentSet: t("deck.saveCurrentSet"),
+    savedColumns: (count: number) => t("deck.savedColumns", { count }),
+    exportLayout: t("deck.exportLayout"),
+    importLayout: t("deck.importLayout"),
     choosePane: t("deck.choosePane"),
     loading: t("deck.loading"),
     sessionExpired: t("deck.sessionExpired"),
     failedToLoad: t("deck.failedToLoad"),
+    failedToLoadMentions: t("deck.failedToLoadMentions"),
     column: t("deck.column"),
     columns: t("deck.columns"),
     teamLabel: t("deck.teamLabel"),
@@ -1145,6 +1157,9 @@ function useAppText() {
     scope: t("deck.scope"),
     mentionBadge: (count: number, perTeam: boolean) =>
       t(perTeam ? "deck.mentionBadgePerTeam" : "deck.mentionBadgeAllTeams", { count }),
+    noMentions: t("deck.noMentions"),
+    noUnreadMentions: t("deck.noUnreadMentions"),
+    mentionsWillAppear: t("deck.mentionsWillAppear"),
     unreadOnlyNote: t("deck.unreadOnlyNote"),
     unreadSeparatorLabel: t("deck.unreadSeparatorLabel"),
     markRead: t("deck.markRead"),
@@ -4051,18 +4066,18 @@ function MentionsColumn({
 
       {postState.status === "error" ? (
         <article className="deck-card">
-          <strong>Failed to load mentions</strong>
+          <strong>{text.failedToLoadMentions}</strong>
           <p>{postState.error ?? "Unknown error"}</p>
         </article>
       ) : shouldShowLoadingState ? (
         <ColumnLoadingState
-          title="Loading mentions"
-          detail="Checking unread mentions and syncing recent mention posts."
+          title={text.loading}
+          detail={text.mentionsWillAppear}
         />
       ) : visiblePosts.length === 0 ? (
         <article className="deck-card">
-          <strong>No mentions</strong>
-          <p>{column.unreadOnly ? "No unread mentions are currently available." : "Mentions will appear here."}</p>
+          <strong>{text.noMentions}</strong>
+          <p>{column.unreadOnly ? text.noUnreadMentions : text.mentionsWillAppear}</p>
         </article>
       ) : (
         <PostList
@@ -6651,23 +6666,23 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                   disabled={columns === null || state.status === "loading"}
                 >
                   <ViewsIcon />
-                  <span className="deck-button-label">Views</span>
+                  <span className="deck-button-label">{text.viewsLabel}</span>
                 </button>
                 {showViewsMenu ? (
                   <div className="deck-add-menu deck-add-menu--views">
-                    <div className="deck-add-menu-title">Views</div>
+                    <div className="deck-add-menu-title">{text.viewsLabel}</div>
                     <div className="deck-menu-row deck-menu-row--toolbar">
                       {!viewReorderMode ? (
                         <button type="button" className="deck-add-item" onClick={handleStartViewReorder}>
-                          Reorder panes
+                          {text.reorderPanes}
                         </button>
                       ) : (
                         <>
                           <button type="button" className="deck-add-item" onClick={handleApplyViewReorder}>
-                            Apply order
+                            {text.applyOrder}
                           </button>
                           <button type="button" className="deck-add-item deck-add-item--secondary" onClick={handleCancelViewReorder}>
-                            Cancel
+                            {text.cancel}
                           </button>
                         </>
                       )}
@@ -6713,9 +6728,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         </div>
                       );
                     })}
-                    <div className="deck-add-menu-title deck-add-menu-title--secondary">Saved sets</div>
+                    <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.savedSetsLabel}</div>
                     <button type="button" className="deck-add-item" onClick={handleSaveCurrentView}>
-                      Save current set
+                      {text.saveCurrentSet}
                     </button>
                     {savedViews.length > 0 ? (
                       <>
@@ -6723,7 +6738,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           <div key={view.id} className="deck-menu-row">
                             <button type="button" className="deck-add-item deck-add-item--recent" onClick={() => handleLoadSavedView(view.id)}>
                               <span>{view.name}</span>
-                              <small>{view.columns.length} columns</small>
+                              <small>{text.savedColumns(view.columns.length)}</small>
                             </button>
                             <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => removeView(view.id)} aria-label={`Remove ${view.name}`}>
                               <CloseIcon />
@@ -6877,7 +6892,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                             ))}
                           </>
                         ) : null}
-                        <div className="deck-add-menu-title deck-add-menu-title--secondary">Views</div>
+                        <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.viewsLabel}</div>
                         {(columns ?? []).map((column, index) => {
                           const meta = getColumnViewMeta(column);
                           return (
@@ -6896,9 +6911,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                             </div>
                           );
                         })}
-                        <div className="deck-add-menu-title deck-add-menu-title--secondary">Saved sets</div>
+                        <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.savedSetsLabel}</div>
                         <button type="button" className="deck-add-item" onClick={handleSaveCurrentView}>
-                          Save current set
+                          {text.saveCurrentSet}
                         </button>
                         {savedViews.length > 0 ? (
                           <>
@@ -6906,7 +6921,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                               <div key={view.id} className="deck-menu-row">
                                 <button type="button" className="deck-add-item deck-add-item--recent" onClick={() => handleLoadSavedView(view.id)}>
                                   <span>{view.name}</span>
-                                  <small>{view.columns.length} columns</small>
+                                  <small>{text.savedColumns(view.columns.length)}</small>
                                 </button>
                                 <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => removeView(view.id)} aria-label={`Remove ${view.name}`}>
                                   <CloseIcon />
@@ -6917,7 +6932,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         ) : null}
                       </>
                     ) : null}
-                    <div className="deck-add-menu-title deck-add-menu-title--secondary">Menu</div>
+                    <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.menuLabel}</div>
                     <button
                       type="button"
                       className="deck-add-item"
@@ -6928,12 +6943,12 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                     >
                       <SettingsMenuLabel label={text.settingsButton} />
                     </button>
-                    <div className="deck-add-menu-title deck-add-menu-title--secondary">Layout</div>
+                    <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.layoutLabel}</div>
                     <button type="button" className="deck-add-item" onClick={handleExportLayout}>
-                      Export layout
+                      {text.exportLayout}
                     </button>
                     <button type="button" className="deck-add-item" onClick={handleImportLayout}>
-                      Import layout
+                      {text.importLayout}
                     </button>
                   </div>
                 ) : null}

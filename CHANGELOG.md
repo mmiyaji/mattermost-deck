@@ -7,6 +7,27 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-10
+
+### Added
+
+- Reply-aware navigation that opens thread-only replies through Mattermost permalink/thread view
+- Reply post indicator in Deck post lists
+- E2E coverage for reply thread navigation
+
+### Changed
+
+- Reworked compact mode into a Mattermost-style dense row layout using `time author: content`
+- Removed compact-mode cards and added stable per-author colors, with the current user using the active theme accent
+- Limited nearby-post spacing reduction to regular mode while leaving compact mode as simple per-post rows
+- Shortened recent sync log presentation in Diagnostics to reduce noise during routine monitoring
+- Refreshed settings descriptions, README files, and design guides to match the current UI behavior
+
+### Fixed
+
+- Prevented empty-state panes such as `No mentions` or empty search results from flashing a loading spinner during background refresh
+- Improved navigation reliability for replies that are hidden by collapsed thread mode in Mattermost
+
 ## [0.1.9] - 2026-04-09
 
 ### Added
