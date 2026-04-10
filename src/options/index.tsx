@@ -174,7 +174,7 @@ function useOptionsText() {
     postClickActionLabel: t("options.postClickActionLabel"),
     postClickActionHint: t("options.postClickActionHint"),
     highlightKeywordsLabel: t("options.highlightKeywordsLabel", { defaultValue: "Highlight Keywords" }),
-    highlightKeywordsHint: t("options.highlightKeywordsHint", { defaultValue: "Comma-separated words or phrases to highlight in posts." }),
+    highlightKeywordsHint: t("options.highlightKeywordsHint", { defaultValue: "Comma-separated words or phrases to highlight in posts. Leave empty to highlight your own username by default." }),
     highlightKeywordsPlaceholder: t("options.highlightKeywordsPlaceholder", { defaultValue: "deploy,error,customer" }),
     patStorageLabel: t("options.patStorageLabel", { defaultValue: "PAT storage" }),
     guideDiagramTitle: t("options.guideDiagramTitle", { defaultValue: "Mattermost Deck" }),

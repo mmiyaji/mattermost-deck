@@ -407,13 +407,6 @@ export const railCssText = `
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--deck-accent) 22%, transparent);
   }
 
-  .deck-status-badge-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--deck-topbar-text-soft);
-  }
-
   .deck-status-badge-copy {
     display: inline-flex;
     align-items: center;
@@ -422,8 +415,8 @@ export const railCssText = `
   }
 
   .deck-status-mode-icon {
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
     color: currentColor;
     fill: none;
     stroke: currentColor;
@@ -433,31 +426,27 @@ export const railCssText = `
     flex: none;
   }
 
-  .deck-status-badge--connected .deck-status-badge-dot {
-    background: var(--deck-success);
+  .deck-health-status-icon {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex: none;
   }
 
-  .deck-status-badge--healthy .deck-status-badge-dot {
-    background: var(--deck-success);
+  .deck-health-status-icon--healthy {
+    color: var(--deck-success);
   }
 
-  .deck-status-badge--connecting .deck-status-badge-dot,
-  .deck-status-badge--reconnecting .deck-status-badge-dot,
-  .deck-status-badge--degraded .deck-status-badge-dot {
-    background: var(--deck-warn);
+  .deck-health-status-icon--degraded {
+    color: var(--deck-warn);
   }
 
-  .deck-status-badge--idle .deck-status-badge-dot {
-    background: var(--deck-text-faint);
-  }
-
-  .deck-status-badge--offline .deck-status-badge-dot,
-  .deck-status-badge--error .deck-status-badge-dot {
-    background: var(--deck-danger);
-  }
-
-  .deck-status-badge--compact .deck-status-mode-icon {
-    color: var(--deck-topbar-text);
+  .deck-health-status-icon--error {
+    color: var(--deck-danger);
   }
 
   .deck-topbar h1,
@@ -1614,6 +1603,7 @@ export const railCssText = `
     border-radius: 4px;
     background: var(--deck-highlight-bg);
     color: var(--deck-highlight-text);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--deck-highlight-text) 22%, transparent);
     font-weight: 700;
   }
 

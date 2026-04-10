@@ -8,6 +8,7 @@ import { addTraceEntry } from "../traceLog";
 const ROOT_ID = "mattermost-deck-root";
 const STYLE_ID = "mattermost-deck-page-style";
 const REACT_ROOT_ID = "mattermost-deck-react-root";
+const ROUTE_EVENT = "mattermost-deck-route-change";
 const BODY_CLASS = "mattermost-deck-body-offset";
 const RAIL_WIDTH_VAR = "--mattermost-deck-rail-width";
 const OFFSET_WIDTH_VAR = "--mattermost-deck-offset-width";
@@ -15,9 +16,13 @@ const ROOT_WIDTH_EXPR = "clamp(320px, 32vw, 420px)";
 const INITIAL_RENDER_DELAY_MS = 100;
 const MATTERMOST_GUARD_SUCCESS_TTL_MS = 30_000;
 const MATTERMOST_GUARD_FAILURE_TTL_MS = 10_000;
+const ROUTE_SETTLE_DELAY_MS = 180;
+const ROUTE_MISMATCH_GRACE_MS = 500;
 
 let appRoot: ReturnType<typeof createRoot> | null = null;
 let routePoller: number | null = null;
+let routeNotifyTimer: number | null = null;
+let cleanupTimer: number | null = null;
 let lastRenderKey = "";
 let renderVersion = 0;
 let currentSettings: DeckSettings = DEFAULT_SETTINGS;
@@ -244,6 +249,43 @@ function cleanup(): void {
   deckShadowRoot = null;
 }
 
+function clearPendingCleanup(): void {
+  if (cleanupTimer !== null) {
+    window.clearTimeout(cleanupTimer);
+    cleanupTimer = null;
+  }
+}
+
+function scheduleCleanup(reason: string, routeKey: string): void {
+  if (!appRoot) {
+    cleanup();
+    return;
+  }
+
+  if (cleanupTimer !== null) {
+    return;
+  }
+
+  debugLog("content.cleanup.scheduled", { reason, routeKey, delayMs: ROUTE_MISMATCH_GRACE_MS });
+  cleanupTimer = window.setTimeout(() => {
+    cleanupTimer = null;
+    if (!matchesConfiguredRoute()) {
+      debugLog("content.cleanup.grace-expired", { reason, routeKey });
+      cleanup();
+    }
+  }, ROUTE_MISMATCH_GRACE_MS);
+}
+
+function notifyAppRouteChange(routeKey: string): void {
+  window.dispatchEvent(
+    new CustomEvent(ROUTE_EVENT, {
+      detail: {
+        routeKey,
+      },
+    }),
+  );
+}
+
 async function render(): Promise<void> {
   if (!(document.body instanceof HTMLBodyElement)) {
     return;
@@ -258,9 +300,11 @@ async function render(): Promise<void> {
 
   if (!matchesConfiguredRoute()) {
     debugLog("content.render.skip.route", { routeKey });
-    cleanup();
+    scheduleCleanup("route-mismatch", routeKey);
     return;
   }
+
+  clearPendingCleanup();
 
   if (!(await verifyMattermostSession())) {
     debugLog("content.render.skip.session", { routeKey });
@@ -312,6 +356,7 @@ async function render(): Promise<void> {
     shadowRoot.append(style);
   }
 
+  const hadMountedApp = Boolean(appRoot);
   let reactRoot = shadowRoot.getElementById(REACT_ROOT_ID);
   if (!(reactRoot instanceof HTMLDivElement)) {
     reactRoot = document.createElement("div");
@@ -322,8 +367,15 @@ async function render(): Promise<void> {
   }
 
   appRoot ??= createRoot(reactRoot);
+
+  if (hadMountedApp) {
+    debugLog("content.render.route-update", { routeKey });
+    notifyAppRouteChange(routeKey);
+    return;
+  }
+
   debugLog("content.render.commit", { routeKey });
-  appRoot.render(<App routeKey={`${window.location.pathname}${window.location.hash}`} shadowRoot={shadowRoot} />);
+  appRoot.render(<App routeKey={routeKey} shadowRoot={shadowRoot} />);
 }
 
 function installRouteWatcher(): void {
@@ -340,9 +392,16 @@ function installRouteWatcher(): void {
     }
     debugLog("content.route.notify", { routeKey, renderKey, previousRenderKey: lastRenderKey });
 
-    window.requestAnimationFrame(() => {
-      void render();
-    });
+    if (routeNotifyTimer !== null) {
+      window.clearTimeout(routeNotifyTimer);
+    }
+
+    routeNotifyTimer = window.setTimeout(() => {
+      routeNotifyTimer = null;
+      window.requestAnimationFrame(() => {
+        void render();
+      });
+    }, ROUTE_SETTLE_DELAY_MS);
   };
 
   window.history.pushState = function pushStatePatched(...args) {

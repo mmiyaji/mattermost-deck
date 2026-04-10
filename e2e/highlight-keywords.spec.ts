@@ -89,7 +89,7 @@ async function debugRequest<T>(
   }, { action, payload });
 }
 
-test("highlight keywords are rendered inside deck posts", async () => {
+test("highlight keywords are rendered with Mattermost mention colors", async () => {
   const state = await readState();
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-highlight-"));
@@ -97,13 +97,16 @@ test("highlight keywords are rendered inside deck posts", async () => {
   const keyword = `urgent-${Date.now()}`;
   let postId = "";
 
-  const channels = await apiGet<Array<{ id: string; name: string }>>(state.memberUser.token, `/users/me/teams/${state.team.id}/channels`);
+  const channels = await apiGet<Array<{ id: string; name: string }>>(
+    state.memberUser.token,
+    `/users/me/teams/${state.team.id}/channels`,
+  );
   const townSquare = channels.find((channel) => channel.name === "town-square");
   expect(townSquare).toBeTruthy();
 
   const created = await apiPost<{ id: string }>(state.memberUser.token, "/posts", {
     channel_id: townSquare!.id,
-    message: `Deck keyword highlight check ${keyword}`,
+    message: `@${state.memberUser.username} Deck keyword highlight check ${keyword}`,
   });
   postId = created.id;
 
@@ -153,6 +156,34 @@ test("highlight keywords are rendered inside deck posts", async () => {
         return await debugRequest<string[]>(page, "getHighlightTexts");
       }, { timeout: 30_000 })
       .toContain(keyword);
+
+    const mentionHighlightStyle = await page.evaluate(() => {
+      const element = document.querySelector(
+        ".post-message__text .mention--highlight .mention-link, .post__content .mention--highlight .mention-link, .mention--highlight .mention-link, .post-message__text .mention--highlight, .post__content .mention--highlight, .mention--highlight",
+      );
+      if (!(element instanceof HTMLElement)) {
+        return null;
+      }
+      const style = window.getComputedStyle(element);
+      const parent = element.closest(".mention--highlight");
+      const parentStyle = parent instanceof HTMLElement ? window.getComputedStyle(parent) : style;
+      return {
+        color: style.color,
+        backgroundColor: parentStyle.backgroundColor,
+      };
+    });
+
+    const highlightStyle = await debugRequest<{
+      color: string;
+      backgroundColor: string;
+      boxShadow: string;
+    } | null>(page, "getHighlightStyle");
+
+    expect(mentionHighlightStyle).not.toBeNull();
+    expect(highlightStyle).not.toBeNull();
+    expect(highlightStyle?.color).toBe(mentionHighlightStyle?.color);
+    expect(highlightStyle?.backgroundColor).toBe(mentionHighlightStyle?.backgroundColor);
+    expect(highlightStyle?.boxShadow).not.toBe("none");
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });

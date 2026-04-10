@@ -157,7 +157,7 @@
     "postClickNone": "Do nothing",
     "postClickAsk": "Choose action",
     "highlightKeywordsLabel": "Highlight Keywords",
-    "highlightKeywordsHint": "Comma-separated words or phrases to highlight in posts.",
+    "highlightKeywordsHint": "Comma-separated words or phrases to highlight in posts. Leave empty to highlight your own username by default.",
     "highlightKeywordsPlaceholder": "deploy,error,customer",
     "patStorageLabel": "PAT storage",
     "guideDiagramTitle": "Mattermost Deck",

@@ -98,6 +98,9 @@ test("Mattermost theme is applied correctly to the deck", async ({ }, testInfo) 
 
     // ── 2. Login ─────────────────────────────────────────────────────────────
     const page = await context.newPage();
+    await page.addInitScript(() => {
+      window.localStorage.setItem("mattermostDeck.debugLogs", "1");
+    });
     await page.goto(`${baseUrl}/landing#/login`);
 
     const browserChoice = page.getByText("View in Browser");

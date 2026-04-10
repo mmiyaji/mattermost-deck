@@ -36,6 +36,7 @@ const PROFILE_SCOPED_STORAGE_KEYS = [
   "mattermostDeck.columnIdentityMode.v1",
   "mattermostDeck.postClickAction.v1",
   "mattermostDeck.highlightKeywords.v1",
+  "mattermostDeck.mentionsLastReadAt.v1",
   "mattermostDeck.columnColors.v1",
   "mattermostDeck.showImagePreviews.v1",
   "mattermostDeck.highZIndex.v1",

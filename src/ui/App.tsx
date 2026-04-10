@@ -49,6 +49,7 @@ import {
   saveStoredJson,
   saveStoredNumber,
 } from "./storage";
+import { getProfileStorageKey, loadCurrentDeckProfile } from "./profiles";
 import { APP_VERSION } from "../version";
 import { getDeckDiagnosticsSnapshot, recordRenderCommit, recordSpecialMentionScan } from "../diagnostics";
 import { addTraceEntry } from "../traceLog";
@@ -152,6 +153,7 @@ const POST_VIRTUALIZE_THRESHOLD = 40;
 const SEARCH_SYNC_INTERVAL_FLOOR_MS = 120_000;
 const MAX_SAVED_VIEWS = 8;
 const DEBUG_FLAG_KEY = "mattermostDeck.debugLogs";
+const MENTIONS_LAST_READ_AT_STORAGE_KEY = "mattermostDeck.mentionsLastReadAt.v1";
 const COMPACT_HEADER_BREAKPOINT_PX = 620;
 const SPECIAL_MENTION_MEMBER_TTL_MS = 45_000;
 const SPECIAL_MENTION_MEMBER_TTL_WS_MS = 180_000;
@@ -161,6 +163,7 @@ const TEAM_FANOUT_BATCH_SIZE = 2;
 const TEAM_FANOUT_GAP_MS = 250;
 const CHANNEL_FANOUT_BATCH_SIZE = 3;
 const CHANNEL_FANOUT_GAP_MS = 150;
+const ROUTE_EVENT = "mattermost-deck-route-change";
 
 declare global {
   interface Window {
@@ -169,6 +172,11 @@ declare global {
         contentMounted: boolean;
         stateStatus: string;
         username: string | null;
+        routeKey: string;
+        currentTeamId?: string;
+        currentChannelId?: string;
+        currentTeamLabel: string | null;
+        currentChannelLabel: string | null;
         columns: Array<{
           id: string;
           type: DeckColumnType;
@@ -439,6 +447,16 @@ function uniqueTerms(terms: string[]): string[] {
     result.push(term);
   }
   return result;
+}
+
+function resolveHighlightTerms(highlightKeywords: string, defaultTerm?: string | null): string[] {
+  const configured = extractHighlightKeywords(highlightKeywords);
+  if (configured.length > 0) {
+    return configured;
+  }
+
+  const fallback = defaultTerm?.trim();
+  return fallback ? [fallback] : [];
 }
 
 function renderTextHighlights(text: string, terms: string[]): React.ReactNode {
@@ -750,6 +768,35 @@ function StatusModeIcon({ realtimeEnabled }: { realtimeEnabled: boolean }): Reac
     <svg className="deck-status-mode-icon" viewBox="0 0 12 12" aria-hidden="true">
       <circle cx="6" cy="6" r="4.2" />
       <path d="M6 3.5v2.8l1.8 1" />
+    </svg>
+  );
+}
+
+function HealthStatusIcon({ status }: { status: ApiHealthStatus }): React.JSX.Element {
+  if (status === "healthy") {
+    return (
+      <svg className="deck-health-status-icon deck-health-status-icon--healthy" viewBox="0 0 12 12" aria-hidden="true">
+        <circle cx="6" cy="6" r="4.5" />
+        <path d="M3.9 6.1l1.4 1.4 2.8-3" />
+      </svg>
+    );
+  }
+
+  if (status === "degraded") {
+    return (
+      <svg className="deck-health-status-icon deck-health-status-icon--degraded" viewBox="0 0 12 12" aria-hidden="true">
+        <circle cx="6" cy="6" r="4.5" />
+        <path d="M6 3.2v3.1" />
+        <circle cx="6" cy="8.9" r="0.55" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg className="deck-health-status-icon deck-health-status-icon--error" viewBox="0 0 12 12" aria-hidden="true">
+      <circle cx="6" cy="6" r="4.5" />
+      <path d="M4.1 4.1l3.8 3.8" />
+      <path d="M7.9 4.1L4.1 7.9" />
     </svg>
   );
 }
@@ -1186,6 +1233,27 @@ function queryFirst(selectors: string[]): Element | null {
   return null;
 }
 
+function readElementTextColor(selectors: string[]): string | undefined {
+  const element = queryFirst(selectors);
+  if (!element) {
+    return undefined;
+  }
+  const color = window.getComputedStyle(element).color.trim();
+  return color.length > 0 ? color : undefined;
+}
+
+function readElementBackgroundColor(selectors: string[]): string | undefined {
+  const element = queryFirst(selectors);
+  if (!element) {
+    return undefined;
+  }
+  const backgroundColor = window.getComputedStyle(element).backgroundColor.trim();
+  if (!backgroundColor || backgroundColor === "rgba(0, 0, 0, 0)" || backgroundColor === "transparent") {
+    return undefined;
+  }
+  return backgroundColor;
+}
+
 function rgbaFromRgb(color: string, alpha: number): string {
   const match = color.match(/\d+/g);
   if (!match || match.length < 3) {
@@ -1437,20 +1505,30 @@ function extractMattermostThemeStyle(): MattermostThemeStyle {
     ["--mention-color"],
     pickReadableForeground(badgeBg, [centerText, "rgb(255, 255, 255)", "rgb(27, 29, 34)"], centerText),
   );
-  const highlightBg = readMattermostThemeValue(
+  const highlightBg = readElementBackgroundColor([
+    ".post-message__text .mention--highlight",
+    ".post__content .mention--highlight",
+    ".mention--highlight",
+  ]) ?? readMattermostThemeValue(
     rootStyle,
     ["--mention-highlight-bg"],
     colorMixFallback(accent, "#ffe082"),
   );
-  const highlightText = pickReadableForeground(
-    highlightBg,
-    [
-      readMattermostThemeValue(rootStyle, ["--mention-highlight-link"]),
-      centerText,
+  const highlightText = readElementTextColor([
+    ".post-message__text .mention--highlight .mention-link",
+    ".post__content .mention--highlight .mention-link",
+    ".mention--highlight .mention-link",
+    ".post-message__text .mention--highlight",
+    ".post__content .mention--highlight",
+    ".mention--highlight",
+  ]) ?? readMattermostThemeValue(
+    rootStyle,
+    ["--mention-highlight-link", "--mention-color"],
+    pickReadableForeground(
+      highlightBg,
+      [centerText, "rgb(27, 29, 34)", "rgb(255, 255, 255)"],
       "rgb(27, 29, 34)",
-      "rgb(255, 255, 255)",
-    ],
-    "rgb(27, 29, 34)",
+    ),
   );
   const warn = readMattermostThemeValue(rootStyle, ["--away-indicator"], "rgb(255, 188, 66)");
   const success = readMattermostThemeValue(rootStyle, ["--online-indicator"], "rgb(6, 214, 160)");
@@ -1642,7 +1720,12 @@ async function loadAppState(): Promise<Omit<AppState, "status" | "error">> {
   };
 }
 
-function useDeckState(refreshNonce: number, realtimeEnabled: boolean, pollingIntervalSeconds: number): AppState {
+function useDeckState(
+  routeKey: string,
+  refreshNonce: number,
+  realtimeEnabled: boolean,
+  pollingIntervalSeconds: number,
+): AppState {
   const [state, setState] = useState<AppState>({
     status: "loading",
     userId: null,
@@ -1656,6 +1739,7 @@ function useDeckState(refreshNonce: number, realtimeEnabled: boolean, pollingInt
     error: null,
     sessionExpired: false,
   });
+  const initialRouteHandledRef = useRef(false);
 
   useEffect(() => {
     if (state.sessionExpired) {
@@ -1746,7 +1830,109 @@ function useDeckState(refreshNonce: number, realtimeEnabled: boolean, pollingInt
     };
   }, [pollingIntervalSeconds, realtimeEnabled, refreshNonce, state.sessionExpired]);
 
+  useEffect(() => {
+    if (state.sessionExpired) {
+      return;
+    }
+
+    if (!initialRouteHandledRef.current) {
+      initialRouteHandledRef.current = true;
+      return;
+    }
+
+    let cancelled = false;
+    const run = async () => {
+      debugLog("app.deck-state.route-refresh", {
+        routeKey,
+        path: window.location.pathname,
+      });
+
+      try {
+        const data = await loadAppState();
+        if (cancelled) {
+          return;
+        }
+        setState((current) => ({
+          ...current,
+          ...data,
+          status: current.status === "error" ? "ready" : current.status,
+          error: null,
+        }));
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : "Failed to refresh Mattermost route state.";
+        setState((current) => ({
+          ...current,
+          status: "error",
+          error: message,
+          sessionExpired: /401/.test(message),
+        }));
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [routeKey, state.sessionExpired]);
+
   return state;
+}
+
+function useCurrentRouteKey(initialRouteKey: string): string {
+  const [routeKey, setRouteKey] = useState(initialRouteKey);
+
+  useEffect(() => {
+    const handleRouteChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ routeKey?: string }>).detail;
+      if (detail?.routeKey) {
+        setRouteKey(detail.routeKey);
+      }
+    };
+
+    window.addEventListener(ROUTE_EVENT, handleRouteChange as EventListener);
+    return () => {
+      window.removeEventListener(ROUTE_EVENT, handleRouteChange as EventListener);
+    };
+  }, []);
+
+  return routeKey;
+}
+
+async function loadMentionsLastReadAt(): Promise<number | null> {
+  const profile = await loadCurrentDeckProfile();
+  return await loadStoredNumber(getProfileStorageKey(profile.id, MENTIONS_LAST_READ_AT_STORAGE_KEY));
+}
+
+async function saveMentionsLastReadAt(value: number | null): Promise<void> {
+  const profile = await loadCurrentDeckProfile();
+  const storageKey = getProfileStorageKey(profile.id, MENTIONS_LAST_READ_AT_STORAGE_KEY);
+  await saveStoredNumber(storageKey, value ?? 0);
+}
+
+function useMentionsLastReadAt(): [number | null, (value: number | null) => void] {
+  const [lastReadAt, setLastReadAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadMentionsLastReadAt().then((value) => {
+      if (!cancelled) {
+        setLastReadAt(value && value > 0 ? value : null);
+      }
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const updateLastReadAt = useCallback((value: number | null) => {
+    setLastReadAt(value && value > 0 ? value : null);
+    void saveMentionsLastReadAt(value && value > 0 ? value : null);
+  }, []);
+
+  return [lastReadAt, updateLastReadAt];
 }
 
 function useWebSocketStatus(): WebSocketStatus {
@@ -3130,6 +3316,8 @@ function PostList({
 function MentionsColumn({
   column,
   username,
+  mentionsLastReadAt,
+  onSetMentionsLastReadAt,
   currentTeamId,
   currentChannelId,
   realtimeEnabled,
@@ -3156,6 +3344,8 @@ function MentionsColumn({
 }: {
   column: DeckColumn;
   username: string | null;
+  mentionsLastReadAt: number | null;
+  onSetMentionsLastReadAt: (value: number | null) => void;
   currentTeamId?: string;
   currentChannelId?: string;
   realtimeEnabled: boolean;
@@ -3182,7 +3372,7 @@ function MentionsColumn({
 }): React.JSX.Element {
   const teamIds = useMemo(() => (column.teamId ? [column.teamId] : teams.map((team) => team.id)), [column.teamId, teams]);
   const text = useAppText();
-  const highlightTerms = useMemo(() => extractHighlightKeywords(highlightKeywords), [highlightKeywords]);
+  const highlightTerms = useMemo(() => resolveHighlightTerms(highlightKeywords, username), [highlightKeywords, username]);
   const teamDirectory = useMemo(() => Object.fromEntries(teams.map((team) => [team.id, team])), [teams]);
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
@@ -3229,6 +3419,11 @@ function MentionsColumn({
     Boolean(username);
   const specialMentionMemberTtlMs = realtimeEnabled ? SPECIAL_MENTION_MEMBER_TTL_WS_MS : SPECIAL_MENTION_MEMBER_TTL_MS;
   const specialMentionPostTtlMs = realtimeEnabled ? SPECIAL_MENTION_POST_TTL_WS_MS : SPECIAL_MENTION_POST_TTL_MS;
+  const handleMarkRead = useCallback(() => {
+    const latestVisiblePostAt = visiblePosts.reduce((latest, post) => Math.max(latest, post.create_at), 0);
+    const nextReadAt = latestVisiblePostAt > 0 ? latestVisiblePostAt : Date.now();
+    onSetMentionsLastReadAt(nextReadAt);
+  }, [onSetMentionsLastReadAt, visiblePosts]);
 
   const finishRefresh = useCallback(() => {
     if (refreshStartedAtRef.current === null) {
@@ -3746,6 +3941,12 @@ function MentionsColumn({
           language={language}
           reversedPostOrder={reversedPostOrder}
           highlightTerms={highlightTerms}
+          lastViewedAt={mentionsLastReadAt}
+          onMarkRead={handleMarkRead}
+          unreadSeparatorLabel={text.unreadSeparatorLabel}
+          markReadLabel={text.markRead}
+          jumpToLatestLabel={text.jumpToLatest}
+          newPostsLabel={text.newPosts}
         />
       )}
     </section>
@@ -3801,6 +4002,7 @@ function useRuntimePerformanceSnapshot(): RuntimePerformanceSnapshot {
 function ChannelWatchColumn({
   column,
   mode,
+  currentUsername,
   currentUserId,
   currentTeamId,
   currentChannelId,
@@ -3831,6 +4033,7 @@ function ChannelWatchColumn({
 }: {
   column: DeckColumn;
   mode: "channel" | "dm";
+  currentUsername: string | null;
   currentUserId: string | null;
   currentTeamId?: string;
   currentChannelId?: string;
@@ -4053,7 +4256,7 @@ function ChannelWatchColumn({
     : undefined;
   const selectedChannelKindLabel = getChannelKindLabel(selectedChannel);
   const selectedTeamLabel = selectedTeam ? selectedTeam.display_name || selectedTeam.name : undefined;
-  const highlightTerms = useMemo(() => extractHighlightKeywords(highlightKeywords), [highlightKeywords]);
+  const highlightTerms = useMemo(() => resolveHighlightTerms(highlightKeywords, currentUsername), [currentUsername, highlightKeywords]);
   const canWatchCurrentChannel = Boolean(currentChannelId) && (mode === "dm" || Boolean(currentTeamId));
   const currentWatchLabel = currentChannelLabel ?? (mode === "dm" ? text.directMessage : text.channelLabel);
 
@@ -4462,6 +4665,7 @@ function ColumnLoadingState({
 
 function SearchLikeColumn({
   column,
+  currentUsername,
   teams,
   userDirectory,
   ensureUsers,
@@ -4482,6 +4686,7 @@ function SearchLikeColumn({
   highlightKeywords,
 }: {
   column: DeckColumn;
+  currentUsername: string | null;
   teams: MattermostTeam[];
   userDirectory: Record<string, MattermostUser>;
   ensureUsers: (userIds: string[]) => Promise<void>;
@@ -4540,8 +4745,8 @@ function SearchLikeColumn({
   const selectedTeam = teams.find((team) => team.id === column.teamId);
   const query = column.query?.trim() ?? "";
   const highlightTerms = useMemo(
-    () => uniqueTerms([...extractSearchTerms(query), ...extractHighlightKeywords(highlightKeywords)]),
-    [highlightKeywords, query],
+    () => uniqueTerms([...extractSearchTerms(query), ...resolveHighlightTerms(highlightKeywords, currentUsername)]),
+    [currentUsername, highlightKeywords, query],
   );
   const apiQuery = useMemo(() => expandSearchQueryForApi(query), [query]);
   const ready = Boolean(column.teamId && query);
@@ -4910,6 +5115,7 @@ function SearchLikeColumn({
 
 function SavedPostsColumn({
   column,
+  currentUsername,
   userDirectory,
   ensureUsers,
   canMoveLeft,
@@ -4926,6 +5132,7 @@ function SavedPostsColumn({
   highlightKeywords,
 }: {
   column: DeckColumn;
+  currentUsername: string | null;
   userDirectory: Record<string, MattermostUser>;
   ensureUsers: (userIds: string[]) => Promise<void>;
   canMoveLeft: boolean;
@@ -4954,7 +5161,7 @@ function SavedPostsColumn({
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [paused, setPaused] = useState(false);
   const [showControls, setShowControls] = useState(false);
-  const highlightTerms = useMemo(() => extractHighlightKeywords(highlightKeywords), [highlightKeywords]);
+  const highlightTerms = useMemo(() => resolveHighlightTerms(highlightKeywords, currentUsername), [currentUsername, highlightKeywords]);
   const shouldShowLoadingState =
     postState.posts.length === 0 &&
     (postState.status === "idle" || postState.status === "loading");
@@ -5315,7 +5522,12 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     debugLog("app.routeKey", { routeKey, path: window.location.pathname });
   }, [routeKey]);
 
-  const currentRoute = useMemo(() => readCurrentRoute(), [routeKey]);
+  const currentRouteKey = useCurrentRouteKey(routeKey);
+  useEffect(() => {
+    debugLog("app.currentRouteKey", { routeKey: currentRouteKey, path: window.location.pathname });
+  }, [currentRouteKey]);
+
+  const currentRoute = useMemo(() => readCurrentRoute(), [currentRouteKey]);
   const [reconnectNonce, setReconnectNonce] = useState(0);
   const [postedEvent, setPostedEvent] = useState<PostedEvent | null>(null);
   const [realtimeAuthError, setRealtimeAuthError] = useState<string | null>(null);
@@ -5328,7 +5540,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const text = useAppText();
   useEffect(() => { void i18n.changeLanguage(deckSettings.language); }, [deckSettings.language]);
   const realtimeEnabled = deckSettings.wsPat.trim().length > 0;
-  const state = useDeckState(reconnectNonce, realtimeEnabled, deckSettings.pollingIntervalSeconds);
+  const state = useDeckState(currentRouteKey, reconnectNonce, realtimeEnabled, deckSettings.pollingIntervalSeconds);
+  const [mentionsLastReadAt, setMentionsLastReadAt] = useMentionsLastReadAt();
   const [columns, addColumn, removeColumn, updateColumn, moveColumn, replaceColumns] = useDeckLayout();
   const [recentTargets, rememberRecentTarget] = useRecentTargets();
   const [savedViews, saveView, removeView, getView] = useSavedViews();
@@ -5360,7 +5573,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const wsStatus = useWebSocketStatus();
   const syncLogs = useSyncLogs();
   const runtimeMetrics = useRuntimePerformanceSnapshot();
-  const mattermostThemeState = useMattermostThemeStyle(deckSettings.theme, routeKey);
+  const mattermostThemeState = useMattermostThemeStyle(deckSettings.theme, currentRouteKey);
   const mattermostThemeStyle = mattermostThemeState.style;
   const apiHealthStatus = useApiHealth(state.status, deckSettings.healthCheckPath, deckSettings.pollingIntervalSeconds);
   const shellStyle = useMemo(
@@ -5993,6 +6206,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         contentMounted,
         stateStatus: state.status,
         username: state.username,
+        routeKey: currentRouteKey,
+        currentTeamId: state.currentTeamId,
+        currentChannelId: state.currentChannelId,
+        currentTeamLabel: state.currentTeamLabel,
+        currentChannelLabel: state.currentChannelLabel,
         columns: (columns ?? []).map((column) => ({
           id: column.id,
           type: column.type,
@@ -6057,6 +6275,18 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         result = Array.from(debugShadowRoot.querySelectorAll("mark.search-highlight"))
           .map((element) => element.textContent?.trim() ?? "")
           .filter(Boolean);
+      } else if (action === "getHighlightStyle" && debugShadowRoot) {
+        const mark = debugShadowRoot.querySelector("mark.search-highlight");
+        if (mark instanceof HTMLElement) {
+          const style = window.getComputedStyle(mark);
+          result = {
+            color: style.color,
+            backgroundColor: style.backgroundColor,
+            boxShadow: style.boxShadow,
+          };
+        } else {
+          result = null;
+        }
       } else if (action === "getLoadingState" && debugShadowRoot) {
         const loadingState = debugShadowRoot.querySelector(".deck-loading-state");
         result = {
@@ -6180,10 +6410,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                   title={syncStatusLabel}
                   aria-label={syncStatusLabel}
                 >
-                  <span className="deck-status-badge-dot" />
                   <span className="deck-status-badge-copy">
+                    <HealthStatusIcon status={apiHealthStatus} />
                     <StatusModeIcon realtimeEnabled={realtimeEnabled} />
-                    {!isCompactHeader ? <span>{healthStatusLabel}</span> : null}
                   </span>
                 </div>
               ) : (
@@ -6194,10 +6423,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                   title={`${text.settingsHint} (${syncStatusLabel})`}
                   aria-label={`${text.settingsHint} (${syncStatusLabel})`}
                 >
-                  <span className="deck-status-badge-dot" />
                   <span className="deck-status-badge-copy">
+                    <HealthStatusIcon status={apiHealthStatus} />
                     <StatusModeIcon realtimeEnabled={realtimeEnabled} />
-                    {!isCompactHeader ? <span>{healthStatusLabel}</span> : null}
                   </span>
                 </button>
               )}
@@ -6549,6 +6777,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         <MentionsColumn
                           column={column}
                           username={state.username}
+                          mentionsLastReadAt={mentionsLastReadAt}
+                          onSetMentionsLastReadAt={setMentionsLastReadAt}
                           currentTeamId={state.currentTeamId}
                           currentChannelId={state.currentChannelId}
                           realtimeEnabled={realtimeEnabled}
@@ -6581,6 +6811,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         <ChannelWatchColumn
                           column={column}
                           mode="channel"
+                          currentUsername={state.username}
                           currentUserId={state.userId}
                           currentTeamId={state.currentTeamId}
                           currentChannelId={state.currentChannelId}
@@ -6617,6 +6848,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         <ChannelWatchColumn
                           column={column}
                           mode="dm"
+                          currentUsername={state.username}
                           currentUserId={state.userId}
                           currentTeamId={state.currentTeamId}
                           currentChannelId={state.currentChannelId}
@@ -6653,6 +6885,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                       <div key={column.id} ref={setColumnRef} className="deck-column-motion">
                         <SearchLikeColumn
                           column={column}
+                          currentUsername={state.username}
                           teams={state.teams}
                           userDirectory={userDirectory}
                           ensureUsers={ensureUsers}
@@ -6679,6 +6912,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                       <div key={column.id} ref={setColumnRef} className="deck-column-motion">
                         <SavedPostsColumn
                           column={column}
+                          currentUsername={state.username}
                           userDirectory={userDirectory}
                           ensureUsers={ensureUsers}
                           canMoveLeft={index > 0}
