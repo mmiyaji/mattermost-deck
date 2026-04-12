@@ -16,7 +16,7 @@
     "test:theme": "MATTERMOST_BASE_URL=http://127.0.0.1:8066 MM95_STATE_FILE=e2e/mm95-state.json playwright test e2e/theme-compat.spec.ts --headed"
   },
   "dependencies": {
-    "i18next": "^26.0.1",
+    "i18next": "^26.0.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-i18next": "^17.0.1"
