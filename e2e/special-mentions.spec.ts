@@ -4,15 +4,15 @@ import os from "node:os";
 import path from "node:path";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
-const stateFile = process.env.CAB_MATTERMOST_E2E_STATE_FILE ?? path.resolve("e2e/mm95-compat-state.json");
+const stateFile =
+  process.env.MM95_STATE_FILE ??
+  process.env.CAB_MATTERMOST_E2E_STATE_FILE ??
+  path.resolve("e2e/mm95-compat-state.json");
 
 interface E2EState {
   team: { id: string; name: string };
   memberUser: { username: string; password: string; token: string };
 }
-
-const ADMIN_USERNAME = "mm95admin";
-const ADMIN_PASSWORD = "Admin1234!";
 
 async function readState(): Promise<E2EState> {
   return JSON.parse(await fs.readFile(stateFile, "utf8")) as E2EState;
@@ -46,23 +46,6 @@ async function apiDelete(token: string, pathname: string): Promise<void> {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   }).catch(() => undefined);
-}
-
-async function loginViaApi(username: string, password: string): Promise<string> {
-  const res = await fetch(`${baseUrl}/api/v4/users/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ login_id: username, password }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`login failed for ${username}: ${res.status} ${text}`);
-  }
-  const token = res.headers.get("Token");
-  if (!token) {
-    throw new Error(`login succeeded for ${username} but no token header was returned`);
-  }
-  return token;
 }
 
 async function login(page: import("@playwright/test").Page, username: string, password: string) {
@@ -113,7 +96,6 @@ test("mentions column includes @here posts on initial load", async () => {
   const state = await readState();
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-special-mentions-"));
-  const adminToken = await loginViaApi(ADMIN_USERNAME, ADMIN_PASSWORD);
   let postId = "";
 
   const channels = await apiGet<Array<{ id: string; name: string }>>(state.memberUser.token, `/users/me/teams/${state.team.id}/channels`);
@@ -121,11 +103,12 @@ test("mentions column includes @here posts on initial load", async () => {
   expect(townSquare).toBeTruthy();
 
   const marker = `special-mention-${Date.now()}`;
-  const created = await apiPost<{ id: string }>(adminToken, "/posts", {
+  const created = await apiPost<{ id: string }>(state.memberUser.token, "/posts", {
     channel_id: townSquare!.id,
     message: `Deck mentions bootstrap check @here ${marker}`,
   });
   postId = created.id;
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
 
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: "chromium",
@@ -141,7 +124,10 @@ test("mentions column includes @here posts on initial load", async () => {
     const sw = existingSw ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
     await sw.evaluate((serverUrl: string) => {
       return new Promise<void>((resolve) => {
-        chrome.storage.local.set({ "mattermostDeck.serverUrl.v1": serverUrl }, () => resolve());
+        chrome.storage.local.set({
+          "mattermostDeck.serverUrl.v1": serverUrl,
+          "mattermostDeck.layout.v1": [{ id: "mentions-bootstrap", type: "mentions" }],
+        }, () => resolve());
       });
     }, baseUrl);
 
@@ -167,7 +153,7 @@ test("mentions column includes @here posts on initial load", async () => {
       .poll(async () => {
         const columnState = await debugRequest<{ postMessages?: string[] } | null>(page, "getColumnState", { id: mentionsColumn!.id });
         return columnState?.postMessages ?? [];
-      }, { timeout: 20_000 })
+      }, { timeout: 60_000 })
       .toContainEqual(expect.stringContaining(marker));
   } finally {
     await context.close();

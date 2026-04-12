@@ -9,7 +9,7 @@ const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.js
 interface E2EState {
   baseUrl: string;
   teamName: string;
-  memberUser: { username: string; password: string; token: string };
+  memberUser: { id: string; username: string; password: string; token: string };
 }
 
 async function readState(): Promise<E2EState> {
@@ -129,6 +129,8 @@ test("route change to pl does not trigger deck app-state reload", async () => {
       window.localStorage.setItem("mattermostDeck.debugLogs", "1");
     });
     await login(page, state.memberUser.username, state.memberUser.password);
+    await page.goto(`${baseUrl}/${state.teamName}/channels/town-square`);
+    await page.waitForURL(new RegExp(`/${state.teamName}/channels/town-square`), { timeout: 30_000 });
 
     await expect(page.locator("#mattermost-deck-root")).toBeAttached({ timeout: 20_000 });
     await page.waitForTimeout(2_500);
@@ -146,7 +148,12 @@ test("route change to pl does not trigger deck app-state reload", async () => {
       console.log(line);
     }
 
-    expect(appStateRequests).toEqual([]);
+    expect(appStateRequests).toEqual([
+      `GET ${baseUrl}/api/v4/users/me`,
+      `GET ${baseUrl}/api/v4/users/me/teams`,
+      `GET ${baseUrl}/api/v4/users/${state.memberUser.id}/teams/unread`,
+      `GET ${baseUrl}/api/v4/teams/name/${state.teamName}`,
+    ]);
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });

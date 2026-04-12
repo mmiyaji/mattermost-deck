@@ -239,6 +239,11 @@ const stateFile = `${stateDir}/mm95-state.json`;
 mkdirSync(stateDir, { recursive: true });
 writeFileSync(stateFile, JSON.stringify({
   baseUrl: BASE_URL,
+  team: {
+    id: teamId,
+    name: TEAM_NAME,
+    display_name: TEAM_DISPLAY,
+  },
   teamName: TEAM_NAME,
   memberUser: {
     id: memberId,

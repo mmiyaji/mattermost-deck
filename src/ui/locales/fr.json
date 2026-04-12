@@ -73,6 +73,8 @@
     "resizeLabel": "Redimensionner la zone Deck",
     "resizeDrag": "Faire glisser pour redimensionner la zone Deck",
     "moreActionsLabel": "Ouvrir plus d'actions",
+    "focusPane": "Mettre le volet en focus",
+    "exitFocus": "Quitter le focus",
     "collapseControls": "R\u00e9duire les contr\u00f4les {{name}}",
     "expandControls": "D\u00e9velopper les contr\u00f4les {{name}}"
   },

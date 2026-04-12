@@ -866,6 +866,14 @@ export const railCssText = `
     min-height: 0;
   }
 
+  .deck-columns--focus {
+    min-width: 100% !important;
+  }
+
+  .deck-columns--focus .deck-column-tail {
+    display: none;
+  }
+
   .deck-column-tail {
     position: relative;
     display: flex;
@@ -901,6 +909,16 @@ export const railCssText = `
     will-change: transform;
   }
 
+  .deck-columns--focus .deck-column-motion--hidden {
+    display: none;
+  }
+
+  .deck-columns--focus .deck-column-motion--focused {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+  }
+
   .deck-column {
     display: flex;
     flex: 1 1 auto;
@@ -918,6 +936,12 @@ export const railCssText = `
     box-shadow: var(--deck-shadow);
     overflow: hidden;
     position: relative;
+  }
+
+  .deck-columns--focus .deck-column-motion--focused .deck-column {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
   }
 
   .deck-column::before {
@@ -1015,6 +1039,16 @@ export const railCssText = `
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .deck-focus-icon {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   .deck-controls {

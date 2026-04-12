@@ -70,6 +70,8 @@
     "resizeLabel": "\u8c03\u6574 Deck \u533a\u57df\u5927\u5c0f",
     "resizeDrag": "\u62d6\u52a8\u4ee5\u8c03\u6574 Deck \u533a\u57df\u5927\u5c0f",
     "moreActionsLabel": "\u6253\u5f00\u66f4\u591a\u64cd\u4f5c",
+    "focusPane": "\u805a\u7126\u6b64\u9762\u677f",
+    "exitFocus": "\u9000\u51fa\u805a\u7126",
     "collapseControls": "\u6298\u53e0 {{name}} \u63a7\u4ef6",
     "expandControls": "\u5c55\u5f00 {{name}} \u63a7\u4ef6"
   },
