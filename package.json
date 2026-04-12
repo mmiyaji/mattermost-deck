@@ -16,14 +16,14 @@
     "test:theme": "MATTERMOST_BASE_URL=http://127.0.0.1:8066 MM95_STATE_FILE=e2e/mm95-state.json playwright test e2e/theme-compat.spec.ts --headed"
   },
   "dependencies": {
-    "i18next": "^26.0.1",
+    "i18next": "^26.0.4",
     "react": "^19.2.5",
-    "react-dom": "^19.2.0",
+    "react-dom": "^19.2.5",
     "react-i18next": "^17.0.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
-    "@types/chrome": "^0.1.24",
+    "@types/chrome": "^0.1.40",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
