@@ -4,7 +4,10 @@ import os from "node:os";
 import path from "node:path";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
-const stateFile = process.env.CAB_MATTERMOST_E2E_STATE_FILE ?? path.resolve("e2e/mm95-compat-state.json");
+const stateFile =
+  process.env.MM95_STATE_FILE ??
+  process.env.CAB_MATTERMOST_E2E_STATE_FILE ??
+  path.resolve("e2e/mm95-compat-state.json");
 const ADMIN_USERNAME = "mm95admin";
 const ADMIN_PASSWORD = "Admin1234!";
 

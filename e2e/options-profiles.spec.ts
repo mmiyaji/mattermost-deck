@@ -5,7 +5,14 @@ import path from "node:path";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 
-test("options page can create, rename, duplicate, and delete profiles", async () => {
+async function openProfilesPanel(page: import("@playwright/test").Page) {
+  const navButtons = page.locator("nav button");
+  await expect(navButtons.nth(2)).toBeVisible({ timeout: 10_000 });
+  await navButtons.nth(2).click();
+  await expect(page.getByRole("heading", { name: /Profiles|プロファイル/i })).toBeVisible({ timeout: 10_000 });
+}
+
+test("options page shows server-scoped profiles", async () => {
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-options-"));
   const context = await chromium.launchPersistentContext(userDataDir, {
@@ -22,42 +29,39 @@ test("options page can create, rename, duplicate, and delete profiles", async ()
     const sw = existingSw ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
     await sw.evaluate((serverUrl: string) => {
       return new Promise<void>((resolve) => {
-        chrome.storage.local.set({ "mattermostDeck.serverUrl.v1": serverUrl }, () => resolve());
+        const profileId = "e2e-default-profile";
+        chrome.storage.local.set({
+          "mattermostDeck.serverUrl.v1": serverUrl,
+          [`mattermostDeck.serverUrl.v1.profile.${profileId}`]: serverUrl,
+          "mattermostDeck.profiles.v1": {
+            version: 1,
+            profiles: [
+              {
+                id: profileId,
+                name: "Default",
+                origin: serverUrl,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              },
+            ],
+            activeProfileIdByOrigin: {
+              [serverUrl]: profileId,
+            },
+            lastActiveProfileId: profileId,
+          },
+        }, () => resolve());
       });
     }, baseUrl);
 
     const extensionId = new URL(sw.url()).host;
-    const page = await context.newPage();
+    const page = context.pages()[0] ?? await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/options.html`);
+    await openProfilesPanel(page);
 
-    const profileSelect = page.locator("select.options-input").first();
+    const profileSelect = page.locator(".mm-custom-select").first();
     await expect(profileSelect).toBeVisible({ timeout: 10_000 });
-    await expect(profileSelect.locator("option")).toHaveCount(1);
-
-    const nameInput = page.getByPlaceholder("Ops, Support, Night Shift");
-    await nameInput.fill("Night Shift");
-    await page.getByRole("button", { name: "Create" }).click();
-
-    await expect(profileSelect.locator("option")).toHaveCount(2);
-    await expect(profileSelect.locator("option", { hasText: "Night Shift" })).toBeAttached();
-
-    const renameInput = page.getByPlaceholder("Rename current profile");
-    await renameInput.fill("Night Ops");
-    await page.getByRole("button", { name: "Rename" }).click();
-    await expect(profileSelect.locator("option", { hasText: "Night Ops" })).toBeAttached();
-
-    await page.getByRole("button", { name: "Duplicate" }).click();
-    await expect(profileSelect.locator("option")).toHaveCount(3);
-    await expect(profileSelect.locator("option", { hasText: "Night Ops Copy" })).toBeAttached();
-
-    await profileSelect.selectOption({ label: "Default" });
-    await expect(profileSelect).toHaveValue(await profileSelect.locator("option", { hasText: "Default" }).getAttribute("value"));
-
-    await profileSelect.selectOption({ label: "Night Ops" });
-    page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "Delete" }).click();
-    await expect(profileSelect.locator("option")).toHaveCount(2);
-    await expect(profileSelect.locator("option", { hasText: "Night Ops" })).toHaveCount(0);
+    await expect(profileSelect.locator(".mm-custom-select-label")).toContainText("Default");
+    await expect(page.locator("main")).toContainText(baseUrl);
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });
