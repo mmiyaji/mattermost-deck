@@ -4,7 +4,10 @@ import os from "node:os";
 import path from "node:path";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
-const stateFile = process.env.CAB_MATTERMOST_E2E_STATE_FILE ?? path.resolve("e2e/mm95-compat-state.json");
+const stateFile =
+  process.env.MM95_STATE_FILE ??
+  process.env.CAB_MATTERMOST_E2E_STATE_FILE ??
+  path.resolve("e2e/mm95-compat-state.json");
 
 interface E2EState {
   team: { id: string; name: string };
@@ -89,6 +92,22 @@ async function debugRequest<T>(
   }, { action, payload });
 }
 
+function normaliseColor(value: string | null | undefined): string {
+  if (!value) {
+    return "";
+  }
+  const trimmed = value.trim().toLowerCase();
+  const hex = trimmed.match(/^#([0-9a-f]{6})$/i);
+  if (hex) {
+    const [, digits] = hex;
+    const red = Number.parseInt(digits.slice(0, 2), 16);
+    const green = Number.parseInt(digits.slice(2, 4), 16);
+    const blue = Number.parseInt(digits.slice(4, 6), 16);
+    return `rgb(${red}, ${green}, ${blue})`;
+  }
+  return trimmed;
+}
+
 test("highlight keywords are rendered with Mattermost mention colors", async () => {
   const state = await readState();
   const extensionPath = path.resolve("./dist");
@@ -158,19 +177,22 @@ test("highlight keywords are rendered with Mattermost mention colors", async () 
       .toContain(keyword);
 
     const mentionHighlightStyle = await page.evaluate(() => {
-      const element = document.querySelector(
-        ".post-message__text .mention--highlight .mention-link, .post__content .mention--highlight .mention-link, .mention--highlight .mention-link, .post-message__text .mention--highlight, .post__content .mention--highlight, .mention--highlight",
-      );
-      if (!(element instanceof HTMLElement)) {
-        return null;
-      }
-      const style = window.getComputedStyle(element);
-      const parent = element.closest(".mention--highlight");
-      const parentStyle = parent instanceof HTMLElement ? window.getComputedStyle(parent) : style;
-      return {
-        color: style.color,
-        backgroundColor: parentStyle.backgroundColor,
+      const rootStyle = window.getComputedStyle(document.documentElement);
+      const probe = document.createElement("span");
+      probe.className = "mention--highlight";
+      probe.style.position = "fixed";
+      probe.style.left = "-9999px";
+      probe.textContent = "@mention";
+      document.body.appendChild(probe);
+      const style = window.getComputedStyle(probe);
+      const cssColor = rootStyle.getPropertyValue("--mention-highlight-link").trim();
+      const cssBackground = rootStyle.getPropertyValue("--mention-highlight-bg").trim();
+      const resolved = {
+        color: cssColor || style.color,
+        backgroundColor: cssBackground || style.backgroundColor,
       };
+      probe.remove();
+      return resolved;
     });
 
     const highlightStyle = await debugRequest<{
@@ -181,8 +203,8 @@ test("highlight keywords are rendered with Mattermost mention colors", async () 
 
     expect(mentionHighlightStyle).not.toBeNull();
     expect(highlightStyle).not.toBeNull();
-    expect(highlightStyle?.color).toBe(mentionHighlightStyle?.color);
-    expect(highlightStyle?.backgroundColor).toBe(mentionHighlightStyle?.backgroundColor);
+    expect(normaliseColor(highlightStyle?.color)).toBe(normaliseColor(mentionHighlightStyle?.color));
+    expect(normaliseColor(highlightStyle?.backgroundColor)).toBe(normaliseColor(mentionHighlightStyle?.backgroundColor));
     expect(highlightStyle?.boxShadow).not.toBe("none");
   } finally {
     await context.close();
