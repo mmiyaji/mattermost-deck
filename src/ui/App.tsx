@@ -5749,6 +5749,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
   const currentRoute = useMemo(() => readCurrentRoute(), [currentRouteKey]);
   const [reconnectNonce, setReconnectNonce] = useState(0);
+  const [stateRefreshNonce, setStateRefreshNonce] = useState(0);
   const [postedEvent, setPostedEvent] = useState<PostedEvent | null>(null);
   const [realtimeAuthError, setRealtimeAuthError] = useState<string | null>(null);
   const [userDirectory, setUserDirectory] = useState<Record<string, MattermostUser>>({});
@@ -5759,8 +5760,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const deckSettings = useDeckSettingsState();
   const text = useAppText();
   useEffect(() => { void i18n.changeLanguage(deckSettings.language); }, [deckSettings.language]);
-  const realtimeEnabled = deckSettings.wsPat.trim().length > 0;
-  const state = useDeckState(currentRouteKey, reconnectNonce, realtimeEnabled, deckSettings.pollingIntervalSeconds);
+  const effectiveRealtimeEnabled = deckSettings.wsPat.trim().length > 0 && !realtimeAuthError;
+  const state = useDeckState(currentRouteKey, stateRefreshNonce, effectiveRealtimeEnabled, deckSettings.pollingIntervalSeconds);
   const [mentionsLastReadAt, setMentionsLastReadAt] = useMentionsLastReadAt();
   const [columns, addColumn, removeColumn, updateColumn, moveColumn, replaceColumns] = useDeckLayout();
   const [recentTargets, rememberRecentTarget] = useRecentTargets();
@@ -5888,7 +5889,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   }, []);
 
   const healthStatusLabel = getApiHealthLabel(apiHealthStatus);
-  const connectionModeLabel = realtimeAuthError ? "Polling (realtime auth failed)" : realtimeEnabled ? "Realtime" : "Polling";
+  const connectionModeLabel = realtimeAuthError ? "Polling (realtime auth failed)" : effectiveRealtimeEnabled ? "Realtime" : "Polling";
   const syncStatusLabel = `${healthStatusLabel} / ${connectionModeLabel}`;
   const shouldSafeStop = state.sessionExpired;
   const handleOpenPost = useCallback(
@@ -6061,22 +6062,36 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
     return connectMattermostWebSocket({
       username: state.username,
-      enabled: realtimeEnabled && !state.sessionExpired && !realtimeAuthError,
+      enabled: effectiveRealtimeEnabled && !state.sessionExpired,
       token: deckSettings.wsPat,
       onReconnect: () => {
+        debugLog("app.ws.reconnect-refresh", { reason: "websocket-reconnect" });
+        setStateRefreshNonce((current) => current + 1);
         setReconnectNonce((current) => current + 1);
       },
       onPosted: (event) => {
+        debugLog("app.ws.posted", {
+          channelId: event.channelId,
+          teamId: event.teamId ?? null,
+          mentionsUser: event.mentionsUser,
+          postId: event.post.id,
+        });
         setPostedEvent(event);
         if (event.mentionsUser && (hasAllMentionsColumn || (event.teamId && mentionTeamIds.has(event.teamId)))) {
-          setReconnectNonce((current) => current + 1);
+          debugLog("app.ws.mention-refresh", {
+            scope: "state-only",
+            teamId: event.teamId ?? null,
+            channelId: event.channelId,
+            postId: event.post.id,
+          });
+          setStateRefreshNonce((current) => current + 1);
         }
       },
       onAuthFailure: (message) => {
         setRealtimeAuthError(message);
       },
     });
-  }, [columns, deckSettings.wsPat, realtimeAuthError, realtimeEnabled, state.sessionExpired, state.username]);
+  }, [columns, deckSettings.wsPat, effectiveRealtimeEnabled, state.sessionExpired, state.username]);
 
   useEffect(() => {
     if (!isResizing || !drawerOpen) {
@@ -6636,7 +6651,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
               </p>
             </div>
             <div className="deck-topbar-actions">
-              {realtimeEnabled ? (
+              {effectiveRealtimeEnabled ? (
                 <div
                   className={`deck-status-badge deck-status-badge--${apiHealthStatus}${isCompactHeader ? " deck-status-badge--compact" : ""}`}
                   title={syncStatusLabel}
@@ -6645,7 +6660,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                   <span className="deck-status-badge-copy">
                     <HealthStatusIcon status={apiHealthStatus} />
                     {!isCompactHeader ? <span>{healthStatusLabel}</span> : null}
-                    <StatusModeIcon realtimeEnabled={realtimeEnabled} />
+                    <StatusModeIcon realtimeEnabled={effectiveRealtimeEnabled} />
                   </span>
                 </div>
               ) : (
@@ -6659,7 +6674,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                   <span className="deck-status-badge-copy">
                     <HealthStatusIcon status={apiHealthStatus} />
                     {!isCompactHeader ? <span>{healthStatusLabel}</span> : null}
-                    <StatusModeIcon realtimeEnabled={realtimeEnabled} />
+                    <StatusModeIcon realtimeEnabled={effectiveRealtimeEnabled} />
                   </span>
                 </button>
               )}
@@ -7020,7 +7035,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           onSetMentionsLastReadAt={setMentionsLastReadAt}
                           currentTeamId={state.currentTeamId}
                           currentChannelId={state.currentChannelId}
-                          realtimeEnabled={realtimeEnabled}
+                          realtimeEnabled={effectiveRealtimeEnabled}
                           teams={state.teams}
                           unreads={state.unreads}
                           userDirectory={userDirectory}
@@ -7058,7 +7073,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           currentChannelId={state.currentChannelId}
                           currentTeamLabel={state.currentTeamLabel}
                           currentChannelLabel={state.currentChannelLabel}
-                          realtimeEnabled={realtimeEnabled}
+                          realtimeEnabled={effectiveRealtimeEnabled}
                           teams={state.teams}
                           userDirectory={userDirectory}
                           ensureUsers={ensureUsers}
@@ -7097,7 +7112,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           currentChannelId={state.currentChannelId}
                           currentTeamLabel={state.currentTeamLabel}
                           currentChannelLabel={state.currentChannelLabel}
-                          realtimeEnabled={realtimeEnabled}
+                          realtimeEnabled={effectiveRealtimeEnabled}
                           teams={state.teams}
                           userDirectory={userDirectory}
                           ensureUsers={ensureUsers}
@@ -7191,7 +7206,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           wsStatus={wsStatus}
                           syncLogs={syncLogs}
                           apiHealthStatus={apiHealthStatus}
-                          realtimeEnabled={realtimeEnabled}
+                          realtimeEnabled={effectiveRealtimeEnabled}
                           runtimeMetrics={runtimeMetrics}
                           canMoveLeft={index > 0}
                           canMoveRight={index < allColumns.length - 1}

@@ -151,7 +151,7 @@ npm run capture:readme
 
 ## Release
 
-Push a tag in `v` format, such as `v0.2.0`, to trigger GitHub Actions.
+Push a tag in `v` format, such as `v0.2.1`, to trigger GitHub Actions.
 
 - Runs `npm ci`, `npm run check`, and `npm run build`
 - Packages `dist/` as `mattermost-deck-<tag>.zip`

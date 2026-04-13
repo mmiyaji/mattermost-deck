@@ -66,6 +66,25 @@ function hasMentionForDeck(message: string, username: string | null): boolean {
   return (userMentionPattern?.test(message) ?? false) || SPECIAL_MENTION_PATTERN.test(message);
 }
 
+export function mentionsPayloadIncludesUser(mentions: string, username: string | null): boolean {
+  if (!username) {
+    return false;
+  }
+
+  const normalizedUsername = username.trim().toLowerCase();
+  if (!normalizedUsername) {
+    return false;
+  }
+
+  const tokens = mentions
+    .toLowerCase()
+    .split(/[^a-z0-9._-]+/i)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  return tokens.includes(normalizedUsername);
+}
+
 function jitter(ms: number): number {
   const variance = Math.floor(ms * 0.2);
   return ms + Math.floor((Math.random() * (variance * 2 + 1)) - variance);
@@ -95,7 +114,7 @@ function parsePostedEvent(
     const mentionsUser =
       (typeof post.message === "string" && hasMentionForDeck(post.message, username)) ||
       (typeof payload.data.mentions === "string" &&
-        payload.data.mentions.toLowerCase().includes(username?.toLowerCase() ?? ""));
+        mentionsPayloadIncludesUser(payload.data.mentions, username));
 
     return {
       channelId,

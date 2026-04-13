@@ -7,6 +7,23 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-04-13
+
+### Added
+
+- Docker-backed Playwright coverage for `@here` and `@channel` special mentions to verify the deck root does not remount during live updates
+- Unit coverage for WebSocket mention payload parsing to prevent username substring false positives
+
+### Changed
+
+- Separated WebSocket reconnect refresh from mention-driven state refresh so special mentions no longer fan out a full pane reload path
+- Unified effective realtime mode handling so WebSocket auth failures fall back to the normal polling cadence instead of the slower realtime fallback interval
+
+### Fixed
+
+- Prevented `@here` and `@channel` live mention updates from looking like an extension reload when multiple channels are joined
+- Fixed WebSocket mention detection to require exact username matches in the server `mentions` payload
+
 ## [0.2.0] - 2026-04-10
 
 ### Added
