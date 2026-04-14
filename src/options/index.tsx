@@ -48,8 +48,41 @@ const PAT_GUIDE_URL = "https://docs.mattermost.com/agents/mcpserver/README.html"
 const STORE_URL = ""; // Chrome Web Store URL (fill in after publication)
 const AUTHOR_NAME = "mmiyaji";
 const COPYRIGHT_YEAR = "2026";
+const CHANGELOG_URL = "https://github.com/mmiyaji/mattermost-deck/blob/main/CHANGELOG.md";
+const RELEASE_NOTICE_STORAGE_KEY = "mattermostDeck.releaseNotice.v1";
 
 type ActivePanel = "guide" | "conn" | "profiles" | "realtime" | "appearance" | "behavior" | "performance" | "security";
+
+type ReleaseNotice = {
+  version: string;
+  previousVersion: string | null;
+  seen: boolean;
+};
+
+type ReleaseNotes = {
+  title: string;
+  added: string[];
+  changed: string[];
+  fixed: string[];
+};
+
+const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotes> = {
+  "0.2.1": {
+    title: "v0.2.1",
+    added: [
+      "Docker-backed Playwright coverage for @here and @channel special mentions",
+      "Unit coverage for WebSocket mention payload parsing",
+    ],
+    changed: [
+      "Separated WebSocket reconnect refresh from mention-driven state refresh",
+      "Unified effective realtime mode handling after WebSocket auth failure",
+    ],
+    fixed: [
+      "Reduced the reload-like behavior on @here and @channel live updates",
+      "Prevented username substring false positives in WebSocket mention detection",
+    ],
+  },
+};
 
 function useOptionsText() {
   const { t } = useTranslation();
@@ -203,6 +236,13 @@ function useOptionsText() {
     termsOfUse: t("options.termsOfUse"),
     github: t("options.github"),
     storeLink: t("options.storeLink"),
+    releaseNotesOpen: t("options.releaseNotesOpen", { defaultValue: "Open changelog" }),
+    releaseNotesView: t("options.releaseNotesView", { defaultValue: "What's new" }),
+    releaseNotesDismiss: t("options.releaseNotesDismiss", { defaultValue: "Dismiss" }),
+    releaseNotesClose: t("options.releaseNotesClose", { defaultValue: "Close" }),
+    releaseNotesAdded: t("options.releaseNotesAdded", { defaultValue: "Added" }),
+    releaseNotesChanged: t("options.releaseNotesChanged", { defaultValue: "Changed" }),
+    releaseNotesFixed: t("options.releaseNotesFixed", { defaultValue: "Fixed" }),
   }), [t]);
 }
 
@@ -907,6 +947,95 @@ const pageCss = `
     flex: 1;
   }
 
+  .options-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(6, 10, 18, 0.62);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    z-index: 20;
+  }
+
+  .options-modal {
+    width: min(760px, 100%);
+    max-height: min(80vh, 920px);
+    overflow: auto;
+    border-radius: 14px;
+    border: 1px solid rgba(123, 178, 255, 0.18);
+    background: linear-gradient(180deg, rgba(13, 20, 34, 0.98), rgba(10, 16, 28, 0.98));
+    box-shadow: 0 18px 64px rgba(0, 0, 0, 0.34);
+    padding: 20px 22px;
+  }
+
+  body[data-theme="light"] .options-modal {
+    background: rgba(238, 245, 253, 0.98);
+    border-color: rgba(84, 120, 168, 0.2);
+  }
+
+  .options-modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .options-modal-header h3 {
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  .options-modal-header p {
+    margin-top: 4px;
+    color: #8facd5;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  body[data-theme="light"] .options-modal-header p {
+    color: #496583;
+  }
+
+  .options-modal-sections {
+    display: grid;
+    gap: 14px;
+  }
+
+  .options-modal-section {
+    padding: 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(123, 178, 255, 0.14);
+    background: rgba(123, 178, 255, 0.05);
+  }
+
+  body[data-theme="light"] .options-modal-section {
+    border-color: rgba(84, 120, 168, 0.16);
+    background: rgba(15, 113, 215, 0.05);
+  }
+
+  .options-modal-section strong {
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  .options-modal-list {
+    display: grid;
+    gap: 8px;
+    padding-left: 18px;
+  }
+
+  .options-modal-list li {
+    line-height: 1.5;
+    color: #d9e7fb;
+  }
+
+  body[data-theme="light"] .options-modal-list li {
+    color: #243b58;
+  }
+
   /* Radio / Checkbox */
   .options-choice-row {
     display: flex;
@@ -1561,6 +1690,37 @@ function getManifestVersion(): string {
   }
 }
 
+async function loadReleaseNotice(): Promise<ReleaseNotice | null> {
+  try {
+    const payload = await chrome.storage.local.get(RELEASE_NOTICE_STORAGE_KEY);
+    const candidate = payload[RELEASE_NOTICE_STORAGE_KEY] as Partial<ReleaseNotice> | undefined;
+    if (!candidate || typeof candidate.version !== "string" || candidate.seen !== false) {
+      return null;
+    }
+    return {
+      version: candidate.version,
+      previousVersion: typeof candidate.previousVersion === "string" ? candidate.previousVersion : null,
+      seen: false,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function markReleaseNoticeSeen(currentVersion: string): Promise<void> {
+  try {
+    await chrome.storage.local.set({
+      [RELEASE_NOTICE_STORAGE_KEY]: {
+        version: currentVersion,
+        previousVersion: null,
+        seen: true,
+      } satisfies ReleaseNotice,
+    });
+  } catch {
+    return;
+  }
+}
+
 // Component
 
 function OptionsApp(): React.JSX.Element {
@@ -1577,6 +1737,8 @@ function OptionsApp(): React.JSX.Element {
   const [savedNotice, setSavedNotice] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [releaseNotice, setReleaseNotice] = useState<ReleaseNotice | null>(null);
+  const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
   const [activePanel, setActivePanel] = useState<ActivePanel>("conn");
   const [performanceWide, setPerformanceWide] = useState(false);
   const installBannerRef = useRef<HTMLDivElement>(null);
@@ -1598,10 +1760,12 @@ function OptionsApp(): React.JSX.Element {
     let cancelled = false;
     const run = async () => {
       const next = await loadDeckSettings();
+      const pendingReleaseNotice = await loadReleaseNotice();
       if (!cancelled) {
         setSettings(next);
         setInitialServerUrl(next.serverUrl);
         setProfileOrigin(next.serverUrl);
+        setReleaseNotice(pendingReleaseNotice);
         setLoaded(true);
         const profileSnapshot = await loadDeckProfiles(next.serverUrl || undefined);
         if (!cancelled) {
@@ -2014,6 +2178,12 @@ function OptionsApp(): React.JSX.Element {
     clearTraceEntries();
   };
 
+  const handleDismissReleaseNotice = () => {
+    setReleaseNotice(null);
+    void markReleaseNoticeSeen(version);
+  };
+  const currentReleaseNotes = releaseNotice ? RELEASE_NOTES_BY_VERSION[releaseNotice.version] ?? null : null;
+
   return (
     <div className="options-app">
 
@@ -2070,6 +2240,50 @@ function OptionsApp(): React.JSX.Element {
         {/* Content */}
         <main className="options-content">
           <div className="options-panel-scroll">
+
+          {releaseNotice && (
+            <div className="options-callout" role="note">
+              <strong>
+                {t("options.releaseNotesTitle", {
+                  defaultValue: "Updated to v{{version}}",
+                  version: releaseNotice.version,
+                })}
+              </strong>
+              <p>
+                {releaseNotice.previousVersion
+                  ? t("options.releaseNotesFromBody", {
+                    defaultValue: "Updated from v{{previousVersion}} to v{{version}}. Review the latest changes before adjusting your settings.",
+                    previousVersion: releaseNotice.previousVersion,
+                    version: releaseNotice.version,
+                  })
+                  : t("options.releaseNotesBody", {
+                    defaultValue: "Review the latest changes before adjusting your settings.",
+                    version: releaseNotice.version,
+                  })}
+              </p>
+              <div className="options-inline" style={{ marginTop: "12px" }}>
+                <a className="options-button options-button--ghost" href={CHANGELOG_URL} target="_blank" rel="noreferrer">
+                  {text.releaseNotesOpen}
+                </a>
+                {currentReleaseNotes ? (
+                  <button
+                    type="button"
+                    className="options-button options-button--ghost"
+                    onClick={() => setShowReleaseNotesModal(true)}
+                  >
+                    {text.releaseNotesView}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="options-button options-button--ghost"
+                  onClick={handleDismissReleaseNotice}
+                >
+                  {text.releaseNotesDismiss}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Install PWA banner */}
           {showInstallBanner && (
@@ -3113,6 +3327,59 @@ function OptionsApp(): React.JSX.Element {
 
         </main>
       </div>
+
+      {showReleaseNotesModal && currentReleaseNotes ? (
+        <div className="options-modal-backdrop" role="presentation" onClick={() => setShowReleaseNotesModal(false)}>
+          <div className="options-modal" role="dialog" aria-modal="true" aria-labelledby="release-notes-title" onClick={(event) => event.stopPropagation()}>
+            <div className="options-modal-header">
+              <div>
+                <h3 id="release-notes-title">{currentReleaseNotes.title}</h3>
+                <p>
+                  {releaseNotice?.previousVersion
+                    ? t("options.releaseNotesFromBody", {
+                      defaultValue: "Updated from v{{previousVersion}} to v{{version}}. Review the latest changes before adjusting your settings.",
+                      previousVersion: releaseNotice.previousVersion,
+                      version: releaseNotice.version,
+                    })
+                    : t("options.releaseNotesBody", {
+                      defaultValue: "Review the latest changes before adjusting your settings.",
+                      version: releaseNotice?.version ?? currentReleaseNotes.title,
+                    })}
+                </p>
+              </div>
+              <button type="button" className="options-button options-button--ghost" onClick={() => setShowReleaseNotesModal(false)}>
+                {text.releaseNotesClose}
+              </button>
+            </div>
+            <div className="options-modal-sections">
+              {currentReleaseNotes.added.length > 0 ? (
+                <section className="options-modal-section">
+                  <strong>{text.releaseNotesAdded}</strong>
+                  <ul className="options-modal-list">
+                    {currentReleaseNotes.added.map((item) => <li key={`added-${item}`}>{item}</li>)}
+                  </ul>
+                </section>
+              ) : null}
+              {currentReleaseNotes.changed.length > 0 ? (
+                <section className="options-modal-section">
+                  <strong>{text.releaseNotesChanged}</strong>
+                  <ul className="options-modal-list">
+                    {currentReleaseNotes.changed.map((item) => <li key={`changed-${item}`}>{item}</li>)}
+                  </ul>
+                </section>
+              ) : null}
+              {currentReleaseNotes.fixed.length > 0 ? (
+                <section className="options-modal-section">
+                  <strong>{text.releaseNotesFixed}</strong>
+                  <ul className="options-modal-list">
+                    {currentReleaseNotes.fixed.map((item) => <li key={`fixed-${item}`}>{item}</li>)}
+                  </ul>
+                </section>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

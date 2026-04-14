@@ -1,6 +1,7 @@
 import { SETTINGS_KEYS, originToPermissionPattern } from "./ui/settings";
 
 const CONTENT_SCRIPT_ID = "mattermost-deck-content";
+const RELEASE_NOTICE_STORAGE_KEY = "mattermostDeck.releaseNotice.v1";
 
 async function getConfiguredServerUrl(): Promise<string> {
   const payload = await chrome.storage.local.get(SETTINGS_KEYS.serverUrl);
@@ -41,9 +42,23 @@ async function syncDeckContentScript(): Promise<void> {
   ]);
 }
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
   void syncDeckContentScript();
-  void chrome.runtime.openOptionsPage();
+
+  if (details.reason === "install") {
+    void chrome.runtime.openOptionsPage();
+    return;
+  }
+
+  if (details.reason === "update") {
+    void chrome.storage.local.set({
+      [RELEASE_NOTICE_STORAGE_KEY]: {
+        version: chrome.runtime.getManifest().version,
+        previousVersion: details.previousVersion ?? null,
+        seen: false,
+      },
+    });
+  }
 });
 
 chrome.runtime.onStartup.addListener(() => {
