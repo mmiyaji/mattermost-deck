@@ -161,13 +161,21 @@ export function uniqueTerms(terms: string[]): string[] {
   return result;
 }
 
+export function buildDefaultHighlightTerms(defaultTerm?: string | null): string[] {
+  const fallback = defaultTerm?.trim();
+  if (!fallback) {
+    return [];
+  }
+
+  return uniqueTerms([`@${fallback}`, "@all", "@here", "@channel"]);
+}
+
 export function resolveHighlightTerms(highlightKeywords: string, defaultTerm?: string | null): string[] {
   const configured = extractHighlightKeywords(highlightKeywords);
   if (configured.length > 0) {
     return configured;
   }
-  const fallback = defaultTerm?.trim();
-  return fallback ? [fallback] : [];
+  return buildDefaultHighlightTerms(defaultTerm);
 }
 
 function renderTextHighlights(text: string, terms: string[]): React.ReactNode {

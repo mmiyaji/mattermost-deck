@@ -7,6 +7,17 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-04-14
+
+### Added
+
+- Unit coverage for default highlight keyword fallback behavior
+
+### Changed
+
+- Empty highlight keyword settings now default to `@username`, `@all`, `@here`, and `@channel`
+- Updated options copy to explain the mention-oriented default highlight behavior
+
 ## [0.2.1] - 2026-04-13
 
 ### Added
