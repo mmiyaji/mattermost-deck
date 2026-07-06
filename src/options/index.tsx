@@ -67,6 +67,21 @@ type ReleaseNotes = {
 };
 
 const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotes> = {
+  "0.2.3": {
+    title: "v0.2.3",
+    added: [],
+    changed: [
+      "Reduced settings storage churn and reused cached channel lookups",
+      "Shared refresh and polling behavior across deck panes",
+      "Localized post date labels using the selected UI language",
+    ],
+    fixed: [
+      "Ignored malformed WebSocket frames without disrupting realtime sync",
+      "Made non-persistent PAT storage available to content scripts",
+      "Removed a MAIN-world storage call from the PWA install helper",
+      "Validated imported layout files before applying them",
+    ],
+  },
   "0.2.1": {
     title: "v0.2.1",
     added: [
