@@ -1,5 +1,6 @@
 import React from "react";
 import type { MattermostPost, MattermostUser } from "../mattermost/api";
+import i18n from "./i18n";
 import { extractHighlightKeywords, tokenizePostText } from "./postText";
 
 const COMPACT_AUTHOR_COLORS = [
@@ -24,6 +25,10 @@ function hashString(value: string): number {
   return Math.abs(hash);
 }
 
+function getCurrentDateLocale(): string {
+  return i18n.resolvedLanguage || i18n.language || "en";
+}
+
 export function formatPostTime(timestamp: number): string {
   const date = new Date(timestamp);
   const now = new Date();
@@ -33,7 +38,7 @@ export function formatPostTime(timestamp: number): string {
     date.getDate() === now.getDate();
 
   return new Intl.DateTimeFormat(
-    "ja-JP",
+    getCurrentDateLocale(),
     isToday ? { hour: "2-digit", minute: "2-digit" } : { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" },
   ).format(date);
 }
@@ -56,9 +61,9 @@ function getPostDayLabel(timestamp: number): string {
     date.getMonth() === now.getMonth() &&
     date.getDate() === now.getDate();
   if (isToday) {
-    return "Today";
+    return i18n.t("deck.today", { defaultValue: "Today" });
   }
-  return new Intl.DateTimeFormat("ja-JP", { month: "2-digit", day: "2-digit" }).format(date);
+  return new Intl.DateTimeFormat(getCurrentDateLocale(), { month: "2-digit", day: "2-digit" }).format(date);
 }
 
 export type PostListEntry =

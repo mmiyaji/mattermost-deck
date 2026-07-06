@@ -44,6 +44,7 @@ import {
   loadDeckLayout,
   loadStoredJson,
   loadStoredNumber,
+  normaliseColumns,
   saveDeckLayout,
   saveStoredJson,
   saveStoredNumber,
@@ -185,6 +186,10 @@ const CHANNEL_FANOUT_BATCH_SIZE = 3;
 const CHANNEL_FANOUT_GAP_MS = 150;
 const ROUTE_EVENT = "mattermost-deck-route-change";
 
+function getCurrentDateLocale(): string {
+  return i18n.resolvedLanguage || i18n.language || "en";
+}
+
 declare global {
   interface Window {
     __mattermostDeckDebug?: {
@@ -245,6 +250,101 @@ function debugLog(event: string, payload?: Record<string, unknown>): void {
   }
   console.info(`[deck-debug] ${event}`);
   addTraceEntry({ source: "app", level: "info", event });
+}
+
+function useRefreshIndicator(): {
+  isRefreshing: boolean;
+  startRefresh: () => void;
+  finishRefresh: () => void;
+} {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const refreshStartedAtRef = useRef<number | null>(null);
+  const refreshStopTimerRef = useRef<number | null>(null);
+
+  const startRefresh = useCallback(() => {
+    refreshStartedAtRef.current = Date.now();
+    setIsRefreshing(true);
+  }, []);
+
+  const finishRefresh = useCallback(() => {
+    if (refreshStartedAtRef.current === null) {
+      setIsRefreshing(false);
+      return;
+    }
+    const elapsed = Date.now() - refreshStartedAtRef.current;
+    const remaining = Math.max(0, MIN_MANUAL_REFRESH_MS - elapsed);
+    if (refreshStopTimerRef.current !== null) {
+      window.clearTimeout(refreshStopTimerRef.current);
+    }
+    refreshStopTimerRef.current = window.setTimeout(() => {
+      setIsRefreshing(false);
+      refreshStartedAtRef.current = null;
+      refreshStopTimerRef.current = null;
+    }, remaining);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (refreshStopTimerRef.current !== null) {
+        window.clearTimeout(refreshStopTimerRef.current);
+      }
+    };
+  }, []);
+
+  return { isRefreshing, startRefresh, finishRefresh };
+}
+
+function useColumnPolling(
+  run: (isCancelled: () => boolean) => Promise<void> | void,
+  intervalMs: number,
+  {
+    dependencies,
+    enabled = true,
+    paused = false,
+    onDisabled,
+  }: {
+    dependencies: React.DependencyList;
+    enabled?: boolean;
+    paused?: boolean;
+    onDisabled?: () => void;
+  },
+): void {
+  useEffect(() => {
+    let cancelled = false;
+    const isCancelled = () => cancelled;
+
+    if (paused) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (!enabled) {
+      onDisabled?.();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const execute = () => {
+      void run(isCancelled);
+    };
+    const startTimer = () => window.setInterval(execute, Math.max(1, intervalMs));
+
+    execute();
+    let timer = startTimer();
+    const handleVisibility = () => {
+      window.clearInterval(timer);
+      timer = startTimer();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, dependencies);
 }
 
 interface OpenPostTarget {
@@ -316,10 +416,10 @@ function getPostDayLabel(timestamp: number): string {
     date.getDate() === now.getDate();
 
   if (isToday) {
-    return "Today";
+    return i18n.t("deck.today", { defaultValue: "Today" });
   }
 
-  return new Intl.DateTimeFormat("ja-JP", {
+  return new Intl.DateTimeFormat(getCurrentDateLocale(), {
     month: "2-digit",
     day: "2-digit",
   }).format(date);
@@ -3334,13 +3434,11 @@ function MentionsColumn({
   const [channelDirectory, setChannelDirectory] = useState<Record<string, MattermostChannel>>({});
   const [memberDirectory, setMemberDirectory] = useState<Record<string, string[]>>({});
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { isRefreshing, startRefresh, finishRefresh } = useRefreshIndicator();
   const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const [paused, setPaused] = useState(false);
   const [sectionNode, setSectionNode] = useState<HTMLElement | null>(null);
-  const refreshStartedAtRef = useRef<number | null>(null);
-  const refreshStopTimerRef = useRef<number | null>(null);
   const specialMentionMembersCacheRef = useRef<Record<string, { expiresAt: number; members: MattermostChannelMember[] }>>({});
   const specialMentionPostsCacheRef = useRef<Record<string, { expiresAt: number; posts: MattermostPost[] }>>({});
   const selectedTeam = teams.find((team) => team.id === column.teamId);
@@ -3387,31 +3485,6 @@ function MentionsColumn({
       setShowControls(false);
     }
   }, [isFocusedPane]);
-
-  const finishRefresh = useCallback(() => {
-    if (refreshStartedAtRef.current === null) {
-      setIsRefreshing(false);
-      return;
-    }
-    const elapsed = Date.now() - refreshStartedAtRef.current;
-    const remaining = Math.max(0, MIN_MANUAL_REFRESH_MS - elapsed);
-    if (refreshStopTimerRef.current !== null) {
-      window.clearTimeout(refreshStopTimerRef.current);
-    }
-    refreshStopTimerRef.current = window.setTimeout(() => {
-      setIsRefreshing(false);
-      refreshStartedAtRef.current = null;
-      refreshStopTimerRef.current = null;
-    }, remaining);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (refreshStopTimerRef.current !== null) {
-        window.clearTimeout(refreshStopTimerRef.current);
-      }
-    };
-  }, []);
 
   const loadSpecialMentionPosts = useCallback(
     async (teamId: string) => {
@@ -3498,30 +3571,16 @@ function MentionsColumn({
     ],
   );
 
-  useEffect(() => {
-    let cancelled = false;
+  const mentionPollingIntervalMs = useMemo(
+    () =>
+      column.teamId
+        ? getSyncInterval(realtimeEnabled, pollingIntervalSeconds, isPaneVisible)
+        : Math.max(getSyncInterval(realtimeEnabled, pollingIntervalSeconds, isPaneVisible), 120_000),
+    [column.teamId, isPaneVisible, pollingIntervalSeconds, realtimeEnabled],
+  );
 
-    if (paused) {
-      return () => { cancelled = true; };
-    }
-
-    if (teamIds.length === 0 || !username) {
-      setHasCompletedInitialLoad(false);
-      setPostState({
-        status: "idle",
-        posts: [],
-        error: null,
-        nextPage: 1,
-        hasMore: false,
-        loadingMore: false,
-      });
-      finishRefresh();
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const run = async () => {
+  useColumnPolling(
+    async (isCancelled) => {
       setPostState((current) => ({
         ...current,
         status: current.posts.length > 0 ? current.status : "loading",
@@ -3546,7 +3605,7 @@ function MentionsColumn({
             teamIds.length > TEAM_FANOUT_BATCH_SIZE ? TEAM_FANOUT_GAP_MS : 0,
           ),
         ]);
-        if (cancelled) {
+        if (isCancelled()) {
           return;
         }
         const latestPosts = mergePosts(results.flatMap((entry) => entry.posts), specialMentionResults.flat());
@@ -3562,7 +3621,7 @@ function MentionsColumn({
         setHasCompletedInitialLoad(true);
         finishRefresh();
       } catch (error) {
-        if (cancelled) {
+        if (isCancelled()) {
           return;
         }
         setPostState({
@@ -3576,30 +3635,38 @@ function MentionsColumn({
         setHasCompletedInitialLoad(true);
         finishRefresh();
       }
-    };
-
-    void run();
-    const startTimer = () => {
-      const intervalMs = column.teamId
-        ? getSyncInterval(realtimeEnabled, pollingIntervalSeconds, isPaneVisible)
-        : Math.max(getSyncInterval(realtimeEnabled, pollingIntervalSeconds, isPaneVisible), 120_000);
-      return window.setInterval(() => {
-        void run();
-      }, intervalMs);
-    };
-    let timer = startTimer();
-    const handleVisibility = () => {
-      window.clearInterval(timer);
-      timer = startTimer();
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [column.teamId, ensureUsers, finishRefresh, isPaneVisible, loadSpecialMentionPosts, mentionSearchTerms, paused, pollingIntervalSeconds, realtimeEnabled, reconnectNonce, refreshNonce, teamIds, username]);
+    },
+    mentionPollingIntervalMs,
+    {
+      enabled: teamIds.length > 0 && Boolean(username),
+      paused,
+      onDisabled: () => {
+        setHasCompletedInitialLoad(false);
+        setPostState({
+          status: "idle",
+          posts: [],
+          error: null,
+          nextPage: 1,
+          hasMore: false,
+          loadingMore: false,
+        });
+        finishRefresh();
+      },
+      dependencies: [
+        column.teamId,
+        ensureUsers,
+        finishRefresh,
+        loadSpecialMentionPosts,
+        mentionPollingIntervalMs,
+        mentionSearchTerms,
+        paused,
+        reconnectNonce,
+        refreshNonce,
+        teamIds,
+        username,
+      ],
+    },
+  );
 
   useEffect(() => {
     if (!postedEvent || !postedEvent.mentionsUser) {
@@ -3822,8 +3889,7 @@ function MentionsColumn({
               className="deck-icon-button deck-icon-button--ghost"
               title="Refresh"
               onClick={() => {
-                refreshStartedAtRef.current = Date.now();
-                setIsRefreshing(true);
+                startRefresh();
                 setRefreshNonce((current) => current + 1);
               }}
               disabled={isRefreshing}
@@ -4070,7 +4136,7 @@ function ChannelWatchColumn({
   });
   const [memberDirectory, setMemberDirectory] = useState<Record<string, string[]>>({});
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { isRefreshing, startRefresh, finishRefresh } = useRefreshIndicator();
   const [paused, setPaused] = useState(false);
   const [lastViewedAt, setLastViewedAt] = useState<number | null>(null);
   const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
@@ -4083,8 +4149,6 @@ function ChannelWatchColumn({
     !hasCompletedInitialLoad;
   const isPaneVisible = useElementVisibility(sectionNode, { rootMargin: "600px 0px", defaultVisible: true });
   const [showControls, setShowControls] = useState(!hasConfiguredTarget);
-  const refreshStartedAtRef = useRef<number | null>(null);
-  const refreshStopTimerRef = useRef<number | null>(null);
   const markReadFiredRef = useRef(false);
   const teamDirectory = useMemo(() => Object.fromEntries(teams.map((team) => [team.id, team])), [teams]);
   const selectedTeam = column.teamId ? teamDirectory[column.teamId] : undefined;
@@ -4098,31 +4162,6 @@ function ChannelWatchColumn({
       setShowControls(false);
     }
   }, [isFocusedPane]);
-
-  const finishRefresh = useCallback(() => {
-    if (refreshStartedAtRef.current === null) {
-      setIsRefreshing(false);
-      return;
-    }
-    const elapsed = Date.now() - refreshStartedAtRef.current;
-    const remaining = Math.max(0, MIN_MANUAL_REFRESH_MS - elapsed);
-    if (refreshStopTimerRef.current !== null) {
-      window.clearTimeout(refreshStopTimerRef.current);
-    }
-    refreshStopTimerRef.current = window.setTimeout(() => {
-      setIsRefreshing(false);
-      refreshStartedAtRef.current = null;
-      refreshStopTimerRef.current = null;
-    }, remaining);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (refreshStopTimerRef.current !== null) {
-        window.clearTimeout(refreshStopTimerRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     setShowControls(mode === "dm" ? !column.channelId : !(column.teamId && column.channelId));
@@ -4283,30 +4322,13 @@ function ChannelWatchColumn({
     });
   }, [mode, onRememberTarget, selectedChannel, selectedChannelKindLabel, selectedChannelLabel, selectedTeam]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const channelPostPollingIntervalMs = useMemo(
+    () => getSyncInterval(realtimeEnabled, pollingIntervalSeconds, isPaneVisible),
+    [isPaneVisible, pollingIntervalSeconds, realtimeEnabled],
+  );
 
-    if (paused) {
-      return () => { cancelled = true; };
-    }
-
-    if ((mode === "channel" && !column.teamId) || !column.channelId) {
-      setHasCompletedInitialLoad(false);
-      setPostState({
-        status: "idle",
-        posts: [],
-        error: null,
-        nextPage: 1,
-        hasMore: false,
-        loadingMore: false,
-      });
-      finishRefresh();
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const run = async () => {
+  useColumnPolling(
+    async (isCancelled) => {
       setPostState((current) => ({
         ...current,
         status: current.posts.length > 0 ? current.status : "loading",
@@ -4314,7 +4336,7 @@ function ChannelWatchColumn({
       }));
       try {
         const latestPosts = await getRecentPosts(column.channelId as string, 0, POSTS_PAGE_SIZE);
-        if (cancelled) {
+        if (isCancelled()) {
           return;
         }
         void ensureUsers(latestPosts.map((post) => post.user_id));
@@ -4329,7 +4351,7 @@ function ChannelWatchColumn({
         setHasCompletedInitialLoad(true);
         finishRefresh();
       } catch (error) {
-        if (cancelled) {
+        if (isCancelled()) {
           return;
         }
         setPostState({
@@ -4343,24 +4365,36 @@ function ChannelWatchColumn({
         setHasCompletedInitialLoad(true);
         finishRefresh();
       }
-    };
-
-    void run();
-    const startTimer = () => window.setInterval(() => {
-      void run();
-    }, getSyncInterval(realtimeEnabled, pollingIntervalSeconds, isPaneVisible));
-    let timer = startTimer();
-    const handleVisibility = () => {
-      window.clearInterval(timer);
-      timer = startTimer();
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [column.channelId, column.teamId, ensureUsers, finishRefresh, isPaneVisible, mode, paused, pollingIntervalSeconds, realtimeEnabled, reconnectNonce, refreshNonce]);
+    },
+    channelPostPollingIntervalMs,
+    {
+      enabled: !((mode === "channel" && !column.teamId) || !column.channelId),
+      paused,
+      onDisabled: () => {
+        setHasCompletedInitialLoad(false);
+        setPostState({
+          status: "idle",
+          posts: [],
+          error: null,
+          nextPage: 1,
+          hasMore: false,
+          loadingMore: false,
+        });
+        finishRefresh();
+      },
+      dependencies: [
+        channelPostPollingIntervalMs,
+        column.channelId,
+        column.teamId,
+        ensureUsers,
+        finishRefresh,
+        mode,
+        paused,
+        reconnectNonce,
+        refreshNonce,
+      ],
+    },
+  );
 
   useEffect(() => {
     if (!postedEvent || postedEvent.channelId !== column.channelId) {
@@ -4406,10 +4440,9 @@ function ChannelWatchColumn({
   };
 
   const triggerRefresh = useCallback(() => {
-    refreshStartedAtRef.current = Date.now();
-    setIsRefreshing(true);
+    startRefresh();
     setRefreshNonce((current) => current + 1);
-  }, []);
+  }, [startRefresh]);
 
   useEffect(() => {
     if (!isDebugEnabled()) {
@@ -4769,7 +4802,7 @@ function SearchLikeColumn({
     hasMore: false,
     loadingMore: false,
   });
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { isRefreshing, startRefresh, finishRefresh } = useRefreshIndicator();
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [paused, setPaused] = useState(false);
   const [showControls, setShowControls] = useState(!(column.teamId && column.query?.trim()));
@@ -4795,8 +4828,6 @@ function SearchLikeColumn({
     setSavedSearches(next);
     void saveStoredJson(SAVED_SEARCHES_KEY, next);
   };
-  const refreshStartedAtRef = useRef<number | null>(null);
-  const refreshStopTimerRef = useRef<number | null>(null);
   const selectedTeam = teams.find((team) => team.id === column.teamId);
   const query = column.query?.trim() ?? "";
   const highlightTerms = useMemo(
@@ -4822,31 +4853,6 @@ function SearchLikeColumn({
       setShowControls(false);
     }
   }, [isFocusedPane]);
-
-  const finishRefresh = useCallback(() => {
-    if (refreshStartedAtRef.current === null) {
-      setIsRefreshing(false);
-      return;
-    }
-    const elapsed = Date.now() - refreshStartedAtRef.current;
-    const remaining = Math.max(0, MIN_MANUAL_REFRESH_MS - elapsed);
-    if (refreshStopTimerRef.current !== null) {
-      window.clearTimeout(refreshStopTimerRef.current);
-    }
-    refreshStopTimerRef.current = window.setTimeout(() => {
-      setIsRefreshing(false);
-      refreshStartedAtRef.current = null;
-      refreshStopTimerRef.current = null;
-    }, remaining);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (refreshStopTimerRef.current !== null) {
-        window.clearTimeout(refreshStopTimerRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (isFocusedPane) {
@@ -4895,30 +4901,13 @@ function SearchLikeColumn({
     };
   }, [postState.posts, searchChannelDirectory]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const searchPollingIntervalMs = useMemo(
+    () => Math.max(getSyncInterval(false, pollingIntervalSeconds, isPaneVisible), SEARCH_SYNC_INTERVAL_FLOOR_MS),
+    [isPaneVisible, pollingIntervalSeconds],
+  );
 
-    if (paused) {
-      return () => { cancelled = true; };
-    }
-
-    if (!ready) {
-      setHasCompletedInitialLoad(false);
-      setPostState({
-        status: "idle",
-        posts: [],
-        error: null,
-        nextPage: 1,
-        hasMore: false,
-        loadingMore: false,
-      });
-      finishRefresh();
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const run = async () => {
+  useColumnPolling(
+    async (isCancelled) => {
       setPostState((current) => ({
         ...current,
         status: current.posts.length > 0 ? current.status : "loading",
@@ -4927,7 +4916,7 @@ function SearchLikeColumn({
 
       try {
         const latestPosts = await searchPostsInTeam(column.teamId as string, apiQuery, 0, POSTS_PAGE_SIZE);
-        if (cancelled) {
+        if (isCancelled()) {
           return;
         }
         ensureUsers(latestPosts.map((post) => post.user_id));
@@ -4942,7 +4931,7 @@ function SearchLikeColumn({
         setHasCompletedInitialLoad(true);
         finishRefresh();
       } catch (error) {
-        if (cancelled) {
+        if (isCancelled()) {
           return;
         }
         setPostState({
@@ -4956,25 +4945,36 @@ function SearchLikeColumn({
         setHasCompletedInitialLoad(true);
         finishRefresh();
       }
-    };
-
-    void run();
-    const startTimer = () => window.setInterval(() => {
-      void run();
-    }, Math.max(getSyncInterval(false, pollingIntervalSeconds, isPaneVisible), SEARCH_SYNC_INTERVAL_FLOOR_MS));
-    let timer = startTimer();
-    const handleVisibility = () => {
-      window.clearInterval(timer);
-      timer = startTimer();
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [apiQuery, column.teamId, ensureUsers, finishRefresh, isPaneVisible, paused, pollingIntervalSeconds, ready, reconnectNonce, refreshNonce]);
+    },
+    searchPollingIntervalMs,
+    {
+      enabled: ready,
+      paused,
+      onDisabled: () => {
+        setHasCompletedInitialLoad(false);
+        setPostState({
+          status: "idle",
+          posts: [],
+          error: null,
+          nextPage: 1,
+          hasMore: false,
+          loadingMore: false,
+        });
+        finishRefresh();
+      },
+      dependencies: [
+        apiQuery,
+        column.teamId,
+        ensureUsers,
+        finishRefresh,
+        paused,
+        ready,
+        reconnectNonce,
+        refreshNonce,
+        searchPollingIntervalMs,
+      ],
+    },
+  );
 
   const handleLoadMore = async () => {
     if (!ready || postState.loadingMore || !postState.hasMore) {
@@ -5065,8 +5065,7 @@ function SearchLikeColumn({
               className="deck-icon-button deck-icon-button--ghost"
               title="Refresh"
               onClick={() => {
-                refreshStartedAtRef.current = Date.now();
-                setIsRefreshing(true);
+                startRefresh();
                 setRefreshNonce((current) => current + 1);
               }}
               disabled={isRefreshing || !ready}
@@ -5279,7 +5278,7 @@ function SavedPostsColumn({
     hasMore: false,
     loadingMore: false,
   });
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { isRefreshing, startRefresh, finishRefresh } = useRefreshIndicator();
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [paused, setPaused] = useState(false);
   const [showControls, setShowControls] = useState(false);
@@ -5291,46 +5290,18 @@ function SavedPostsColumn({
     (postState.status === "idle" || postState.status === "loading") &&
     !hasCompletedInitialLoad;
   const isPaneVisible = useElementVisibility(sectionNode, { rootMargin: "600px 0px", defaultVisible: true });
-  const refreshStartedAtRef = useRef<number | null>(null);
-  const refreshStopTimerRef = useRef<number | null>(null);
 
-  const finishRefresh = useCallback(() => {
-    if (refreshStartedAtRef.current === null) {
-      setIsRefreshing(false);
-      return;
-    }
-    const elapsed = Date.now() - refreshStartedAtRef.current;
-    const remaining = Math.max(0, MIN_MANUAL_REFRESH_MS - elapsed);
-    if (refreshStopTimerRef.current !== null) {
-      window.clearTimeout(refreshStopTimerRef.current);
-    }
-    refreshStopTimerRef.current = window.setTimeout(() => {
-      setIsRefreshing(false);
-      refreshStartedAtRef.current = null;
-      refreshStopTimerRef.current = null;
-    }, remaining);
-  }, []);
+  const savedPollingIntervalMs = useMemo(
+    () => Math.max(getSyncInterval(false, pollingIntervalSeconds, isPaneVisible), SEARCH_SYNC_INTERVAL_FLOOR_MS),
+    [isPaneVisible, pollingIntervalSeconds],
+  );
 
-  useEffect(() => {
-    return () => {
-      if (refreshStopTimerRef.current !== null) {
-        window.clearTimeout(refreshStopTimerRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (paused) {
-      return () => { cancelled = true; };
-    }
-
-    const run = async () => {
+  useColumnPolling(
+    async (isCancelled) => {
       setPostState((current) => ({ ...current, status: current.posts.length > 0 ? current.status : "loading", error: null }));
       try {
         const latestPosts = await getFlaggedPosts(0, POSTS_PAGE_SIZE);
-        if (cancelled) {
+        if (isCancelled()) {
           return;
         }
         ensureUsers(latestPosts.map((post) => post.user_id));
@@ -5345,7 +5316,7 @@ function SavedPostsColumn({
         setHasCompletedInitialLoad(true);
         finishRefresh();
       } catch (error) {
-        if (cancelled) {
+        if (isCancelled()) {
           return;
         }
         setPostState({
@@ -5359,24 +5330,20 @@ function SavedPostsColumn({
         setHasCompletedInitialLoad(true);
         finishRefresh();
       }
-    };
-
-    void run();
-    const startTimer = () => window.setInterval(() => {
-      void run();
-    }, Math.max(getSyncInterval(false, pollingIntervalSeconds, isPaneVisible), SEARCH_SYNC_INTERVAL_FLOOR_MS));
-    let timer = startTimer();
-    const handleVisibility = () => {
-      window.clearInterval(timer);
-      timer = startTimer();
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [ensureUsers, finishRefresh, isPaneVisible, paused, pollingIntervalSeconds, reconnectNonce, refreshNonce]);
+    },
+    savedPollingIntervalMs,
+    {
+      paused,
+      dependencies: [
+        ensureUsers,
+        finishRefresh,
+        paused,
+        reconnectNonce,
+        refreshNonce,
+        savedPollingIntervalMs,
+      ],
+    },
+  );
 
   useEffect(() => {
     const missingChannelIds = Array.from(
@@ -5483,8 +5450,7 @@ function SavedPostsColumn({
               className="deck-icon-button deck-icon-button--ghost"
               title="Refresh"
               onClick={() => {
-                refreshStartedAtRef.current = Date.now();
-                setIsRefreshing(true);
+                startRefresh();
                 setRefreshNonce((current) => current + 1);
               }}
               disabled={isRefreshing}
@@ -6432,7 +6398,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       if (!Array.isArray(parsed.columns)) {
         return;
       }
-      replaceColumns(parsed.columns);
+      replaceColumns(normaliseColumns(parsed.columns));
       setShowActionsMenu(false);
       setShowRailAddMenu(false);
     } catch {

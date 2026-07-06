@@ -51,6 +51,7 @@
     "markRead": "Marquer comme lu",
     "jumpToLatest": "Plus r\u00e9cent",
     "newPosts": "{{count}} nouveaux",
+    "today": "Aujourd'hui",
     "allTeamsNote": "Ce mode regroupe les mentions de toutes les \u00e9quipes rejointes et utilise un intervalle d'interrogation plus lent.",
     "channelLabel": "Canal",
     "selectChannel": "S\u00e9lectionner un canal",

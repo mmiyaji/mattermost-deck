@@ -51,6 +51,7 @@
     "markRead": "Mark as read",
     "jumpToLatest": "Latest",
     "newPosts": "{{count}} new",
+    "today": "Today",
     "allTeamsNote": "This mode aggregates mentions across every joined team and uses a slower polling interval.",
     "channelLabel": "Channel",
     "selectChannel": "Select channel",

@@ -51,6 +51,7 @@
     "markRead": "Als gelesen markieren",
     "jumpToLatest": "Neueste",
     "newPosts": "{{count}} neu",
+    "today": "Heute",
     "allTeamsNote": "Dieser Modus fasst Erw\u00e4hnungen aus allen beigetretenen Teams zusammen und verwendet ein langsameres Abfrageintervall.",
     "channelLabel": "Kanal",
     "selectChannel": "Kanal ausw\u00e4hlen",

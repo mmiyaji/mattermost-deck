@@ -18,10 +18,14 @@ const MATTERMOST_GUARD_SUCCESS_TTL_MS = 30_000;
 const MATTERMOST_GUARD_FAILURE_TTL_MS = 10_000;
 const ROUTE_SETTLE_DELAY_MS = 180;
 const ROUTE_MISMATCH_GRACE_MS = 500;
+const ROUTE_FALLBACK_POLL_MS = 5_000;
+const DIALOG_MUTATION_SETTLE_MS = 250;
 
 let appRoot: ReturnType<typeof createRoot> | null = null;
 let routePoller: number | null = null;
 let routeNotifyTimer: number | null = null;
+let dialogMutationTimer: number | null = null;
+let dialogObserver: MutationObserver | null = null;
 let cleanupTimer: number | null = null;
 let lastRenderKey = "";
 let renderVersion = 0;
@@ -414,9 +418,26 @@ function installRouteWatcher(): void {
     notify();
   };
 
+  const scheduleDialogNotify = (): void => {
+    if (dialogMutationTimer !== null) {
+      return;
+    }
+    dialogMutationTimer = window.setTimeout(() => {
+      dialogMutationTimer = null;
+      notify();
+    }, DIALOG_MUTATION_SETTLE_MS);
+  };
+
   window.addEventListener("popstate", notify);
   window.addEventListener("hashchange", notify);
-  routePoller = window.setInterval(notify, 1_000);
+  dialogObserver = new MutationObserver(scheduleDialogNotify);
+  dialogObserver.observe(document.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["aria-hidden", "aria-modal", "class", "role", "style"],
+  });
+  routePoller = window.setInterval(notify, ROUTE_FALLBACK_POLL_MS);
 }
 
 if (document.readyState === "loading") {
