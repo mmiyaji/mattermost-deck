@@ -12,7 +12,7 @@ let cachedEncryptionKeyV1: Promise<CryptoKey> | null = null;
 let cachedEncryptionKeyV2: Promise<CryptoKey> | null = null;
 type StorageAreaName = "local" | "session";
 
-function isDeckColumn(value: unknown): value is DeckColumn {
+export function isDeckColumn(value: unknown): value is DeckColumn {
   if (!value || typeof value !== "object") {
     return false;
   }
@@ -34,7 +34,7 @@ function isDeckColumn(value: unknown): value is DeckColumn {
   );
 }
 
-function normaliseColumns(value: unknown): DeckColumn[] {
+export function normaliseColumns(value: unknown): DeckColumn[] {
   if (!Array.isArray(value)) {
     return createDefaultLayout();
   }
@@ -107,31 +107,50 @@ async function getRawStoredString(storageKey: string, area: StorageAreaName = "l
   }
 }
 
-async function setRawStoredString(storageKey: string, value: string, area: StorageAreaName = "local"): Promise<void> {
-  const normalized = value.trim();
+async function setRawStoredStrings(values: Record<string, string>, area: StorageAreaName = "local"): Promise<void> {
+  const normalizedEntries = Object.entries(values).map(([storageKey, value]) => [storageKey, value.trim()] as const);
   const storageArea = getStorageArea(area);
   if (!storageArea) {
-    if (normalized) {
-      window.localStorage.setItem(storageKey, normalized);
-    } else {
-      window.localStorage.removeItem(storageKey);
+    for (const [storageKey, normalized] of normalizedEntries) {
+      if (normalized) {
+        window.localStorage.setItem(storageKey, normalized);
+      } else {
+        window.localStorage.removeItem(storageKey);
+      }
     }
     return;
   }
 
-  try {
+  const payload: Record<string, string> = {};
+  const removeKeys: string[] = [];
+  for (const [storageKey, normalized] of normalizedEntries) {
     if (normalized) {
-      await storageArea.set({ [storageKey]: normalized });
+      payload[storageKey] = normalized;
     } else {
-      await storageArea.remove(storageKey);
-    }
-  } catch {
-    if (normalized) {
-      window.localStorage.setItem(storageKey, normalized);
-    } else {
-      window.localStorage.removeItem(storageKey);
+      removeKeys.push(storageKey);
     }
   }
+
+  try {
+    if (Object.keys(payload).length > 0) {
+      await storageArea.set(payload);
+    }
+    if (removeKeys.length > 0) {
+      await storageArea.remove(removeKeys);
+    }
+  } catch {
+    for (const [storageKey, normalized] of normalizedEntries) {
+      if (normalized) {
+        window.localStorage.setItem(storageKey, normalized);
+      } else {
+        window.localStorage.removeItem(storageKey);
+      }
+    }
+  }
+}
+
+async function setRawStoredString(storageKey: string, value: string, area: StorageAreaName = "local"): Promise<void> {
+  await setRawStoredStrings({ [storageKey]: value }, area);
 }
 
 async function pbkdf2Key(passwordBytes: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
@@ -145,7 +164,7 @@ async function pbkdf2Key(passwordBytes: Uint8Array<ArrayBuffer>): Promise<Crypto
   );
 }
 
-/** v1: 譌ｧ譁ｹ蠑・窶・骰ｵ邏譚舌→縺励※諡｡蠑ｵ讖溯・ ID・亥・髢区ュ蝣ｱ・峨ｒ菴ｿ逕ｨ縲ょｾｩ蜿ｷ縺ｮ縺ｿ縺ｫ菴ｿ逕ｨ縲・*/
+/** v1: Legacy derivation based on the extension ID or page origin. Used only to decrypt old values. */
 async function deriveEncryptionKeyV1(): Promise<CryptoKey> {
   cachedEncryptionKeyV1 ??= pbkdf2Key(
     new TextEncoder().encode(chrome.runtime?.id ?? window.location.origin) as Uint8Array<ArrayBuffer>,
@@ -153,7 +172,7 @@ async function deriveEncryptionKeyV1(): Promise<CryptoKey> {
   return await cachedEncryptionKeyV1;
 }
 
-/** v2: 譁ｰ譁ｹ蠑・窶・蛻晏屓襍ｷ蜍墓凾縺ｫ逕滓・縺励◆繝ｩ繝ｳ繝繝繧ｷ繝ｼ繝峨ｒ chrome.storage.local 縺ｫ菫晏ｭ倥＠縺ｦ菴ｿ逕ｨ縲・*/
+/** v2: Current derivation based on a random seed persisted in chrome.storage.local. */
 async function deriveEncryptionKeyV2(): Promise<CryptoKey> {
   cachedEncryptionKeyV2 ??= (async () => {
     let seed: Uint8Array<ArrayBuffer>;
@@ -297,6 +316,10 @@ export async function saveStoredString(storageKey: string, value: string, area: 
   await setRawStoredString(storageKey, value, area);
 }
 
+export async function saveStoredStrings(values: Record<string, string>, area: StorageAreaName = "local"): Promise<void> {
+  await setRawStoredStrings(values, area);
+}
+
 export async function loadStoredEncryptedString(storageKey: string, area: StorageAreaName = "local"): Promise<string | null> {
   const raw = await getRawStoredString(storageKey, area);
   if (!raw) {
@@ -304,6 +327,11 @@ export async function loadStoredEncryptedString(storageKey: string, area: Storag
   }
 
   return await decryptString(raw);
+}
+
+export async function encodeStoredEncryptedString(value: string): Promise<string> {
+  const normalized = value.trim();
+  return normalized ? await encryptString(normalized) : "";
 }
 
 export async function saveStoredEncryptedString(
@@ -317,7 +345,7 @@ export async function saveStoredEncryptedString(
     return;
   }
 
-  await setRawStoredString(storageKey, await encryptString(normalized), area);
+  await setRawStoredString(storageKey, await encodeStoredEncryptedString(normalized), area);
 }
 
 export async function loadStoredJson<T>(storageKey: string, fallback: T): Promise<T> {

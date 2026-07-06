@@ -91,6 +91,7 @@ export interface ApiPerformanceSnapshot {
 type ApiLogLevel = "info" | "warn" | "error";
 
 const GET_BURST_GUARD_TTL_MS = 1_000;
+const RECENT_GET_RESPONSE_MAX_ENTRIES = 200;
 const API_REQUEST_MIN_GAP_MS = 120;
 const API_METRICS_RETENTION_MS = 60_000;
 const API_METRICS_TPS_BUCKET_MS = 3_000;
@@ -103,6 +104,7 @@ const API_GET_RATE_LIMIT_BURST = 18;
 const API_POST_RATE_LIMIT_PER_MINUTE = 45;
 const API_POST_RATE_LIMIT_BURST = 10;
 const USER_LOOKUP_CACHE_TTL_MS = 5 * 60 * 1_000;
+const CHANNEL_LOOKUP_CACHE_TTL_MS = 5 * 60 * 1_000;
 
 function describeApiPath(pathname: string, method: "GET" | "POST"): string {
   const normalized = pathname.replace(/\?.*$/, "");
@@ -176,6 +178,8 @@ const inflightGetRequests = new Map<string, Promise<unknown>>();
 const recentGetResponses = new Map<string, { expiresAt: number; value: unknown }>();
 const userLookupCache = new Map<string, { expiresAt: number; user: MattermostUser }>();
 const inflightUserLookups = new Map<string, Promise<MattermostUser[]>>();
+const channelLookupCache = new Map<string, { expiresAt: number; channel: MattermostChannel }>();
+const inflightChannelLookups = new Map<string, Promise<MattermostChannel>>();
 const globalRateBucket: ApiRateBucket = createRateBucket(API_GLOBAL_RATE_LIMIT_BURST, API_GLOBAL_RATE_LIMIT_PER_MINUTE);
 const methodRateBuckets: Record<"GET" | "POST", ApiRateBucket> = {
   GET: createRateBucket(API_GET_RATE_LIMIT_BURST, API_GET_RATE_LIMIT_PER_MINUTE),
@@ -199,6 +203,30 @@ const requestSamples: Array<{
 function trimRequestSamples(now = Date.now()): void {
   while (requestSamples.length > 0 && now - requestSamples[0].timestamp > API_METRICS_RETENTION_MS) {
     requestSamples.shift();
+  }
+}
+
+function pruneRecentGetResponses(now = Date.now()): void {
+  for (const [pathname, entry] of recentGetResponses) {
+    if (entry.expiresAt <= now) {
+      recentGetResponses.delete(pathname);
+    }
+  }
+
+  while (recentGetResponses.size > RECENT_GET_RESPONSE_MAX_ENTRIES) {
+    const oldestKey = recentGetResponses.keys().next().value as string | undefined;
+    if (!oldestKey) {
+      return;
+    }
+    recentGetResponses.delete(oldestKey);
+  }
+}
+
+function pruneChannelLookupCache(now = Date.now()): void {
+  for (const [channelId, entry] of channelLookupCache) {
+    if (entry.expiresAt <= now) {
+      channelLookupCache.delete(channelId);
+    }
   }
 }
 
@@ -389,6 +417,9 @@ async function apiGet<T>(pathname: string): Promise<T> {
   if (cached && cached.expiresAt > now) {
     return cached.value as T;
   }
+  if (cached) {
+    recentGetResponses.delete(pathname);
+  }
 
   const inflight = inflightGetRequests.get(pathname);
   if (inflight) {
@@ -417,10 +448,12 @@ async function apiGet<T>(pathname: string): Promise<T> {
     }
 
     const payload = (await response.json()) as T;
+    pruneRecentGetResponses();
     recentGetResponses.set(pathname, {
       expiresAt: Date.now() + GET_BURST_GUARD_TTL_MS,
       value: payload,
     });
+    pruneRecentGetResponses();
     return payload;
   })();
 
@@ -593,6 +626,39 @@ export async function getChannel(channelId: string): Promise<MattermostChannel> 
   return await apiGet<MattermostChannel>(`/channels/${encodeURIComponent(channelId)}`);
 }
 
+async function getCachedChannel(channelId: string): Promise<MattermostChannel> {
+  const now = Date.now();
+  const cached = channelLookupCache.get(channelId);
+  if (cached && cached.expiresAt > now) {
+    return cached.channel;
+  }
+  if (cached) {
+    channelLookupCache.delete(channelId);
+  }
+
+  const inflight = inflightChannelLookups.get(channelId);
+  if (inflight) {
+    return await inflight;
+  }
+
+  const request = (async () => {
+    const channel = await getChannel(channelId);
+    channelLookupCache.set(channelId, {
+      expiresAt: Date.now() + CHANNEL_LOOKUP_CACHE_TTL_MS,
+      channel,
+    });
+    pruneChannelLookupCache();
+    return channel;
+  })();
+
+  inflightChannelLookups.set(channelId, request);
+  try {
+    return await request;
+  } finally {
+    inflightChannelLookups.delete(channelId);
+  }
+}
+
 export async function getChannelByName(
   teamId: string,
   channelName: string,
@@ -606,7 +672,7 @@ export async function getChannelsByIds(channelIds: string[]): Promise<Mattermost
   if (channelIds.length === 0) {
     return [];
   }
-  return await Promise.all(channelIds.map((id) => getChannel(id)));
+  return await Promise.all(channelIds.map((id) => getCachedChannel(id)));
 }
 
 export async function getRecentPosts(channelId: string, page = 0, perPage = 20): Promise<MattermostPost[]> {

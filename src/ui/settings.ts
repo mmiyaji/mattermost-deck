@@ -1,4 +1,10 @@
-import { loadStoredEncryptedString, loadStoredString, saveStoredEncryptedString, saveStoredString, hasStoredValue } from "./storage";
+import {
+  encodeStoredEncryptedString,
+  loadStoredEncryptedString,
+  loadStoredString,
+  saveStoredStrings,
+  hasStoredValue,
+} from "./storage";
 import { getProfileStorageKey, loadCurrentDeckProfile, PROFILES_STORAGE_KEY } from "./profiles";
 
 export type DeckTheme = "system" | "dark" | "light" | "mattermost";
@@ -371,30 +377,34 @@ export async function saveDeckSettings(settings: DeckSettings, origin?: string):
   const normalizedServerUrl = normaliseServerUrl(settings.serverUrl);
   const normalizedPat = settings.wsPat.trim();
   const persistPat = normalisePersistPat(settings.persistPat);
+  const localPat = await encodeStoredEncryptedString(persistPat ? normalizedPat : "");
+  const sessionPat = await encodeStoredEncryptedString(persistPat ? "" : normalizedPat);
 
   await Promise.all([
-    saveStoredString(profileKey(SETTINGS_KEYS.serverUrl), normalizedServerUrl),
-    saveStoredString(profileKey(SETTINGS_KEYS.teamSlug), normaliseTeamSlug(settings.teamSlug)),
-    saveStoredString(profileKey(SETTINGS_KEYS.persistPat), persistPat ? "true" : "false"),
-    saveStoredEncryptedString(profileKey(SETTINGS_KEYS.wsPat), persistPat ? normalizedPat : "", "local"),
-    saveStoredEncryptedString(profileKey(SETTINGS_KEYS.wsPat), persistPat ? "" : normalizedPat, "session"),
-    saveStoredString(profileKey(SETTINGS_KEYS.pollingIntervalSeconds), String(normalisePollingIntervalSeconds(settings.pollingIntervalSeconds))),
-    saveStoredString(profileKey(SETTINGS_KEYS.allowedRouteKinds), normaliseAllowedRouteKinds(settings.allowedRouteKinds)),
-    saveStoredString(profileKey(SETTINGS_KEYS.healthCheckPath), normaliseHealthCheckPath(settings.healthCheckPath)),
-    saveStoredString(profileKey(SETTINGS_KEYS.theme), settings.theme),
-    saveStoredString(profileKey(SETTINGS_KEYS.language), settings.language),
-    saveStoredString(profileKey(SETTINGS_KEYS.fontScalePercent), String(normaliseFontScalePercent(settings.fontScalePercent))),
-    saveStoredString(profileKey(SETTINGS_KEYS.preferredRailWidth), String(normalisePreferredRailWidth(settings.preferredRailWidth))),
-    saveStoredString(profileKey(SETTINGS_KEYS.preferredColumnWidth), String(normalisePreferredColumnWidth(settings.preferredColumnWidth))),
-    saveStoredString(profileKey(SETTINGS_KEYS.compactMode), settings.compactMode ? "true" : "false"),
-    saveStoredString(profileKey(SETTINGS_KEYS.columnColorEnabled), settings.columnColorEnabled ? "true" : "false"),
-    saveStoredString(profileKey(SETTINGS_KEYS.columnIdentityMode), settings.columnColorEnabled ? "color" : "icon"),
-    saveStoredString(profileKey(SETTINGS_KEYS.postClickAction), normalisePostClickAction(settings.postClickAction)),
-    saveStoredString(profileKey(SETTINGS_KEYS.highlightKeywords), normaliseHighlightKeywords(settings.highlightKeywords)),
-    saveStoredString(profileKey(SETTINGS_KEYS.columnColors), JSON.stringify(normaliseColumnColors(settings.columnColors))),
-    saveStoredString(profileKey(SETTINGS_KEYS.showImagePreviews), settings.showImagePreviews ? "true" : "false"),
-    saveStoredString(profileKey(SETTINGS_KEYS.highZIndex), settings.highZIndex ? "true" : "false"),
-    saveStoredString(profileKey(SETTINGS_KEYS.reversedPostOrder), settings.reversedPostOrder ? "true" : "false"),
+    saveStoredStrings({
+      [profileKey(SETTINGS_KEYS.serverUrl)]: normalizedServerUrl,
+      [profileKey(SETTINGS_KEYS.teamSlug)]: normaliseTeamSlug(settings.teamSlug),
+      [profileKey(SETTINGS_KEYS.persistPat)]: persistPat ? "true" : "false",
+      [profileKey(SETTINGS_KEYS.wsPat)]: localPat,
+      [profileKey(SETTINGS_KEYS.pollingIntervalSeconds)]: String(normalisePollingIntervalSeconds(settings.pollingIntervalSeconds)),
+      [profileKey(SETTINGS_KEYS.allowedRouteKinds)]: normaliseAllowedRouteKinds(settings.allowedRouteKinds),
+      [profileKey(SETTINGS_KEYS.healthCheckPath)]: normaliseHealthCheckPath(settings.healthCheckPath),
+      [profileKey(SETTINGS_KEYS.theme)]: settings.theme,
+      [profileKey(SETTINGS_KEYS.language)]: settings.language,
+      [profileKey(SETTINGS_KEYS.fontScalePercent)]: String(normaliseFontScalePercent(settings.fontScalePercent)),
+      [profileKey(SETTINGS_KEYS.preferredRailWidth)]: String(normalisePreferredRailWidth(settings.preferredRailWidth)),
+      [profileKey(SETTINGS_KEYS.preferredColumnWidth)]: String(normalisePreferredColumnWidth(settings.preferredColumnWidth)),
+      [profileKey(SETTINGS_KEYS.compactMode)]: settings.compactMode ? "true" : "false",
+      [profileKey(SETTINGS_KEYS.columnColorEnabled)]: settings.columnColorEnabled ? "true" : "false",
+      [profileKey(SETTINGS_KEYS.columnIdentityMode)]: settings.columnColorEnabled ? "color" : "icon",
+      [profileKey(SETTINGS_KEYS.postClickAction)]: normalisePostClickAction(settings.postClickAction),
+      [profileKey(SETTINGS_KEYS.highlightKeywords)]: normaliseHighlightKeywords(settings.highlightKeywords),
+      [profileKey(SETTINGS_KEYS.columnColors)]: JSON.stringify(normaliseColumnColors(settings.columnColors)),
+      [profileKey(SETTINGS_KEYS.showImagePreviews)]: settings.showImagePreviews ? "true" : "false",
+      [profileKey(SETTINGS_KEYS.highZIndex)]: settings.highZIndex ? "true" : "false",
+      [profileKey(SETTINGS_KEYS.reversedPostOrder)]: settings.reversedPostOrder ? "true" : "false",
+    }),
+    saveStoredStrings({ [profileKey(SETTINGS_KEYS.wsPat)]: sessionPat }, "session"),
   ]);
 }
 
