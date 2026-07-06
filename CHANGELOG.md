@@ -7,6 +7,24 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-07-07
+
+### Changed
+
+- Reduced settings save churn by batching storage writes.
+- Reused cached channel lookups and bounded short-lived GET response caching.
+- Shared column refresh and polling behavior across mentions, channel, search, and saved panes.
+- Reduced content script route polling by observing dialog DOM changes.
+- Localized date labels using the selected UI language.
+
+### Fixed
+
+- Ignored malformed WebSocket frames without throwing from the message handler.
+- Exposed `chrome.storage.session` to content scripts so non-persistent PATs remain available to the deck.
+- Removed a `chrome.storage` call from the PWA install script's MAIN world.
+- Validated imported layout columns before replacing the current layout.
+- Repaired corrupted storage encryption comments.
+
 ## [0.2.2] - 2026-04-14
 
 ### Added
