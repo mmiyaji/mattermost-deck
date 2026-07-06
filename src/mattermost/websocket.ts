@@ -228,7 +228,13 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
       });
 
       socket.addEventListener("message", (event) => {
-        const payload = JSON.parse(event.data as string) as MattermostEventEnvelope;
+        let payload: MattermostEventEnvelope;
+        try {
+          payload = JSON.parse(String(event.data)) as MattermostEventEnvelope;
+        } catch (error) {
+          log("warn", error instanceof Error ? `WS ignored malformed message: ${error.message}` : "WS ignored malformed message");
+          return;
+        }
 
         if (payload.seq_reply) {
           if (payload.status === "OK") {

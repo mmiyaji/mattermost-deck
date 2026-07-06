@@ -86,7 +86,6 @@ function showOverlay(): void {
     const result = await deferredPrompt.prompt();
     deferredPrompt = null;
     if (result.outcome === "accepted") {
-      await chrome.storage.local.set({ "mattermostDeck.pwaInstalled.v1": true });
       window.close();
     }
   });

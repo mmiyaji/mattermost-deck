@@ -3,6 +3,14 @@ import { SETTINGS_KEYS, originToPermissionPattern } from "./ui/settings";
 const CONTENT_SCRIPT_ID = "mattermost-deck-content";
 const RELEASE_NOTICE_STORAGE_KEY = "mattermostDeck.releaseNotice.v1";
 
+async function configureSessionStorageAccess(): Promise<void> {
+  try {
+    await chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONTEXTS" });
+  } catch {
+    // Older Chromium builds may not expose setAccessLevel; keep default behavior there.
+  }
+}
+
 async function getConfiguredServerUrl(): Promise<string> {
   const payload = await chrome.storage.local.get(SETTINGS_KEYS.serverUrl);
   const value = payload[SETTINGS_KEYS.serverUrl];
@@ -41,6 +49,8 @@ async function syncDeckContentScript(): Promise<void> {
     },
   ]);
 }
+
+void configureSessionStorageAccess();
 
 chrome.runtime.onInstalled.addListener((details) => {
   void syncDeckContentScript();
