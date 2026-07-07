@@ -35,11 +35,23 @@ export function isDeckColumn(value: unknown): value is DeckColumn {
 }
 
 export function normaliseColumns(value: unknown): DeckColumn[] {
-  if (!Array.isArray(value)) {
-    return createDefaultLayout();
+  const columns = normaliseColumnsOrNull(value);
+  return columns ?? createDefaultLayout();
+}
+
+function normaliseColumnsOrNull(value: unknown): DeckColumn[] | null {
+  const layoutValue =
+    Array.isArray(value)
+      ? value
+      : value && typeof value === "object" && Array.isArray((value as Partial<LayoutPayload>).columns)
+        ? (value as Partial<LayoutPayload>).columns
+        : null;
+
+  if (!layoutValue) {
+    return null;
   }
 
-  const columns = value.filter(isDeckColumn).map((column) => ({
+  const columns = layoutValue.filter(isDeckColumn).map((column) => ({
     id: column.id,
     type: column.type,
     teamId: column.teamId,
@@ -48,7 +60,7 @@ export function normaliseColumns(value: unknown): DeckColumn[] {
     unreadOnly: column.unreadOnly,
   }));
 
-  return columns.length > 0 ? columns : createDefaultLayout();
+  return columns.length > 0 ? columns : null;
 }
 
 function readLocalStorage(storageKey: string): DeckColumn[] {
@@ -58,8 +70,8 @@ function readLocalStorage(storageKey: string): DeckColumn[] {
       return createDefaultLayout();
     }
 
-    const payload = JSON.parse(raw) as Partial<LayoutPayload>;
-    return normaliseColumns(payload.columns);
+    const payload = JSON.parse(raw) as Partial<LayoutPayload> | DeckColumn[];
+    return normaliseColumns(payload);
   } catch {
     return createDefaultLayout();
   }
@@ -237,7 +249,8 @@ export async function loadDeckLayout(storageKey: string): Promise<DeckColumn[]> 
 
   try {
     const payload = await chrome.storage.local.get(storageKey);
-    return normaliseColumns(payload[storageKey]);
+    const columns = normaliseColumnsOrNull(payload[storageKey]);
+    return columns ?? readLocalStorage(storageKey);
   } catch {
     return readLocalStorage(storageKey);
   }
@@ -384,6 +397,3 @@ export async function saveStoredJson<T>(storageKey: string, value: T): Promise<v
     window.localStorage.setItem(storageKey, JSON.stringify(value));
   }
 }
-
-
-

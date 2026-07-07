@@ -67,6 +67,15 @@ type ReleaseNotes = {
 };
 
 const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotes> = {
+  "0.2.4": {
+    title: "v0.2.4",
+    added: [],
+    changed: [],
+    fixed: [
+      "Recovered pane layouts from legacy local storage fallback data when extension storage is empty",
+      "Accepted legacy layout payload objects during layout import and startup normalization",
+    ],
+  },
   "0.2.3": {
     title: "v0.2.3",
     added: [],

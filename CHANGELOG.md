@@ -7,6 +7,13 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-07-07
+
+### Fixed
+
+- Recovered saved pane layouts from legacy `localStorage` fallback data when extension storage has no layout.
+- Accepted legacy `{ columns: [...] }` layout payloads during layout normalization.
+
 ## [0.2.3] - 2026-07-07
 
 ### Changed

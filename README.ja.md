@@ -160,7 +160,7 @@ npm run capture:readme
 
 ## リリース
 
-`v0.2.3` のような `v` 形式タグを push すると GitHub Actions が動作します。
+`v0.2.4` のような `v` 形式タグを push すると GitHub Actions が動作します。
 
 - `npm ci`, `npm run check`, `npm run build` を実行
 - `dist/` を `mattermost-deck-<tag>.zip` として生成
