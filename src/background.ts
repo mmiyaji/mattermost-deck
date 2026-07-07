@@ -50,10 +50,53 @@ async function syncDeckContentScript(): Promise<void> {
   ]);
 }
 
+async function refreshExistingDeckTabs(): Promise<void> {
+  const serverUrl = await getConfiguredServerUrl();
+  const originPattern = originToPermissionPattern(serverUrl);
+  if (!originPattern) {
+    return;
+  }
+
+  const hasPermission = await chrome.permissions.contains({ origins: [originPattern] });
+  if (!hasPermission) {
+    return;
+  }
+
+  const tabs = await chrome.tabs.query({ url: originPattern });
+  await Promise.all(
+    tabs.map(async (tab) => {
+      if (!tab.id) {
+        return;
+      }
+
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => {
+            document.body?.classList.remove("mattermost-deck-body-offset");
+            document.getElementById("mattermost-deck-root")?.remove();
+          },
+        });
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["content.js"],
+        });
+      } catch {
+        // Ignore tabs that navigated, are discarded, or otherwise cannot accept injection.
+      }
+    }),
+  );
+}
+
 void configureSessionStorageAccess();
 
 chrome.runtime.onInstalled.addListener((details) => {
-  void syncDeckContentScript();
+  void (async () => {
+    await syncDeckContentScript();
+    if (details.reason === "update") {
+      await refreshExistingDeckTabs();
+    }
+  })();
 
   if (details.reason === "install") {
     void chrome.runtime.openOptionsPage();

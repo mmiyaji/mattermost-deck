@@ -7,6 +7,12 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-07-07
+
+### Fixed
+
+- Refreshed already-open Mattermost tabs after extension updates so the deck header and UI use the newly installed bundle.
+
 ## [0.2.4] - 2026-07-07
 
 ### Fixed

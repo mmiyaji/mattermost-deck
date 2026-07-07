@@ -67,6 +67,14 @@ type ReleaseNotes = {
 };
 
 const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotes> = {
+  "0.2.5": {
+    title: "v0.2.5",
+    added: [],
+    changed: [],
+    fixed: [
+      "Refreshed already-open Mattermost tabs after extension updates so the deck header shows the newly installed version",
+    ],
+  },
   "0.2.4": {
     title: "v0.2.4",
     added: [],
