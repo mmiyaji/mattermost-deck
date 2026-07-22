@@ -157,6 +157,8 @@ if (!adminToken) {
   console.log("Admin logged in.");
 }
 
+const adminUser = await apiCall("GET", "/users/me", undefined, adminToken);
+
 // Ensure SiteURL is configured (required for some API calls)
 try {
   await apiCall("PUT", "/config/patch", {
@@ -247,6 +249,12 @@ writeFileSync(stateFile, JSON.stringify({
     display_name: TEAM_DISPLAY,
   },
   teamName: TEAM_NAME,
+  adminUser: {
+    id: adminUser.id,
+    username: ADMIN_USERNAME,
+    password: ADMIN_PASSWORD,
+    token: adminToken,
+  },
   memberUser: {
     id: memberId,
     username: MEMBER_USERNAME,

@@ -8,12 +8,14 @@ const extensionPath = path.resolve("./dist");
 const docsAssetsDir = path.resolve("./docs/assets");
 const screenshotPath = path.join(docsAssetsDir, "readme-overview.png");
 const darkScreenshotPath = path.join(docsAssetsDir, "readme-overview-dark.png");
+const darkStoreScreenshotPath = path.join(docsAssetsDir, "readme-overview-dark-store.png");
 const headless = process.env.README_CAPTURE_HEADLESS !== "0";
 const keepOpen = process.env.README_CAPTURE_KEEP_OPEN === "1";
 const headedProfileDir = path.resolve("./.tmp-readme-browser/profile");
 const statePath =
+  process.env.MM95_STATE_FILE ??
   process.env.CAB_MATTERMOST_E2E_STATE_FILE ??
-  path.resolve("../chat-agent-bridge/data/runtime/mattermost-e2e.json");
+  path.resolve("./e2e/mm95-state.json");
 
 const SHOWCASE_CHANNEL = {
   name: "readme-showcase",
@@ -57,7 +59,13 @@ const SHOWCASE_MESSAGES = [
 ];
 
 async function readState() {
-  return JSON.parse(await fs.readFile(statePath, "utf8"));
+  const state = JSON.parse(await fs.readFile(statePath, "utf8"));
+  const serverUrl = state.serverUrl ?? state.baseUrl;
+  const bridgeUser = state.bridgeUser ?? state.adminUser;
+  if (!serverUrl || !bridgeUser || !state.memberUser || !state.team) {
+    throw new Error(`README capture state is incomplete: ${statePath}`);
+  }
+  return { ...state, serverUrl, bridgeUser };
 }
 
 async function mattermostFetch(baseUrl, token, pathname, init = {}) {
@@ -167,9 +175,60 @@ async function createPost(baseUrl, token, channelId, message) {
   });
 }
 
+async function debugRequest(page, action, payload) {
+  return page.evaluate(({ action: requestedAction, payload: requestedPayload }) => new Promise((resolve) => {
+    const id = `deck-debug-${Math.random().toString(36).slice(2)}`;
+    const finish = (result) => {
+      window.removeEventListener("mattermost-deck-debug-response", handleResponse);
+      window.clearTimeout(timer);
+      resolve(result);
+    };
+    const handleResponse = (event) => {
+      if (event.detail?.id === id) finish(event.detail.result);
+    };
+    const timer = window.setTimeout(() => finish(null), 1_000);
+    window.addEventListener("mattermost-deck-debug-response", handleResponse);
+    window.dispatchEvent(new CustomEvent("mattermost-deck-debug-request", {
+      detail: { id, action: requestedAction, payload: requestedPayload },
+    }));
+  }), { action, payload });
+}
+
 async function prepareDeckView(page) {
   await page.waitForSelector("#mattermost-deck-root", { timeout: 60_000 });
-  await page.waitForSelector(".deck-column .deck-card--post", { timeout: 60_000 });
+  const debugBridgeAvailable = await debugRequest(page, "getRenderedText");
+  if (debugBridgeAvailable === null) {
+    throw new Error(
+      "README capture requires a development build with the E2E debug bridge. Run `npm run build` without STORE_BUILD=true first.",
+    );
+  }
+  const deadline = Date.now() + 60_000;
+  let deckText = debugBridgeAvailable;
+  while (Date.now() < deadline) {
+    deckText = await debugRequest(page, "getRenderedText") ?? "";
+    if (deckText.includes("Welcome to the README showcase channel.")) break;
+    await page.waitForTimeout(500);
+  }
+  if (!deckText.includes("Welcome to the README showcase channel.")) {
+    throw new Error(`Deck posts did not render. Visible Deck text: ${deckText.slice(0, 1_000)}`);
+  }
+  await page.evaluate(() => {
+    const heading = Array.from(document.querySelectorAll("h1, h2, h3, h4, strong, div"))
+      .find((element) => {
+        if (element.textContent?.trim() !== "Welcome to Mattermost") return false;
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+    if (!heading) return;
+
+    let panel = heading;
+    while (panel.parentElement && panel.parentElement !== document.body) {
+      const parentRect = panel.parentElement.getBoundingClientRect();
+      if (parentRect.width > 600 || parentRect.height > window.innerHeight * 0.9) break;
+      panel = panel.parentElement;
+    }
+    panel.remove();
+  });
   await page.waitForTimeout(2_000);
   await page.mouse.click(520, 220);
   await page.waitForTimeout(300);
@@ -179,6 +238,9 @@ async function prepareDeckView(page) {
       .tour-tip,
       .toast,
       [data-testid="channel-toast"],
+      [data-cy*="onboarding"],
+      [class*="Onboarding"],
+      [class*="onboarding"],
       [class*="announcement"] {
         display: none !important;
       }
@@ -187,6 +249,14 @@ async function prepareDeckView(page) {
 }
 
 async function applyMattermostThemeFromSettings(page, themeName) {
+  await page.addStyleTag({
+    content: `
+      [data-cy="onboarding-task-list-overlay"],
+      [data-cy="onboarding-task-list"] {
+        display: none !important;
+      }
+    `,
+  });
   const settingsButton = page.getByRole("button", { name: "Settings" });
   await settingsButton.waitFor({ state: "visible", timeout: 30_000 });
   await settingsButton.click();
@@ -248,7 +318,9 @@ async function configureExtension(page, extensionId, baseUrl, team, showcaseChan
 
   await page.evaluate(
     async ({ baseUrl: origin, teamName, teamId, showcaseChannelId, dmChannelId }) => {
-      await chrome.storage.local.set({
+      const profileId = "readme-capture-profile";
+      const now = Date.now();
+      const settings = {
         "mattermostDeck.serverUrl.v1": origin,
         "mattermostDeck.teamSlug.v1": teamName,
         "mattermostDeck.allowedRouteKinds.v1": "channels,messages",
@@ -266,6 +338,24 @@ async function configureExtension(page, extensionId, baseUrl, team, showcaseChan
           { id: "channel-watch", type: "channelWatch", teamId, channelId: showcaseChannelId },
           { id: "dm-watch", type: "dmWatch", channelId: dmChannelId },
         ],
+      };
+      await chrome.storage.local.set({
+        ...settings,
+        ...Object.fromEntries(
+          Object.entries(settings).map(([key, value]) => [`${key}.profile.${profileId}`, value]),
+        ),
+        "mattermostDeck.profiles.v1": {
+          version: 1,
+          profiles: [{
+            id: profileId,
+            name: "README Capture",
+            origin: new URL(origin).origin,
+            createdAt: now,
+            updatedAt: now,
+          }],
+          activeProfileIdByOrigin: { [new URL(origin).origin]: profileId },
+          lastActiveProfileId: profileId,
+        },
       });
     },
     {
@@ -332,6 +422,7 @@ async function captureShowcase() {
     await context.grantPermissions(["notifications"], { origin: state.serverUrl });
     const extensionId = await getExtensionId(context);
     const page = context.pages()[0] ?? (await context.newPage());
+    await page.addInitScript(() => window.localStorage.setItem("mattermostDeck.debugLogs", "1"));
 
     await page.goto(`${state.serverUrl}/landing#/login`, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await loginIfNeeded(page, state);
@@ -437,8 +528,16 @@ async function captureShowcase() {
       },
     });
 
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(500);
+    await page.screenshot({
+      path: darkStoreScreenshotPath,
+      type: "png",
+    });
+
     console.log(`Saved screenshot to ${path.relative(rootDir, screenshotPath)}`);
     console.log(`Saved screenshot to ${path.relative(rootDir, darkScreenshotPath)}`);
+    console.log(`Saved screenshot to ${path.relative(rootDir, darkStoreScreenshotPath)}`);
 
     if (keepOpen) {
       console.log("README showcase browser is ready and will stay open until closed manually.");

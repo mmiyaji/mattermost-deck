@@ -40,6 +40,7 @@ Build a Chrome extension that adds a monitoring-oriented multi-pane deck to the 
 - Dynamic origin registration for configured Mattermost servers
 - Shadow DOM mount attached to `body`
 - Mattermost layout width is reduced to reserve deck space
+- On viewport resize, keep at least 720 px for Mattermost while space permits; compact Deck to at most 40% on narrower viewports and restore the requested Deck width when space returns
 
 ### Rendering Guard
 

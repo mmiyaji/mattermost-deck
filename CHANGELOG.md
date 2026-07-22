@@ -7,13 +7,15 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.6] - 2026-07-22
+## [0.2.6] - 2026-07-23
 
 ### Changed
 
 - Require HTTPS for remote Mattermost servers while retaining HTTP support for loopback development.
+- Limit optional HTTP host access to loopback development addresses and validate localized store descriptions during builds.
 - Render the bounded post buffer without fixed-height virtualization so variable-height posts remain reachable.
 - Preserve the Mattermost work area while the browser is resized and restore the requested Deck width when space returns.
+- Refresh the Chrome Web Store links, submission copy, security guidance, and release screenshots for v0.2.6.
 
 ### Fixed
 

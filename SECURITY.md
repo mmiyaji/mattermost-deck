@@ -6,7 +6,7 @@ We take security seriously. The following versions of Mattermost Deck are curren
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
+| 0.2.x   | :white_check_mark: |
 
 ## Reporting a Vulnerability
 
@@ -19,7 +19,7 @@ If you discover a security vulnerability in Mattermost Deck, please report it to
 
 ## Security Updates
 
-Security updates will be released as patch versions (e.g., 0.1.5) and will be documented in the [CHANGELOG.md](CHANGELOG.md).
+Security updates will be released as patch versions (for example, 0.2.7) and will be documented in the [CHANGELOG.md](CHANGELOG.md).
 
 ## Best Practices
 

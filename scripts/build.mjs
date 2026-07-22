@@ -17,6 +17,7 @@ await fs.mkdir(distDir, { recursive: true });
 // Load the source manifest and override the version when EXT_VERSION is set.
 const manifestPath = path.join(srcDir, "manifest.json");
 const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+const localesDir = path.join(srcDir, "_locales");
 const LOCAL_DEVELOPMENT_MATCHES = new Set([
   "http://127.0.0.1/*",
   "http://localhost/*",
@@ -42,6 +43,18 @@ manifest.version = process.env.EXT_VERSION
   ? process.env.EXT_VERSION.replace(/^v/, "")
   : manifest.version;
 assertChromeExtensionVersion(manifest.version);
+
+for (const localeEntry of await fs.readdir(localesDir, { withFileTypes: true })) {
+  if (!localeEntry.isDirectory()) continue;
+  const messagesPath = path.join(localesDir, localeEntry.name, "messages.json");
+  const messages = JSON.parse(await fs.readFile(messagesPath, "utf8"));
+  const description = messages?.appDescription?.message;
+  if (typeof description !== "string" || description.length === 0 || description.length > 132) {
+    throw new Error(
+      `Locale ${localeEntry.name} appDescription must contain 1-132 characters; found ${String(description ?? "").length}.`,
+    );
+  }
+}
 
 if (storeBuild && Array.isArray(manifest.content_scripts)) {
   manifest.content_scripts = manifest.content_scripts
@@ -88,7 +101,7 @@ await fs.copyFile(
 await fs.cp(path.join(srcDir, "assets"), path.join(distDir, "assets"), {
   recursive: true,
 });
-await fs.cp(path.join(srcDir, "_locales"), path.join(distDir, "_locales"), {
+await fs.cp(localesDir, path.join(distDir, "_locales"), {
   recursive: true,
 });
 

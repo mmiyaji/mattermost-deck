@@ -12,7 +12,13 @@
   },
   "permissions": ["storage", "scripting", "tabs", "windows", "alarms"],
   "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
-  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "http://*.localhost/*",
+    "http://[::1]/*"
+  ],
   "content_scripts": [
     {
       "matches": ["http://127.0.0.1/*", "http://localhost/*"],

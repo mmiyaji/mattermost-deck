@@ -4,6 +4,8 @@
 
 Mattermost Deck is a Chrome extension that adds a monitoring-oriented multi-pane workspace to the right side of Mattermost Web while keeping Mattermost itself as the primary UI for login, posting, editing, navigation, and threads.
 
+[Install Mattermost Deck from the Chrome Web Store](https://chromewebstore.google.com/detail/mattermost-deck/imbnblgiedelpebcfkenbhomcibomdpi)
+
 ## Screenshots
 
 Light theme:
@@ -16,7 +18,7 @@ Dark theme:
 
 ## Features
 
-- Resizable right-side deck with horizontally scrollable panes
+- Resizable right-side deck that preserves Mattermost space on narrow windows and restores the requested Deck width when space returns
 - Pane types:
   - `mentions`
   - `channelWatch`
@@ -174,6 +176,8 @@ Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v0.2.6.zip -Force
 ```
 
 The archive must contain `manifest.json` at its root. Store builds intentionally omit the localhost-only static content script; local development builds retain it for E2E testing.
+
+Use [Chrome Web Store submission copy](./docs/chrome-web-store-submission.md) when maintaining the listing, privacy declarations, and permission justifications.
 
 ## License
 

@@ -18,7 +18,7 @@ To display mentions, watched channels, DMs, search results, saved items, and rel
 The extension uses this data only to provide the user-facing features of Mattermost Deck inside the user’s browser. The developer does not use this data for analytics, advertising, profiling, or resale.
 
 ## Where data is sent
-The extension sends requests only to the Mattermost server origin explicitly configured by the user and only after the user grants Chrome permission for that origin. The extension does not send user data to the developer’s servers. The extension does not include third-party analytics or telemetry by default.
+The extension sends requests only to the Mattermost server origin explicitly configured by the user and only after the user grants Chrome permission for that origin. The extension does not send user data to the developer’s servers. The extension does not include third-party analytics or telemetry.
 
 Because requests are sent to the user’s Mattermost server, data may be processed by that Mattermost server and its operators or administrators according to the server’s own policies.
 
