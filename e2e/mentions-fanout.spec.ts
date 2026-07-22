@@ -7,24 +7,11 @@ const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.json");
 const ADMIN_USERNAME = "mm95admin";
 const ADMIN_PASSWORD = "Admin1234!";
-const TRACE_CAPTURE_STORAGE_KEY = "mattermostDeck.traceCapture.v1";
-const TRACE_LOG_STORAGE_KEY = "mattermostDeck.traceEntries.v1";
 const LAYOUT_STORAGE_KEY = "mattermostDeck.layout.v1";
 
 interface E2EState {
   teamName: string;
   memberUser: { id: string; username: string; password: string; token: string };
-}
-
-interface TraceEntry {
-  timestamp: number;
-  source: string;
-  event: string;
-  payload?: {
-    purpose?: string;
-    path?: string;
-    fullPath?: string;
-  };
 }
 
 async function readState(): Promise<E2EState> {
@@ -155,23 +142,25 @@ test("all-teams mentions staggers team search fan-out", async () => {
     const [existingSw] = context.serviceWorkers();
     const sw = existingSw ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
 
-    await sw.evaluate(({ serverUrl, traceCaptureStorageKey, traceLogStorageKey, layoutStorageKey }) => {
+    await sw.evaluate(({ serverUrl, layoutStorageKey }) => {
       return new Promise<void>((resolve) => {
         chrome.storage.local.set({
           "mattermostDeck.serverUrl.v1": serverUrl,
-          [traceCaptureStorageKey]: true,
-          [traceLogStorageKey]: [],
           [layoutStorageKey]: [{ id: "mentions", type: "mentions" }],
         }, () => resolve());
       });
     }, {
       serverUrl: baseUrl,
-      traceCaptureStorageKey: TRACE_CAPTURE_STORAGE_KEY,
-      traceLogStorageKey: TRACE_LOG_STORAGE_KEY,
       layoutStorageKey: LAYOUT_STORAGE_KEY,
     });
 
     const page = await context.newPage();
+    const teamSearchStarts: number[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST" && /\/api\/v4\/teams\/[^/]+\/posts\/search(?:\?|$)/.test(request.url())) {
+        teamSearchStarts.push(Date.now());
+      }
+    });
     await page.addInitScript(() => {
       window.localStorage.setItem("mattermostDeck.debugLogs", "1");
     });
@@ -197,37 +186,11 @@ test("all-teams mentions staggers team search fan-out", async () => {
       .toBe("ready");
 
     await expect
-      .poll(async () => {
-        const entries = await sw.evaluate((traceLogStorageKey: string) => {
-          return new Promise<TraceEntry[]>((resolve) => {
-            chrome.storage.local.get(traceLogStorageKey, (payload) => {
-              resolve((payload[traceLogStorageKey] as TraceEntry[] | undefined) ?? []);
-            });
-          });
-        }, TRACE_LOG_STORAGE_KEY);
-        return entries.filter((entry) => entry.source === "api" && entry.event === "request.complete" && entry.payload?.purpose === "Team post search").length;
-      }, {
-        timeout: 30_000,
-      })
+      .poll(() => teamSearchStarts.length, { timeout: 30_000 })
       .toBeGreaterThanOrEqual(3);
 
-    const traceEntries = await sw.evaluate((traceLogStorageKey: string) => {
-      return new Promise<TraceEntry[]>((resolve) => {
-        chrome.storage.local.get(traceLogStorageKey, (payload) => {
-          resolve((payload[traceLogStorageKey] as TraceEntry[] | undefined) ?? []);
-        });
-      });
-    }, TRACE_LOG_STORAGE_KEY);
-
-    const teamSearchEntries = (traceEntries as TraceEntry[])
-      .filter((entry) => entry.source === "api" && entry.event === "request.complete" && entry.payload?.purpose === "Team post search")
-      .sort((left, right) => left.timestamp - right.timestamp);
-
-    expect(teamSearchEntries.length).toBeGreaterThanOrEqual(3);
-
-    const gaps = teamSearchEntries
-      .slice(1)
-      .map((entry, index) => entry.timestamp - teamSearchEntries[index].timestamp);
+    const sortedStarts = teamSearchStarts.slice().sort((left, right) => left - right);
+    const gaps = sortedStarts.slice(1).map((timestamp, index) => timestamp - sortedStarts[index]);
 
     expect(gaps.some((gap) => gap >= 150)).toBe(true);
   } finally {

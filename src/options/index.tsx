@@ -71,9 +71,7 @@ const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotes> = {
     title: "v0.2.5",
     added: [],
     changed: [],
-    fixed: [
-      "Refreshed already-open Mattermost tabs after extension updates so the deck header shows the newly installed version",
-    ],
+    fixed: [],
   },
   "0.2.4": {
     title: "v0.2.4",
@@ -2214,7 +2212,28 @@ function OptionsApp(): React.JSX.Element {
     setReleaseNotice(null);
     void markReleaseNoticeSeen(version);
   };
-  const currentReleaseNotes = releaseNotice ? RELEASE_NOTES_BY_VERSION[releaseNotice.version] ?? null : null;
+  const currentReleaseNotes = useMemo(() => {
+    if (!releaseNotice) return null;
+    if (releaseNotice.version === "0.2.5") {
+      return {
+        title: "v0.2.5",
+        added: [],
+        changed: [
+          t("options.releaseNote025Https"),
+          t("options.releaseNote025VariableHeight"),
+        ],
+        fixed: [
+          t("options.releaseNote025Subpaths"),
+          t("options.releaseNote025Profiles"),
+          t("options.releaseNote025WebSocket"),
+          t("options.releaseNote025StaleState"),
+          t("options.releaseNote025Pwa"),
+          t("options.releaseNote025OpenTabs"),
+        ],
+      } satisfies ReleaseNotes;
+    }
+    return RELEASE_NOTES_BY_VERSION[releaseNotice.version] ?? null;
+  }, [releaseNotice, t]);
 
   return (
     <div className="options-app">

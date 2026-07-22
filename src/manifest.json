@@ -10,7 +10,7 @@
     "48": "assets/icons/icon-48.png",
     "128": "assets/icons/icon-128.png"
   },
-  "permissions": ["storage", "scripting", "tabs", "windows"],
+  "permissions": ["storage", "scripting", "tabs", "windows", "alarms"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "content_scripts": [
     {

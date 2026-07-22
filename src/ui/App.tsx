@@ -518,7 +518,7 @@ function getChannelLabel(
 
   const labels = memberIds.map((userId) => {
     const label = getUserLabel(userDirectory[userId], userId);
-    return userId === currentUserId ? `${label} (me)` : label;
+    return userId === currentUserId ? `${label} (${i18n.t("deck.currentUser")})` : label;
   });
   const resolvedLabels = labels.filter(Boolean);
   if (resolvedLabels.length > 0) {
@@ -534,11 +534,11 @@ function getChannelKindLabel(channel: MattermostChannel | undefined): string | n
   }
 
   if (channel.type === "D") {
-    return "Direct message";
+    return i18n.t("deck.directMessage");
   }
 
   if (channel.type === "G") {
-    return "Group DM";
+    return i18n.t("deck.groupDirectMessage");
   }
 
   return null;
@@ -567,7 +567,7 @@ function getRecentTargetLabel(
   return source
     .map((userId) => {
       const resolved = getUserLabel(userDirectory[userId], userId);
-      return source.length === 1 && userId === currentUserId ? `${resolved} (me)` : resolved;
+      return source.length === 1 && userId === currentUserId ? `${resolved} (${i18n.t("deck.currentUser")})` : resolved;
     })
     .join(", ");
 }
@@ -616,11 +616,11 @@ function stopDeckInputPropagation(event: React.SyntheticEvent): void {
 function getApiHealthLabel(status: ApiHealthStatus): string {
   switch (status) {
     case "healthy":
-      return "Healthy";
+      return i18n.t("deck.diagnosticsStatusHealthy");
     case "degraded":
-      return "Degraded";
+      return i18n.t("deck.diagnosticsStatusDegraded");
     default:
-      return "Error";
+      return i18n.t("deck.diagnosticsStatusError");
   }
 }
 
@@ -1682,7 +1682,7 @@ function useDeckState(
         }
       } catch (error) {
         if (!cancelled) {
-          const message = error instanceof Error ? error.message : "Failed to load Mattermost data.";
+          const message = error instanceof Error ? error.message : i18n.t("deck.failedToLoad");
           debugLog("app.deck-state.error", {
             message,
             path: window.location.pathname,
@@ -2579,6 +2579,7 @@ const MAX_SCALE = 16;
 const MIN_SCALE = 0.02;
 
 function ImageLightbox({ src, name, onClose }: { src: string; name: string; onClose: () => void }): React.JSX.Element | null {
+  const text = useAppText();
   const [scale, setScale] = useState<number | null>(null);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [grabbing, setGrabbing] = useState(false);
@@ -2682,7 +2683,7 @@ function ImageLightbox({ src, name, onClose }: { src: string; name: string; onCl
         <button
           type="button"
           className="deck-lightbox-btn"
-          title="Open in new tab"
+          title={text.openInNewTab}
           onClick={(e) => {
             e.stopPropagation();
             void chrome.runtime.sendMessage({ type: "mattermost-deck:open-tab", url: src });
@@ -2690,10 +2691,10 @@ function ImageLightbox({ src, name, onClose }: { src: string; name: string; onCl
         >
           <IconExternalLink />
         </button>
-        <button type="button" className="deck-lightbox-btn" title="Download image" onClick={handleDownload}>
+        <button type="button" className="deck-lightbox-btn" title={text.downloadImage} onClick={handleDownload}>
           <IconDownload />
         </button>
-        <button type="button" className="deck-lightbox-btn deck-lightbox-btn--close" title="Close" onClick={onClose}>
+        <button type="button" className="deck-lightbox-btn deck-lightbox-btn--close" title={text.close} onClick={onClose}>
           <IconClose />
         </button>
       </div>
@@ -2723,12 +2724,12 @@ function ImageLightbox({ src, name, onClose }: { src: string; name: string; onCl
       <div className="deck-lightbox-controls" onClick={(e) => e.stopPropagation()}>
         <span className="deck-lightbox-filename" title={name}>{name}</span>
         <div className="deck-lightbox-zoom-group">
-          <button type="button" className="deck-lightbox-ctrl" title="Zoom out" onClick={zoomOut}><IconZoomOut /></button>
-          <button type="button" className="deck-lightbox-ctrl deck-lightbox-ctrl--scale" title="Fit to screen" onClick={fitScreen}>
+          <button type="button" className="deck-lightbox-ctrl" title={text.zoomOut} onClick={zoomOut}><IconZoomOut /></button>
+          <button type="button" className="deck-lightbox-ctrl deck-lightbox-ctrl--scale" title={text.fitToScreen} onClick={fitScreen}>
             {scaleLabel}
           </button>
-          <button type="button" className="deck-lightbox-ctrl" title="Zoom in" onClick={zoomIn}><IconZoomIn /></button>
-          <button type="button" className="deck-lightbox-ctrl" title="Fill screen" onClick={fillScreen}><IconMaximize /></button>
+          <button type="button" className="deck-lightbox-ctrl" title={text.zoomIn} onClick={zoomIn}><IconZoomIn /></button>
+          <button type="button" className="deck-lightbox-ctrl" title={text.fillScreen} onClick={fillScreen}><IconMaximize /></button>
         </div>
       </div>
     </div>,
@@ -2773,7 +2774,7 @@ function ImageThumb({
       type="button"
       className="deck-file-thumb-wrap"
       onClick={(e) => { e.stopPropagation(); onOpen(); }}
-      aria-label={`画像を開く: ${info.name}`}
+      aria-label={i18n.t("deck.openImage", { name: info.name })}
     >
       <img
         className="deck-file-thumb"
@@ -2926,6 +2927,14 @@ function PostListItem({
     ? renderBody(post, { isVisible })
     : (isVisible ? renderHighlightedTextFromTerms(summarisePost(post.message), highlightTerms) : summarisePost(post.message));
   const isEmpty = !renderBody && !post.message.trim();
+  const canOpenPost = Boolean(onOpenPost && postClickAction !== "none");
+  const activatePost = () => {
+    if (!onOpenPost || postClickAction === "none") return;
+    if (postClickAction === "ask" && !window.confirm(i18n.t("deck.openPostConfirm"))) {
+      return;
+    }
+    onOpenPost(post);
+  };
 
   return (
     <li
@@ -3058,6 +3067,7 @@ function PostList({
   jumpToLatestLabel?: string;
   newPostsLabel?: (count: number) => string;
 }): React.JSX.Element {
+  const text = useAppText();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
@@ -3274,12 +3284,12 @@ function PostList({
         disabled={!hasMore || loadingMore}
       >
         <RefreshIcon spinning={loadingMore} />
-        {loadingMore ? "Loading..." : "Load more"}
+        {loadingMore ? text.loadingMore : text.loadMore}
       </button>
     </div>
   ) : posts.length > 0 ? (
     <div className="deck-list-end">
-      {language === "ja" ? "すべての投稿を読み込みました" : "All posts loaded"}
+      {text.allPostsLoaded}
     </div>
   ) : null;
 
@@ -3627,7 +3637,7 @@ function MentionsColumn({
         setPostState({
           status: "error",
           posts: [],
-          error: error instanceof Error ? error.message : "Failed to load mentions.",
+          error: error instanceof Error ? error.message : text.failedToLoadMentions,
           nextPage: 1,
           hasMore: false,
           loadingMore: false,
@@ -3760,7 +3770,7 @@ function MentionsColumn({
       const channelLabel = getChannelLabel(channel, userDirectory, memberDirectory, null);
       if (channel.type === "D" || channel.type === "G") {
         const kindLabel = getChannelKindLabel(channel);
-        return kindLabel === "Group DM" ? `Group DM / ${channelLabel}` : `DM / ${channelLabel}`;
+        return channel.type === "G" ? `${text.groupDirectMessage} / ${channelLabel}` : `${text.directMessage} / ${channelLabel}`;
       }
 
       const teamLabel = channel.team_id ? teamDirectory[channel.team_id]?.display_name || teamDirectory[channel.team_id]?.name : null;
@@ -3803,7 +3813,7 @@ function MentionsColumn({
       setPostState((current) => ({
         ...current,
         status: "error",
-        error: error instanceof Error ? error.message : "Failed to load more mentions.",
+        error: error instanceof Error ? error.message : text.failedToLoadMentions,
         loadingMore: false,
       }));
     }
@@ -3839,10 +3849,10 @@ function MentionsColumn({
     >
       <header className="deck-column-header">
         <div className="deck-column-heading">
-          <h2 title="Mentions">
+          <h2 title={text.addMentions}>
             <span className="deck-title-with-icon">
               <ColumnTypeBadge type="mentions" />
-              <span>Mentions</span>
+              <span>{text.addMentions}</span>
             </span>
           </h2>
           <p title={selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.allTeams}>
@@ -3878,16 +3888,16 @@ function MentionsColumn({
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move left" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.moveLeft} onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move right" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.moveRight} onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
             <button
               type="button"
               className="deck-icon-button deck-icon-button--ghost"
-              title="Refresh"
+              title={text.refresh}
               onClick={() => {
                 startRefresh();
                 setRefreshNonce((current) => current + 1);
@@ -3900,8 +3910,8 @@ function MentionsColumn({
               type="button"
               className={`deck-icon-button deck-icon-button--ghost${paused ? " deck-icon-button--active" : ""}`}
               onClick={() => setPaused((v) => !v)}
-              title={paused ? "Resume polling" : "Pause polling"}
-              aria-label={paused ? "Resume polling" : "Pause polling"}
+              title={paused ? text.resumePolling : text.pausePolling}
+              aria-label={paused ? text.resumePolling : text.pausePolling}
             >
               {paused ? <PlayIcon /> : <PauseIcon />}
             </button>
@@ -3914,7 +3924,7 @@ function MentionsColumn({
             >
               <FocusIcon active={isFocusedPane} />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Remove column" onClick={() => onRemove(column.id)}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.removeColumn} onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -3943,7 +3953,7 @@ function MentionsColumn({
             <p>{selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.allTeams}</p>
           </article>
           <article className="deck-card deck-card--muted">
-            <strong>Mentions</strong>
+          <strong>{text.addMentions}</strong>
             <p>{text.mentionBadge(mentionCount, Boolean(column.teamId))}</p>
           </article>
           {column.unreadOnly ? (
@@ -3964,7 +3974,7 @@ function MentionsColumn({
       {postState.status === "error" ? (
         <article className="deck-card">
           <strong>{text.failedToLoadMentions}</strong>
-          <p>{postState.error ?? "Unknown error"}</p>
+          <p>{postState.error ?? text.unknownError}</p>
         </article>
       ) : shouldShowLoadingState ? (
         <ColumnLoadingState
@@ -4237,7 +4247,7 @@ function ChannelWatchColumn({
         setChannelState({
           status: "error",
           channels: [],
-          error: error instanceof Error ? error.message : "Failed to load channels.",
+        error: error instanceof Error ? error.message : text.failedToLoadChannels,
         });
         finishRefresh();
       }
@@ -4316,7 +4326,7 @@ function ChannelWatchColumn({
     onRememberTarget({
       type: mode === "dm" ? "dmWatch" : "channelWatch",
       teamId: selectedTeam?.id ?? "",
-      teamLabel: selectedTeam ? selectedTeam.display_name || selectedTeam.name : selectedChannelKindLabel ?? "Direct message",
+      teamLabel: selectedTeam ? selectedTeam.display_name || selectedTeam.name : selectedChannelKindLabel ?? text.directMessage,
       channelId: selectedChannel.id,
       channelLabel: selectedChannelLabel ?? (selectedChannel.display_name || selectedChannel.name),
     });
@@ -4357,7 +4367,7 @@ function ChannelWatchColumn({
         setPostState({
           status: "error",
           posts: [],
-          error: error instanceof Error ? error.message : "Failed to load posts.",
+        error: error instanceof Error ? error.message : text.failedToLoadPosts,
           nextPage: 1,
           hasMore: false,
           loadingMore: false,
@@ -4433,7 +4443,7 @@ function ChannelWatchColumn({
       setPostState((current) => ({
         ...current,
         status: "error",
-        error: error instanceof Error ? error.message : "Failed to load more posts.",
+        error: error instanceof Error ? error.message : text.failedToLoadPosts,
         loadingMore: false,
       }));
     }
@@ -4475,10 +4485,10 @@ function ChannelWatchColumn({
     >
       <header className="deck-column-header">
         <div className="deck-column-heading">
-          <h2 title={selectedChannelLabel ?? (mode === "dm" ? "DM / Group" : "Channel Watch")}>
+          <h2 title={selectedChannelLabel ?? (mode === "dm" ? text.addDmWatch : text.addChannelWatch)}>
             <span className="deck-title-with-icon">
               <ColumnTypeBadge type={column.type} />
-              <span>{selectedChannelLabel ?? (mode === "dm" ? "DM / Group" : "Channel Watch")}</span>
+              <span>{selectedChannelLabel ?? (mode === "dm" ? text.addDmWatch : text.addChannelWatch)}</span>
             </span>
           </h2>
           <p
@@ -4527,16 +4537,16 @@ function ChannelWatchColumn({
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move left" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.moveLeft} onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move right" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.moveRight} onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
             <button
               type="button"
               className="deck-icon-button deck-icon-button--ghost"
-              title="Refresh"
+              title={text.refresh}
               onClick={triggerRefresh}
               disabled={isRefreshing}
             >
@@ -4546,8 +4556,8 @@ function ChannelWatchColumn({
               type="button"
               className={`deck-icon-button deck-icon-button--ghost${paused ? " deck-icon-button--active" : ""}`}
               onClick={() => setPaused((v) => !v)}
-              title={paused ? "Resume polling" : "Pause polling"}
-              aria-label={paused ? "Resume polling" : "Pause polling"}
+              title={paused ? text.resumePolling : text.pausePolling}
+              aria-label={paused ? text.resumePolling : text.pausePolling}
             >
               {paused ? <PlayIcon /> : <PauseIcon />}
             </button>
@@ -4560,7 +4570,7 @@ function ChannelWatchColumn({
             >
               <FocusIcon active={isFocusedPane} />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Remove column" onClick={() => onRemove(column.id)}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.removeColumn} onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -4574,7 +4584,7 @@ function ChannelWatchColumn({
               />
             ) : null}
             <label className="deck-field">
-              <span>{mode === "dm" ? "DM / Group" : text.channelLabel}</span>
+              <span>{mode === "dm" ? text.addDmWatch : text.channelLabel}</span>
               <CustomSelect
                 options={channelOptions}
                 value={column.channelId ?? ""}
@@ -4611,8 +4621,8 @@ function ChannelWatchColumn({
 
       {mode === "channel" && !column.teamId ? (
         <article className="deck-card deck-card--muted">
-          <strong>Start with a channel</strong>
-          <p>Pin one watch target first, or add a few recommended columns for a better first pass.</p>
+          <strong>{text.startWithChannel}</strong>
+          <p>{text.startWithChannelDesc}</p>
           <div className="deck-stack deck-stack--empty-actions">
             {canWatchCurrentChannel ? (
               <button
@@ -4620,17 +4630,17 @@ function ChannelWatchColumn({
                 className="deck-add-item"
                 onClick={() => onUpdate(column.id, { teamId: currentTeamId, channelId: currentChannelId })}
               >
-                <span>Watch current channel</span>
+                <span>{text.watchCurrentChannel}</span>
                 <small>{currentWatchLabel}{currentTeamLabel ? ` / ${currentTeamLabel}` : ""}</small>
               </button>
             ) : null}
             <button type="button" className="deck-add-item deck-add-item--secondary" onClick={() => onAddColumn("mentions")}>
-              <span>Recommended: Mentions</span>
-              <small>Keep personal mentions visible.</small>
+              <span>{text.recommendedMentions}</span>
+              <small>{text.recommendedMentionsDesc}</small>
             </button>
             <button type="button" className="deck-add-item deck-add-item--secondary" onClick={() => onAddColumn("saved")}>
-              <span>Recommended: Saved</span>
-              <small>Keep follow-up posts close by.</small>
+              <span>{text.recommendedSaved}</span>
+              <small>{text.recommendedSavedDesc}</small>
             </button>
           </div>
         </article>
@@ -4648,30 +4658,30 @@ function ChannelWatchColumn({
                   channelId: currentChannelId,
                 })}
               >
-                <span>Use current channel</span>
+                <span>{text.useCurrentChannel}</span>
                 <small>{currentWatchLabel}{currentTeamLabel ? ` / ${currentTeamLabel}` : ""}</small>
               </button>
             ) : null}
             <button type="button" className="deck-add-item deck-add-item--secondary" onClick={() => onAddColumn("diagnostics")}>
               <span>{text.recommendedDiagnostics}</span>
-              <small>Track sync, reconnects, and render cost.</small>
+              <small>{text.recommendedDiagnosticsDesc}</small>
             </button>
           </div>
         </article>
       ) : postState.status === "error" ? (
         <article className="deck-card">
-          <strong>Failed to load posts</strong>
-          <p>{postState.error ?? "Unknown error"}</p>
+          <strong>{text.failedToLoadPosts}</strong>
+          <p>{postState.error ?? text.unknownError}</p>
         </article>
       ) : shouldShowLoadingState ? (
         <ColumnLoadingState
-          title={mode === "dm" ? "Loading direct messages" : "Loading channel posts"}
-          detail={mode === "dm" ? "Fetching the latest direct message posts for this target." : "Fetching the latest channel posts for this pinned target."}
+          title={mode === "dm" ? text.loadingDirectMessages : text.loadingChannelPosts}
+          detail={mode === "dm" ? text.loadingDirectMessagesDesc : text.loadingChannelPostsDesc}
         />
       ) : postState.posts.length === 0 ? (
         <article className="deck-card">
-          <strong>No posts yet</strong>
-          <p>{mode === "dm" ? "This direct message does not have recent posts to show." : "This pinned channel does not have recent posts to show."}</p>
+          <strong>{text.noPostsYet}</strong>
+          <p>{mode === "dm" ? text.noDirectPosts : text.noChannelPosts}</p>
         </article>
       ) : (
         <PostList
@@ -4709,11 +4719,12 @@ function SearchIcon(): React.JSX.Element {
 }
 
 function InitialLoadingState({ message }: { message: string }): React.JSX.Element {
+  const text = useAppText();
   return (
     <section className="deck-loading-state" aria-live="polite">
       <div className="deck-loading-spinner" aria-hidden="true" />
       <strong>{message}</strong>
-      <p>Preparing your deck layout and syncing the first Mattermost data.</p>
+      <p>{text.initialLoadingDesc}</p>
       <div className="deck-loading-skeletons" aria-hidden="true">
         <div className="deck-loading-skeleton" />
         <div className="deck-loading-skeleton" />
@@ -4937,7 +4948,7 @@ function SearchLikeColumn({
         setPostState({
           status: "error",
           posts: [],
-          error: error instanceof Error ? error.message : "Failed to load search results.",
+        error: error instanceof Error ? error.message : text.failedToLoadResults,
           nextPage: 1,
           hasMore: false,
           loadingMore: false,
@@ -5000,7 +5011,7 @@ function SearchLikeColumn({
       setPostState((current) => ({
         ...current,
         status: "error",
-        error: error instanceof Error ? error.message : "Failed to load more results.",
+        error: error instanceof Error ? error.message : text.failedToLoadResults,
         loadingMore: false,
       }));
     }
@@ -5024,8 +5035,8 @@ function SearchLikeColumn({
               <span>{title}</span>
             </span>
           </h2>
-          <p title={selectedTeam ? selectedTeam.display_name || selectedTeam.name : "Pick a team"}>
-            {selectedTeam ? selectedTeam.display_name || selectedTeam.name : "Pick a team"}
+          <p title={selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.pickTeam}>
+            {selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.pickTeam}
           </p>
         </div>
         <div className="deck-column-actions">
@@ -5044,7 +5055,7 @@ function SearchLikeColumn({
             type="button"
             className="deck-icon-button deck-icon-button--ghost"
             onClick={() => setShowControls((current) => !current)}
-            aria-label={showControls ? "Collapse search controls" : "Expand search controls"}
+            aria-label={showControls ? text.collapseControls(title) : text.expandControls(title)}
           >
             <ChevronIcon expanded={showControls} />
           </button>
@@ -5054,16 +5065,16 @@ function SearchLikeColumn({
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move left" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.moveLeft} onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move right" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.moveRight} onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
             <button
               type="button"
               className="deck-icon-button deck-icon-button--ghost"
-              title="Refresh"
+              title={text.refresh}
               onClick={() => {
                 startRefresh();
                 setRefreshNonce((current) => current + 1);
@@ -5076,8 +5087,8 @@ function SearchLikeColumn({
               type="button"
               className={`deck-icon-button deck-icon-button--ghost${paused ? " deck-icon-button--active" : ""}`}
               onClick={() => setPaused((v) => !v)}
-              title={paused ? "Resume polling" : "Pause polling"}
-              aria-label={paused ? "Resume polling" : "Pause polling"}
+              title={paused ? text.resumePolling : text.pausePolling}
+              aria-label={paused ? text.resumePolling : text.pausePolling}
             >
               {paused ? <PlayIcon /> : <PauseIcon />}
             </button>
@@ -5090,7 +5101,7 @@ function SearchLikeColumn({
             >
               <FocusIcon active={isFocusedPane} />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Remove column" onClick={() => onRemove(column.id)}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.removeColumn} onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -5125,8 +5136,8 @@ function SearchLikeColumn({
                 className="deck-icon-button deck-icon-button--ghost"
                 onClick={handleSaveSearch}
                 disabled={!draftQuery.trim() || savedSearches.includes(draftQuery.trim())}
-                title="Save search query"
-                aria-label="Save search query"
+                title={text.saveSearchQuery}
+                aria-label={text.saveSearchQuery}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
@@ -5135,7 +5146,7 @@ function SearchLikeColumn({
             </div>
             {savedSearches.length > 0 && (
               <div className="deck-saved-searches">
-                <span className="deck-saved-searches-label">Saved</span>
+                <span className="deck-saved-searches-label">{text.savedSearches}</span>
                 <div className="deck-saved-searches-list">
                   {savedSearches.map((q) => (
                     <div key={q} className="deck-saved-search-chip">
@@ -5154,7 +5165,7 @@ function SearchLikeColumn({
                         type="button"
                         className="deck-saved-search-delete"
                         onClick={() => handleDeleteSavedSearch(q)}
-                        aria-label={`Remove saved search: ${q}`}
+                        aria-label={text.removeSavedSearch(q)}
                       >
                         ×
                       </button>
@@ -5165,34 +5176,31 @@ function SearchLikeColumn({
             )}
           </div>
           <article className="deck-card deck-card--muted">
-            <strong>Search syntax</strong>
-            <p>
-              Use quotes for exact phrases like <code>"error code"</code>, suffix <code>*</code> for prefix matches like <code>test*</code>,
-              and filters such as <code>in:town-square</code>, <code>from:cab-member</code>, <code>before:2026-04-04</code>.
-            </p>
+            <strong>{text.searchSyntax}</strong>
+            <p>{text.searchSyntaxDesc}</p>
           </article>
         </div>
       ) : null}
 
       {!ready ? (
         <article className="deck-card">
-          <strong>Set a search</strong>
-          <p>Choose a team and enter a query. The pane refreshes automatically after you apply it.</p>
+          <strong>{text.setSearch}</strong>
+          <p>{text.setSearchDesc}</p>
         </article>
       ) : postState.status === "error" ? (
         <article className="deck-card">
-          <strong>Failed to load results</strong>
-          <p>{postState.error ?? "Unknown error"}</p>
+          <strong>{text.failedToLoadResults}</strong>
+          <p>{postState.error ?? text.unknownError}</p>
         </article>
       ) : shouldShowLoadingState ? (
         <ColumnLoadingState
-          title={column.type === "keywordWatch" ? "Loading keyword matches" : "Loading search results"}
-          detail={column.type === "keywordWatch" ? "Searching recent posts that match your keyword watch query." : "Searching Mattermost posts for your query."}
+          title={column.type === "keywordWatch" ? text.loadingKeywordMatches : text.loadingSearchResults}
+          detail={text.loadingSearchDesc}
         />
       ) : postState.posts.length === 0 ? (
         <article className="deck-card">
-          <strong>No results</strong>
-          <p>No matching posts found for this query.</p>
+          <strong>{text.noResults}</strong>
+          <p>{text.noResultsDesc}</p>
         </article>
       ) : (
         <PostList
@@ -5322,7 +5330,7 @@ function SavedPostsColumn({
         setPostState({
           status: "error",
           posts: [],
-          error: error instanceof Error ? error.message : "Failed to load saved posts.",
+        error: error instanceof Error ? error.message : text.failedToLoadSavedPosts,
           nextPage: 1,
           hasMore: false,
           loadingMore: false,
@@ -5402,7 +5410,7 @@ function SavedPostsColumn({
       setPostState((current) => ({
         ...current,
         status: "error",
-        error: error instanceof Error ? error.message : "Failed to load more saved posts.",
+        error: error instanceof Error ? error.message : text.failedToLoadSavedPosts,
         loadingMore: false,
       }));
     }
@@ -5416,8 +5424,8 @@ function SavedPostsColumn({
     >
       <header className="deck-column-header">
         <div className="deck-column-heading">
-          <h2><span className="deck-title-with-icon"><ColumnTypeBadge type="saved" /><span>Saved</span></span></h2>
-          <p>Flagged posts</p>
+          <h2><span className="deck-title-with-icon"><ColumnTypeBadge type="saved" /><span>{text.addSaved}</span></span></h2>
+          <p>{text.flaggedPosts}</p>
         </div>
         <div className="deck-column-actions">
           {isFocusedPane ? (
@@ -5439,16 +5447,16 @@ function SavedPostsColumn({
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move left" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.moveLeft} onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move right" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.moveRight} onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
             <button
               type="button"
               className="deck-icon-button deck-icon-button--ghost"
-              title="Refresh"
+              title={text.refresh}
               onClick={() => {
                 startRefresh();
                 setRefreshNonce((current) => current + 1);
@@ -5461,8 +5469,8 @@ function SavedPostsColumn({
               type="button"
               className={`deck-icon-button deck-icon-button--ghost${paused ? " deck-icon-button--active" : ""}`}
               onClick={() => setPaused((v) => !v)}
-              title={paused ? "Resume polling" : "Pause polling"}
-              aria-label={paused ? "Resume polling" : "Pause polling"}
+              title={paused ? text.resumePolling : text.pausePolling}
+              aria-label={paused ? text.resumePolling : text.pausePolling}
             >
               {paused ? <PlayIcon /> : <PauseIcon />}
             </button>
@@ -5475,7 +5483,7 @@ function SavedPostsColumn({
             >
               <FocusIcon active={isFocusedPane} />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Remove column" onClick={() => onRemove(column.id)}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.removeColumn} onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -5483,18 +5491,18 @@ function SavedPostsColumn({
       ) : null}
       {postState.status === "error" ? (
         <article className="deck-card">
-          <strong>Failed to load saved posts</strong>
-          <p>{postState.error ?? "Unknown error"}</p>
+          <strong>{text.failedToLoadSavedPosts}</strong>
+          <p>{postState.error ?? text.unknownError}</p>
         </article>
       ) : shouldShowLoadingState ? (
         <ColumnLoadingState
-          title="Loading saved posts"
-          detail="Fetching your flagged posts and syncing the latest saved items."
+          title={text.loadingSavedPosts}
+          detail={text.loadingSavedPostsDesc}
         />
       ) : postState.posts.length === 0 ? (
         <article className="deck-card">
-          <strong>No saved posts</strong>
-          <p>Flagged posts will appear here.</p>
+          <strong>{text.noSavedPosts}</strong>
+          <p>{text.noSavedPostsDesc}</p>
         </article>
       ) : (
         <PostList
@@ -5613,10 +5621,10 @@ function DiagnosticsColumn({
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move left" onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.moveLeft} onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Move right" onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.moveRight} onClick={() => onMove(column.id, "right")} disabled={!canMoveRight}>
               <ArrowIcon direction="right" />
             </button>
             <button
@@ -5628,7 +5636,7 @@ function DiagnosticsColumn({
             >
               <FocusIcon active={isFocusedPane} />
             </button>
-            <button type="button" className="deck-icon-button deck-icon-button--ghost" title="Remove column" onClick={() => onRemove(column.id)}>
+            <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.removeColumn} onClick={() => onRemove(column.id)}>
               <CloseIcon />
             </button>
           </div>
@@ -5855,7 +5863,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   }, []);
 
   const healthStatusLabel = getApiHealthLabel(apiHealthStatus);
-  const connectionModeLabel = realtimeAuthError ? "Polling (realtime auth failed)" : effectiveRealtimeEnabled ? "Realtime" : "Polling";
+  const connectionModeLabel = realtimeAuthError ? text.pollingRealtimeAuthFailed : effectiveRealtimeEnabled ? text.realtime : text.polling;
   const syncStatusLabel = `${healthStatusLabel} / ${connectionModeLabel}`;
   const shouldSafeStop = state.sessionExpired;
   const handleOpenPost = useCallback(
@@ -6279,7 +6287,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       return;
     }
 
-    const name = window.prompt("View name", "");
+    const name = window.prompt(text.viewNamePrompt, "");
     if (!name) {
       return;
     }
@@ -6484,6 +6492,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         removeColumn(payload.id as string);
       } else if (action === "getColumnState") {
         result = window.__mattermostDeckDebugColumnState?.[payload.id as string] ?? null;
+      } else if (action === "getRenderedText" && debugShadowRoot) {
+        result = debugShadowRoot.textContent?.replace(/\s+/g, " ").trim() ?? "";
       } else if (action === "getHighlightTexts" && debugShadowRoot) {
         result = Array.from(debugShadowRoot.querySelectorAll("mark.search-highlight"))
           .map((element) => element.textContent?.trim() ?? "")
@@ -6597,8 +6607,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         type="button"
         className="deck-drawer-toggle"
         onClick={() => setDrawerOpen(!drawerOpen)}
-        aria-label={drawerOpen ? "Hide deck" : "Show deck"}
-        title={drawerOpen ? "Hide deck" : "Show deck"}
+        aria-label={drawerOpen ? text.hideDeck : text.showDeck}
+        title={drawerOpen ? text.hideDeck : text.showDeck}
       >
         <DrawerToggleIcon open={drawerOpen} />
       </button>
@@ -6696,7 +6706,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                                 type="button"
                                 className="deck-icon-button deck-icon-button--ghost"
                                 onClick={() => handleMoveViewDraft(column.id, "up")}
-                                aria-label={`Move ${meta.title} up`}
+                                aria-label={text.moveViewUp(meta.title)}
                                 disabled={index === 0}
                               >
                                 <ArrowIcon direction="left" />
@@ -6705,7 +6715,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                                 type="button"
                                 className="deck-icon-button deck-icon-button--ghost"
                                 onClick={() => handleMoveViewDraft(column.id, "down")}
-                                aria-label={`Move ${meta.title} down`}
+                                aria-label={text.moveViewDown(meta.title)}
                                 disabled={index === source.length - 1}
                               >
                                 <ArrowIcon direction="right" />
@@ -6716,7 +6726,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                               type="button"
                               className="deck-icon-button deck-icon-button--ghost"
                               onClick={() => handleCloseColumnFromMenu(column.id)}
-                              aria-label={`Close ${meta.title}`}
+                              aria-label={text.closeView(meta.title)}
                             >
                               <CloseIcon />
                             </button>
@@ -6736,7 +6746,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                               <span>{view.name}</span>
                               <small>{text.savedColumns(view.columns.length)}</small>
                             </button>
-                            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => removeView(view.id)} aria-label={`Remove ${view.name}`}>
+                            <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => removeView(view.id)} aria-label={text.removeSavedView(view.name)}>
                               <CloseIcon />
                             </button>
                           </div>
@@ -6777,7 +6787,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                     </button>
                     {state.currentChannelId ? (
                       <button type="button" className="deck-add-item deck-add-item--secondary" onClick={handleAddCurrentChannelWatch}>
-                        <span>Watch current channel</span>
+                        <span>{text.watchCurrentChannel}</span>
                       </button>
                     ) : null}
                     <button type="button" className="deck-add-item" onClick={() => handleAddColumn("dmWatch")}>
@@ -6851,7 +6861,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         </button>
                         {state.currentChannelId ? (
                           <button type="button" className="deck-add-item deck-add-item--secondary" onClick={handleAddCurrentChannelWatch}>
-                            <span>Watch current channel</span>
+                            <span>{text.watchCurrentChannel}</span>
                           </button>
                         ) : null}
                         <button type="button" className="deck-add-item" onClick={() => handleAddColumn("dmWatch")}>
@@ -6900,7 +6910,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                                 type="button"
                                 className="deck-icon-button deck-icon-button--ghost"
                                 onClick={() => handleCloseColumnFromMenu(column.id)}
-                                aria-label={`Close ${meta.title}`}
+                                aria-label={text.closeView(meta.title)}
                               >
                                 <CloseIcon />
                               </button>
@@ -6919,7 +6929,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                                   <span>{view.name}</span>
                                   <small>{text.savedColumns(view.columns.length)}</small>
                                 </button>
-                                <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => removeView(view.id)} aria-label={`Remove ${view.name}`}>
+                                <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => removeView(view.id)} aria-label={text.removeSavedView(view.name)}>
                                   <CloseIcon />
                                 </button>
                               </div>
@@ -6970,10 +6980,10 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                   <section className="deck-column">
                     <article className="deck-card">
                       <strong>{text.sessionExpired}</strong>
-                      <p>{state.error ?? "Your Mattermost session is no longer valid. Sign in again and reload this page."}</p>
+                      <p>{state.error ?? text.sessionExpiredDesc}</p>
                       <div className="deck-inline-actions">
                         <button type="button" className="deck-add-item deck-add-item--secondary" onClick={() => window.location.reload()}>
-                          Reload Mattermost
+                          {text.reloadMattermost}
                         </button>
                         <button type="button" className="deck-add-item deck-add-item--secondary" onClick={handleOpenSettings}>
                           {text.settingsButton}
@@ -7228,7 +7238,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
               </button>
               {state.currentChannelId ? (
                 <button type="button" className="deck-add-item deck-add-item--secondary" onClick={handleAddCurrentChannelWatch}>
-                  <span>Watch current channel</span>
+                  <span>{text.watchCurrentChannel}</span>
                 </button>
               ) : null}
               <button type="button" className="deck-add-item" onClick={() => handleAddColumn("dmWatch")}>
