@@ -54,7 +54,9 @@ test("options page shows server-scoped profiles", async () => {
     }, baseUrl);
 
     const extensionId = new URL(sw.url()).host;
-    const page = context.pages()[0] ?? await context.newPage();
+    // The extension opens Options on first install. Use a dedicated page so
+    // that automatic navigation cannot race this test's explicit goto.
+    const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/options.html`);
     await openProfilesPanel(page);
 
@@ -98,7 +100,7 @@ test("release notice banner stays aligned and wraps actions on narrow screens", 
     });
 
     const extensionId = new URL(sw.url()).host;
-    const page = context.pages()[0] ?? await context.newPage();
+    const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/options.html`);
 
     const releaseBanner = page.locator(".options-release-banner");
@@ -188,7 +190,7 @@ test("narrow navigation stays accessible and PWA launch failures remain visible"
     }));
 
     const extensionId = new URL(sw.url()).host;
-    const page = context.pages()[0] ?? await context.newPage();
+    const page = await context.newPage();
     await page.addInitScript(() => {
       Object.defineProperty(chrome.permissions, "request", {
         configurable: true,
