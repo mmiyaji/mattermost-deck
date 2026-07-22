@@ -7,3 +7,4 @@ test-results/
 .claude/
 e2e/mm95-state.json
 e2e/mm95-compat-state.json
+mattermost-deck-*.zip

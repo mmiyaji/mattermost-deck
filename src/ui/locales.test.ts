@@ -21,11 +21,24 @@ function flattenLocale(value: LocaleTree, prefix = ""): Record<string, string> {
 const locales = { ja, de, fr, "zh-CN": zhCn } as const;
 const english = flattenLocale(en);
 
+function interpolationPlaceholders(value: string): string[] {
+  return [...value.matchAll(/{{\s*([^},\s]+)[^}]*}}/g)]
+    .map((match) => match[1])
+    .sort();
+}
+
 describe("UI locale coverage", () => {
   it.each(Object.entries(locales))("keeps %s keys in parity with English", (_locale, resource) => {
     const translated = flattenLocale(resource);
     expect(Object.keys(translated).sort()).toEqual(Object.keys(english).sort());
     expect(Object.values(translated).every((value) => value.trim().length > 0)).toBe(true);
+  });
+
+  it.each(Object.entries(locales))("keeps %s interpolation placeholders in parity with English", (_locale, resource) => {
+    const translated = flattenLocale(resource);
+    for (const [key, englishValue] of Object.entries(english)) {
+      expect(interpolationPlaceholders(translated[key]), key).toEqual(interpolationPlaceholders(englishValue));
+    }
   });
 
   it.each(Object.entries(locales))("does not fall back to English for critical %s guidance", (_locale, resource) => {

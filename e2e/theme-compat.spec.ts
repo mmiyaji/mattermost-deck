@@ -73,7 +73,7 @@ test("Mattermost theme is applied correctly to the deck", async ({ }, testInfo) 
 
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: "chromium",
-    headless: false,
+    headless: testInfo.project.use.headless !== false,
     args: [
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`,

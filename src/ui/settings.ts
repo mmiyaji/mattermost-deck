@@ -109,6 +109,21 @@ export const MAX_PREFERRED_RAIL_WIDTH = 1400;
 export const MIN_PREFERRED_COLUMN_WIDTH = 260;
 export const MAX_PREFERRED_COLUMN_WIDTH = 480;
 
+function isMattermostUiRoute(pathname: string): boolean {
+  const segments = pathname.split("/").filter(Boolean);
+  return segments.some((segment, index) => {
+    if (index === 0 || index >= segments.length - 1) {
+      return false;
+    }
+
+    // These route segments identify a team-scoped Mattermost screen. The team
+    // slug and the deployment base path cannot be distinguished reliably from
+    // the URL alone, so reject the screen URL instead of silently treating it
+    // as the Site URL and generating invalid /api/v4 paths beneath it.
+    return segment === "channels" || segment === "messages" || segment === "pl" || segment === "threads";
+  });
+}
+
 export function normaliseServerUrl(value: string | null): string {
   if (!value) {
     return "";
@@ -121,7 +136,27 @@ export function normaliseServerUrl(value: string | null): string {
 
   try {
     const url = new URL(trimmed);
-    return url.origin;
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      return "";
+    }
+
+    const hostname = url.hostname.toLowerCase();
+    const isLoopback =
+      hostname === "localhost" ||
+      hostname.endsWith(".localhost") ||
+      hostname === "127.0.0.1" ||
+      hostname === "[::1]";
+    if (url.protocol === "http:" && !isLoopback) {
+      return "";
+    }
+
+    const hashPath = url.hash.startsWith("#/") ? url.hash.slice(1) : "";
+    if (isMattermostUiRoute(url.pathname) || (hashPath && isMattermostUiRoute(hashPath))) {
+      return "";
+    }
+
+    const pathname = url.pathname.replace(/\/+$/, "");
+    return `${url.origin}${pathname === "/" ? "" : pathname}`;
   } catch {
     return "";
   }
@@ -247,7 +282,7 @@ export function originToPermissionPattern(origin: string): string | null {
     return null;
   }
 
-  return `${normalized}/*`;
+  return `${new URL(normalized).origin}/*`;
 }
 
 function normaliseTheme(value: string | null): DeckTheme {
@@ -381,6 +416,9 @@ export async function saveDeckSettings(settings: DeckSettings, origin?: string):
   const sessionPat = await encodeStoredEncryptedString(persistPat ? "" : normalizedPat);
 
   await Promise.all([
+    // Keep the active server URL available to extension-only contexts such as
+    // the service worker and popup. All remaining settings stay profile-scoped.
+    saveStoredStrings({ [SETTINGS_KEYS.serverUrl]: normalizedServerUrl }),
     saveStoredStrings({
       [profileKey(SETTINGS_KEYS.serverUrl)]: normalizedServerUrl,
       [profileKey(SETTINGS_KEYS.teamSlug)]: normaliseTeamSlug(settings.teamSlug),
@@ -417,6 +455,8 @@ export function subscribeDeckSettings(listener: (settings: DeckSettings) => void
     return () => undefined;
   }
 
+  let latestRevision = 0;
+  let disposed = false;
   const handleChange = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
     if (areaName !== "local" && areaName !== "session") {
       return;
@@ -427,11 +467,18 @@ export function subscribeDeckSettings(listener: (settings: DeckSettings) => void
       return;
     }
 
-    void loadDeckSettings().then(listener).catch(() => undefined);
+    const revision = ++latestRevision;
+    void loadDeckSettings()
+      .then((settings) => {
+        if (!disposed && revision === latestRevision) listener(settings);
+      })
+      .catch(() => undefined);
   };
 
   chrome.storage.onChanged.addListener(handleChange);
   return () => {
+    disposed = true;
+    latestRevision += 1;
     chrome.storage.onChanged.removeListener(handleChange);
   };
 }

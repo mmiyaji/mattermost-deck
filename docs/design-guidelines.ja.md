@@ -186,7 +186,7 @@ Options の `Performance` タブは詳細分析用とする。
 
 ### Health Check 制約
 
-- health-check path は `/api/v4/...` 配下に制限する
+- health-check path は設定済み Mattermost Site URL を基準とした `/api/v4/...` 配下に制限する
 - リクエスト先は設定済み Mattermost origin に限定する
 
 ## 操作ルール

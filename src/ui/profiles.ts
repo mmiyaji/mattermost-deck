@@ -18,6 +18,7 @@ interface DeckProfileRegistry {
 export const PROFILES_STORAGE_KEY = "mattermostDeck.profiles.v1";
 const DEFAULT_PROFILE_NAME = "Default";
 const DEFAULT_PROFILE_ORIGIN = "default";
+const SERVER_URL_STORAGE_KEY = "mattermostDeck.serverUrl.v1";
 const PROFILE_SCOPED_STORAGE_KEYS = [
   "mattermostDeck.serverUrl.v1",
   "mattermostDeck.teamSlug.v1",
@@ -51,6 +52,9 @@ function normaliseServerOrigin(value: string | null | undefined): string {
 
   try {
     const url = new URL(trimmed);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      return "";
+    }
     return url.origin;
   } catch {
     return "";
@@ -102,11 +106,16 @@ function getProfileById(registry: DeckProfileRegistry, profileId: string | null 
 function normaliseProfileRegistry(value: unknown): DeckProfileRegistry {
   const registry = value as Partial<DeckProfileRegistry> | null | undefined;
   const profiles = Array.isArray(registry?.profiles)
-    ? registry.profiles.filter(isDeckProfileSummary).map((profile) => ({
-        ...profile,
-        name: normaliseProfileName(profile.name),
-        origin: profile.origin || DEFAULT_PROFILE_ORIGIN,
-      }))
+    ? registry.profiles
+        .filter(isDeckProfileSummary)
+        .filter((profile) => profile.origin === DEFAULT_PROFILE_ORIGIN || Boolean(normaliseServerOrigin(profile.origin)))
+        .map((profile) => ({
+          ...profile,
+          name: normaliseProfileName(profile.name),
+          origin: profile.origin === DEFAULT_PROFILE_ORIGIN
+            ? DEFAULT_PROFILE_ORIGIN
+            : normaliseServerOrigin(profile.origin),
+        }))
     : [];
 
   const activeProfileIdByOrigin: Record<string, string> = {};
@@ -220,6 +229,15 @@ export function getProfileStorageKey(profileId: string, storageKey: string): str
   return `${storageKey}.profile.${profileId}`;
 }
 
+async function mirrorProfileServerUrl(profileId: string): Promise<void> {
+  const profileServerUrl = await loadStoredString(getProfileStorageKey(profileId, SERVER_URL_STORAGE_KEY));
+  if (profileServerUrl) {
+    // The scoped value remains authoritative. This mirror keeps extension-only
+    // contexts and older installations compatible while they migrate.
+    await saveStoredString(SERVER_URL_STORAGE_KEY, profileServerUrl);
+  }
+}
+
 export async function loadDeckProfiles(origin?: string): Promise<{ profiles: DeckProfileSummary[]; activeProfileId: string }> {
   const registry = await ensureProfileRegistry();
   const targetOrigin = resolveProfileOrigin(registry, origin, true);
@@ -252,6 +270,7 @@ export async function switchDeckProfile(profileId: string): Promise<void> {
   registry.lastActiveProfileId = profile.id;
   profile.updatedAt = Date.now();
   await saveProfileRegistry(registry);
+  await mirrorProfileServerUrl(profile.id);
 }
 
 export async function createDeckProfile(name: string, origin?: string): Promise<DeckProfileSummary> {

@@ -4,6 +4,13 @@ import {
   resolveInstallLocale,
   type InstallMessages,
 } from "./installGuide";
+import {
+  INSTALL_GUIDE_READY_ATTRIBUTE,
+  INSTALL_GUIDE_READY_EVENT,
+  INSTALL_LANGUAGE_ATTRIBUTE,
+  INSTALL_LANGUAGE_READY_EVENT,
+  waitForDocumentElement,
+} from "./bridge";
 
 interface PromptChoice {
   outcome: "accepted" | "dismissed";
@@ -23,8 +30,28 @@ interface NavigatorWithInstallHints extends Navigator {
 
 let deferredPrompt: BeforeInstallPromptEvent | null = null;
 
+const installLanguageReady = waitForDocumentElement().then((documentElement) => new Promise<void>((resolve) => {
+  if (documentElement.hasAttribute(INSTALL_LANGUAGE_ATTRIBUTE)) {
+    resolve();
+    return;
+  }
+
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    documentElement.removeEventListener(INSTALL_LANGUAGE_READY_EVENT, finish);
+    resolve();
+  };
+  documentElement.addEventListener(INSTALL_LANGUAGE_READY_EVENT, finish, { once: true });
+  // The language bridge is registered with this script. Keep a browser-language
+  // fallback for direct script injection and unexpected extension failures.
+  window.setTimeout(finish, 1_500);
+}));
+
 function getMessages(): InstallMessages {
   const languages = [
+    document.documentElement.getAttribute(INSTALL_LANGUAGE_ATTRIBUTE) ?? "",
     document.documentElement.lang,
     ...navigator.languages,
     navigator.language,
@@ -172,6 +199,18 @@ function showInstallPrompt(): void {
 
     panel.append(icon, title, description, installButton, cancelButton);
     overlay.appendChild(panel);
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const restoreFocus = () => {
+      if (!previouslyFocused?.isConnected) return;
+      window.requestAnimationFrame(() => previouslyFocused.focus());
+    };
+    const closeOverlay = (shouldRestoreFocus = true) => {
+      overlay.remove();
+      if (shouldRestoreFocus) restoreFocus();
+    };
+
     document.body.appendChild(overlay);
     installButton.focus();
 
@@ -179,7 +218,7 @@ function showInstallPrompt(): void {
       const promptEvent = deferredPrompt;
       if (!promptEvent) return;
       deferredPrompt = null;
-      overlay.remove();
+      closeOverlay(false);
       const promptResult = await promptEvent.prompt();
       const choice = promptEvent.userChoice ? await promptEvent.userChoice : promptResult;
       if (choice?.outcome === "accepted") {
@@ -187,12 +226,29 @@ function showInstallPrompt(): void {
         window.close();
       } else {
         showManualInstallGuide();
+        restoreFocus();
       }
     });
 
-    cancelButton.addEventListener("click", () => overlay.remove());
+    cancelButton.addEventListener("click", () => closeOverlay());
     overlay.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") overlay.remove();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeOverlay();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = [installButton, cancelButton].filter((element) => !element.disabled);
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     });
   });
 }
@@ -200,13 +256,13 @@ function showInstallPrompt(): void {
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
   deferredPrompt = event as BeforeInstallPromptEvent;
-  showInstallPrompt();
+  void installLanguageReady.then(showInstallPrompt);
 });
 
 window.addEventListener("appinstalled", () => {
   deferredPrompt = null;
   removeInstallUi();
-  showStatus(getMessages().installed);
+  void installLanguageReady.then(() => showStatus(getMessages().installed));
 });
 
 function handlePageReady(): void {
@@ -219,8 +275,20 @@ function handlePageReady(): void {
   }
 }
 
+const handleReadyWithConfiguredLanguage = () => {
+  void installLanguageReady.then(handlePageReady);
+};
+
 if (document.readyState === "complete") {
-  handlePageReady();
+  handleReadyWithConfiguredLanguage();
 } else {
-  window.addEventListener("load", handlePageReady, { once: true });
+  window.addEventListener("load", handleReadyWithConfiguredLanguage, { once: true });
 }
+
+// Signal only after this MAIN-world module has installed all event handlers.
+// The isolated bridge uses this handshake before asking the background worker
+// to unregister the temporary document_start scripts.
+void waitForDocumentElement().then((documentElement) => {
+  documentElement.setAttribute(INSTALL_GUIDE_READY_ATTRIBUTE, "true");
+  documentElement.dispatchEvent(new CustomEvent(INSTALL_GUIDE_READY_EVENT));
+});

@@ -1,4 +1,5 @@
 import { addTraceEntry } from "../traceLog";
+import { MattermostApiError } from "./errors";
 
 export interface MattermostUser {
   id: string;
@@ -105,6 +106,57 @@ const API_POST_RATE_LIMIT_PER_MINUTE = 45;
 const API_POST_RATE_LIMIT_BURST = 10;
 const USER_LOOKUP_CACHE_TTL_MS = 5 * 60 * 1_000;
 const CHANNEL_LOOKUP_CACHE_TTL_MS = 5 * 60 * 1_000;
+let configuredMattermostServerUrl = "";
+let configuredMattermostBasePath = "";
+let apiServerGeneration = 0;
+
+export function configureMattermostBaseUrl(serverUrl: string): void {
+  let nextServerUrl = "";
+  let nextBasePath = "";
+  try {
+    const parsed = new URL(serverUrl);
+    const parsedBasePath = parsed.pathname.replace(/\/+$/, "");
+    nextServerUrl = `${parsed.origin}${parsedBasePath}`;
+    if (parsed.origin === window.location.origin) {
+      nextBasePath = parsedBasePath;
+    }
+  } catch {
+    nextServerUrl = "";
+    nextBasePath = "";
+  }
+
+  if (
+    nextServerUrl === configuredMattermostServerUrl &&
+    nextBasePath === configuredMattermostBasePath
+  ) {
+    return;
+  }
+
+  configuredMattermostServerUrl = nextServerUrl;
+  configuredMattermostBasePath = nextBasePath;
+  apiServerGeneration += 1;
+  clearMattermostApiCaches();
+}
+
+function getApiPath(pathname: string): string {
+  return `${configuredMattermostBasePath}/api/v4${pathname}`;
+}
+
+function getConfiguredPath(pathname: string): string {
+  const normalized = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  if (
+    !configuredMattermostBasePath ||
+    normalized === configuredMattermostBasePath ||
+    normalized.startsWith(`${configuredMattermostBasePath}/`)
+  ) {
+    return normalized;
+  }
+  return `${configuredMattermostBasePath}${normalized}`;
+}
+
+export function getMattermostUrl(pathname: string): string {
+  return new URL(getConfiguredPath(pathname), window.location.origin).toString();
+}
 
 function describeApiPath(pathname: string, method: "GET" | "POST"): string {
   const normalized = pathname.replace(/\?.*$/, "");
@@ -199,6 +251,21 @@ const requestSamples: Array<{
   method: "GET" | "POST";
   failed: boolean;
 }> = [];
+
+function clearMattermostApiCaches(): void {
+  inflightGetRequests.clear();
+  recentGetResponses.clear();
+  userLookupCache.clear();
+  inflightUserLookups.clear();
+  channelLookupCache.clear();
+  inflightChannelLookups.clear();
+  requestQueue = Promise.resolve();
+  nextRequestAt = 0;
+}
+
+function getGenerationCacheKey(pathname: string, generation = apiServerGeneration): string {
+  return `${generation}:${pathname}`;
+}
 
 function trimRequestSamples(now = Date.now()): void {
   while (requestSamples.length > 0 && now - requestSamples[0].timestamp > API_METRICS_RETENTION_MS) {
@@ -412,16 +479,19 @@ async function scheduleApiRequest<T>(method: "GET" | "POST", task: () => Promise
 }
 
 async function apiGet<T>(pathname: string): Promise<T> {
+  const generation = apiServerGeneration;
+  const cacheKey = getGenerationCacheKey(pathname, generation);
+  const requestPath = getApiPath(pathname);
   const now = Date.now();
-  const cached = recentGetResponses.get(pathname);
+  const cached = recentGetResponses.get(cacheKey);
   if (cached && cached.expiresAt > now) {
     return cached.value as T;
   }
   if (cached) {
-    recentGetResponses.delete(pathname);
+    recentGetResponses.delete(cacheKey);
   }
 
-  const inflight = inflightGetRequests.get(pathname);
+  const inflight = inflightGetRequests.get(cacheKey);
   if (inflight) {
     return (await inflight) as T;
   }
@@ -433,7 +503,7 @@ async function apiGet<T>(pathname: string): Promise<T> {
 
   const request = (async () => {
     const response = await performMeasuredFetch("GET", pathname, async () =>
-      await fetch(`/api/v4${pathname}`, {
+      await fetch(requestPath, {
         credentials: "include",
         headers: {
           Accept: "application/json",
@@ -444,25 +514,29 @@ async function apiGet<T>(pathname: string): Promise<T> {
     );
 
     if (!response.ok) {
-      throw new Error(`GET ${pathname} failed with ${response.status}`);
+      throw new MattermostApiError("GET", pathname, response.status);
     }
 
     const payload = (await response.json()) as T;
-    pruneRecentGetResponses();
-    recentGetResponses.set(pathname, {
-      expiresAt: Date.now() + GET_BURST_GUARD_TTL_MS,
-      value: payload,
-    });
-    pruneRecentGetResponses();
+    if (generation === apiServerGeneration) {
+      pruneRecentGetResponses();
+      recentGetResponses.set(cacheKey, {
+        expiresAt: Date.now() + GET_BURST_GUARD_TTL_MS,
+        value: payload,
+      });
+      pruneRecentGetResponses();
+    }
     return payload;
   })();
 
-  inflightGetRequests.set(pathname, request as Promise<unknown>);
+  inflightGetRequests.set(cacheKey, request as Promise<unknown>);
 
   try {
     return await request;
   } finally {
-    inflightGetRequests.delete(pathname);
+    if (inflightGetRequests.get(cacheKey) === request) {
+      inflightGetRequests.delete(cacheKey);
+    }
   }
 }
 
@@ -485,13 +559,14 @@ async function apiGetAbsolute(pathname: string): Promise<Response> {
 }
 
 async function apiPost<T>(pathname: string, body: unknown): Promise<T> {
+  const requestPath = getApiPath(pathname);
   const csrfToken = document.cookie
     .split("; ")
     .find((entry) => entry.startsWith("MMCSRF="))
     ?.slice("MMCSRF=".length);
 
   const response = await performMeasuredFetch("POST", pathname, async () =>
-    await fetch(`/api/v4${pathname}`, {
+    await fetch(requestPath, {
       method: "POST",
       credentials: "include",
       headers: {
@@ -505,14 +580,17 @@ async function apiPost<T>(pathname: string, body: unknown): Promise<T> {
   );
 
   if (!response.ok) {
-    throw new Error(`POST ${pathname} failed with ${response.status}`);
+    throw new MattermostApiError("POST", pathname, response.status);
   }
 
   return (await response.json()) as T;
 }
 
 export function readCurrentRoute(): CurrentRoute {
-  const path = window.location.pathname.split("/").filter(Boolean);
+  const relativePath = configuredMattermostBasePath && window.location.pathname.startsWith(`${configuredMattermostBasePath}/`)
+    ? window.location.pathname.slice(configuredMattermostBasePath.length)
+    : window.location.pathname;
+  const path = relativePath.split("/").filter(Boolean);
   if (path.length < 3) {
     return {
       teamName: null,
@@ -538,7 +616,7 @@ export async function getCurrentUser(): Promise<MattermostUser> {
 }
 
 export async function checkApiHealth(pathname: string): Promise<boolean> {
-  const response = await apiGetAbsolute(pathname);
+  const response = await apiGetAbsolute(getConfiguredPath(pathname));
   return response.ok;
 }
 
@@ -547,6 +625,7 @@ export async function getUsersByIds(userIds: string[]): Promise<MattermostUser[]
     return [];
   }
 
+  const generation = apiServerGeneration;
   const now = Date.now();
   const orderedUniqueIds = Array.from(new Set(userIds));
   const cachedUsers: MattermostUser[] = [];
@@ -568,7 +647,7 @@ export async function getUsersByIds(userIds: string[]): Promise<MattermostUser[]
     return orderedUniqueIds.map((userId) => cachedUsers.find((user) => user.id === userId)).filter((user): user is MattermostUser => Boolean(user));
   }
 
-  const cacheKey = missingIds.join(",");
+  const cacheKey = getGenerationCacheKey(missingIds.join(","), generation);
   let inflight = inflightUserLookups.get(cacheKey);
   if (!inflight) {
     inflight = apiPost<MattermostUser[]>("/users/ids", missingIds);
@@ -577,9 +656,11 @@ export async function getUsersByIds(userIds: string[]): Promise<MattermostUser[]
 
   try {
     const fetchedUsers = await inflight;
-    const expiresAt = Date.now() + USER_LOOKUP_CACHE_TTL_MS;
-    for (const user of fetchedUsers) {
-      userLookupCache.set(user.id, { expiresAt, user });
+    if (generation === apiServerGeneration) {
+      const expiresAt = Date.now() + USER_LOOKUP_CACHE_TTL_MS;
+      for (const user of fetchedUsers) {
+        userLookupCache.set(user.id, { expiresAt, user });
+      }
     }
 
     const userDirectory = new Map<string, MattermostUser>();
@@ -594,7 +675,9 @@ export async function getUsersByIds(userIds: string[]): Promise<MattermostUser[]
       .map((userId) => userDirectory.get(userId))
       .filter((user): user is MattermostUser => Boolean(user));
   } finally {
-    inflightUserLookups.delete(cacheKey);
+    if (inflightUserLookups.get(cacheKey) === inflight) {
+      inflightUserLookups.delete(cacheKey);
+    }
   }
 }
 
@@ -627,6 +710,8 @@ export async function getChannel(channelId: string): Promise<MattermostChannel> 
 }
 
 async function getCachedChannel(channelId: string): Promise<MattermostChannel> {
+  const generation = apiServerGeneration;
+  const inflightKey = getGenerationCacheKey(channelId, generation);
   const now = Date.now();
   const cached = channelLookupCache.get(channelId);
   if (cached && cached.expiresAt > now) {
@@ -636,26 +721,30 @@ async function getCachedChannel(channelId: string): Promise<MattermostChannel> {
     channelLookupCache.delete(channelId);
   }
 
-  const inflight = inflightChannelLookups.get(channelId);
+  const inflight = inflightChannelLookups.get(inflightKey);
   if (inflight) {
     return await inflight;
   }
 
   const request = (async () => {
     const channel = await getChannel(channelId);
-    channelLookupCache.set(channelId, {
-      expiresAt: Date.now() + CHANNEL_LOOKUP_CACHE_TTL_MS,
-      channel,
-    });
-    pruneChannelLookupCache();
+    if (generation === apiServerGeneration) {
+      channelLookupCache.set(channelId, {
+        expiresAt: Date.now() + CHANNEL_LOOKUP_CACHE_TTL_MS,
+        channel,
+      });
+      pruneChannelLookupCache();
+    }
     return channel;
   })();
 
-  inflightChannelLookups.set(channelId, request);
+  inflightChannelLookups.set(inflightKey, request);
   try {
     return await request;
   } finally {
-    inflightChannelLookups.delete(channelId);
+    if (inflightChannelLookups.get(inflightKey) === request) {
+      inflightChannelLookups.delete(inflightKey);
+    }
   }
 }
 
@@ -705,11 +794,13 @@ export async function searchPostsInTeam(
   options?: { isOrSearch?: boolean },
 ): Promise<MattermostPost[]> {
   const payload = await apiPost<MattermostPostList>(
-    `/teams/${encodeURIComponent(teamId)}/posts/search?page=${page}&per_page=${perPage}`,
+    `/teams/${encodeURIComponent(teamId)}/posts/search`,
     {
       terms,
       is_or_search: options?.isOrSearch ?? false,
       include_deleted_channels: false,
+      page,
+      per_page: perPage,
     },
   );
 
@@ -724,6 +815,7 @@ export async function getMyChannelMember(channelId: string): Promise<MattermostC
 
 export async function viewChannel(channelId: string): Promise<void> {
   await apiPost<unknown>("/channels/members/me/view", { channel_id: channelId });
+  recentGetResponses.delete(getGenerationCacheKey(`/channels/${encodeURIComponent(channelId)}/members/me`));
 }
 
 export async function fetchPostFileInfos(postId: string): Promise<MattermostFileInfo[]> {
@@ -732,7 +824,7 @@ export async function fetchPostFileInfos(postId: string): Promise<MattermostFile
 }
 
 export function getWebSocketUrl(): string {
-  const url = new URL("/api/v4/websocket", window.location.origin);
+  const url = new URL(`${configuredMattermostBasePath}/api/v4/websocket`, window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }

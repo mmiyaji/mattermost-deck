@@ -1,4 +1,4 @@
-import { test, expect, chromium } from "@playwright/test";
+import { test, expect, chromium, type Request } from "@playwright/test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -12,6 +12,12 @@ const LAYOUT_STORAGE_KEY = "mattermostDeck.layout.v1";
 interface E2EState {
   teamName: string;
   memberUser: { id: string; username: string; password: string; token: string };
+}
+
+interface SearchRequestTiming {
+  request: Request;
+  startedAt: number;
+  finishedAt?: number;
 }
 
 async function readState(): Promise<E2EState> {
@@ -155,12 +161,18 @@ test("all-teams mentions staggers team search fan-out", async () => {
     });
 
     const page = await context.newPage();
-    const teamSearchStarts: number[] = [];
+    const teamSearchTimings: SearchRequestTiming[] = [];
     page.on("request", (request) => {
       if (request.method() === "POST" && /\/api\/v4\/teams\/[^/]+\/posts\/search(?:\?|$)/.test(request.url())) {
-        teamSearchStarts.push(Date.now());
+        teamSearchTimings.push({ request, startedAt: Date.now() });
       }
     });
+    const markSearchFinished = (request: Request) => {
+      const timing = teamSearchTimings.find((entry) => entry.request === request);
+      if (timing) timing.finishedAt = Date.now();
+    };
+    page.on("requestfinished", markSearchFinished);
+    page.on("requestfailed", markSearchFinished);
     await page.addInitScript(() => {
       window.localStorage.setItem("mattermostDeck.debugLogs", "1");
     });
@@ -186,13 +198,26 @@ test("all-teams mentions staggers team search fan-out", async () => {
       .toBe("ready");
 
     await expect
-      .poll(() => teamSearchStarts.length, { timeout: 30_000 })
+      .poll(() => teamSearchTimings.length, { timeout: 30_000 })
       .toBeGreaterThanOrEqual(3);
 
-    const sortedStarts = teamSearchStarts.slice().sort((left, right) => left - right);
-    const gaps = sortedStarts.slice(1).map((timestamp, index) => timestamp - sortedStarts[index]);
+    await expect
+      .poll(
+        () => teamSearchTimings.slice(0, 2).every((timing) => timing.finishedAt !== undefined),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
 
-    expect(gaps.some((gap) => gap >= 150)).toBe(true);
+    const firstCycle = teamSearchTimings.slice(0, 3);
+    const firstBatchFinishedAt = Math.max(
+      firstCycle[0].finishedAt ?? Number.POSITIVE_INFINITY,
+      firstCycle[1].finishedAt ?? Number.POSITIVE_INFINITY,
+    );
+    const configuredGapAfterBatch = firstCycle[2].startedAt - firstBatchFinishedAt;
+
+    // Measure from completion of the first batch, rather than from request
+    // start times. Server latency alone must not be able to satisfy this check.
+    expect(configuredGapAfterBatch).toBeGreaterThanOrEqual(180);
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });

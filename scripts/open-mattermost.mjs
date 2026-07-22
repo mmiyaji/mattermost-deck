@@ -3,11 +3,15 @@ import path from "node:path";
 import { chromium } from "@playwright/test";
 
 const extensionPath = path.resolve("./dist");
-const statePath = path.resolve("../chat-agent-bridge/data/runtime/mattermost-e2e.json");
-const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8065";
+const statePath = path.resolve(process.env.MM95_STATE_FILE ?? "e2e/mm95-state.json");
 const userDataDir = path.resolve("./.tmp-open-browser/profile");
 
 const state = JSON.parse(await fs.readFile(statePath, "utf8"));
+const baseUrl = process.env.MATTERMOST_BASE_URL ?? state.baseUrl ?? "http://127.0.0.1:8066";
+const teamName = state.team?.name ?? state.teamName;
+if (!teamName) {
+  throw new Error(`Mattermost team name is missing from ${statePath}`);
+}
 await fs.mkdir(userDataDir, { recursive: true });
 
 async function getExtensionId(context) {
@@ -79,8 +83,8 @@ if ((await page.waitForURL(/channels|messages/, { timeout: 2_000 }).then(() => t
 }
 
 const extensionId = await getExtensionId(context);
-await configureExtension(page, extensionId, baseUrl, state.team.name);
-await page.goto(`${baseUrl}/${state.team.name}/channels/town-square`, {
+await configureExtension(page, extensionId, baseUrl, teamName);
+await page.goto(`${baseUrl}/${teamName}/channels/town-square`, {
   waitUntil: "domcontentloaded",
   timeout: 60_000,
 });

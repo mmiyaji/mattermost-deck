@@ -20,6 +20,7 @@ import {
   getTeamsForCurrentUser,
   getUsersByIds,
   getMyChannelMember,
+  getMattermostUrl,
   viewChannel,
   readCurrentRoute,
   searchPostsInTeam,
@@ -32,6 +33,7 @@ import {
   type TeamUnread,
 } from "../mattermost/api";
 import { connectMattermostWebSocket, type PostedEvent, type WebSocketStatus } from "../mattermost/websocket";
+import { hasMattermostMention, hasSpecialMattermostMention } from "../mattermost/mentions";
 import {
   createColumn,
   createDefaultLayout,
@@ -49,7 +51,7 @@ import {
   saveStoredJson,
   saveStoredNumber,
 } from "./storage";
-import { getProfileStorageKey, loadCurrentDeckProfile } from "./profiles";
+import { getProfileStorageKey, loadCurrentDeckProfile, PROFILES_STORAGE_KEY } from "./profiles";
 import { APP_VERSION } from "../version";
 import { getDeckDiagnosticsSnapshot, recordRenderCommit, recordSpecialMentionScan } from "../diagnostics";
 import { addTraceEntry } from "../traceLog";
@@ -88,6 +90,8 @@ import { focusMattermostPost } from "./mattermostNavigation";
 import { dedupeRecentTargets, type RecentChannelTarget } from "./recentTargets";
 import { mapInBatches } from "./asyncBatch";
 import { useElementVisibility } from "./useElementVisibility";
+import { calculateResponsiveRailWidth } from "./railLayout";
+import { getLocalizedApiErrorMessage, isMattermostSessionExpiredError } from "./apiErrorMessage";
 
 
 interface AppProps {
@@ -157,6 +161,8 @@ const RAIL_WIDTH_STORAGE_KEY = "mattermostDeck.railWidth.v1";
 const DRAWER_OPEN_STORAGE_KEY = "mattermostDeck.drawerOpen.v1";
 const RECENT_TARGETS_STORAGE_KEY = "mattermostDeck.recentTargets.v1";
 const SAVED_VIEWS_STORAGE_KEY = "mattermostDeck.savedViews.v1";
+const VIEWPORT_RESIZING_CLASS = "mattermost-deck-viewport-resizing";
+const VIEWPORT_RESIZE_SETTLE_MS = 120;
 const MIN_RAIL_WIDTH = 360;
 const MAX_RAIL_WIDTH = 1400;
 const DEFAULT_RAIL_WIDTH = 720;
@@ -167,10 +173,6 @@ const POSTS_MAX_BUFFER = 100;
 const MIN_MANUAL_REFRESH_MS = 350;
 const MIN_LOAD_MORE_MS = 350;
 const IDLE_AUTOSCROLL_MS = 8_000;
-const POST_ROW_ESTIMATE = 116;
-const POST_SEPARATOR_ESTIMATE = 32;
-const POST_OVERSCAN = 4;
-const POST_VIRTUALIZE_THRESHOLD = 40;
 const SEARCH_SYNC_INTERVAL_FLOOR_MS = 120_000;
 const MAX_SAVED_VIEWS = 8;
 const DEBUG_FLAG_KEY = "mattermostDeck.debugLogs";
@@ -231,6 +233,10 @@ declare global {
 }
 
 function isDebugEnabled(): boolean {
+  if (!__MATTERMOST_DECK_E2E_DEBUG__) {
+    return false;
+  }
+
   try {
     return window.localStorage.getItem(DEBUG_FLAG_KEY) === "1";
   } catch {
@@ -383,18 +389,8 @@ function buildMentionSearchTerms(username: string): string {
   return [`@${username}`, "@all", "@here", "@channel"].join(" ");
 }
 
-function hasSpecialMention(message: string): boolean {
-  return /(^|[^a-z0-9_])@(all|here|channel)\b/i.test(message);
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function hasMentionForMentionsColumn(message: string, username: string): boolean {
-  const escapedUsername = escapeRegExp(username);
-  const userMentionPattern = new RegExp(`(^|[^a-z0-9_])@${escapedUsername}\\b`, "i");
-  return userMentionPattern.test(message) || hasSpecialMention(message);
+  return hasMattermostMention(message, username);
 }
 
 function isSameCalendarDay(left: number, right: number): boolean {
@@ -460,22 +456,6 @@ function buildPostListEntries(posts: MattermostPost[], lastViewedAt?: number | n
   });
 
   return entries;
-}
-
-function binarySearchOffsets(offsets: number[], value: number): number {
-  let low = 0;
-  let high = offsets.length - 1;
-
-  while (low < high) {
-    const mid = Math.floor((low + high) / 2);
-    if (offsets[mid] <= value) {
-      low = mid + 1;
-    } else {
-      high = mid;
-    }
-  }
-
-  return Math.max(0, low - 1);
 }
 
 function isSelectableChannel(channel: MattermostChannel): boolean {
@@ -1682,12 +1662,13 @@ function useDeckState(
         }
       } catch (error) {
         if (!cancelled) {
-          const message = error instanceof Error ? error.message : i18n.t("deck.failedToLoad");
+          const message = getLocalizedApiErrorMessage(error, i18n.t("deck.failedToLoad"));
+          const sessionExpired = isMattermostSessionExpiredError(error);
           debugLog("app.deck-state.error", {
             message,
             path: window.location.pathname,
           });
-          setState((current) => /401/.test(message)
+          setState((current) => sessionExpired
             ? {
                 ...current,
                 status: "error",
@@ -1764,12 +1745,12 @@ function useDeckState(
         if (cancelled) {
           return;
         }
-        const message = error instanceof Error ? error.message : "Failed to refresh Mattermost route state.";
+        const message = getLocalizedApiErrorMessage(error, i18n.t("deck.failedToLoad"));
         setState((current) => ({
           ...current,
           status: "error",
           error: message,
-          sessionExpired: /401/.test(message),
+          sessionExpired: isMattermostSessionExpiredError(error),
         }));
       }
     };
@@ -1819,13 +1800,30 @@ function useMentionsLastReadAt(): [number | null, (value: number | null) => void
 
   useEffect(() => {
     let cancelled = false;
-    void loadMentionsLastReadAt().then((value) => {
-      if (!cancelled) {
-        setLastReadAt(value && value > 0 ? value : null);
+    let loadVersion = 0;
+    const load = () => {
+      const version = ++loadVersion;
+      void loadMentionsLastReadAt().then((value) => {
+        if (!cancelled && version === loadVersion) {
+          setLastReadAt(value && value > 0 ? value : null);
+        }
+      }).catch(() => undefined);
+    };
+
+    load();
+    const handleStorageChange = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
+      if (areaName !== "local") return;
+      if (
+        PROFILES_STORAGE_KEY in changes ||
+        Object.keys(changes).some((key) => key.startsWith(`${MENTIONS_LAST_READ_AT_STORAGE_KEY}.profile.`))
+      ) {
+        load();
       }
-    }).catch(() => undefined);
+    };
+    chrome.storage?.onChanged?.addListener(handleStorageChange);
     return () => {
       cancelled = true;
+      chrome.storage?.onChanged?.removeListener(handleStorageChange);
     };
   }, []);
 
@@ -2134,8 +2132,7 @@ function useSavedViews(): [
 }
 
 function clampRailWidth(nextWidth: number): number {
-  const viewportMax = Math.max(MIN_RAIL_WIDTH, window.innerWidth - 320);
-  return Math.min(Math.max(nextWidth, MIN_RAIL_WIDTH), Math.min(MAX_RAIL_WIDTH, viewportMax));
+  return Math.min(Math.max(nextWidth, MIN_RAIL_WIDTH), MAX_RAIL_WIDTH);
 }
 
 function useStoredBoolean(storageKey: string, defaultValue: boolean): [boolean, (nextValue: boolean) => void] {
@@ -2317,22 +2314,39 @@ function useApiHealth(
   return healthStatus;
 }
 
-function useRailWidth(drawerOpen: boolean, preferredRailWidth: number): [number, (nextWidth: number) => void] {
-  const [railWidth, setRailWidth] = useState<number>(clampRailWidth(normalisePreferredRailWidth(preferredRailWidth)));
+function useRailWidth(
+  drawerOpen: boolean,
+  preferredRailWidth: number,
+): [number, (nextWidth: number) => void, (nextWidth?: number) => void] {
+  const normalizedPreferredRailWidth = clampRailWidth(normalisePreferredRailWidth(preferredRailWidth));
+  const [requestedRailWidth, setRequestedRailWidth] = useState<number>(normalizedPreferredRailWidth);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const requestedRailWidthRef = useRef(normalizedPreferredRailWidth);
+  const preferredRailWidthRef = useRef(normalizedPreferredRailWidth);
+  const hasManualOverrideRef = useRef(false);
+  const viewportResizeTimerRef = useRef<number | null>(null);
+  const railWidth = useMemo(
+    () => calculateResponsiveRailWidth(requestedRailWidth, viewportWidth),
+    [requestedRailWidth, viewportWidth],
+  );
 
   useEffect(() => {
     let cancelled = false;
 
     const run = async () => {
       const stored = await loadStoredNumber(RAIL_WIDTH_STORAGE_KEY);
-      if (cancelled) {
+      if (cancelled || hasManualOverrideRef.current) {
         return;
       }
 
       if (stored !== null) {
-        setRailWidth(clampRailWidth(stored));
+        hasManualOverrideRef.current = true;
+        const normalizedStoredWidth = clampRailWidth(stored);
+        requestedRailWidthRef.current = normalizedStoredWidth;
+        setRequestedRailWidth(normalizedStoredWidth);
       } else {
-        setRailWidth(clampRailWidth(normalisePreferredRailWidth(preferredRailWidth)));
+        requestedRailWidthRef.current = preferredRailWidthRef.current;
+        setRequestedRailWidth(preferredRailWidthRef.current);
       }
     };
 
@@ -2341,7 +2355,15 @@ function useRailWidth(drawerOpen: boolean, preferredRailWidth: number): [number,
     return () => {
       cancelled = true;
     };
-  }, [preferredRailWidth]);
+  }, []);
+
+  useEffect(() => {
+    preferredRailWidthRef.current = normalizedPreferredRailWidth;
+    if (!hasManualOverrideRef.current) {
+      requestedRailWidthRef.current = normalizedPreferredRailWidth;
+      setRequestedRailWidth(normalizedPreferredRailWidth);
+    }
+  }, [normalizedPreferredRailWidth]);
 
   useEffect(() => {
     document.documentElement.style.setProperty("--mattermost-deck-rail-width", `${railWidth}px`);
@@ -2349,21 +2371,58 @@ function useRailWidth(drawerOpen: boolean, preferredRailWidth: number): [number,
       "--mattermost-deck-offset-width",
       drawerOpen ? `${railWidth}px` : `${COLLAPSED_DRAWER_WIDTH}px`,
     );
-    void saveStoredNumber(RAIL_WIDTH_STORAGE_KEY, railWidth);
   }, [drawerOpen, railWidth]);
 
   useEffect(() => {
     const handleResize = () => {
-      setRailWidth((current) => clampRailWidth(current));
+      const nextViewportWidth = window.innerWidth;
+      const nextRailWidth = calculateResponsiveRailWidth(requestedRailWidth, nextViewportWidth);
+      document.body.classList.add(VIEWPORT_RESIZING_CLASS);
+      document.documentElement.style.setProperty("--mattermost-deck-rail-width", `${nextRailWidth}px`);
+      document.documentElement.style.setProperty(
+        "--mattermost-deck-offset-width",
+        drawerOpen ? `${nextRailWidth}px` : `${COLLAPSED_DRAWER_WIDTH}px`,
+      );
+      setViewportWidth(nextViewportWidth);
+
+      if (viewportResizeTimerRef.current !== null) {
+        window.clearTimeout(viewportResizeTimerRef.current);
+      }
+      viewportResizeTimerRef.current = window.setTimeout(() => {
+        viewportResizeTimerRef.current = null;
+        document.body.classList.remove(VIEWPORT_RESIZING_CLASS);
+      }, VIEWPORT_RESIZE_SETTLE_MS);
     };
 
     window.addEventListener("resize", handleResize);
     return () => {
       window.removeEventListener("resize", handleResize);
+      if (viewportResizeTimerRef.current !== null) {
+        window.clearTimeout(viewportResizeTimerRef.current);
+        viewportResizeTimerRef.current = null;
+      }
+      document.body.classList.remove(VIEWPORT_RESIZING_CLASS);
     };
+  }, [drawerOpen, requestedRailWidth]);
+
+  const updateRailWidth = useCallback((nextWidth: number) => {
+    const normalizedWidth = clampRailWidth(nextWidth);
+    hasManualOverrideRef.current = true;
+    requestedRailWidthRef.current = normalizedWidth;
+    setRequestedRailWidth(normalizedWidth);
   }, []);
 
-  return [railWidth, setRailWidth];
+  const persistRailWidth = useCallback((nextWidth?: number) => {
+    const normalizedWidth = nextWidth === undefined
+      ? requestedRailWidthRef.current
+      : clampRailWidth(nextWidth);
+    hasManualOverrideRef.current = true;
+    requestedRailWidthRef.current = normalizedWidth;
+    setRequestedRailWidth(normalizedWidth);
+    void saveStoredNumber(RAIL_WIDTH_STORAGE_KEY, normalizedWidth);
+  }, []);
+
+  return [railWidth, updateRailWidth, persistRailWidth];
 }
 
 function TeamSelect({
@@ -2820,7 +2879,6 @@ function PostFileAttachments({
 
   if (fileIds.length === 0) return null;
 
-  const baseUrl = window.location.origin;
 
   const getPlaceholderSrc = (info: MattermostFileInfo): string | null => {
     if (info.mini_preview) {
@@ -2831,13 +2889,13 @@ function PostFileAttachments({
 
   const getPreviewSrc = (info: MattermostFileInfo): string => {
     if (info.has_preview_image) {
-      return `${baseUrl}/api/v4/files/${info.id}/preview`;
+      return getMattermostUrl(`/api/v4/files/${info.id}/preview`);
     }
-    return `${baseUrl}/api/v4/files/${info.id}`;
+    return getMattermostUrl(`/api/v4/files/${info.id}`);
   };
 
   const getFullSrc = (info: MattermostFileInfo): string => {
-    return `${baseUrl}/api/v4/files/${info.id}`;
+    return getMattermostUrl(`/api/v4/files/${info.id}`);
   };
 
   return (
@@ -2862,7 +2920,7 @@ function PostFileAttachments({
               className="deck-file-card"
               onClick={(e) => {
                 e.stopPropagation();
-                void chrome.runtime.sendMessage({ type: "mattermost-deck:open-tab", url: `${baseUrl}/api/v4/files/${info.id}` });
+                void chrome.runtime.sendMessage({ type: "mattermost-deck:open-tab", url: getMattermostUrl(`/api/v4/files/${info.id}`) });
               }}
             >
               <span className="deck-file-icon">
@@ -2940,6 +2998,8 @@ function PostListItem({
     <li
       ref={setNode}
       key={entry.key}
+      role={canOpenPost ? "button" : undefined}
+      tabIndex={canOpenPost ? 0 : undefined}
       className={`deck-card deck-card--post${compactMode ? " deck-card--post-compact" : ""}${groupedWithPrevious ? " deck-card--post-grouped" : ""}${isReplyPost ? " deck-card--reply" : ""}${onOpenPost && postClickAction !== "none" ? " deck-card--clickable" : ""}`}
       onPointerDown={
         onOpenPost && postClickAction !== "none"
@@ -2977,10 +3037,17 @@ function PostListItem({
                 dragDetectedRef.current = false;
                 return;
               }
-              if (postClickAction === "ask" && !window.confirm("Open this post in the main Mattermost thread view?")) {
-                return;
-              }
-              onOpenPost(post);
+              activatePost();
+            }
+          : undefined
+      }
+      onKeyDown={
+        canOpenPost
+          ? (event) => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              activatePost();
             }
           : undefined
       }
@@ -3070,7 +3137,6 @@ function PostList({
   const text = useAppText();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [viewportHeight, setViewportHeight] = useState(0);
-  const [scrollTop, setScrollTop] = useState(0);
   const [newPostCount, setNewPostCount] = useState(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const lastInteractionAtRef = useRef(Date.now());
@@ -3084,7 +3150,6 @@ function PostList({
   const reversedPostOrderRef = useRef(reversedPostOrder);
   reversedPostOrderRef.current = reversedPostOrder;
   const hasInitialScrolledRef = useRef(false);
-  const shouldVirtualize = posts.length > POST_VIRTUALIZE_THRESHOLD;
 
   const markInteraction = useCallback(() => {
     lastInteractionAtRef.current = Date.now();
@@ -3098,10 +3163,8 @@ function PostList({
     if (reversedPostOrderRef.current) {
       const target = viewport.scrollHeight - viewport.clientHeight;
       viewport.scrollTo({ top: target, behavior: "smooth" });
-      setScrollTop(target);
     } else {
       viewport.scrollTo({ top: 0, behavior: "smooth" });
-      setScrollTop(0);
     }
     setNewPostCount(0);
     setShowJumpToLatest(false);
@@ -3138,7 +3201,7 @@ function PostList({
       window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [posts, shouldVirtualize]);
+  }, [posts]);
 
   useEffect(() => {
     if (!reversedPostOrder || hasInitialScrolledRef.current) return;
@@ -3147,7 +3210,6 @@ function PostList({
     const target = viewport.scrollHeight - viewport.clientHeight;
     if (target <= 0) return;
     viewport.scrollTop = target;
-    setScrollTop(target);
     hasInitialScrolledRef.current = true;
   }, [reversedPostOrder, viewportHeight]);
 
@@ -3176,7 +3238,6 @@ function PostList({
       if (!viewport) return;
       const target = viewport.scrollHeight - viewport.clientHeight;
       viewport.scrollTo({ top: target, behavior: "smooth" });
-      setScrollTop(target);
       setNewPostCount(0);
       setShowJumpToLatest(false);
     } else {
@@ -3189,34 +3250,10 @@ function PostList({
       }
       if (!viewport) return;
       viewport.scrollTo({ top: 0, behavior: "smooth" });
-      setScrollTop(0);
       setNewPostCount(0);
       setShowJumpToLatest(false);
     }
   }, [posts]);
-
-  const rowHeights = useMemo(
-    () => displayEntries.map((entry) => (entry.type === "separator" || entry.type === "unread-separator" ? POST_SEPARATOR_ESTIMATE : POST_ROW_ESTIMATE)),
-    [displayEntries],
-  );
-  const offsets = useMemo(() => {
-    const values: number[] = new Array(displayEntries.length);
-    let total = 0;
-    for (let index = 0; index < displayEntries.length; index += 1) {
-      values[index] = total;
-      total += rowHeights[index] ?? 0;
-    }
-    return values;
-  }, [displayEntries, rowHeights]);
-  const totalHeight = useMemo(() => rowHeights.reduce((sum, height) => sum + height, 0), [rowHeights]);
-  const startIndex = shouldVirtualize ? Math.max(0, binarySearchOffsets(offsets, scrollTop) - POST_OVERSCAN) : 0;
-  const endBoundary = scrollTop + viewportHeight;
-  const endIndex = shouldVirtualize
-    ? Math.min(displayEntries.length, binarySearchOffsets(offsets, endBoundary) + POST_OVERSCAN + 2)
-    : displayEntries.length;
-  const visibleEntries = displayEntries.slice(startIndex, endIndex);
-  const offsetY = offsets[startIndex] ?? 0;
-  const spacerHeight = totalHeight;
 
   const renderEntry = (entry: PostListEntry, entryIndex: number): React.ReactNode => {
     if (entry.type === "separator") {
@@ -3308,60 +3345,29 @@ function PostList({
           </button>
         </div>
       ) : null}
-      {shouldVirtualize ? (
-        <div
-          ref={viewportRef}
-          className="deck-list-viewport"
-          onScroll={(event) => {
-            const el = event.currentTarget;
-            setScrollTop(el.scrollTop);
-            const nearEdge = reversedPostOrder
-              ? el.scrollHeight - el.scrollTop - el.clientHeight < 24
-              : el.scrollTop < 24;
-            if (nearEdge) {
-              setNewPostCount(0);
-              setShowJumpToLatest(false);
-            } else {
-              setShowJumpToLatest(true);
-            }
-            markInteraction();
-          }}
-          onWheel={markInteraction}
-          onPointerDown={markInteraction}
-        >
-          {reversedPostOrder && footerNode}
-          <div className="deck-list-spacer" style={{ height: `${Math.max(spacerHeight, viewportHeight)}px` }}>
-            <ul className={`deck-list deck-list--virtual${compactMode ? " deck-list--post-compact" : ""}`} style={{ transform: `translateY(${offsetY}px)` }}>
-              {visibleEntries.map((entry, index) => renderEntry(entry, startIndex + index))}
-            </ul>
-          </div>
-          {!reversedPostOrder && footerNode}
-        </div>
-      ) : (
-        <div
-          ref={viewportRef}
-          className="deck-list-viewport"
-          onScroll={(event) => {
-            const el = event.currentTarget;
-            const nearEdge = reversedPostOrder
-              ? el.scrollHeight - el.scrollTop - el.clientHeight < 24
-              : el.scrollTop < 24;
-            if (nearEdge) {
-              setNewPostCount(0);
-              setShowJumpToLatest(false);
-            } else {
-              setShowJumpToLatest(true);
-            }
-            markInteraction();
-          }}
-          onWheel={markInteraction}
-          onPointerDown={markInteraction}
-        >
-          {reversedPostOrder && footerNode}
-          <ul className={`deck-list${compactMode ? " deck-list--post-compact" : ""}`}>{displayEntries.map((entry, index) => renderEntry(entry, index))}</ul>
-          {!reversedPostOrder && footerNode}
-        </div>
-      )}
+      <div
+        ref={viewportRef}
+        className="deck-list-viewport"
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          const nearEdge = reversedPostOrder
+            ? el.scrollHeight - el.scrollTop - el.clientHeight < 24
+            : el.scrollTop < 24;
+          if (nearEdge) {
+            setNewPostCount(0);
+            setShowJumpToLatest(false);
+          } else {
+            setShowJumpToLatest(true);
+          }
+          markInteraction();
+        }}
+        onWheel={markInteraction}
+        onPointerDown={markInteraction}
+      >
+        {reversedPostOrder && footerNode}
+        <ul className={`deck-list${compactMode ? " deck-list--post-compact" : ""}`}>{displayEntries.map((entry, index) => renderEntry(entry, index))}</ul>
+        {!reversedPostOrder && footerNode}
+      </div>
     </div>
   );
 }
@@ -3488,6 +3494,14 @@ function MentionsColumn({
 
   useEffect(() => {
     setHasCompletedInitialLoad(false);
+    setPostState({
+      status: "idle",
+      posts: [],
+      error: null,
+      nextPage: 1,
+      hasMore: false,
+      loadingMore: false,
+    });
   }, [column.teamId, username]);
 
   useEffect(() => {
@@ -3561,7 +3575,7 @@ function MentionsColumn({
 
       const posts = channelPosts
         .flat()
-        .filter((post) => hasSpecialMention(post.message))
+        .filter((post) => hasSpecialMattermostMention(post.message))
         .filter((post) => hasMentionForMentionsColumn(post.message, username));
       recordSpecialMentionScan({
         hits: posts.length,
@@ -3637,7 +3651,7 @@ function MentionsColumn({
         setPostState({
           status: "error",
           posts: [],
-          error: error instanceof Error ? error.message : text.failedToLoadMentions,
+          error: getLocalizedApiErrorMessage(error, text.failedToLoadMentions),
           nextPage: 1,
           hasMore: false,
           loadingMore: false,
@@ -3813,14 +3827,14 @@ function MentionsColumn({
       setPostState((current) => ({
         ...current,
         status: "error",
-        error: error instanceof Error ? error.message : text.failedToLoadMentions,
+        error: getLocalizedApiErrorMessage(error, text.failedToLoadMentions),
         loadingMore: false,
       }));
     }
   };
 
   useEffect(() => {
-    if (!isDebugEnabled()) {
+    if (!__MATTERMOST_DECK_E2E_DEBUG__ || !isDebugEnabled()) {
       return;
     }
 
@@ -4165,6 +4179,14 @@ function ChannelWatchColumn({
 
   useEffect(() => {
     setHasCompletedInitialLoad(false);
+    setPostState({
+      status: "idle",
+      posts: [],
+      error: null,
+      nextPage: 1,
+      hasMore: false,
+      loadingMore: false,
+    });
   }, [mode, column.teamId, column.channelId]);
 
   useEffect(() => {
@@ -4247,7 +4269,7 @@ function ChannelWatchColumn({
         setChannelState({
           status: "error",
           channels: [],
-        error: error instanceof Error ? error.message : text.failedToLoadChannels,
+          error: getLocalizedApiErrorMessage(error, text.failedToLoadChannels),
         });
         finishRefresh();
       }
@@ -4367,7 +4389,7 @@ function ChannelWatchColumn({
         setPostState({
           status: "error",
           posts: [],
-        error: error instanceof Error ? error.message : text.failedToLoadPosts,
+          error: getLocalizedApiErrorMessage(error, text.failedToLoadPosts),
           nextPage: 1,
           hasMore: false,
           loadingMore: false,
@@ -4443,7 +4465,7 @@ function ChannelWatchColumn({
       setPostState((current) => ({
         ...current,
         status: "error",
-        error: error instanceof Error ? error.message : text.failedToLoadPosts,
+        error: getLocalizedApiErrorMessage(error, text.failedToLoadPosts),
         loadingMore: false,
       }));
     }
@@ -4455,7 +4477,7 @@ function ChannelWatchColumn({
   }, [startRefresh]);
 
   useEffect(() => {
-    if (!isDebugEnabled()) {
+    if (!__MATTERMOST_DECK_E2E_DEBUG__ || !isDebugEnabled()) {
       return;
     }
 
@@ -4527,7 +4549,11 @@ function ChannelWatchColumn({
             type="button"
             className="deck-icon-button deck-icon-button--ghost"
             onClick={() => setShowControls((current) => !current)}
-            aria-label={showControls ? text.collapseControls("") : text.expandControls("")}
+            aria-label={
+              showControls
+                ? text.collapseControls(selectedChannelLabel ?? (mode === "dm" ? text.addDmWatch : text.addChannelWatch))
+                : text.expandControls(selectedChannelLabel ?? (mode === "dm" ? text.addDmWatch : text.addChannelWatch))
+            }
           >
             <ChevronIcon expanded={showControls} />
           </button>
@@ -4857,6 +4883,14 @@ function SearchLikeColumn({
 
   useEffect(() => {
     setHasCompletedInitialLoad(false);
+    setPostState({
+      status: "idle",
+      posts: [],
+      error: null,
+      nextPage: 1,
+      hasMore: false,
+      loadingMore: false,
+    });
   }, [column.teamId, query]);
 
   useEffect(() => {
@@ -4948,7 +4982,7 @@ function SearchLikeColumn({
         setPostState({
           status: "error",
           posts: [],
-        error: error instanceof Error ? error.message : text.failedToLoadResults,
+          error: getLocalizedApiErrorMessage(error, text.failedToLoadResults),
           nextPage: 1,
           hasMore: false,
           loadingMore: false,
@@ -5011,7 +5045,7 @@ function SearchLikeColumn({
       setPostState((current) => ({
         ...current,
         status: "error",
-        error: error instanceof Error ? error.message : text.failedToLoadResults,
+        error: getLocalizedApiErrorMessage(error, text.failedToLoadResults),
         loadingMore: false,
       }));
     }
@@ -5330,7 +5364,7 @@ function SavedPostsColumn({
         setPostState({
           status: "error",
           posts: [],
-        error: error instanceof Error ? error.message : text.failedToLoadSavedPosts,
+          error: getLocalizedApiErrorMessage(error, text.failedToLoadSavedPosts),
           nextPage: 1,
           hasMore: false,
           loadingMore: false,
@@ -5410,7 +5444,7 @@ function SavedPostsColumn({
       setPostState((current) => ({
         ...current,
         status: "error",
-        error: error instanceof Error ? error.message : text.failedToLoadSavedPosts,
+        error: getLocalizedApiErrorMessage(error, text.failedToLoadSavedPosts),
         loadingMore: false,
       }));
     }
@@ -5740,7 +5774,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const [columns, addColumn, removeColumn, updateColumn, moveColumn, replaceColumns] = useDeckLayout();
   const [recentTargets, rememberRecentTarget] = useRecentTargets();
   const [savedViews, saveView, removeView, getView] = useSavedViews();
-  const [railWidth, setRailWidth] = useRailWidth(drawerOpen, deckSettings.preferredRailWidth);
+  const [railWidth, setRailWidth, persistRailWidth] = useRailWidth(drawerOpen, deckSettings.preferredRailWidth);
   const [isResizing, setIsResizing] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showViewsMenu, setShowViewsMenu] = useState(false);
@@ -5763,7 +5797,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const railAddButtonRef = useRef<HTMLButtonElement | null>(null);
   const railAddOverlayMenuRef = useRef<HTMLDivElement | null>(null);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
-  const resizeStateRef = useRef<{ pointerId: number } | null>(null);
+  const resizeStateRef = useRef<{ pointerId: number; didMove: boolean } | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const pendingWidthRef = useRef<number | null>(null);
   const wsStatus = useWebSocketStatus();
@@ -5878,6 +5912,10 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   );
 
   useEffect(() => {
+    if (!__MATTERMOST_DECK_E2E_DEBUG__) {
+      return;
+    }
+
     try {
       if (window.localStorage.getItem(DEBUG_FLAG_KEY) !== "1") {
         return;
@@ -6035,6 +6073,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     }
 
     return connectMattermostWebSocket({
+      userId: state.userId,
       username: state.username,
       enabled: effectiveRealtimeEnabled && !state.sessionExpired,
       token: deckSettings.wsPat,
@@ -6065,7 +6104,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         setRealtimeAuthError(message);
       },
     });
-  }, [columns, deckSettings.wsPat, effectiveRealtimeEnabled, state.sessionExpired, state.username]);
+  }, [columns, deckSettings.wsPat, effectiveRealtimeEnabled, state.sessionExpired, state.userId, state.username]);
 
   useEffect(() => {
     if (!isResizing || !drawerOpen) {
@@ -6077,6 +6116,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         return;
       }
 
+      resizeStateRef.current.didMove = true;
       pendingWidthRef.current = window.innerWidth - event.clientX;
       if (resizeFrameRef.current !== null) {
         return;
@@ -6096,6 +6136,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         return;
       }
 
+      const didMove = resizeStateRef.current.didMove;
       resizeStateRef.current = null;
       setIsResizing(false);
       if (resizeFrameRef.current !== null) {
@@ -6105,6 +6146,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       if (pendingWidthRef.current !== null) {
         setRailWidth(pendingWidthRef.current);
         pendingWidthRef.current = null;
+      }
+      if (didMove) {
+        persistRailWidth();
       }
     };
 
@@ -6122,7 +6166,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       }
       pendingWidthRef.current = null;
     };
-  }, [drawerOpen, isResizing, setRailWidth]);
+  }, [drawerOpen, isResizing, persistRailWidth, setRailWidth]);
 
   useEffect(() => {
     const root = document.getElementById(DECK_ROOT_ID);
@@ -6135,9 +6179,20 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       return;
     }
 
-    resizeStateRef.current = { pointerId: event.pointerId };
+    resizeStateRef.current = { pointerId: event.pointerId, didMove: false };
     setIsResizing(true);
     event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  const handleResizeKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!drawerOpen || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) {
+      return;
+    }
+
+    const step = event.shiftKey ? 80 : 32;
+    const nextWidth = railWidth + (event.key === "ArrowLeft" ? step : -step);
+    persistRailWidth(nextWidth);
     event.preventDefault();
   };
 
@@ -6415,6 +6470,10 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   };
 
   useEffect(() => {
+    if (!__MATTERMOST_DECK_E2E_DEBUG__) {
+      return;
+    }
+
     if (!isDebugEnabled()) {
       delete window.__mattermostDeckDebug;
       return;
@@ -6597,7 +6656,10 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         type="button"
         className={`deck-resizer${isResizing ? " deck-resizer--active" : ""}`}
         onPointerDown={handleResizeStart}
+        onKeyDown={handleResizeKeyDown}
+        disabled={!drawerOpen}
         aria-label={text.resizeLabel}
+        aria-keyshortcuts="ArrowLeft ArrowRight"
         title={text.resizeDrag}
       >
         <span />

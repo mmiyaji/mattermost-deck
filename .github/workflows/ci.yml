@@ -1,16 +1,22 @@
-name: Release Extension
+name: CI
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-and-release:
+  validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -34,7 +40,7 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
-      - name: Build extension for E2E
+      - name: Build extension
         run: npm run build
 
       - name: Start Mattermost test server
@@ -46,22 +52,3 @@ jobs:
       - name: Stop Mattermost test server
         if: always()
         run: npm run mm95:stop
-
-      - name: Build store extension
-        run: npm run build
-        env:
-          EXT_VERSION: ${{ github.ref_name }}
-          STORE_BUILD: "true"
-
-      - name: Create release archive
-        run: |
-          cd dist
-          zip -r "../mattermost-deck-${GITHUB_REF_NAME}.zip" .
-
-      - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          generate_release_notes: true
-          files: mattermost-deck-${{ github.ref_name }}.zip

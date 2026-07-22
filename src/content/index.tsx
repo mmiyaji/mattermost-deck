@@ -4,6 +4,7 @@ import { App } from "../ui/App";
 import { DEFAULT_SETTINGS, loadDeckSettings, subscribeDeckSettings, type DeckSettings } from "../ui/settings";
 import { railCssText } from "../ui/styles";
 import { addTraceEntry } from "../traceLog";
+import { configureMattermostBaseUrl } from "../mattermost/api";
 
 const ROOT_ID = "mattermost-deck-root";
 const STYLE_ID = "mattermost-deck-page-style";
@@ -42,7 +43,47 @@ let guardCache:
 let guardInflight: Promise<boolean> | null = null;
 const DEBUG_FLAG_KEY = "mattermostDeck.debugLogs";
 
+function getConfiguredLocation(): { origin: string; basePath: string } | null {
+  try {
+    const parsed = new URL(currentSettings.serverUrl);
+    return {
+      origin: parsed.origin,
+      basePath: parsed.pathname.replace(/\/+$/, ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getConfiguredRoute(): string | null {
+  const configured = getConfiguredLocation();
+  if (!configured || window.location.origin !== configured.origin) {
+    return null;
+  }
+  if (
+    configured.basePath &&
+    window.location.pathname !== configured.basePath &&
+    !window.location.pathname.startsWith(`${configured.basePath}/`)
+  ) {
+    return null;
+  }
+  const pathname = configured.basePath
+    ? window.location.pathname.slice(configured.basePath.length) || "/"
+    : window.location.pathname;
+  return `${pathname}${window.location.hash}`;
+}
+
+function getConfiguredHealthCheckUrl(): string | null {
+  const configured = getConfiguredLocation();
+  if (!configured) return null;
+  return `${configured.origin}${configured.basePath}${currentSettings.healthCheckPath}`;
+}
+
 function debugLog(event: string, payload?: Record<string, unknown>): void {
+  if (!__MATTERMOST_DECK_E2E_DEBUG__) {
+    return;
+  }
+
   try {
     if (window.localStorage.getItem(DEBUG_FLAG_KEY) !== "1") {
       return;
@@ -65,11 +106,8 @@ function matchesConfiguredRoute(): boolean {
     return false;
   }
 
-  if (!currentSettings.serverUrl || window.location.origin !== currentSettings.serverUrl) {
-    return false;
-  }
-
-  const route = `${window.location.pathname}${window.location.hash}`;
+  const route = getConfiguredRoute();
+  if (!route) return false;
   const allowedKinds = currentSettings.allowedRouteKinds
     .split(",")
     .map((part) => part.trim())
@@ -108,7 +146,8 @@ function hasBlockingDialog(): boolean {
 }
 
 async function verifyMattermostSession(): Promise<boolean> {
-  if (!currentSettings.serverUrl || window.location.origin !== currentSettings.serverUrl) {
+  const healthCheckUrl = getConfiguredHealthCheckUrl();
+  if (!healthCheckUrl || !getConfiguredRoute()) {
     return false;
   }
 
@@ -128,7 +167,7 @@ async function verifyMattermostSession(): Promise<boolean> {
       ?.slice("MMCSRF=".length);
 
     try {
-      const response = await fetch(currentSettings.healthCheckPath, {
+      const response = await fetch(healthCheckUrl, {
         credentials: "include",
         headers: {
           Accept: "application/json",
@@ -180,11 +219,21 @@ function ensureStyle(): void {
       transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
+    body.mattermost-deck-resizing #${ROOT_ID},
+    body.mattermost-deck-viewport-resizing #${ROOT_ID} {
+      transition: none !important;
+    }
+
     body.${BODY_CLASS} #root {
       width: calc(100vw - var(${OFFSET_WIDTH_VAR})) !important;
       max-width: calc(100vw - var(${OFFSET_WIDTH_VAR})) !important;
       transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
                   max-width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    body.${BODY_CLASS}.mattermost-deck-resizing #root,
+    body.${BODY_CLASS}.mattermost-deck-viewport-resizing #root {
+      transition: none !important;
     }
 
     body.${BODY_CLASS} #root .app__content {
@@ -446,11 +495,13 @@ if (document.readyState === "loading") {
     () => {
       void loadDeckSettings().then((settings) => {
         currentSettings = settings;
+        configureMattermostBaseUrl(settings.serverUrl);
         settingsLoaded = true;
         void render();
       });
       subscribeDeckSettings((settings) => {
         currentSettings = settings;
+        configureMattermostBaseUrl(settings.serverUrl);
         settingsLoaded = true;
         guardCache = null;
         void render();
@@ -462,11 +513,13 @@ if (document.readyState === "loading") {
 } else {
   void loadDeckSettings().then((settings) => {
     currentSettings = settings;
+    configureMattermostBaseUrl(settings.serverUrl);
     settingsLoaded = true;
     void render();
   });
   subscribeDeckSettings((settings) => {
     currentSettings = settings;
+    configureMattermostBaseUrl(settings.serverUrl);
     settingsLoaded = true;
     guardCache = null;
     void render();

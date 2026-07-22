@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "__MSG_appName__",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "__MSG_appDescription__",
   "default_locale": "en",
   "icons": {
@@ -11,6 +11,7 @@
     "128": "assets/icons/icon-128.png"
   },
   "permissions": ["storage", "scripting", "tabs", "windows", "alarms"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "content_scripts": [
     {

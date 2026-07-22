@@ -71,7 +71,9 @@ const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotes> = {
     title: "v0.2.5",
     added: [],
     changed: [],
-    fixed: [],
+    fixed: [
+      "Refreshed already-open Mattermost tabs after extension updates so the deck header shows the newly installed version",
+    ],
   },
   "0.2.4": {
     title: "v0.2.4",
@@ -1117,6 +1119,41 @@ const pageCss = `
     color: #16263b;
   }
 
+  /* Header banners */
+  .options-banner-stack {
+    display: grid;
+    gap: 12px;
+    width: 100%;
+    max-width: 740px;
+    margin: 0 auto;
+    padding: 20px 32px 0;
+  }
+
+  .options-release-banner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .options-release-banner-body {
+    min-width: 0;
+  }
+
+  .options-release-banner-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .options-release-banner-actions .options-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+  }
+
   /* Inline links */
   .options-inline-links {
     display: flex;
@@ -1226,14 +1263,30 @@ const pageCss = `
     margin-bottom: 3px;
   }
 
+  .options-install-banner-body {
+    min-width: 0;
+  }
+
   .options-install-banner-body p {
     font-size: 12px;
     color: #8facd5;
     margin: 0;
   }
 
+  .options-install-banner-body .options-install-banner-error {
+    color: #ffb4b4;
+    font-weight: 600;
+    margin-top: 6px;
+  }
+
+  body[data-theme="light"] .options-install-banner-body .options-install-banner-error {
+    color: #a61b1b;
+  }
+
   .options-install-banner-actions {
     display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 8px;
     flex: none;
   }
@@ -1704,6 +1757,11 @@ const pageCss = `
     .options-nav-icon { margin: 0 auto; }
     .options-sidebar-footer { display: none; }
     .options-grid, .options-grid--target { grid-template-columns: 1fr; }
+    .options-banner-stack { padding: 16px 16px 0; }
+    .options-release-banner { grid-template-columns: minmax(0, 1fr); }
+    .options-release-banner-actions { justify-content: flex-start; }
+    .options-install-banner { align-items: flex-start; flex-direction: column; }
+    .options-install-banner-actions { justify-content: flex-start; }
     .options-panel { padding: 16px; }
     .options-save-footer { padding: 12px 16px; }
     .options-save-footer-inner { max-width: 100%; }
@@ -1767,17 +1825,63 @@ function OptionsApp(): React.JSX.Element {
   const [savedNotice, setSavedNotice] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [installingPwa, setInstallingPwa] = useState(false);
+  const [installPwaError, setInstallPwaError] = useState<string | null>(null);
   const [releaseNotice, setReleaseNotice] = useState<ReleaseNotice | null>(null);
   const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
   const [activePanel, setActivePanel] = useState<ActivePanel>("conn");
   const [performanceWide, setPerformanceWide] = useState(false);
   const installBannerRef = useRef<HTMLDivElement>(null);
+  const releaseNotesTriggerRef = useRef<HTMLButtonElement>(null);
+  const releaseNotesModalRef = useRef<HTMLDivElement>(null);
+
+  const closeReleaseNotesModal = () => {
+    setShowReleaseNotesModal(false);
+    window.requestAnimationFrame(() => releaseNotesTriggerRef.current?.focus());
+  };
 
   useEffect(() => {
     if (showInstallBanner) {
       installBannerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
   }, [showInstallBanner]);
+
+  useEffect(() => {
+    if (!showReleaseNotesModal) return;
+    const modal = releaseNotesModalRef.current;
+    if (!modal) return;
+
+    const getFocusable = () => Array.from(
+      modal.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])"),
+    ).filter((element) => !element.hasAttribute("disabled"));
+    (getFocusable()[0] ?? modal).focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeReleaseNotesModal();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = getFocusable();
+      if (focusable.length === 0) {
+        event.preventDefault();
+        modal.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, [showReleaseNotesModal]);
 
   useEffect(() => {
     const style = document.createElement("style");
@@ -2212,24 +2316,52 @@ function OptionsApp(): React.JSX.Element {
     setReleaseNotice(null);
     void markReleaseNoticeSeen(version);
   };
+
+  const handleInstallPwa = async () => {
+    setInstallingPwa(true);
+    setInstallPwaError(null);
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "mattermost-deck:install-pwa",
+        url: settings.serverUrl,
+      }) as { success?: boolean } | undefined;
+      if (!response?.success) {
+        setInstallPwaError(t("options.installPwaFailed"));
+        return;
+      }
+      setShowInstallBanner(false);
+    } catch {
+      setInstallPwaError(t("options.installPwaFailed"));
+    } finally {
+      setInstallingPwa(false);
+    }
+  };
   const currentReleaseNotes = useMemo(() => {
     if (!releaseNotice) return null;
+    if (releaseNotice.version === "0.2.6") {
+      return {
+        title: "v0.2.6",
+        added: [],
+        changed: [
+          t("options.releaseNote026Https"),
+          t("options.releaseNote026VariableHeight"),
+          t("options.releaseNote026Responsive"),
+        ],
+        fixed: [
+          t("options.releaseNote026Subpaths"),
+          t("options.releaseNote026Profiles"),
+          t("options.releaseNote026WebSocket"),
+          t("options.releaseNote026StaleState"),
+          t("options.releaseNote026Pwa"),
+        ],
+      } satisfies ReleaseNotes;
+    }
     if (releaseNotice.version === "0.2.5") {
       return {
         title: "v0.2.5",
         added: [],
-        changed: [
-          t("options.releaseNote025Https"),
-          t("options.releaseNote025VariableHeight"),
-        ],
-        fixed: [
-          t("options.releaseNote025Subpaths"),
-          t("options.releaseNote025Profiles"),
-          t("options.releaseNote025WebSocket"),
-          t("options.releaseNote025StaleState"),
-          t("options.releaseNote025Pwa"),
-          t("options.releaseNote025OpenTabs"),
-        ],
+        changed: [],
+        fixed: [t("options.releaseNote025OpenTabs")],
       } satisfies ReleaseNotes;
     }
     return RELEASE_NOTES_BY_VERSION[releaseNotice.version] ?? null;
@@ -2259,6 +2391,8 @@ function OptionsApp(): React.JSX.Element {
                 type="button"
                 className={`options-nav-item${activePanel === id ? " active" : ""}`}
                 onClick={() => setActivePanel(id)}
+                aria-label={label}
+                aria-current={activePanel === id ? "page" : undefined}
               >
                 <span className="options-nav-icon">{icon}</span>
                 <span>{label}</span>
@@ -2292,80 +2426,94 @@ function OptionsApp(): React.JSX.Element {
         <main className="options-content">
           <div className="options-panel-scroll">
 
-          {releaseNotice && (
-            <div className="options-callout" role="note">
-              <strong>
-                {t("options.releaseNotesTitle", {
-                  defaultValue: "Updated to v{{version}}",
-                  version: releaseNotice.version,
-                })}
-              </strong>
-              <p>
-                {releaseNotice.previousVersion
-                  ? t("options.releaseNotesFromBody", {
-                    defaultValue: "Updated from v{{previousVersion}} to v{{version}}. Review the latest changes before adjusting your settings.",
-                    previousVersion: releaseNotice.previousVersion,
-                    version: releaseNotice.version,
-                  })
-                  : t("options.releaseNotesBody", {
-                    defaultValue: "Review the latest changes before adjusting your settings.",
-                    version: releaseNotice.version,
-                  })}
-              </p>
-              <div className="options-inline" style={{ marginTop: "12px" }}>
-                <a className="options-button options-button--ghost" href={CHANGELOG_URL} target="_blank" rel="noreferrer">
-                  {text.releaseNotesOpen}
-                </a>
-                {currentReleaseNotes ? (
-                  <button
-                    type="button"
-                    className="options-button options-button--ghost"
-                    onClick={() => setShowReleaseNotesModal(true)}
-                  >
-                    {text.releaseNotesView}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="options-button options-button--ghost"
-                  onClick={handleDismissReleaseNotice}
-                >
-                  {text.releaseNotesDismiss}
-                </button>
-              </div>
-            </div>
-          )}
+          {(releaseNotice || showInstallBanner) && (
+            <div className="options-banner-stack">
+              {releaseNotice && (
+                <div className="options-callout options-release-banner" role="note">
+                  <div className="options-release-banner-body">
+                    <strong>
+                      {t("options.releaseNotesTitle", {
+                        defaultValue: "Updated to v{{version}}",
+                        version: releaseNotice.version,
+                      })}
+                    </strong>
+                    <p>
+                      {releaseNotice.previousVersion
+                        ? t("options.releaseNotesFromBody", {
+                          defaultValue: "Updated from v{{previousVersion}} to v{{version}}. Review the latest changes before adjusting your settings.",
+                          previousVersion: releaseNotice.previousVersion,
+                          version: releaseNotice.version,
+                        })
+                        : t("options.releaseNotesBody", {
+                          defaultValue: "Review the latest changes before adjusting your settings.",
+                          version: releaseNotice.version,
+                        })}
+                    </p>
+                  </div>
+                  <div className="options-release-banner-actions">
+                    <a className="options-button options-button--ghost" href={CHANGELOG_URL} target="_blank" rel="noreferrer">
+                      {text.releaseNotesOpen}
+                    </a>
+                    {currentReleaseNotes ? (
+                      <button
+                        ref={releaseNotesTriggerRef}
+                        type="button"
+                        className="options-button options-button--ghost"
+                        onClick={() => setShowReleaseNotesModal(true)}
+                      >
+                        {text.releaseNotesView}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="options-button options-button--ghost"
+                      onClick={handleDismissReleaseNotice}
+                    >
+                      {text.releaseNotesDismiss}
+                    </button>
+                  </div>
+                </div>
+              )}
 
-          {/* Install PWA banner */}
-          {showInstallBanner && (
-            <div ref={installBannerRef} className="options-install-banner">
-              <div className="options-install-banner-body">
-                <strong>
-                  {t("options.installPwaTitle")}
-                </strong>
-                <p>
-                  {t("options.installPwaDesc")}
-                </p>
-              </div>
-              <div className="options-install-banner-actions">
-                <button
-                  type="button"
-                  className="options-button"
-                  onClick={() => {
-                    void chrome.runtime.sendMessage({ type: "mattermost-deck:install-pwa", url: settings.serverUrl });
-                    setShowInstallBanner(false);
-                  }}
-                >
-                  {t("options.installPwaInstall")}
-                </button>
-                <button
-                  type="button"
-                  className="options-button options-button--ghost"
-                  onClick={() => setShowInstallBanner(false)}
-                >
-                  {t("options.installPwaLater")}
-                </button>
-              </div>
+              {/* Install PWA banner */}
+              {showInstallBanner && (
+                <div ref={installBannerRef} className="options-install-banner" aria-busy={installingPwa}>
+                  <div className="options-install-banner-body">
+                    <strong>
+                      {t("options.installPwaTitle")}
+                    </strong>
+                    <p>
+                      {t("options.installPwaDesc")}
+                    </p>
+                    {installPwaError ? (
+                      <p className="options-install-banner-error" role="alert">
+                        {installPwaError}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="options-install-banner-actions">
+                    <button
+                      type="button"
+                      className="options-button"
+                      disabled={installingPwa}
+                      onClick={() => { void handleInstallPwa(); }}
+                    >
+                      {installingPwa ? t("options.installPwaInstalling") : t("options.installPwaInstall")}
+                    </button>
+                    <button
+                      type="button"
+                      className="options-button options-button--ghost"
+                      disabled={installingPwa}
+                      onClick={() => {
+                        setInstallPwaError(null);
+                        setShowInstallBanner(false);
+                      }}
+                    >
+                      {t("options.installPwaLater")}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -3380,8 +3528,8 @@ function OptionsApp(): React.JSX.Element {
       </div>
 
       {showReleaseNotesModal && currentReleaseNotes ? (
-        <div className="options-modal-backdrop" role="presentation" onClick={() => setShowReleaseNotesModal(false)}>
-          <div className="options-modal" role="dialog" aria-modal="true" aria-labelledby="release-notes-title" onClick={(event) => event.stopPropagation()}>
+        <div className="options-modal-backdrop" role="presentation" onClick={closeReleaseNotesModal}>
+          <div ref={releaseNotesModalRef} className="options-modal" role="dialog" aria-modal="true" aria-labelledby="release-notes-title" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
             <div className="options-modal-header">
               <div>
                 <h3 id="release-notes-title">{currentReleaseNotes.title}</h3>
@@ -3398,7 +3546,7 @@ function OptionsApp(): React.JSX.Element {
                     })}
                 </p>
               </div>
-              <button type="button" className="options-button options-button--ghost" onClick={() => setShowReleaseNotesModal(false)}>
+              <button type="button" className="options-button options-button--ghost" onClick={closeReleaseNotesModal}>
                 {text.releaseNotesClose}
               </button>
             </div>

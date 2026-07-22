@@ -1,5 +1,5 @@
 import React from "react";
-import type { MattermostPost, MattermostUser } from "../mattermost/api";
+import { getMattermostUrl, type MattermostPost, type MattermostUser } from "../mattermost/api";
 import i18n from "./i18n";
 import { extractHighlightKeywords, tokenizePostText } from "./postText";
 
@@ -240,7 +240,7 @@ export function getUserLabel(user: MattermostUser | undefined, fallbackId: strin
 }
 
 export function getUserAvatarUrl(userId: string): string {
-  return `/api/v4/users/${encodeURIComponent(userId)}/image`;
+  return getMattermostUrl(`/api/v4/users/${encodeURIComponent(userId)}/image`);
 }
 
 export function mergePosts(primary: MattermostPost[], secondary: MattermostPost[], limit = 100): MattermostPost[] {

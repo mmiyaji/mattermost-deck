@@ -156,11 +156,79 @@ test("PWA install guide appears immediately and accepts a late install event", a
       };
       event.prompt = async () => undefined;
       event.userChoice = Promise.resolve({ outcome: "dismissed" });
+      const returnTarget = document.createElement("button");
+      returnTarget.id = "mmd-install-focus-return";
+      returnTarget.textContent = "Return target";
+      document.body.appendChild(returnTarget);
+      returnTarget.focus();
       window.dispatchEvent(event);
     });
-    await expect(installPage.locator("#mmd-install-overlay")).toBeVisible();
+    const overlay = installPage.locator("#mmd-install-overlay");
+    await expect(overlay).toBeVisible();
     await expect(installPage.locator("#mmd-install-title")).toHaveText("Install Mattermost");
     await expect(installPage.locator("#mmd-install-fallback")).toHaveCount(0);
+    const installButton = overlay.getByRole("button", { name: "Install", exact: true });
+    const cancelButton = overlay.getByRole("button", { name: "Cancel", exact: true });
+    await expect(installButton).toBeFocused();
+    await installPage.keyboard.press("Shift+Tab");
+    await expect(cancelButton).toBeFocused();
+    await installPage.keyboard.press("Tab");
+    await expect(installButton).toBeFocused();
+    await installPage.keyboard.press("Escape");
+    await expect(overlay).toHaveCount(0);
+    await expect(installPage.locator("#mmd-install-focus-return")).toBeFocused();
+  } finally {
+    await context.close();
+    await fs.rm(userDataDir, { recursive: true, force: true });
+  }
+});
+
+test("PWA install guide follows every configured Deck language", async () => {
+  const { context, serviceWorker, userDataDir } = await launchExtension();
+  try {
+    await configureExtension(serviceWorker, "en");
+    await context.addInitScript(() => {
+      window.addEventListener("beforeinstallprompt", (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }, true);
+    });
+    const extensionId = new URL(serviceWorker.url()).host;
+    const controlPage = context.pages()[0] ?? await context.newPage();
+    await controlPage.goto(`chrome-extension://${extensionId}/popup.html`);
+    const expectations = [
+      { language: "en", titles: ["Install Mattermost manually", "Install Mattermost"] },
+      { language: "ja", titles: ["Mattermost を手動でインストール", "Mattermost をインストール"] },
+      { language: "de", titles: ["Mattermost manuell installieren", "Mattermost installieren"] },
+      { language: "fr", titles: ["Installer Mattermost manuellement", "Installer Mattermost"] },
+      { language: "zh-CN", titles: ["手动安装 Mattermost", "安装 Mattermost"] },
+    ];
+
+    for (const expected of expectations) {
+      await setLanguage(serviceWorker, expected.language);
+      const installPagePromise = context.waitForEvent("page", { timeout: 15_000 });
+      const response = await controlPage.evaluate((url) => chrome.runtime.sendMessage({
+        type: "mattermost-deck:install-pwa",
+        url,
+      }) as Promise<{ success?: boolean } | undefined>, baseUrl);
+      expect(response?.success).toBe(true);
+
+      const installPage = await installPagePromise;
+      const title = installPage.locator("#mmd-install-fallback-title, #mmd-install-title");
+      await expect(title).toHaveCount(1, { timeout: 15_000 });
+      expect(expected.titles).toContain(await title.textContent());
+      await expect(installPage.locator("html")).toHaveAttribute("data-mattermost-deck-install-language", expected.language);
+      await expect.poll(
+        () => serviceWorker.evaluate(async () => {
+          const scripts = await chrome.scripting.getRegisteredContentScripts({
+            ids: ["mattermost-deck-pwa-install-config", "mattermost-deck-pwa-install"],
+          });
+          return scripts.length;
+        }),
+        { timeout: 10_000 },
+      ).toBe(0);
+      await installPage.close();
+    }
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });

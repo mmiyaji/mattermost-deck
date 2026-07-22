@@ -23,13 +23,31 @@ describe("PWA install guide localization", () => {
       for (const browser of browsers) {
         expect(messages.manualInstructions[browser].length).toBeGreaterThan(0);
       }
+      expect(messages.manualInstructions.firefox).toContain("143");
+      expect(messages.manualInstructions.firefox).toContain("150");
+      expect(messages.manualInstructions.safari).toContain("14");
     }
   });
+
+  it.each(["de", "en", "fr", "ja", "zh-CN"] satisfies InstallLocale[])(
+    "prefers the configured %s locale over the page and browser locales",
+    (configuredLocale) => {
+      expect(resolveInstallLocale([configuredLocale, "es-ES", "en-US"])).toBe(configuredLocale);
+    },
+  );
 
   it("keeps English guidance free of the previous Japanese-only fallback", () => {
     const messages = getInstallMessages("en");
     expect(messages.manualInstructions.chrome).toContain("Install page as app");
     expect(messages.manualInstructions.chrome).not.toContain("インストール");
+  });
+
+  it("uses the current official Edge path and platform-qualified Firefox and Safari guidance", () => {
+    const messages = getInstallMessages("en");
+    expect(messages.manualInstructions.edge).toContain("More tools → Apps → Install this site as an app");
+    expect(messages.manualInstructions.firefox).toContain("Firefox on Windows");
+    expect(messages.manualInstructions.firefox).toContain("not available on macOS or Linux");
+    expect(messages.manualInstructions.safari).toContain("macOS Sonoma 14 or later");
   });
 });
 

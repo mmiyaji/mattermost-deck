@@ -17,20 +17,38 @@ await fs.mkdir(distDir, { recursive: true });
 // Load the source manifest and override the version when EXT_VERSION is set.
 const manifestPath = path.join(srcDir, "manifest.json");
 const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+const LOCAL_DEVELOPMENT_MATCHES = new Set([
+  "http://127.0.0.1/*",
+  "http://localhost/*",
+]);
 
-// If EXT_VERSION is provided, use it for the built manifest version.
-if (process.env.EXT_VERSION) {
-  manifest.version = process.env.EXT_VERSION.replace(/^v/, "");
+function assertChromeExtensionVersion(version) {
+  const parts = String(version).split(".");
+  const valid =
+    parts.length >= 1 &&
+    parts.length <= 4 &&
+    parts.every((part) => /^(0|[1-9]\d*)$/.test(part) && Number(part) <= 65_535) &&
+    parts.some((part) => Number(part) !== 0);
+  if (!valid) {
+    throw new Error(
+      `Invalid Chrome extension version "${version}". Use 1-4 numeric components between 0 and 65535.`,
+    );
+  }
 }
+
+// If EXT_VERSION is provided, use it for the built manifest version. Validate
+// both tag-derived and source versions before creating a release artifact.
+manifest.version = process.env.EXT_VERSION
+  ? process.env.EXT_VERSION.replace(/^v/, "")
+  : manifest.version;
+assertChromeExtensionVersion(manifest.version);
 
 if (storeBuild && Array.isArray(manifest.content_scripts)) {
   manifest.content_scripts = manifest.content_scripts
     .map((entry) => {
       if (!Array.isArray(entry.matches)) return entry;
 
-      const filteredMatches = entry.matches.filter(
-        (m) => m !== "http://127.0.0.1/*" && m !== "http://localhost/*"
-      );
+      const filteredMatches = entry.matches.filter((match) => !LOCAL_DEVELOPMENT_MATCHES.has(match));
 
       return {
         ...entry,
@@ -41,6 +59,15 @@ if (storeBuild && Array.isArray(manifest.content_scripts)) {
 
   if (manifest.content_scripts.length === 0) {
     delete manifest.content_scripts;
+  }
+}
+
+if (storeBuild && Array.isArray(manifest.host_permissions)) {
+  manifest.host_permissions = manifest.host_permissions.filter(
+    (match) => !LOCAL_DEVELOPMENT_MATCHES.has(match),
+  );
+  if (manifest.host_permissions.length === 0) {
+    delete manifest.host_permissions;
   }
 }
 
@@ -78,6 +105,7 @@ const ctx = await esbuild.context({
     content: path.join(srcDir, "content", "index.tsx"),
     options: path.join(srcDir, "options", "index.tsx"),
     popup: path.join(srcDir, "popup", "index.ts"),
+    "pwa-install-config": path.join(srcDir, "pwa-install", "config.ts"),
     "pwa-install": path.join(srcDir, "pwa-install", "index.ts"),
   },
   bundle: true,
@@ -85,6 +113,10 @@ const ctx = await esbuild.context({
   format: "iife",
   target: "chrome120",
   sourcemap,
+  minifySyntax: storeBuild,
+  define: {
+    __MATTERMOST_DECK_E2E_DEBUG__: JSON.stringify(!storeBuild),
+  },
   loader: {
     ".ts": "ts",
     ".tsx": "tsx",
@@ -98,4 +130,19 @@ if (watch) {
 } else {
   await ctx.rebuild();
   await ctx.dispose();
+
+  const contentBundle = await fs.readFile(path.join(distDir, "content.js"), "utf8");
+  const debugBridgeMarkers = [
+    "mattermost-deck-debug-request",
+    "mattermost-deck-debug-response",
+    "mattermost-deck-debug-open-thread",
+    "__mattermostDeckDebug",
+  ];
+  const includedDebugMarkers = debugBridgeMarkers.filter((marker) => contentBundle.includes(marker));
+  if (storeBuild && includedDebugMarkers.length > 0) {
+    throw new Error(`Store build contains E2E debug bridge markers: ${includedDebugMarkers.join(", ")}`);
+  }
+  if (!storeBuild && !contentBundle.includes("mattermost-deck-debug-request")) {
+    throw new Error("Development build is missing the E2E debug bridge");
+  }
 }

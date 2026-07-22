@@ -186,7 +186,7 @@ This improves resistance to accidental disclosure, but it is not a full secret b
 
 ### Health Check Constraint
 
-- health-check path must stay under `/api/v4/...`
+- health-check path must stay under `/api/v4/...` relative to the configured Mattermost Site URL
 - requests must stay on the configured Mattermost origin
 
 ## Interaction Rules

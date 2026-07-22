@@ -1,6 +1,7 @@
 import { getWebSocketUrl, type MattermostPost } from "./api";
 import { recordWebSocketReconnectAttempt } from "../diagnostics";
 import { addTraceEntry } from "../traceLog";
+import { hasMattermostMention } from "./mentions";
 
 export interface PostedEvent {
   channelId: string;
@@ -25,6 +26,7 @@ interface WebSocketLogEntry {
 }
 
 interface HookOptions {
+  userId: string | null;
   username: string | null;
   enabled: boolean;
   token: string | null;
@@ -47,42 +49,28 @@ interface MattermostEventEnvelope {
 const RECONNECT_BASE_MS = 1_500;
 const RECONNECT_MAX_MS = 30_000;
 const BACKGROUND_MIN_MS = 10_000;
-const SPECIAL_MENTION_PATTERN = /(^|[^a-z0-9_])@(all|here|channel)\b/i;
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_TIMEOUT_MS = 10_000;
+export function hasMentionForDeck(message: string, username: string | null): boolean {
+  return hasMattermostMention(message, username);
 }
 
-function createUserMentionPattern(username: string | null): RegExp | null {
-  if (!username) {
-    return null;
-  }
-
-  return new RegExp(`(^|[^a-z0-9_])@${escapeRegExp(username)}\\b`, "i");
-}
-
-function hasMentionForDeck(message: string, username: string | null): boolean {
-  const userMentionPattern = createUserMentionPattern(username);
-  return (userMentionPattern?.test(message) ?? false) || SPECIAL_MENTION_PATTERN.test(message);
-}
-
-export function mentionsPayloadIncludesUser(mentions: string, username: string | null): boolean {
-  if (!username) {
+export function mentionsPayloadIncludesUser(mentions: string, userId: string | null): boolean {
+  if (!userId) {
     return false;
   }
 
-  const normalizedUsername = username.trim().toLowerCase();
-  if (!normalizedUsername) {
+  const normalizedUserId = userId.trim();
+  if (!normalizedUserId) {
     return false;
   }
 
-  const tokens = mentions
-    .toLowerCase()
-    .split(/[^a-z0-9._-]+/i)
-    .map((token) => token.trim())
-    .filter(Boolean);
-
-  return tokens.includes(normalizedUsername);
+  try {
+    const parsed = JSON.parse(mentions) as unknown;
+    return Array.isArray(parsed) && parsed.some((entry) => entry === normalizedUserId);
+  } catch {
+    return mentions.split(/[^a-z0-9]+/i).includes(normalizedUserId);
+  }
 }
 
 function jitter(ms: number): number {
@@ -99,6 +87,7 @@ function nextDelay(attempt: number): number {
 function parsePostedEvent(
   payload: MattermostEventEnvelope,
   username: string | null,
+  userId: string | null,
 ): PostedEvent | null {
   if (payload.event !== "posted" || typeof payload.data?.post !== "string") {
     return null;
@@ -114,7 +103,7 @@ function parsePostedEvent(
     const mentionsUser =
       (typeof post.message === "string" && hasMentionForDeck(post.message, username)) ||
       (typeof payload.data.mentions === "string" &&
-        mentionsPayloadIncludesUser(payload.data.mentions, username));
+        mentionsPayloadIncludesUser(payload.data.mentions, userId));
 
     return {
       channelId,
@@ -128,7 +117,7 @@ function parsePostedEvent(
 }
 
 export function connectMattermostWebSocket(options: HookOptions): () => void {
-  if (!options.enabled || !options.username || !options.token) {
+  if (!options.enabled || !options.userId || !options.username || !options.token) {
     window.dispatchEvent(
       new CustomEvent("mattermost-deck-ws-status", {
         detail: "idle" satisfies WebSocketStatus,
@@ -140,9 +129,14 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
   let socket: WebSocket | null = null;
   let disposed = false;
   let reconnectTimer: number | null = null;
+  let heartbeatTimer: number | null = null;
+  let heartbeatTimeout: number | null = null;
   let seq = 1;
   let reconnectAttempt = 0;
   let authenticated = false;
+  let hasAuthenticatedOnce = false;
+  let pendingAuthSeq: number | null = null;
+  let pendingPingSeq: number | null = null;
 
   const log = (level: WebSocketLogEntry["level"], message: string) => {
     addTraceEntry({
@@ -177,6 +171,28 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
     }
   };
 
+  const clearHeartbeat = () => {
+    if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer);
+    if (heartbeatTimeout !== null) window.clearTimeout(heartbeatTimeout);
+    heartbeatTimer = null;
+    heartbeatTimeout = null;
+    pendingPingSeq = null;
+  };
+
+  const startHeartbeat = (currentSocket: WebSocket) => {
+    clearHeartbeat();
+    heartbeatTimer = window.setInterval(() => {
+      if (disposed || socket !== currentSocket || currentSocket.readyState !== WebSocket.OPEN) return;
+      const pingSeq = seq++;
+      pendingPingSeq = pingSeq;
+      currentSocket.send(JSON.stringify({ seq: pingSeq, action: "ping" }));
+      if (heartbeatTimeout !== null) window.clearTimeout(heartbeatTimeout);
+      heartbeatTimeout = window.setTimeout(() => {
+        if (socket === currentSocket) currentSocket.close(4000, "Heartbeat timeout");
+      }, HEARTBEAT_TIMEOUT_MS);
+    }, HEARTBEAT_INTERVAL_MS);
+  };
+
   const scheduleReconnect = () => {
     if (disposed || reconnectTimer !== null) {
       return;
@@ -203,6 +219,10 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
       return;
     }
 
+    if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) {
+      return;
+    }
+
     if (reconnectAttempt > 0) {
       recordWebSocketReconnectAttempt();
     }
@@ -210,14 +230,21 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
     log("info", reconnectAttempt === 0 ? "WS connecting" : "WS reconnecting");
 
     try {
-      socket = new WebSocket(getWebSocketUrl());
+      const currentSocket = new WebSocket(getWebSocketUrl());
+      socket = currentSocket;
       authenticated = false;
+      pendingAuthSeq = null;
 
-      socket.addEventListener("open", () => {
+      currentSocket.addEventListener("open", () => {
+        if (disposed || socket !== currentSocket) {
+          currentSocket.close();
+          return;
+        }
         log("info", "WS socket open");
-        socket?.send(
+        pendingAuthSeq = seq++;
+        currentSocket.send(
           JSON.stringify({
-            seq: seq++,
+            seq: pendingAuthSeq,
             action: "authentication_challenge",
             data: {
               token: options.token,
@@ -227,7 +254,8 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
         log("info", "WS authentication challenge sent");
       });
 
-      socket.addEventListener("message", (event) => {
+      currentSocket.addEventListener("message", (event) => {
+        if (disposed || socket !== currentSocket) return;
         let payload: MattermostEventEnvelope;
         try {
           payload = JSON.parse(String(event.data)) as MattermostEventEnvelope;
@@ -236,12 +264,22 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
           return;
         }
 
-        if (payload.seq_reply) {
+        if (pendingPingSeq !== null && payload.seq_reply === pendingPingSeq) {
+          pendingPingSeq = null;
+          if (heartbeatTimeout !== null) window.clearTimeout(heartbeatTimeout);
+          heartbeatTimeout = null;
+          return;
+        }
+
+        if (pendingAuthSeq !== null && payload.seq_reply === pendingAuthSeq) {
+          pendingAuthSeq = null;
           if (payload.status === "OK") {
-            const wasReconnecting = reconnectAttempt > 0 || authenticated;
+            const wasReconnecting = reconnectAttempt > 0 || hasAuthenticatedOnce;
             authenticated = true;
+            hasAuthenticatedOnce = true;
             reconnectAttempt = 0;
             clearReconnectTimer();
+            startHeartbeat(currentSocket);
             updateStatus("connected");
             log("info", "WS authenticated");
             if (wasReconnecting) {
@@ -254,27 +292,31 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
           disposed = true;
           updateStatus("auth_failed");
           log("error", `WS authentication failed${payload.status ? ` status=${payload.status}` : ""}`);
-          socket?.close();
-          socket = null;
+          currentSocket.close();
+          if (socket === currentSocket) socket = null;
           options.onAuthFailure("Realtime authentication failed. Falling back to polling.");
           return;
         }
 
-        const posted = parsePostedEvent(payload, options.username);
+        const posted = parsePostedEvent(payload, options.username, options.userId);
         if (posted) {
           options.onPosted(posted);
         }
       });
 
-      socket.addEventListener("close", (event) => {
+      currentSocket.addEventListener("close", (event) => {
         log("warn", `WS closed code=${event.code}${event.reason ? ` reason=${event.reason}` : ""}`);
+        if (socket !== currentSocket) return;
         socket = null;
+        authenticated = false;
+        clearHeartbeat();
         if (!disposed) {
           scheduleReconnect();
         }
       });
 
-      socket.addEventListener("error", () => {
+      currentSocket.addEventListener("error", () => {
+        if (socket !== currentSocket) return;
         updateStatus("error");
         log("error", "WS error event");
       });
@@ -290,8 +332,20 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
     }
 
     clearReconnectTimer();
-    reconnectAttempt = 0;
+    reconnectAttempt = Math.max(1, reconnectAttempt);
     void open();
+  };
+
+  const handleOffline = () => {
+    if (disposed) return;
+    clearReconnectTimer();
+    clearHeartbeat();
+    reconnectAttempt = Math.max(1, reconnectAttempt);
+    authenticated = false;
+    const currentSocket = socket;
+    socket = null;
+    currentSocket?.close();
+    updateStatus("offline");
   };
 
   const handleVisibility = () => {
@@ -302,13 +356,16 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
   };
 
   window.addEventListener("online", handleOnline);
+  window.addEventListener("offline", handleOffline);
   document.addEventListener("visibilitychange", handleVisibility);
   void open();
 
   return () => {
     disposed = true;
     clearReconnectTimer();
+    clearHeartbeat();
     window.removeEventListener("online", handleOnline);
+    window.removeEventListener("offline", handleOffline);
     document.removeEventListener("visibilitychange", handleVisibility);
     socket?.close();
     socket = null;

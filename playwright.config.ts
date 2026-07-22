@@ -8,6 +8,6 @@ export default defineConfig({
   timeout: 90_000,
   reporter: "list",
   use: {
-    headless: false,
+    headless: true,
   }
 });

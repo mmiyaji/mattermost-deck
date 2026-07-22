@@ -94,7 +94,9 @@ if (running.code === 0 && running.stdout === "true") {
 
   console.log(`Starting ${IMAGE} on port ${HOST_PORT}...`);
   const startResult = run(
-    `docker run -d --name ${CONTAINER_NAME} -p ${HOST_PORT}:8065 ` +
+    // Test accounts use fixed credentials, so never expose this container on
+    // the developer machine's LAN interfaces.
+    `docker run -d --name ${CONTAINER_NAME} -p 127.0.0.1:${HOST_PORT}:8065 ` +
     `-e MM_SERVICESETTINGS_ENABLEDEVELOPER=true ` +
     `-e MM_SERVICESETTINGS_ENABLETESTING=true ` +
     `${IMAGE}`,
@@ -258,4 +260,4 @@ console.log(`Mattermost 9.5.4 is ready at ${BASE_URL}`);
 console.log(`  Admin:  ${ADMIN_USERNAME} / ${ADMIN_PASSWORD}`);
 console.log(`  Member: ${MEMBER_USERNAME} / ${MEMBER_PASSWORD}`);
 console.log(`\nRun theme test:`);
-console.log(`  MATTERMOST_BASE_URL=${BASE_URL} MM95_STATE_FILE=${stateFile} npx playwright test e2e/theme-compat.spec.ts`);
+console.log("  npm run test:theme");

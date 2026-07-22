@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { mentionsPayloadIncludesUser } from "./websocket";
+import { hasMentionForDeck, mentionsPayloadIncludesUser } from "./websocket";
 
 describe("mentionsPayloadIncludesUser", () => {
-  it("matches exact usernames from a serialized mentions payload", () => {
-    expect(mentionsPayloadIncludesUser('["alice","bob"]', "alice")).toBe(true);
-    expect(mentionsPayloadIncludesUser("alice bob", "bob")).toBe(true);
+  it("matches exact user IDs from a serialized mentions payload", () => {
+    expect(mentionsPayloadIncludesUser('["userida123","useridb456"]', "userida123")).toBe(true);
+    expect(mentionsPayloadIncludesUser("userida123 useridb456", "useridb456")).toBe(true);
   });
 
   it("does not match partial usernames", () => {
@@ -12,8 +12,17 @@ describe("mentionsPayloadIncludesUser", () => {
     expect(mentionsPayloadIncludesUser("joann", "ann")).toBe(false);
   });
 
-  it("returns false for empty usernames", () => {
+  it("returns false for empty user IDs", () => {
     expect(mentionsPayloadIncludesUser('["alice"]', null)).toBe(false);
     expect(mentionsPayloadIncludesUser('["alice"]', "")).toBe(false);
+  });
+});
+
+describe("hasMentionForDeck", () => {
+  it("uses Mattermost username boundaries", () => {
+    expect(hasMentionForDeck("hello @alice", "alice")).toBe(true);
+    expect(hasMentionForDeck("hello @alice.smith", "alice")).toBe(false);
+    expect(hasMentionForDeck("hello @here-bot", "alice")).toBe(false);
+    expect(hasMentionForDeck("hello @alice-", "alice-")).toBe(true);
   });
 });

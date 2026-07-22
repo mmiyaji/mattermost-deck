@@ -1,11 +1,14 @@
-import { SETTINGS_KEYS, originToPermissionPattern } from "./ui/settings";
+import { SETTINGS_KEYS, normaliseServerUrl, originToPermissionPattern } from "./ui/settings";
 import { getProfileStorageKey, PROFILES_STORAGE_KEY } from "./ui/profiles";
 
 const CONTENT_SCRIPT_ID = "mattermost-deck-content";
+const INSTALL_CONFIG_SCRIPT_ID = "mattermost-deck-pwa-install-config";
 const INSTALL_SCRIPT_ID = "mattermost-deck-pwa-install";
+const INSTALL_SCRIPT_IDS = [INSTALL_CONFIG_SCRIPT_ID, INSTALL_SCRIPT_ID];
 const RELEASE_NOTICE_STORAGE_KEY = "mattermostDeck.releaseNotice.v1";
 const INSTALL_TAB_STORAGE_KEY = "mattermostDeck.pwaInstallTab.v1";
 const INSTALL_CLEANUP_ALARM = "mattermost-deck-pwa-install-cleanup";
+let contentScriptSyncQueue: Promise<void> = Promise.resolve();
 
 async function configureSessionStorageAccess(): Promise<void> {
   try {
@@ -15,20 +18,29 @@ async function configureSessionStorageAccess(): Promise<void> {
   }
 }
 
-async function getConfiguredServerUrl(): Promise<string> {
+export async function getConfiguredServerUrl(): Promise<string> {
   const payload = await chrome.storage.local.get([SETTINGS_KEYS.serverUrl, PROFILES_STORAGE_KEY]);
-  const value = payload[SETTINGS_KEYS.serverUrl];
-  if (typeof value === "string" && value) return value;
-
   const registry = payload[PROFILES_STORAGE_KEY] as { lastActiveProfileId?: unknown } | undefined;
   const profileId = typeof registry?.lastActiveProfileId === "string" ? registry.lastActiveProfileId : "";
-  if (!profileId) return "";
-  const profileKey = getProfileStorageKey(profileId, SETTINGS_KEYS.serverUrl);
-  const profilePayload = await chrome.storage.local.get(profileKey);
-  const profileValue = profilePayload[profileKey];
-  if (typeof profileValue !== "string" || !profileValue) return "";
-  await chrome.storage.local.set({ [SETTINGS_KEYS.serverUrl]: profileValue });
-  return profileValue;
+  if (profileId) {
+    const profileKey = getProfileStorageKey(profileId, SETTINGS_KEYS.serverUrl);
+    const profilePayload = await chrome.storage.local.get(profileKey);
+    const profileValue = normaliseServerUrl(
+      typeof profilePayload[profileKey] === "string" ? profilePayload[profileKey] as string : "",
+    );
+    if (profileValue) {
+      if (payload[SETTINGS_KEYS.serverUrl] !== profileValue) {
+        await chrome.storage.local.set({ [SETTINGS_KEYS.serverUrl]: profileValue });
+      }
+      return profileValue;
+    }
+  }
+
+  // Legacy installations stored only one global URL. Keep it as a migration
+  // fallback, but never let it override the active profile's scoped value.
+  return normaliseServerUrl(
+    typeof payload[SETTINGS_KEYS.serverUrl] === "string" ? payload[SETTINGS_KEYS.serverUrl] as string : "",
+  );
 }
 
 async function getConfiguredLanguage(): Promise<string> {
@@ -54,16 +66,28 @@ async function unregisterDeckContentScript(): Promise<void> {
   }
 }
 
-async function cleanupPwaInstallScript(expectedTabId?: number): Promise<void> {
+let pwaInstallLifecycle = Promise.resolve();
+
+function runPwaInstallLifecycle<T>(operation: () => Promise<T>): Promise<T> {
+  const result = pwaInstallLifecycle.then(operation);
+  pwaInstallLifecycle = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+async function cleanupPwaInstallScriptNow(expectedTabId?: number): Promise<void> {
   const payload = await chrome.storage.session.get(INSTALL_TAB_STORAGE_KEY).catch(() => ({})) as Record<string, unknown>;
   const pendingTabId = payload[INSTALL_TAB_STORAGE_KEY];
   if (expectedTabId !== undefined && pendingTabId !== expectedTabId) return;
   await chrome.storage.session.remove(INSTALL_TAB_STORAGE_KEY).catch(() => undefined);
   await chrome.alarms.clear(INSTALL_CLEANUP_ALARM).catch(() => false);
-  await chrome.scripting.unregisterContentScripts({ ids: [INSTALL_SCRIPT_ID] }).catch(() => undefined);
+  await chrome.scripting.unregisterContentScripts({ ids: INSTALL_SCRIPT_IDS }).catch(() => undefined);
 }
 
-async function syncDeckContentScript(): Promise<void> {
+function cleanupPwaInstallScript(expectedTabId?: number): Promise<void> {
+  return runPwaInstallLifecycle(() => cleanupPwaInstallScriptNow(expectedTabId));
+}
+
+async function performDeckContentScriptSync(): Promise<void> {
   await unregisterDeckContentScript();
 
   const serverUrl = await getConfiguredServerUrl();
@@ -86,6 +110,18 @@ async function syncDeckContentScript(): Promise<void> {
       persistAcrossSessions: true,
     },
   ]);
+}
+
+function syncDeckContentScript(): Promise<void> {
+  // Storage writes for a profile switch can arrive in quick succession. Keep
+  // unregister/register operations ordered so a slower, stale sync cannot win
+  // the shared dynamic content-script ID after a newer one.
+  const sync = contentScriptSyncQueue.then(
+    async () => await performDeckContentScriptSync(),
+    async () => await performDeckContentScriptSync(),
+  );
+  contentScriptSyncQueue = sync.catch(() => undefined);
+  return sync;
 }
 
 async function refreshExistingDeckTabs(): Promise<void> {
@@ -155,11 +191,7 @@ chrome.runtime.onInstalled.addListener((details) => {
 
 chrome.runtime.onStartup.addListener(() => {
   void cleanupPwaInstallScript();
-  void syncDeckContentScript();
-});
-
-chrome.tabs.onUpdated.addListener((tabId, info) => {
-  if (info.status === "complete") void cleanupPwaInstallScript(tabId);
+  void syncDeckContentScript().catch(() => undefined);
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -171,7 +203,14 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== "local" || !(SETTINGS_KEYS.serverUrl in changes)) {
+  const changedKeys = Object.keys(changes);
+  const profileServerUrlPrefix = `${SETTINGS_KEYS.serverUrl}.profile.`;
+  if (
+    areaName !== "local" ||
+    !changedKeys.some((key) =>
+      key === SETTINGS_KEYS.serverUrl || key === PROFILES_STORAGE_KEY || key.startsWith(profileServerUrlPrefix)
+    )
+  ) {
     return;
   }
 
@@ -193,38 +232,73 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
 
+      if (message?.type === "mattermost-deck:install-pwa-ready") {
+        const tabId = sender.tab?.id;
+        if (typeof tabId !== "number") {
+          sendResponse({ success: false });
+          return;
+        }
+        const cleaned = await runPwaInstallLifecycle(async () => {
+          const payload = await chrome.storage.session.get(INSTALL_TAB_STORAGE_KEY).catch(() => ({})) as Record<string, unknown>;
+          if (payload[INSTALL_TAB_STORAGE_KEY] !== tabId) return false;
+          await cleanupPwaInstallScriptNow(tabId);
+          return true;
+        });
+        if (!cleaned) {
+          sendResponse({ success: false });
+          return;
+        }
+        sendResponse({ success: true });
+        return;
+      }
+
       if (message?.type === "mattermost-deck:install-pwa") {
-        const url = typeof message.url === "string" ? message.url : "";
+        const url = normaliseServerUrl(typeof message.url === "string" ? message.url : "");
         const originPattern = originToPermissionPattern(url);
         if (!url || !originPattern) {
           sendResponse({ success: false, error: "Invalid URL" });
           return;
         }
 
-        await cleanupPwaInstallScript();
+        const created = await runPwaInstallLifecycle(async () => {
+          await cleanupPwaInstallScriptNow();
+          try {
+            await chrome.scripting.registerContentScripts([
+              {
+                id: INSTALL_CONFIG_SCRIPT_ID,
+                matches: [originPattern],
+                world: "ISOLATED" as chrome.scripting.ExecutionWorld,
+                runAt: "document_start",
+                js: ["pwa-install-config.js"],
+                persistAcrossSessions: false,
+              },
+              {
+                id: INSTALL_SCRIPT_ID,
+                matches: [originPattern],
+                world: "MAIN" as chrome.scripting.ExecutionWorld,
+                runAt: "document_start",
+                js: ["pwa-install.js"],
+                persistAcrossSessions: false,
+              },
+            ]);
 
-        try {
-          await chrome.scripting.registerContentScripts([{
-            id: INSTALL_SCRIPT_ID,
-            matches: [originPattern],
-            world: "MAIN" as chrome.scripting.ExecutionWorld,
-            runAt: "document_start",
-            js: ["pwa-install.js"],
-            persistAcrossSessions: false,
-          }]);
+            const tab = await chrome.tabs.create({ url });
+            if (!tab.id) {
+              await cleanupPwaInstallScriptNow();
+              return false;
+            }
 
-          const tab = await chrome.tabs.create({ url });
-          if (!tab.id) {
-            await cleanupPwaInstallScript();
-            sendResponse({ success: false, error: "Failed to create install tab" });
-            return;
+            await chrome.storage.session.set({ [INSTALL_TAB_STORAGE_KEY]: tab.id });
+            await chrome.alarms.create(INSTALL_CLEANUP_ALARM, { delayInMinutes: 0.5 });
+            return true;
+          } catch (error) {
+            await cleanupPwaInstallScriptNow();
+            throw error;
           }
-
-          await chrome.storage.session.set({ [INSTALL_TAB_STORAGE_KEY]: tab.id });
-          await chrome.alarms.create(INSTALL_CLEANUP_ALARM, { delayInMinutes: 0.5 });
-        } catch (error) {
-          await cleanupPwaInstallScript();
-          throw error;
+        });
+        if (!created) {
+          sendResponse({ success: false, error: "Failed to create install tab" });
+          return;
         }
         sendResponse({ success: true });
         return;

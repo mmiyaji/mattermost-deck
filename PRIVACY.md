@@ -31,6 +31,8 @@ Locally stored settings remain in the browser until the user changes them, clear
 ## Security
 The extension is designed to keep authentication information local to the browser and to limit network access to the user-configured Mattermost server. Users are responsible for choosing appropriately scoped Mattermost tokens and for using a securely configured Mattermost server.
 
+The extension uses a Chrome alarm only to remove a temporary helper script if PWA installation does not complete normally. The alarm is not used for analytics, tracking, or periodic transmission of user data.
+
 ## Contact
 For privacy questions, please contact the developer through the project repository:
 https://github.com/mmiyaji/mattermost-deck

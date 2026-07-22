@@ -65,6 +65,7 @@ On first install, Chrome opens the Options page. The recommended setup order is:
 4. Use `Profiles` only after the server connection is working
 
 Saving the server URL requests Chrome permission for that Mattermost origin. The extension injects only into configured Mattermost servers.
+Remote servers must use HTTPS; HTTP remains available only for localhost and loopback development. Mattermost Site URLs that include a subpath are supported.
 
 ## Options Overview
 
@@ -125,7 +126,7 @@ Saving the server URL requests Chrome permission for that Mattermost origin. The
 - PAT storage defaults to `chrome.storage.session`
 - Persistent PAT storage is opt-in
 - Persistent PAT values are encrypted client-side before storage
-- Health-check paths are restricted to relative `/api/v4/...` paths on the configured Mattermost origin
+- Health-check paths are restricted to relative `/api/v4/...` paths under the configured Mattermost Site URL
 - REST requests are serialized in-tab and heavier fan-out paths are batched to avoid burst refresh behavior when many panes update together
 - After an empty state has been shown once, background refresh keeps that empty state visible instead of flashing a loading spinner
 
@@ -151,11 +152,28 @@ npm run capture:readme
 
 ## Release
 
-Push a tag in `v` format, such as `v0.2.5`, to trigger GitHub Actions.
+Push a tag in `v` format, such as `v0.2.6`, to trigger GitHub Actions.
 
-- Runs `npm ci`, `npm run check`, and `npm run build`
+- Runs type checks, unit tests, the Docker-backed Playwright E2E suite, and a Chrome Web Store build with `STORE_BUILD=true`
 - Packages `dist/` as `mattermost-deck-<tag>.zip`
 - Creates a GitHub Release and uploads the zip as an asset
+
+For a local release build on PowerShell:
+
+```powershell
+npm ci
+npm run check
+npm test
+npm run build
+npm run mm95:start
+try { npm run test:e2e } finally { npm run mm95:stop }
+$env:STORE_BUILD = "true"
+$env:EXT_VERSION = "v0.2.6"
+npm run build
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v0.2.6.zip -Force
+```
+
+The archive must contain `manifest.json` at its root. Store builds intentionally omit the localhost-only static content script; local development builds retain it for E2E testing.
 
 ## License
 

@@ -1420,18 +1420,6 @@ export const railCssText = `
     overflow-y: auto;
   }
 
-  .deck-list-spacer {
-    position: relative;
-    min-height: 100%;
-  }
-
-  .deck-list--virtual {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-  }
-
   .deck-list-footer {
     display: flex;
     justify-content: center;
@@ -1746,6 +1734,11 @@ export const railCssText = `
   .deck-card--clickable:hover {
     border-color: color-mix(in srgb, var(--deck-border) 52%, var(--deck-accent) 48%);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--deck-accent) 18%, transparent);
+  }
+
+  .deck-card--clickable:focus-visible {
+    outline: 2px solid var(--deck-accent);
+    outline-offset: 2px;
   }
 
   .deck-card--post-compact.deck-card--clickable:hover {
@@ -2171,8 +2164,18 @@ export const railCssText = `
     background: rgba(255, 255, 255, 0.14);
   }
 
+  .deck-resizer:focus-visible {
+    outline: 2px solid var(--deck-accent);
+    outline-offset: -2px;
+  }
+
+  .deck-resizer:disabled {
+    cursor: default;
+  }
+
   .deck-resizer--active span,
-  .deck-resizer:hover span {
+  .deck-resizer:hover span,
+  .deck-resizer:focus-visible span {
     background: rgba(28, 88, 217, 0.8);
   }
 
