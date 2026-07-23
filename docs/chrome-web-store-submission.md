@@ -55,6 +55,7 @@ Allows API requests and Deck UI injection only for the Mattermost server explici
 
 | Data category | Purpose | Handling |
 | --- | --- | --- |
+| Personally identifiable information | Display Mattermost authors and direct-message participants | User identifiers, usernames, display names, and avatars are processed only in the browser and with the configured Mattermost server |
 | Authentication information | Optional Mattermost PAT for WebSocket connectivity | Session-only by default; optional persisted values are encrypted client-side and are not sent to developer-operated servers |
 | Personal communications | Display Mattermost posts, DMs, and mentions | Processed in the browser and exchanged only with the configured Mattermost server |
 | Website content | Display channels, posts, search results, and saved posts | Retrieved only from a user-permitted Mattermost origin |
