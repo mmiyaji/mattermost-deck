@@ -6,6 +6,7 @@
   "scripts": {
     "build": "node ./scripts/build.mjs",
     "capture:readme": "node ./scripts/capture-readme.mjs",
+    "check:site": "node ./scripts/check-site.mjs",
     "dev": "node ./scripts/build.mjs --watch",
     "check": "tsc --noEmit",
     "open:mattermost": "node ./scripts/open-mattermost.mjs",

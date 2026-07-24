@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="ja" data-lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title
+      data-i18n-ja="Mattermost Deck - 見逃したくない会話を一望"
+      data-i18n-en="Mattermost Deck - Keep every important conversation in sight"
+    >Mattermost Deck - 見逃したくない会話を一望</title>
+    <meta
+      name="description"
+      content="Mattermost Webの右側に、メンション、チャンネル、DM、検索結果、保存済み投稿を並べるマルチペインChrome拡張。"
+      data-i18n-content-ja="Mattermost Webの右側に、メンション、チャンネル、DM、検索結果、保存済み投稿を並べるマルチペインChrome拡張。"
+      data-i18n-content-en="A Chrome extension that adds a multi-pane workspace for mentions, channels, DMs, search results, and saved posts beside Mattermost Web."
+    >
+    <meta name="theme-color" content="#13213a">
+    <meta name="robots" content="index,follow">
+    <link rel="canonical" href="https://mattermost-deck.ruhenheim.org/">
+    <link rel="icon" type="image/png" sizes="128x128" href="./assets/mattermost-deck-icon.png">
+    <link rel="apple-touch-icon" href="./assets/mattermost-deck-icon.png">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mattermost Deck">
+    <meta property="og:url" content="https://mattermost-deck.ruhenheim.org/">
+    <meta
+      property="og:title"
+      content="Mattermost Deck - 見逃したくない会話を一望"
+      data-i18n-content-ja="Mattermost Deck - 見逃したくない会話を一望"
+      data-i18n-content-en="Mattermost Deck - Keep every important conversation in sight"
+    >
+    <meta
+      property="og:description"
+      content="Mattermostを主役のまま、必要な情報を右側のDeckにまとめるChrome拡張。"
+      data-i18n-content-ja="Mattermostを主役のまま、必要な情報を右側のDeckにまとめるChrome拡張。"
+      data-i18n-content-en="A Chrome extension that keeps Mattermost in control while organizing the conversations you monitor in a right-side Deck."
+    >
+    <meta
+      property="og:image"
+      content="https://mattermost-deck.ruhenheim.org/assets/webstore/marquee-promo-tile-1400x560.png"
+    >
+    <meta property="og:image:width" content="1400">
+    <meta property="og:image:height" content="560">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="https://mattermost-deck.ruhenheim.org/assets/webstore/marquee-promo-tile-1400x560.png">
+    <link rel="stylesheet" href="./assets/styles.css">
+    <script src="./assets/site.js" defer></script>
+  </head>
+  <body>
+    <a
+      class="skip-link"
+      href="#main"
+      data-i18n-ja="本文へ移動"
+      data-i18n-en="Skip to content"
+    >本文へ移動</a>
+
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="./" data-lang-link>
+          <img src="./assets/mattermost-deck-icon.png" width="34" height="34" alt="">
+          <span>Mattermost Deck</span>
+        </a>
+        <div class="header-actions">
+          <nav
+            class="nav"
+            aria-label="サイトナビゲーション"
+            data-i18n-aria-ja="サイトナビゲーション"
+            data-i18n-aria-en="Site navigation"
+          >
+            <a href="#features" data-i18n-ja="機能" data-i18n-en="Features">機能</a>
+            <a href="#workflow" data-i18n-ja="使い方" data-i18n-en="Workflow">使い方</a>
+            <a href="#screens" data-i18n-ja="画面" data-i18n-en="Screens">画面</a>
+            <a href="#faq">FAQ</a>
+            <a href="./privacy/" data-lang-link data-i18n-ja="プライバシー" data-i18n-en="Privacy">プライバシー</a>
+            <a href="./terms/" data-lang-link data-i18n-ja="利用規約" data-i18n-en="Terms">利用規約</a>
+          </nav>
+          <div
+            class="language-switch"
+            role="group"
+            aria-label="言語"
+            data-i18n-aria-ja="言語"
+            data-i18n-aria-en="Language"
+          >
+            <button type="button" data-lang-choice="ja" aria-pressed="true">日本語</button>
+            <button type="button" data-lang-choice="en" aria-pressed="false">English</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <div class="product-lockup">
+            <img
+              class="app-icon"
+              src="./assets/mattermost-deck-icon.png"
+              width="82"
+              height="82"
+              alt="Mattermost Deck アイコン"
+              data-i18n-alt-ja="Mattermost Deck アイコン"
+              data-i18n-alt-en="Mattermost Deck icon"
+            >
+            <div>
+              <strong>Mattermost Deck</strong>
+              <span
+                class="version-note"
+                data-i18n-ja="Chrome 拡張 ・ v0.2.6"
+                data-i18n-en="Chrome extension · v0.2.6"
+              >Chrome 拡張 ・ v0.2.6</span>
+            </div>
+          </div>
+          <div
+            class="eyebrow"
+            data-i18n-ja="Mattermostのためのマルチペイン・ワークスペース"
+            data-i18n-en="A multi-pane workspace for Mattermost"
+          >Mattermostのためのマルチペイン・ワークスペース</div>
+          <h1
+            id="hero-title"
+            data-i18n-ja="Mattermostを開いたまま、見逃したくない会話を一望。"
+            data-i18n-en="Keep Mattermost open. Keep every important conversation in sight."
+          >Mattermostを開いたまま、見逃したくない会話を一望。</h1>
+          <p class="lead" data-lang-panel="ja">
+            メンション、重要チャンネル、DM、検索結果、保存済み投稿を右側のDeckに並べるChrome拡張。
+            投稿や編集、スレッド操作は、いつものMattermostで。
+          </p>
+          <p class="lead" data-lang-panel="en">
+            A Chrome extension that lines up mentions, important channels, DMs,
+            search results, and saved posts in a right-side Deck. Keep posting,
+            editing, and working with threads in Mattermost itself.
+          </p>
+          <div class="cta-row">
+            <a
+              class="button-link primary"
+              href="https://chromewebstore.google.com/detail/mattermost-deck/imbnblgiedelpebcfkenbhomcibomdpi"
+              rel="noopener noreferrer"
+              data-i18n-ja="Chromeに追加"
+              data-i18n-en="Add to Chrome"
+            >Chromeに追加</a>
+            <a
+              class="button-link secondary"
+              href="https://github.com/mmiyaji/mattermost-deck"
+              rel="noopener noreferrer"
+              data-i18n-ja="GitHubで見る"
+              data-i18n-en="View on GitHub"
+            >GitHubで見る</a>
+          </div>
+          <div class="meta-row" aria-label="Product highlights">
+            <span data-i18n-ja="オープンソース" data-i18n-en="Open source">オープンソース</span>
+            <span class="meta-dot" aria-hidden="true"></span>
+            <span data-i18n-ja="第三者トラッキングなし" data-i18n-en="No third-party tracking">第三者トラッキングなし</span>
+            <span class="meta-dot" aria-hidden="true"></span>
+            <span data-i18n-ja="5言語対応" data-i18n-en="5 UI languages">5言語対応</span>
+          </div>
+        </div>
+
+        <div class="hero-media">
+          <div class="browser-frame hero-browser">
+            <div class="browser-toolbar" aria-hidden="true"><span></span><span></span><span></span></div>
+            <picture>
+              <source media="(prefers-color-scheme: dark)" srcset="./assets/readme-overview-dark-store.png">
+              <img
+                src="./assets/readme-overview.png"
+                width="1720"
+                height="948"
+                alt="Mattermostの右側に複数の監視ペインを表示したMattermost Deck"
+                data-i18n-alt-ja="Mattermostの右側に複数の監視ペインを表示したMattermost Deck"
+                data-i18n-alt-en="Mattermost Deck showing multiple monitoring panes beside Mattermost"
+              >
+            </picture>
+          </div>
+          <div class="floating-note" aria-hidden="true">
+            <div>
+              <strong data-i18n-ja="Mattermost本体はそのまま" data-i18n-en="Mattermost stays primary">Mattermost本体はそのまま</strong>
+              <span data-i18n-ja="Deckが右側に追加されます" data-i18n-en="The Deck sits alongside it">Deckが右側に追加されます</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="stat-grid"
+        aria-label="Mattermost Deckの特徴"
+        data-i18n-aria-ja="Mattermost Deckの特徴"
+        data-i18n-aria-en="Mattermost Deck highlights"
+      >
+        <div class="metric">
+          <strong data-i18n-ja="追加できる6種のペイン" data-i18n-en="6 addable pane types">追加できる6種のペイン</strong>
+          <span data-i18n-ja="会話と運用状況を用途別に並べる" data-i18n-en="Arrange conversations and operations by purpose">会話と運用状況を用途別に並べる</span>
+        </div>
+        <div class="metric">
+          <strong data-i18n-ja="5言語のUI" data-i18n-en="5 UI languages">5言語のUI</strong>
+          <span data-i18n-ja="日本語・英語・独語・仏語・簡体字中国語" data-i18n-en="Japanese, English, German, French, and Simplified Chinese">日本語・英語・独語・仏語・簡体字中国語</span>
+        </div>
+        <div class="metric">
+          <strong data-i18n-ja="既存セッションを利用" data-i18n-en="Uses your current session">既存セッションを利用</strong>
+          <span data-i18n-ja="Mattermostへのログインをそのまま再利用" data-i18n-en="Reuses the Mattermost session already in your browser">Mattermostへのログインをそのまま再利用</span>
+        </div>
+        <div class="metric">
+          <strong data-i18n-ja="ローカル中心" data-i18n-en="Local-first settings">ローカル中心</strong>
+          <span data-i18n-ja="設定とレイアウトはブラウザ内に保存" data-i18n-en="Settings and layouts stay in the browser">設定とレイアウトはブラウザ内に保存</span>
+        </div>
+      </section>
+
+      <section id="features" class="section">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow" data-i18n-ja="機能" data-i18n-en="Features">機能</div>
+            <h2
+              data-i18n-ja="必要な情報を、ひとつの画面に。"
+              data-i18n-en="Bring the streams you watch into one view."
+            >必要な情報を、ひとつの画面に。</h2>
+          </div>
+          <p data-lang-panel="ja">
+            Mattermost Deckは、会話を別の場所へ移しません。必要な一覧だけを補助ペインとして右側に並べ、
+            Mattermost本体での投稿・編集・ナビゲーションを維持します。
+          </p>
+          <p data-lang-panel="en">
+            Mattermost Deck does not move conversations into another service.
+            It adds focused lists beside Mattermost while preserving Mattermost
+            for posting, editing, navigation, and threads.
+          </p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature-card">
+            <span class="feature-card-number">01 / MENTIONS</span>
+            <h3 data-i18n-ja="メンションを集約" data-i18n-en="Collect mentions">メンションを集約</h3>
+            <p data-i18n-ja="参加チームのメンションを一覧化し、未読だけに絞って確認できます。" data-i18n-en="Review mentions across joined teams and narrow the list to unread items.">参加チームのメンションを一覧化し、未読だけに絞って確認できます。</p>
+          </article>
+          <article class="feature-card">
+            <span class="feature-card-number">02 / CHANNELS &amp; DMS</span>
+            <h3 data-i18n-ja="重要な会話を固定" data-i18n-en="Pin important conversations">重要な会話を固定</h3>
+            <p data-i18n-ja="チャンネル、DM、グループメッセージを別々のペインとして常時表示できます。" data-i18n-en="Keep channels, DMs, and group messages visible as independent panes.">チャンネル、DM、グループメッセージを別々のペインとして常時表示できます。</p>
+          </article>
+          <article class="feature-card">
+            <span class="feature-card-number">03 / SEARCH &amp; KEYWORDS</span>
+            <h3 data-i18n-ja="検索とキーワード監視" data-i18n-en="Watch searches and keywords">検索とキーワード監視</h3>
+            <p data-i18n-ja="検索結果を保存して追跡し、指定語や特別メンションを視覚的に強調します。" data-i18n-en="Keep search results visible and highlight selected terms or special mentions.">検索結果を保存して追跡し、指定語や特別メンションを視覚的に強調します。</p>
+          </article>
+          <article class="feature-card">
+            <span class="feature-card-number">04 / SAVED</span>
+            <h3 data-i18n-ja="保存済み投稿をすぐ確認" data-i18n-en="Keep saved posts close">保存済み投稿をすぐ確認</h3>
+            <p data-i18n-ja="あとで読むために保存した投稿を、現在の作業を離れずに参照できます。" data-i18n-en="Reference posts saved for later without leaving your current work.">あとで読むために保存した投稿を、現在の作業を離れずに参照できます。</p>
+          </article>
+          <article class="feature-card">
+            <span class="feature-card-number">05 / VIEWS &amp; PROFILES</span>
+            <h3 data-i18n-ja="用途ごとのワークスペース" data-i18n-en="Workspaces for each role">用途ごとのワークスペース</h3>
+            <p data-i18n-ja="ペインセットをViewsとして保存し、同じサーバーでも運用やサポート用に設定を切り替えられます。" data-i18n-en="Save pane sets as Views and switch settings for operations, support, or other roles on the same server.">ペインセットをViewsとして保存し、同じサーバーでも運用やサポート用に設定を切り替えられます。</p>
+          </article>
+          <article class="feature-card">
+            <span class="feature-card-number">06 / DIAGNOSTICS</span>
+            <h3 data-i18n-ja="状態と性能を確認" data-i18n-en="Inspect health and performance">状態と性能を確認</h3>
+            <p data-i18n-ja="接続状態、API集計、最近のトレースを確認し、必要ならJSONLで書き出せます。" data-i18n-en="Review connection health, API summaries, and recent traces, then export JSONL when needed.">接続状態、API集計、最近のトレースを確認し、必要ならJSONLで書き出せます。</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="workflow" class="section">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow" data-i18n-ja="ワークフロー" data-i18n-en="Workflow">ワークフロー</div>
+            <h2
+              data-i18n-ja="Mattermost本体はそのまま。Deckだけを追加。"
+              data-i18n-en="Keep Mattermost as it is. Add only the Deck."
+            >Mattermost本体はそのまま。Deckだけを追加。</h2>
+          </div>
+          <p data-lang-panel="ja">
+            拡張機能は設定したMattermostサーバーだけで有効になり、
+            現在のブラウザセッションを使って必要な情報を取得します。
+          </p>
+          <p data-lang-panel="en">
+            The extension activates only on the Mattermost server you configure
+            and uses the current browser session to retrieve the information it displays.
+          </p>
+        </div>
+
+        <div class="workflow">
+          <div class="browser-frame showcase-frame">
+            <div class="browser-toolbar" aria-hidden="true"><span></span><span></span><span></span></div>
+            <img
+              src="./assets/readme-overview-dark-store.png"
+              width="1280"
+              height="800"
+              loading="lazy"
+              alt="ダークテーマでMattermostとDeckを横並びに表示"
+              data-i18n-alt-ja="ダークテーマでMattermostとDeckを横並びに表示"
+              data-i18n-alt-en="Mattermost and the Deck displayed side by side in dark theme"
+            >
+          </div>
+          <div class="workflow-list">
+            <div class="workflow-step">
+              <span class="step-number">1</span>
+              <div>
+                <strong data-i18n-ja="Chromeに追加" data-i18n-en="Add to Chrome">Chromeに追加</strong>
+                <p data-i18n-ja="Chrome ウェブストアからインストールすると、設定画面が開きます。" data-i18n-en="Install from the Chrome Web Store and the Options page opens.">Chrome ウェブストアからインストールすると、設定画面が開きます。</p>
+              </div>
+            </div>
+            <div class="workflow-step">
+              <span class="step-number">2</span>
+              <div>
+                <strong data-i18n-ja="サーバーURLを保存" data-i18n-en="Save the server URL">サーバーURLを保存</strong>
+                <p data-i18n-ja="接続先のMattermost URLを入力し、そのoriginへのChrome権限を許可します。" data-i18n-en="Enter your Mattermost URL and approve Chrome access to that origin.">接続先のMattermost URLを入力し、そのoriginへのChrome権限を許可します。</p>
+              </div>
+            </div>
+            <div class="workflow-step">
+              <span class="step-number">3</span>
+              <div>
+                <strong data-i18n-ja="必要なペインを追加" data-i18n-en="Add the panes you need">必要なペインを追加</strong>
+                <p data-i18n-ja="Mattermostを開き、右側のDeckに監視したい会話や検索を並べます。" data-i18n-en="Open Mattermost and arrange the conversations or searches you want to monitor.">Mattermostを開き、右側のDeckに監視したい会話や検索を並べます。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="use-cases-title">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow" data-i18n-ja="利用シーン" data-i18n-en="Use cases">利用シーン</div>
+            <h2 id="use-cases-title" data-i18n-ja="複数の流れを追う仕事に。" data-i18n-en="For work that follows several streams at once.">複数の流れを追う仕事に。</h2>
+          </div>
+          <p data-i18n-ja="監視対象を固定しながら、Mattermost本体では通常どおり会話を続けられます。" data-i18n-en="Keep monitored streams visible while continuing normal conversations in Mattermost.">監視対象を固定しながら、Mattermost本体では通常どおり会話を続けられます。</p>
+        </div>
+        <div class="use-case-grid">
+          <article class="use-case">
+            <span class="use-case-tag">Operations</span>
+            <h3 data-i18n-ja="運用とインシデント対応" data-i18n-en="Operations and incidents">運用とインシデント対応</h3>
+            <p data-i18n-ja="アラート用チャンネル、担当者DM、検索結果を並べ、状況の変化を見渡します。" data-i18n-en="Line up alert channels, responder DMs, and searches to keep changing conditions visible.">アラート用チャンネル、担当者DM、検索結果を並べ、状況の変化を見渡します。</p>
+          </article>
+          <article class="use-case">
+            <span class="use-case-tag">Support</span>
+            <h3 data-i18n-ja="サポートと引き継ぎ" data-i18n-en="Support and handoffs">サポートと引き継ぎ</h3>
+            <p data-i18n-ja="問い合わせ、エスカレーション、保存済みメモを同時に確認し、引き継ぎを短くします。" data-i18n-en="Review requests, escalations, and saved notes together to make handoffs shorter.">問い合わせ、エスカレーション、保存済みメモを同時に確認し、引き継ぎを短くします。</p>
+          </article>
+          <article class="use-case">
+            <span class="use-case-tag">Focus</span>
+            <h3 data-i18n-ja="自分だけの監視ビュー" data-i18n-en="A personal monitoring view">自分だけの監視ビュー</h3>
+            <p data-i18n-ja="チームのMattermost構成を変えず、必要な情報だけを自分のブラウザで整理します。" data-i18n-en="Organize only what you need in your own browser without changing the team's Mattermost setup.">チームのMattermost構成を変えず、必要な情報だけを自分のブラウザで整理します。</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="screens" class="section">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow" data-i18n-ja="画面" data-i18n-en="Screens">画面</div>
+            <h2 data-i18n-ja="テーマにも、言語にもなじむ。" data-i18n-en="Fits your theme and your language.">テーマにも、言語にもなじむ。</h2>
+          </div>
+          <p data-lang-panel="ja">
+            Mattermost連動テーマ、ライト／ダーク表示、コンパクト表示、ペイン識別カラーを調整できます。
+            画像を選択すると拡大表示します。
+          </p>
+          <p data-lang-panel="en">
+            Tune Mattermost-aware colors, light or dark presentation, compact rows,
+            and pane identity accents. Select an image to enlarge it.
+          </p>
+        </div>
+        <div class="screen-grid">
+          <article class="screen-card">
+            <button
+              type="button"
+              data-image-dialog="./assets/readme-overview.png"
+              aria-label="ライトテーマ画面を拡大"
+              data-i18n-aria-ja="ライトテーマ画面を拡大"
+              data-i18n-aria-en="Enlarge the light theme screen"
+            >
+              <img
+                src="./assets/readme-overview.png"
+                width="1720"
+                height="948"
+                loading="lazy"
+                alt="Mattermost Deckのライトテーマ"
+                data-i18n-alt-ja="Mattermost Deckのライトテーマ"
+                data-i18n-alt-en="Mattermost Deck in a light theme"
+              >
+            </button>
+            <h3 data-i18n-ja="ライトテーマ" data-i18n-en="Light theme">ライトテーマ</h3>
+            <p data-i18n-ja="Mattermostの明るい配色に合わせた表示。" data-i18n-en="A presentation aligned with a light Mattermost palette.">Mattermostの明るい配色に合わせた表示。</p>
+          </article>
+          <article class="screen-card">
+            <button
+              type="button"
+              data-image-dialog="./assets/readme-overview-dark.png"
+              aria-label="ダークテーマ画面を拡大"
+              data-i18n-aria-ja="ダークテーマ画面を拡大"
+              data-i18n-aria-en="Enlarge the dark theme screen"
+            >
+              <img
+                src="./assets/readme-overview-dark-store.png"
+                width="1280"
+                height="800"
+                loading="lazy"
+                alt="Mattermost Deckのダークテーマ"
+                data-i18n-alt-ja="Mattermost Deckのダークテーマ"
+                data-i18n-alt-en="Mattermost Deck in a dark theme"
+              >
+            </button>
+            <h3 data-i18n-ja="ダークテーマ" data-i18n-en="Dark theme">ダークテーマ</h3>
+            <p data-i18n-ja="暗いワークスペースでも境界と情報階層を維持。" data-i18n-en="Keeps boundaries and hierarchy clear in dark workspaces.">暗いワークスペースでも境界と情報階層を維持。</p>
+          </article>
+          <article class="screen-card">
+            <button
+              type="button"
+              data-image-dialog="./assets/locale/demo-ja.png"
+              aria-label="日本語UI画面を拡大"
+              data-i18n-aria-ja="日本語UI画面を拡大"
+              data-i18n-aria-en="Enlarge the localized UI screen"
+            >
+              <img
+                src="./assets/locale/demo-ja.png"
+                width="1280"
+                height="800"
+                loading="lazy"
+                alt="Mattermost Deckの日本語UI"
+                data-i18n-alt-ja="Mattermost Deckの日本語UI"
+                data-i18n-alt-en="Mattermost Deck localized interface"
+              >
+            </button>
+            <h3 data-i18n-ja="5言語対応" data-i18n-en="5 UI languages">5言語対応</h3>
+            <p data-i18n-ja="日本語、英語、ドイツ語、フランス語、簡体字中国語。" data-i18n-en="Japanese, English, German, French, and Simplified Chinese.">日本語、英語、ドイツ語、フランス語、簡体字中国語。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="security-title">
+        <div class="security-panel">
+          <div>
+            <div class="eyebrow" data-i18n-ja="プライバシーとセキュリティ" data-i18n-en="Privacy & security">プライバシーとセキュリティ</div>
+            <h2 id="security-title" data-i18n-ja="会話を別のクラウドへ移しません。" data-i18n-en="Your conversations are not moved to another cloud.">会話を別のクラウドへ移しません。</h2>
+            <p data-lang-panel="ja">
+              Mattermost Deckは、ユーザーが明示的に設定して許可したMattermostサーバーとだけ通信します。
+              開発者のサーバーへのユーザーデータ送信や、第三者分析・広告トラッキングはありません。
+            </p>
+            <p data-lang-panel="en">
+              Mattermost Deck communicates only with the Mattermost server that
+              the user explicitly configures and permits. It does not send user
+              data to developer-operated servers and includes no third-party
+              analytics or advertising trackers.
+            </p>
+            <a class="button-link secondary" href="./privacy/" data-lang-link data-i18n-ja="プライバシーポリシー" data-i18n-en="Privacy Policy">プライバシーポリシー</a>
+          </div>
+          <div class="security-list">
+            <div class="security-row">
+              <strong data-i18n-ja="接続先" data-i18n-en="Network scope">接続先</strong>
+              <span data-i18n-ja="設定済みのMattermost originのみ" data-i18n-en="Only the configured Mattermost origin">設定済みのMattermost originのみ</span>
+            </div>
+            <div class="security-row">
+              <strong data-i18n-ja="PAT保存" data-i18n-en="PAT storage">PAT保存</strong>
+              <span data-i18n-ja="セッションのみが既定。永続保存は任意でクライアント側暗号化" data-i18n-en="Session-only by default; optional persistent storage uses client-side encryption">セッションのみが既定。永続保存は任意でクライアント側暗号化</span>
+            </div>
+            <div class="security-row">
+              <strong data-i18n-ja="トラッキング" data-i18n-en="Tracking">トラッキング</strong>
+              <span data-i18n-ja="第三者analytics、広告、プロファイリングなし" data-i18n-en="No third-party analytics, advertising, or profiling">第三者analytics、広告、プロファイリングなし</span>
+            </div>
+            <div class="security-row">
+              <strong data-i18n-ja="ソース" data-i18n-en="Source">ソース</strong>
+              <span data-i18n-ja="GitHubで公開・MIT License" data-i18n-en="Public on GitHub under the MIT License">GitHubで公開・MIT License</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="setup-title">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow" data-i18n-ja="セットアップ" data-i18n-en="Setup">セットアップ</div>
+            <h2 id="setup-title" data-i18n-ja="3ステップで開始。" data-i18n-en="Start in three steps.">3ステップで開始。</h2>
+          </div>
+          <p data-i18n-ja="Team Slug、PAT、テーマ、幅、プロファイルは必要なときだけ追加設定できます。" data-i18n-en="Team Slug, PAT, theme, width, and profiles are optional settings you can add when needed.">Team Slug、PAT、テーマ、幅、プロファイルは必要なときだけ追加設定できます。</p>
+        </div>
+        <div class="setup-grid">
+          <article class="setup-step">
+            <span class="feature-card-number">01</span>
+            <strong data-i18n-ja="拡張機能をインストール" data-i18n-en="Install the extension">拡張機能をインストール</strong>
+            <p data-i18n-ja="Chrome ウェブストアからMattermost Deckを追加します。" data-i18n-en="Add Mattermost Deck from the Chrome Web Store.">Chrome ウェブストアからMattermost Deckを追加します。</p>
+          </article>
+          <article class="setup-step">
+            <span class="feature-card-number">02</span>
+            <strong data-i18n-ja="Connectionを設定" data-i18n-en="Configure Connection">Connectionを設定</strong>
+            <p data-i18n-ja="Mattermost Server URLを保存し、表示されたorigin権限を許可します。" data-i18n-en="Save the Mattermost Server URL and approve the requested origin permission.">Mattermost Server URLを保存し、表示されたorigin権限を許可します。</p>
+          </article>
+          <article class="setup-step">
+            <span class="feature-card-number">03</span>
+            <strong data-i18n-ja="Mattermostを開く" data-i18n-en="Open Mattermost">Mattermostを開く</strong>
+            <p data-i18n-ja="右側にDeckが表示されたら、＋ボタンからペインを追加します。" data-i18n-en="When the Deck appears on the right, use the + button to add panes.">右側にDeckが表示されたら、＋ボタンからペインを追加します。</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="faq" class="section">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow">FAQ</div>
+            <h2 data-i18n-ja="よくある質問" data-i18n-en="Frequently asked questions">よくある質問</h2>
+          </div>
+          <p data-i18n-ja="詳細な不具合報告や機能要望はGitHub Issuesで受け付けています。" data-i18n-en="Detailed bug reports and feature requests are welcome in GitHub Issues.">詳細な不具合報告や機能要望はGitHub Issuesで受け付けています。</p>
+        </div>
+        <div class="faq-list">
+          <details class="faq-item">
+            <summary data-i18n-ja="Mattermostを置き換えるアプリですか？" data-i18n-en="Does Mattermost Deck replace Mattermost?">Mattermostを置き換えるアプリですか？</summary>
+            <p data-i18n-ja="いいえ。Mattermost本体をログイン、投稿、編集、ナビゲーション、スレッド操作の中心に保ち、監視用の補助ワークスペースだけを追加します。" data-i18n-en="No. Mattermost remains the primary interface for login, posting, editing, navigation, and threads; the extension adds only a monitoring companion workspace.">いいえ。Mattermost本体をログイン、投稿、編集、ナビゲーション、スレッド操作の中心に保ち、監視用の補助ワークスペースだけを追加します。</p>
+          </details>
+          <details class="faq-item">
+            <summary data-i18n-ja="Mattermost Free Editionでも使えますか？" data-i18n-en="Can I use it with Mattermost Free Edition?">Mattermost Free Editionでも使えますか？</summary>
+            <p data-i18n-ja="ブラウザから利用できるMattermost Webと必要なAPIへアクセスできれば利用できます。環境固有のポリシーや権限については管理者に確認してください。" data-i18n-en="It can work when Mattermost Web and the required APIs are available in the browser. Check with your administrator about environment-specific policies and permissions.">ブラウザから利用できるMattermost Webと必要なAPIへアクセスできれば利用できます。環境固有のポリシーや権限については管理者に確認してください。</p>
+          </details>
+          <details class="faq-item">
+            <summary data-i18n-ja="PATは必須ですか？" data-i18n-en="Is a PAT required?">PATは必須ですか？</summary>
+            <p data-i18n-ja="必須ではありません。PATなしでは定期的なREST取得を使い、PATを設定した場合はWebSocketによるリアルタイム更新を利用できます。" data-i18n-en="No. Without a PAT, the extension uses periodic REST requests. Adding a PAT enables WebSocket-based realtime updates.">必須ではありません。PATなしでは定期的なREST取得を使い、PATを設定した場合はWebSocketによるリアルタイム更新を利用できます。</p>
+          </details>
+          <details class="faq-item">
+            <summary data-i18n-ja="どのサーバーでも自動的に動作しますか？" data-i18n-en="Does it activate on every server automatically?">どのサーバーでも自動的に動作しますか？</summary>
+            <p data-i18n-ja="いいえ。Optionsで保存し、Chromeのorigin権限を許可したMattermostサーバーだけで有効になります。リモートサーバーにはHTTPSが必要です。" data-i18n-en="No. It activates only on the Mattermost server saved in Options and approved through Chrome origin permissions. Remote servers must use HTTPS.">いいえ。Optionsで保存し、Chromeのorigin権限を許可したMattermostサーバーだけで有効になります。リモートサーバーにはHTTPSが必要です。</p>
+          </details>
+          <details class="faq-item">
+            <summary data-i18n-ja="データは開発者のサーバーへ送られますか？" data-i18n-en="Is data sent to the developer's servers?">データは開発者のサーバーへ送られますか？</summary>
+            <p data-i18n-ja="送られません。拡張機能は設定済みのMattermostサーバーと通信し、開発者運営サーバーへのユーザーデータ送信や第三者テレメトリを行いません。" data-i18n-en="No. The extension communicates with the configured Mattermost server and does not send user data to developer-operated servers or third-party telemetry services.">送られません。拡張機能は設定済みのMattermostサーバーと通信し、開発者運営サーバーへのユーザーデータ送信や第三者テレメトリを行いません。</p>
+          </details>
+          <details class="faq-item">
+            <summary data-i18n-ja="ウィンドウが狭い場合はどうなりますか？" data-i18n-en="What happens in a narrow window?">ウィンドウが狭い場合はどうなりますか？</summary>
+            <p data-i18n-ja="Mattermostの作業領域を優先してDeckの実効幅を調整し、ウィンドウを再び広げるとユーザーが指定した幅へ戻します。" data-i18n-en="The rendered Deck width adjusts to preserve the Mattermost work area, then returns to the requested width when more space is available.">Mattermostの作業領域を優先してDeckの実効幅を調整し、ウィンドウを再び広げるとユーザーが指定した幅へ戻します。</p>
+          </details>
+          <details class="faq-item">
+            <summary data-i18n-ja="サポートやソースコードはどこにありますか？" data-i18n-en="Where are support and source code available?">サポートやソースコードはどこにありますか？</summary>
+            <p data-lang-panel="ja">
+              ソースコードは
+              <a href="https://github.com/mmiyaji/mattermost-deck" rel="noopener noreferrer">GitHub</a>
+              で公開しています。不具合や要望は
+              <a href="https://github.com/mmiyaji/mattermost-deck/issues" rel="noopener noreferrer">Issues</a>
+              へお寄せください。
+            </p>
+            <p data-lang-panel="en">
+              Source code is available on
+              <a href="https://github.com/mmiyaji/mattermost-deck" rel="noopener noreferrer">GitHub</a>.
+              Report bugs or requests through
+              <a href="https://github.com/mmiyaji/mattermost-deck/issues" rel="noopener noreferrer">Issues</a>.
+            </p>
+          </details>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="final-cta">
+          <div>
+            <div class="eyebrow">Mattermost Deck v0.2.6</div>
+            <h2 data-i18n-ja="会話の流れを、見渡せる場所へ。" data-i18n-en="Give every important stream a place in view.">会話の流れを、見渡せる場所へ。</h2>
+            <p data-i18n-ja="Chrome ウェブストアから無料でインストールできます。" data-i18n-en="Install it free from the Chrome Web Store.">Chrome ウェブストアから無料でインストールできます。</p>
+          </div>
+          <div class="cta-row">
+            <a
+              class="button-link primary"
+              href="https://chromewebstore.google.com/detail/mattermost-deck/imbnblgiedelpebcfkenbhomcibomdpi"
+              rel="noopener noreferrer"
+              data-i18n-ja="Chromeに追加"
+              data-i18n-en="Add to Chrome"
+            >Chromeに追加</a>
+            <a
+              class="button-link secondary"
+              href="https://github.com/mmiyaji/mattermost-deck/issues"
+              rel="noopener noreferrer"
+              data-i18n-ja="サポート"
+              data-i18n-en="Support"
+            >サポート</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <p>© <span data-current-year>2026</span> Mattermost Deck. MIT License.</p>
+        <nav
+          class="footer-links"
+          aria-label="フッターナビゲーション"
+          data-i18n-aria-ja="フッターナビゲーション"
+          data-i18n-aria-en="Footer navigation"
+        >
+          <a href="./privacy/" data-lang-link data-i18n-ja="プライバシー" data-i18n-en="Privacy">プライバシー</a>
+          <a href="./terms/" data-lang-link data-i18n-ja="利用規約" data-i18n-en="Terms">利用規約</a>
+          <a href="https://github.com/mmiyaji/mattermost-deck/blob/main/SECURITY.md" rel="noopener noreferrer" data-i18n-ja="セキュリティ" data-i18n-en="Security">セキュリティ</a>
+          <a href="https://github.com/mmiyaji/mattermost-deck" rel="noopener noreferrer">GitHub</a>
+        </nav>
+      </div>
+    </footer>
+
+    <dialog
+      id="image-dialog"
+      class="image-dialog"
+      aria-label="画面プレビュー"
+      data-i18n-aria-ja="画面プレビュー"
+      data-i18n-aria-en="Screen preview"
+    >
+      <button
+        type="button"
+        class="dialog-close"
+        data-dialog-close
+        aria-label="閉じる"
+        data-i18n-aria-ja="閉じる"
+        data-i18n-aria-en="Close"
+      >×</button>
+      <img src="./assets/readme-overview.png" alt="">
+    </dialog>
+  </body>
+</html>

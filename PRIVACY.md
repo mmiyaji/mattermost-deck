@@ -2,6 +2,11 @@
 
 Mattermost Deck processes user data only as needed to provide its single purpose: adding a multi-pane workspace to Mattermost Web.
 
+Last updated: 2026-07-24
+
+The canonical public version of this policy is available at:
+https://mattermost-deck.ruhenheim.org/privacy/
+
 ## What data the extension stores locally
 The extension stores configuration and UI state in the browser, including:
 - Mattermost server URL
@@ -34,6 +39,11 @@ Locally stored settings remain in the browser until the user changes them, clear
 The extension is designed to keep authentication information local to the browser and to limit network access to the user-configured Mattermost server. Users are responsible for choosing appropriately scoped Mattermost tokens and for using a securely configured Mattermost server.
 
 The extension uses a Chrome alarm only to remove a temporary helper script if PWA installation does not complete normally. The alarm is not used for analytics, tracking, or periodic transmission of user data.
+
+## Public website hosting
+The public Mattermost Deck website is served through Cloudflare Pages. The site does not include analytics, advertising, or tracking cookies. Cloudflare may process IP addresses and HTTP request metadata in infrastructure logs for delivery and security according to the [Cloudflare Privacy Policy](https://www.cloudflare.com/privacypolicy/).
+
+The Japanese or English preference is stored in the browser's localStorage and is used only to choose the site's display language. It remains until the user clears browser site data.
 
 ## Contact
 For privacy questions, please contact the developer through the project repository:

@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="ja" data-lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title
+      data-i18n-ja="プライバシーポリシー - Mattermost Deck"
+      data-i18n-en="Privacy Policy - Mattermost Deck"
+    >プライバシーポリシー - Mattermost Deck</title>
+    <meta
+      name="description"
+      content="Mattermost Deckのデータ処理、ローカル保存、通信先、ユーザー管理について説明します。"
+      data-i18n-content-ja="Mattermost Deckのデータ処理、ローカル保存、通信先、ユーザー管理について説明します。"
+      data-i18n-content-en="Learn how Mattermost Deck handles data, local storage, network destinations, and user control."
+    >
+    <meta name="theme-color" content="#13213a">
+    <meta name="robots" content="index,follow">
+    <link rel="canonical" href="https://mattermost-deck.ruhenheim.org/privacy/">
+    <link rel="icon" type="image/png" sizes="128x128" href="../assets/mattermost-deck-icon.png">
+    <link rel="apple-touch-icon" href="../assets/mattermost-deck-icon.png">
+    <meta property="og:type" content="article">
+    <meta property="og:site_name" content="Mattermost Deck">
+    <meta property="og:url" content="https://mattermost-deck.ruhenheim.org/privacy/">
+    <meta
+      property="og:title"
+      content="プライバシーポリシー - Mattermost Deck"
+      data-i18n-content-ja="プライバシーポリシー - Mattermost Deck"
+      data-i18n-content-en="Privacy Policy - Mattermost Deck"
+    >
+    <meta property="og:image" content="https://mattermost-deck.ruhenheim.org/assets/webstore/marquee-promo-tile-1400x560.png">
+    <link rel="stylesheet" href="../assets/styles.css">
+    <script src="../assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main" data-i18n-ja="本文へ移動" data-i18n-en="Skip to content">本文へ移動</a>
+
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="../" data-lang-link>
+          <img src="../assets/mattermost-deck-icon.png" width="34" height="34" alt="">
+          <span>Mattermost Deck</span>
+        </a>
+        <div class="header-actions">
+          <nav
+            class="nav"
+            aria-label="サイトナビゲーション"
+            data-i18n-aria-ja="サイトナビゲーション"
+            data-i18n-aria-en="Site navigation"
+          >
+            <a href="../" data-lang-link data-i18n-ja="紹介ページ" data-i18n-en="Overview">紹介ページ</a>
+            <a href="./" data-lang-link aria-current="page" data-i18n-ja="プライバシー" data-i18n-en="Privacy">プライバシー</a>
+            <a href="../terms/" data-lang-link data-i18n-ja="利用規約" data-i18n-en="Terms">利用規約</a>
+            <a href="https://github.com/mmiyaji/mattermost-deck" rel="noopener noreferrer">GitHub</a>
+          </nav>
+          <div
+            class="language-switch"
+            role="group"
+            aria-label="言語"
+            data-i18n-aria-ja="言語"
+            data-i18n-aria-en="Language"
+          >
+            <button type="button" data-lang-choice="ja" aria-pressed="true">日本語</button>
+            <button type="button" data-lang-choice="en" aria-pressed="false">English</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="main legal-main">
+      <section class="legal-hero">
+        <div>
+          <div class="eyebrow">Privacy Policy</div>
+          <h1 data-i18n-ja="プライバシーポリシー" data-i18n-en="Privacy Policy">プライバシーポリシー</h1>
+          <p class="lead" data-lang-panel="ja">
+            Mattermost Deckが拡張機能の単一目的を提供するために処理するデータ、
+            保存場所、通信先、ユーザーが管理できる範囲を説明します。
+          </p>
+          <p class="lead" data-lang-panel="en">
+            This policy explains the data Mattermost Deck processes for its
+            single purpose, where that data is stored, where requests are sent,
+            and the controls available to users.
+          </p>
+        </div>
+        <div class="legal-meta">
+          <div class="legal-meta-row">
+            <span data-i18n-ja="適用対象" data-i18n-en="Applies to">適用対象</span>
+            <strong data-i18n-ja="Chrome拡張と公開サイト" data-i18n-en="Chrome extension and public site">Chrome拡張と公開サイト</strong>
+          </div>
+          <div class="legal-meta-row">
+            <span data-i18n-ja="最終更新" data-i18n-en="Last updated">最終更新</span>
+            <strong>2026-07-24</strong>
+          </div>
+          <div class="legal-meta-row">
+            <span data-i18n-ja="分析・広告" data-i18n-en="Analytics & ads">分析・広告</span>
+            <strong data-i18n-ja="なし" data-i18n-en="None">なし</strong>
+          </div>
+        </div>
+      </section>
+
+      <div class="legal-layout">
+        <nav
+          class="legal-toc"
+          aria-label="ページ内目次"
+          data-i18n-aria-ja="ページ内目次"
+          data-i18n-aria-en="On this page"
+        >
+          <a href="#overview" data-i18n-ja="概要" data-i18n-en="Overview">概要</a>
+          <a href="#local-storage" data-i18n-ja="ローカル保存" data-i18n-en="Local storage">ローカル保存</a>
+          <a href="#processed-data" data-i18n-ja="処理するデータ" data-i18n-en="Processed data">処理するデータ</a>
+          <a href="#use-and-destinations" data-i18n-ja="利用目的と通信先" data-i18n-en="Use & destinations">利用目的と通信先</a>
+          <a href="#sharing" data-i18n-ja="共有とトラッキング" data-i18n-en="Sharing & tracking">共有とトラッキング</a>
+          <a href="#retention" data-i18n-ja="保持と管理" data-i18n-en="Retention & control">保持と管理</a>
+          <a href="#security" data-i18n-ja="セキュリティ" data-i18n-en="Security">セキュリティ</a>
+          <a href="#website" data-i18n-ja="公開サイト" data-i18n-en="Public website">公開サイト</a>
+          <a href="#contact" data-i18n-ja="お問い合わせ" data-i18n-en="Contact">お問い合わせ</a>
+        </nav>
+
+        <article class="legal-document">
+          <div data-lang-panel="ja">
+            <section id="overview" class="legal-section" data-legal-section="overview">
+              <h2>1. 概要</h2>
+              <p>
+                Mattermost Deckは、Mattermost Webの右側に監視向けのマルチペインワークスペースを追加するという
+                単一目的のために必要な範囲でのみユーザーデータを処理します。
+              </p>
+              <div class="legal-callout">
+                <p>
+                  拡張機能は、開発者が運営するサーバーへユーザーデータを送信しません。
+                  第三者のanalytics、広告、プロファイリング機能も含みません。
+                </p>
+              </div>
+            </section>
+
+            <section id="local-storage" class="legal-section" data-legal-section="local-storage">
+              <h2>2. ブラウザ内に保存するデータ</h2>
+              <p>拡張機能は、設定とUI状態をブラウザ内に保存します。主な内容は以下です。</p>
+              <ul>
+                <li>MattermostサーバーURLと任意のTeam Slug</li>
+                <li>テーマ、言語、ポーリング間隔、レイアウト、保存済みViews、プロファイルなどの表示・動作設定</li>
+                <li>PATを永続保存するかどうかの任意設定</li>
+              </ul>
+              <p>
+                Mattermost Personal Access Token（PAT）はセッションのみの保存が既定です。
+                ユーザーが永続保存を選択した場合、PATはクライアント側で暗号化してブラウザ内に保存されます。
+                同じクライアントが復号できるため、この暗号化は平文保存を避けるための補助であり、
+                完全なセキュリティ境界ではありません。
+              </p>
+            </section>
+
+            <section id="processed-data" class="legal-section" data-legal-section="processed-data">
+              <h2>3. 拡張機能が処理するデータ</h2>
+              <p>
+                メンション、監視チャンネル、DM、検索結果、保存済み項目などを表示するため、
+                設定済みMattermostサーバーが提供する次のような情報をブラウザ内で処理します。
+              </p>
+              <ul>
+                <li>Mattermostのユーザー識別子、ユーザー名、表示名、アバター</li>
+                <li>チーム、チャンネル、DM、グループに関する情報</li>
+                <li>投稿、添付画像、保存済み項目、未読・メンション状態</li>
+                <li>ユーザーが入力した検索語と、表示機能に必要な検索結果</li>
+              </ul>
+            </section>
+
+            <section id="use-and-destinations" class="legal-section" data-legal-section="use-and-destinations">
+              <h2>4. 利用目的と通信先</h2>
+              <p>
+                これらのデータは、Mattermost Deckの画面にユーザーが選択した情報を表示し、
+                更新・ナビゲーション・診断機能を提供するためだけに使います。
+              </p>
+              <p>
+                ネットワーク要求は、ユーザーが明示的に設定し、Chrome権限を許可したMattermostサーバーoriginへだけ送信します。
+                Mattermostサーバーとその管理者によるデータ処理には、そのサーバーのポリシーが適用されます。
+              </p>
+            </section>
+
+            <section id="sharing" class="legal-section" data-legal-section="sharing">
+              <h2>5. データ共有とトラッキング</h2>
+              <p>
+                Mattermost Deckはユーザーデータを販売せず、広告プラットフォーム、データブローカー、
+                その他無関係な第三者と共有しません。機能提供に必要な範囲で、設定済みMattermostサーバーとのみ通信します。
+              </p>
+              <p>
+                Mattermost Deckによるユーザーデータの利用は、Limited Use要件を含む
+                <a href="https://developer.chrome.com/docs/webstore/program-policies/user-data-faq/" rel="noopener noreferrer">
+                  Chrome ウェブストア ユーザーデータポリシー
+                </a>
+                に従います。
+              </p>
+            </section>
+
+            <section id="retention" class="legal-section" data-legal-section="retention">
+              <h2>6. データ保持とユーザー管理</h2>
+              <p>
+                ローカル設定は、ユーザーが変更する、拡張機能ストレージを消去する、
+                または拡張機能をアンインストールするまでブラウザ内に残ります。
+              </p>
+              <ul>
+                <li>セッション保存のPATは、ブラウザセッション終了時に削除されます。</li>
+                <li>永続保存したPATは、設定変更、拡張機能ストレージの消去、アンインストールで削除できます。</li>
+                <li>トレース記録をオフにすると保存ログを消去し、24時間を超えたログは自動的に削除します。</li>
+              </ul>
+            </section>
+
+            <section id="security" class="legal-section" data-legal-section="security">
+              <h2>7. セキュリティ</h2>
+              <p>
+                拡張機能は認証情報をブラウザ内に保ち、ネットワークアクセスを設定済みMattermostサーバーへ限定するよう設計しています。
+                ユーザーは、必要最小限の権限を持つトークンと、安全に構成されたMattermostサーバーを利用する責任があります。
+              </p>
+              <p>
+                Chrome alarm権限は、PWAインストールが正常に完了しなかった場合に一時的な補助スクリプトを確実に解除するためだけに使います。
+                analytics、追跡、ユーザーデータの定期送信には使用しません。
+              </p>
+            </section>
+
+            <section id="website" class="legal-section" data-legal-section="website">
+              <h2>8. 公開サイトのホスティング</h2>
+              <p>
+                この公開サイトはCloudflare Pagesで配信しています。サイト自体にはanalytics、広告、
+                トラッキングCookieを組み込んでいません。Cloudflareは、配信とセキュリティのためにIPアドレスやHTTP要求情報などを
+                インフラストラクチャログとして処理する場合があります。詳細は
+                <a href="https://www.cloudflare.com/privacypolicy/" rel="noopener noreferrer">Cloudflare Privacy Policy</a>
+                を参照してください。
+              </p>
+              <p>
+                日本語／英語の選択は、このブラウザのlocalStorageへ保存します。この設定はサイト内の表示言語だけに使い、
+                ユーザーがブラウザのサイトデータを消去するまで保持されます。
+              </p>
+            </section>
+
+            <section id="contact" class="legal-section" data-legal-section="contact">
+              <h2>9. お問い合わせ</h2>
+              <p>
+                プライバシーに関する質問は、
+                <a href="https://github.com/mmiyaji/mattermost-deck/issues" rel="noopener noreferrer">GitHub Issues</a>
+                からプロジェクト開発者へお問い合わせください。公開Issueへ秘密情報や個人情報を投稿しないでください。
+              </p>
+            </section>
+          </div>
+
+          <div data-lang-panel="en" hidden>
+            <section class="legal-section" data-legal-section="overview">
+              <h2>1. Overview</h2>
+              <p>
+                Mattermost Deck processes user data only as needed for its single
+                purpose: adding a monitoring-oriented multi-pane workspace to Mattermost Web.
+              </p>
+              <div class="legal-callout">
+                <p>
+                  The extension does not send user data to developer-operated
+                  servers and includes no third-party analytics, advertising, or profiling.
+                </p>
+              </div>
+            </section>
+
+            <section class="legal-section" data-legal-section="local-storage">
+              <h2>2. Data stored in the browser</h2>
+              <p>The extension stores configuration and UI state in the browser, including:</p>
+              <ul>
+                <li>Mattermost server URL and optional Team Slug</li>
+                <li>Theme, language, polling interval, layout, saved Views, profiles, and other display or behavior settings</li>
+                <li>The optional preference for persistent PAT storage</li>
+              </ul>
+              <p>
+                Session-only storage is the default for a Mattermost Personal
+                Access Token (PAT). If the user chooses persistent storage, the
+                PAT is stored locally with client-side encryption. Because the
+                same client can decrypt it, this helps avoid plain-text storage
+                but is not a complete security boundary.
+              </p>
+            </section>
+
+            <section class="legal-section" data-legal-section="processed-data">
+              <h2>3. Data processed by the extension</h2>
+              <p>
+                To display mentions, watched channels, DMs, search results, saved
+                items, and related features, the extension processes information
+                provided by the configured Mattermost server in the browser, such as:
+              </p>
+              <ul>
+                <li>Mattermost user identifiers, usernames, display names, and avatars</li>
+                <li>Team, channel, DM, and group information</li>
+                <li>Posts, image attachments, saved items, unread state, and mention state</li>
+                <li>Search terms entered by the user and results required for visible features</li>
+              </ul>
+            </section>
+
+            <section class="legal-section" data-legal-section="use-and-destinations">
+              <h2>4. Use and network destinations</h2>
+              <p>
+                This data is used only to display the information selected by the
+                user and to provide update, navigation, and diagnostic features
+                inside Mattermost Deck.
+              </p>
+              <p>
+                Network requests are sent only to the Mattermost server origin
+                explicitly configured by the user and approved through Chrome
+                permissions. Processing by that Mattermost server and its
+                administrators is governed by the server's own policies.
+              </p>
+            </section>
+
+            <section class="legal-section" data-legal-section="sharing">
+              <h2>5. Sharing and tracking</h2>
+              <p>
+                Mattermost Deck does not sell user data or share it with
+                advertising platforms, data brokers, or unrelated third parties.
+                It communicates only with the configured Mattermost server as
+                needed to provide its features.
+              </p>
+              <p>
+                Mattermost Deck's use of user data complies with the
+                <a href="https://developer.chrome.com/docs/webstore/program-policies/user-data-faq/" rel="noopener noreferrer">
+                  Chrome Web Store User Data Policy
+                </a>,
+                including its Limited Use requirements.
+              </p>
+            </section>
+
+            <section class="legal-section" data-legal-section="retention">
+              <h2>6. Retention and user control</h2>
+              <p>
+                Local settings remain in the browser until the user changes
+                them, clears extension storage, or removes the extension.
+              </p>
+              <ul>
+                <li>Session-stored PAT data is removed when the browser session ends.</li>
+                <li>Persisted PAT data can be removed through settings, by clearing extension storage, or by uninstalling the extension.</li>
+                <li>Turning trace capture off clears stored logs, and logs older than 24 hours are removed automatically.</li>
+              </ul>
+            </section>
+
+            <section class="legal-section" data-legal-section="security">
+              <h2>7. Security</h2>
+              <p>
+                The extension is designed to keep authentication information in
+                the browser and to limit network access to the configured
+                Mattermost server. Users are responsible for choosing
+                appropriately scoped tokens and a securely configured server.
+              </p>
+              <p>
+                The Chrome alarm permission is used only to remove a temporary
+                helper script if PWA installation does not complete normally. It
+                is not used for analytics, tracking, or periodic transmission of user data.
+              </p>
+            </section>
+
+            <section class="legal-section" data-legal-section="website">
+              <h2>8. Public website hosting</h2>
+              <p>
+                This public website is served through Cloudflare Pages. The site
+                does not include analytics, advertising, or tracking cookies.
+                Cloudflare may process IP addresses and HTTP request metadata in
+                infrastructure logs for delivery and security. See the
+                <a href="https://www.cloudflare.com/privacypolicy/" rel="noopener noreferrer">Cloudflare Privacy Policy</a>
+                for details.
+              </p>
+              <p>
+                The Japanese or English preference is stored in this browser's
+                localStorage and is used only to choose the site's display
+                language. It remains until the user clears browser site data.
+              </p>
+            </section>
+
+            <section class="legal-section" data-legal-section="contact">
+              <h2>9. Contact</h2>
+              <p>
+                For privacy questions, contact the developer through
+                <a href="https://github.com/mmiyaji/mattermost-deck/issues" rel="noopener noreferrer">GitHub Issues</a>.
+                Do not post secrets or personal information in a public issue.
+              </p>
+            </section>
+          </div>
+        </article>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <p>© <span data-current-year>2026</span> Mattermost Deck. MIT License.</p>
+        <nav class="footer-links" aria-label="Footer navigation">
+          <a href="../" data-lang-link data-i18n-ja="紹介ページ" data-i18n-en="Overview">紹介ページ</a>
+          <a href="../terms/" data-lang-link data-i18n-ja="利用規約" data-i18n-en="Terms">利用規約</a>
+          <a href="https://github.com/mmiyaji/mattermost-deck" rel="noopener noreferrer">GitHub</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

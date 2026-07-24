@@ -6,6 +6,20 @@ Mattermost Deck は、Mattermost Web の右側に監視向けのマルチペイ�
 
 [Chrome ウェブストアから Mattermost Deck をインストール](https://chromewebstore.google.com/detail/mattermost-deck/imbnblgiedelpebcfkenbhomcibomdpi)
 
+## 公開サイト
+
+Mattermost Deck の紹介ページと法務ページは Cloudflare Pages で公開しています。
+
+- 紹介ページ: https://mattermost-deck.ruhenheim.org/
+- プライバシーポリシー: https://mattermost-deck.ruhenheim.org/privacy/
+- 利用規約: https://mattermost-deck.ruhenheim.org/terms/
+
+静的サイトのソースは `docs/` にあります。
+`.github/workflows/cloudflare-pages.yml` はサイト変更が `main` に入ったときに検証を行い、
+`mattermost-deck` という Cloudflare Pages プロジェクトへデプロイします。
+継続配信には GitHub リポジトリの `CLOUDFLARE_ACCOUNT_ID` と、
+Cloudflare Pages 編集権限だけを持つ `CLOUDFLARE_API_TOKEN` が必要です。
+
 ## スクリーンショット
 
 ライトテーマ:

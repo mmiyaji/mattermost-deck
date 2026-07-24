@@ -6,6 +6,20 @@ Mattermost Deck is a Chrome extension that adds a monitoring-oriented multi-pane
 
 [Install Mattermost Deck from the Chrome Web Store](https://chromewebstore.google.com/detail/mattermost-deck/imbnblgiedelpebcfkenbhomcibomdpi)
 
+## Public Website
+
+The Mattermost Deck introduction and legal pages are published with Cloudflare Pages:
+
+- Website: https://mattermost-deck.ruhenheim.org/
+- Privacy Policy: https://mattermost-deck.ruhenheim.org/privacy/
+- Terms of Use: https://mattermost-deck.ruhenheim.org/terms/
+
+The static site lives in `docs/`. The workflow in
+`.github/workflows/cloudflare-pages.yml` validates and deploys it to the
+Cloudflare Pages project named `mattermost-deck` after site changes reach
+`main`. The repository must define `CLOUDFLARE_ACCOUNT_ID` and a
+least-privilege `CLOUDFLARE_API_TOKEN` with Cloudflare Pages edit access.
+
 ## Screenshots
 
 Light theme:
