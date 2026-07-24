@@ -149,6 +149,10 @@ const css = read("assets/styles.css");
 if (count(css, /\{/g) !== count(css, /\}/g)) {
   reportError("assets/styles.css: unbalanced braces");
 }
+const screenImageRule = css.match(/\.screen-card img\s*\{([^}]*)\}/)?.[1] ?? "";
+if (!/\bheight:\s*auto\s*;/.test(screenImageRule)) {
+  reportError("assets/styles.css: screen previews must preserve their intrinsic aspect ratio");
+}
 
 const scriptCheck = spawnSync(process.execPath, ["--check", path.join(root, "assets/site.js")], {
   encoding: "utf8",

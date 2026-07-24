@@ -631,6 +631,7 @@ p {
 
 .screen-card img {
   display: block;
+  height: auto;
   transition: transform 160ms ease;
   width: 100%;
 }
