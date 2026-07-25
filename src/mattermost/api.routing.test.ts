@@ -63,6 +63,393 @@ describe("Mattermost base path", () => {
     );
   });
 
+  it("requests collapsed-thread unread counters and thread read markers", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(response([]))
+      .mockResolvedValueOnce(response({
+        total: 1,
+        total_unread_threads: 1,
+        total_unread_mentions: 1,
+        threads: [],
+      }))
+      .mockResolvedValueOnce(response({ order: [], posts: {} }));
+
+    await api.getTeamUnread("user-id");
+    await api.getUserThreads("user-id", "team-id", { unread: true, perPage: 100 });
+    await api.getPostThreadSince("root-id", 123, 200);
+
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([
+      "/company/mattermost/api/v4/users/user-id/teams/unread?include_collapsed_threads=true",
+      "/company/mattermost/api/v4/users/user-id/teams/team-id/threads?unread=true&extended=false&deleted=false&per_page=100",
+      "/company/mattermost/api/v4/posts/root-id/thread?direction=down&perPage=200&fromCreateAt=123",
+    ]);
+  });
+
+  it("loads every post since the channel-specific read marker", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch).mockResolvedValue(response({
+      order: ["reply"],
+      posts: {
+        root: {
+          id: "root",
+          user_id: "other",
+          channel_id: "channel-id",
+          create_at: 100,
+          message: "root context",
+        },
+        reply: {
+          id: "reply",
+          user_id: "other",
+          channel_id: "channel-id",
+          create_at: 124,
+          message: "@alice",
+          root_id: "root",
+        },
+        deleted: {
+          id: "deleted",
+          user_id: "other",
+          channel_id: "channel-id",
+          create_at: 125,
+          delete_at: 126,
+          message: "",
+        },
+      },
+    }));
+
+    await expect(api.getPostsSince("channel-id", 123.9)).resolves.toMatchObject([
+      { id: "reply", root_id: "root" },
+      { id: "root" },
+    ]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/company/mattermost/api/v4/channels/channel-id/posts?since=123&skipFetchThreads=false",
+      expect.any(Object),
+    );
+  });
+
+  it("reconciles retained mention posts in one bounded request", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch).mockResolvedValue(response([
+      {
+        id: "active-post",
+        user_id: "author",
+        channel_id: "channel-id",
+        create_at: 123,
+        delete_at: 0,
+        message: "@alice",
+      },
+      {
+        id: "deleted-post",
+        user_id: "author",
+        channel_id: "channel-id",
+        create_at: 124,
+        delete_at: 125,
+        message: "",
+      },
+    ]));
+
+    await expect(api.getPostsByIds([
+      "active-post",
+      "deleted-post",
+      "active-post",
+    ])).resolves.toHaveLength(2);
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/company/mattermost/api/v4/posts/ids",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(["active-post", "deleted-post"]),
+      }),
+    );
+  });
+
+  it("treats a retained-post 404 as an empty hard-deleted set", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch).mockResolvedValue(errorResponse(404));
+
+    await expect(
+      api.getPostsByIds(["retention-deleted"], { maxAgeMs: 300_000 }),
+    ).resolves.toEqual([]);
+    await expect(
+      api.getPostsByIds(["retention-deleted"], { maxAgeMs: 300_000 }),
+    ).resolves.toEqual([]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
+  it("coalesces retained-post lookups across columns and caches history", async () => {
+    const api = await loadApi();
+    let resolveLookup!: (value: Response) => void;
+    vi.mocked(fetch)
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => {
+        resolveLookup = resolve;
+      }))
+      .mockResolvedValueOnce(response([{
+        id: "active-post",
+        user_id: "author",
+        channel_id: "channel-id",
+        create_at: 123,
+        message: "@alice edited",
+      }]));
+
+    const first = api.getPostsByIds(["active-post"], { maxAgeMs: 300_000 });
+    const overlapping = api.getPostsByIds(["active-post"], { maxAgeMs: 300_000 });
+    await vi.waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1));
+    resolveLookup(response([{
+      id: "active-post",
+      user_id: "author",
+      channel_id: "channel-id",
+      create_at: 123,
+      message: "@alice",
+    }]));
+
+    await expect(Promise.all([first, overlapping])).resolves.toHaveLength(2);
+    await expect(
+      api.getPostsByIds(["active-post"], { maxAgeMs: 300_000 }),
+    ).resolves.toMatchObject([{ message: "@alice" }]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+
+    api.invalidatePostByIdCache("active-post");
+    await expect(
+      api.getPostsByIds(["active-post"], { maxAgeMs: 300_000 }),
+    ).resolves.toMatchObject([{ message: "@alice edited" }]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache an in-flight retained-post response after invalidation", async () => {
+    const api = await loadApi();
+    let resolveStaleLookup!: (value: Response) => void;
+    vi.mocked(fetch)
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => {
+        resolveStaleLookup = resolve;
+      }))
+      .mockResolvedValueOnce(response([{
+        id: "edited-post",
+        user_id: "author",
+        channel_id: "channel-id",
+        create_at: 123,
+        message: "fresh body",
+      }]));
+
+    const staleLookup = api.getPostsByIds(
+      ["edited-post"],
+      { maxAgeMs: 300_000 },
+    );
+    await vi.waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1));
+    api.invalidatePostByIdCache("edited-post");
+    resolveStaleLookup(response([{
+      id: "edited-post",
+      user_id: "author",
+      channel_id: "channel-id",
+      create_at: 123,
+      message: "stale body",
+    }]));
+    await expect(staleLookup).resolves.toMatchObject([{ message: "stale body" }]);
+
+    await expect(
+      api.getPostsByIds(["edited-post"], { maxAgeMs: 300_000 }),
+    ).resolves.toMatchObject([{ message: "fresh body" }]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+  });
+
+  it("bounds the retained-post cache and evicts the oldest entries", async () => {
+    const api = await loadApi();
+    const posts = Array.from({ length: 2_001 }, (_, index) => ({
+      id: `post-${index.toString().padStart(4, "0")}`,
+      user_id: "author",
+      channel_id: "channel-id",
+      create_at: index + 1,
+      message: `message ${index}`,
+    }));
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(response(posts))
+      .mockResolvedValueOnce(response([posts[0]]));
+
+    await api.getPostsByIds(
+      posts.map((post) => post.id),
+      { maxAgeMs: 300_000 },
+    );
+    await expect(
+      api.getPostsByIds([posts.at(-1)?.id ?? ""], { maxAgeMs: 300_000 }),
+    ).resolves.toMatchObject([{ id: posts.at(-1)?.id }]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+
+    await expect(
+      api.getPostsByIds([posts[0].id], { maxAgeMs: 300_000 }),
+    ).resolves.toMatchObject([{ id: posts[0].id }]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the REST scheduler serial while mention metadata is invalidated", async () => {
+    const api = await loadApi();
+    let resolveFirstRequest!: (value: Response) => void;
+    vi.mocked(fetch)
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => {
+        resolveFirstRequest = resolve;
+      }))
+      .mockResolvedValueOnce(response({ id: "team-id", name: "team" }))
+      .mockResolvedValueOnce(response([]));
+
+    const first = api.getCurrentUser();
+    await vi.waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1));
+    const queuedBeforeInvalidation = api.getTeamByName("team");
+    api.invalidateMentionMetadataCaches();
+    const queuedAfterInvalidation = api.getDirectChannelsForCurrentUser();
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+
+    resolveFirstRequest(response({ id: "user-id", username: "alice" }));
+    await expect(Promise.all([
+      first,
+      queuedBeforeInvalidation,
+      queuedAfterInvalidation,
+    ])).resolves.toHaveLength(3);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3);
+  });
+
+  it("loads and filters the current user's mentionable group handles", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch).mockResolvedValue(response([
+      {
+        id: "g1",
+        name: "release-team",
+        display_name: "Release Team",
+        source: "custom",
+        allow_reference: true,
+        delete_at: 0,
+      },
+      {
+        id: "g2",
+        name: "hidden-team",
+        display_name: "Hidden Team",
+        source: "custom",
+        allow_reference: false,
+        delete_at: 0,
+      },
+      {
+        id: "g3",
+        name: "deleted-team",
+        display_name: "Deleted Team",
+        source: "ldap",
+        allow_reference: true,
+        delete_at: 123,
+      },
+    ]));
+
+    await expect(api.getMentionGroupsForUser("user-id")).resolves.toMatchObject([
+      { id: "g1", name: "release-team" },
+    ]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/company/mattermost/api/v4/users/user-id/groups",
+      expect.any(Object),
+    );
+  });
+
+  it("falls back without failing the feed when group mentions are not licensed", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch).mockResolvedValue(errorResponse(501));
+
+    await expect(api.getMentionGroupsForUser("user-id")).resolves.toEqual([]);
+    await expect(api.getMentionGroupsForUser("user-id")).resolves.toEqual([]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads the user's collapsed-reply-thread preference source", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch).mockResolvedValue(response([{
+      user_id: "user-id",
+      category: "display_settings",
+      name: "collapsed_reply_threads",
+      value: "on",
+    }]));
+
+    await expect(api.getUserPreferences("user-id")).resolves.toMatchObject([
+      { name: "collapsed_reply_threads", value: "on" },
+    ]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/company/mattermost/api/v4/users/user-id/preferences",
+      expect.any(Object),
+    );
+  });
+
+  it("loads and caches the server collapsed-thread mode", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(response({ CollapsedThreads: "always_on" }))
+      .mockResolvedValueOnce(response({ CollapsedThreads: "disabled" }));
+
+    await expect(api.getMattermostClientConfig()).resolves.toMatchObject({
+      CollapsedThreads: "always_on",
+    });
+    await expect(api.getMattermostClientConfig()).resolves.toMatchObject({
+      CollapsedThreads: "always_on",
+    });
+    api.invalidateMentionMetadataCaches();
+    await expect(api.getMattermostClientConfig()).resolves.toMatchObject({
+      CollapsedThreads: "disabled",
+    });
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/company/mattermost/api/v4/config/client?format=old",
+      expect.any(Object),
+    );
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+  });
+
+  it("paginates a long thread from its read marker without repeating the root", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(response({
+        order: ["root-id", "reply-a"],
+        posts: {
+          "root-id": {
+            id: "root-id",
+            user_id: "author",
+            channel_id: "channel-id",
+            create_at: 50,
+            message: "root",
+          },
+          "reply-a": {
+            id: "reply-a",
+            user_id: "author",
+            channel_id: "channel-id",
+            create_at: 200,
+            message: "@alice first",
+            root_id: "root-id",
+          },
+        },
+        has_next: true,
+      }))
+      .mockResolvedValueOnce(response({
+        order: ["root-id", "reply-b"],
+        posts: {
+          "root-id": {
+            id: "root-id",
+            user_id: "author",
+            channel_id: "channel-id",
+            create_at: 50,
+            message: "root",
+          },
+          "reply-b": {
+            id: "reply-b",
+            user_id: "author",
+            channel_id: "channel-id",
+            create_at: 300,
+            message: "@alice second",
+            root_id: "root-id",
+          },
+        },
+        has_next: false,
+      }));
+
+    await expect(api.getPostThreadSince("root-id", 100, 1)).resolves.toMatchObject([
+      { id: "reply-b" },
+      { id: "reply-a" },
+    ]);
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([
+      "/company/mattermost/api/v4/posts/root-id/thread?direction=down&perPage=1&fromCreateAt=100",
+      "/company/mattermost/api/v4/posts/root-id/thread?direction=down&perPage=1&fromPost=reply-a&fromCreateAt=200",
+    ]);
+  });
+
   it("invalidates the member cache after marking a channel viewed", async () => {
     const api = await loadApi();
     vi.mocked(fetch)

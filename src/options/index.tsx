@@ -40,9 +40,10 @@ import {
 } from "../ui/profiles";
 import { clearTraceEntries, getTraceEntries, isTraceCaptureEnabled, setTraceCaptureEnabled, subscribeTraceEntries, type TraceLogEntry } from "../traceLog";
 
+const PRODUCT_SITE_URL = "https://mattermost-deck.ruhenheim.org/";
 const REPO_URL = "https://github.com/mmiyaji/mattermost-deck";
-const PRIVACY_URL = "https://github.com/mmiyaji/mattermost-deck/blob/main/PRIVACY.md";
-const TERMS_URL = "https://github.com/mmiyaji/mattermost-deck/blob/main/TERMS.md";
+const PRIVACY_URL = `${PRODUCT_SITE_URL}privacy/`;
+const TERMS_URL = `${PRODUCT_SITE_URL}terms/`;
 const PAT_ENABLE_URL = "https://docs.mattermost.com/administration-guide/configure/integrations-configuration-settings.html";
 const PAT_GUIDE_URL = "https://docs.mattermost.com/agents/mcpserver/README.html";
 const STORE_URL = "https://chromewebstore.google.com/detail/mattermost-deck/imbnblgiedelpebcfkenbhomcibomdpi";
@@ -266,6 +267,8 @@ function useOptionsText() {
     permissionDenied: t("options.permissionDenied"),
     privacyPolicy: t("options.privacyPolicy"),
     termsOfUse: t("options.termsOfUse"),
+    officialWebsite: t("options.officialWebsite"),
+    websiteCta: t("options.websiteCta"),
     github: t("options.github"),
     storeLink: t("options.storeLink"),
     releaseNotesOpen: t("options.releaseNotesOpen", { defaultValue: "Open changelog" }),
@@ -722,7 +725,7 @@ const pageCss = `
 
   .options-sidebar-footer a {
     font-size: 12px;
-    color: rgba(123, 178, 255, 0.6);
+    color: #7bb2ff;
     text-decoration: none;
     line-height: 1.6;
   }
@@ -739,7 +742,7 @@ const pageCss = `
   }
 
   body[data-theme="light"] .options-sidebar-footer a {
-    color: rgba(15, 113, 215, 0.7);
+    color: #075fae;
   }
 
   body[data-theme="light"] .options-sidebar-copyright {
@@ -852,6 +855,29 @@ const pageCss = `
 
   body[data-theme="light"] .options-panel-header p {
     color: #496583;
+  }
+
+  .options-website-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: flex-start;
+    gap: 7px;
+    min-height: 36px;
+    height: auto;
+    padding: 8px 13px;
+    line-height: 1.35;
+    text-align: center;
+    text-decoration: none;
+  }
+
+  .options-website-link:hover {
+    background: rgba(123, 178, 255, 0.16);
+  }
+
+  .options-website-link:focus-visible {
+    outline: 2px solid #7bc8ff;
+    outline-offset: 2px;
   }
 
   /* Grid */
@@ -1612,6 +1638,10 @@ const pageCss = `
 
   @media (max-width: 520px) {
     .options-col-types { grid-template-columns: repeat(2, 1fr); }
+    .options-website-link {
+      width: 100%;
+      white-space: normal;
+    }
   }
 
   /* CustomSelect (scoped) */
@@ -2338,6 +2368,24 @@ function OptionsApp(): React.JSX.Element {
   };
   const currentReleaseNotes = useMemo(() => {
     if (!releaseNotice) return null;
+    if (releaseNotice.version === "1.0.0") {
+      return {
+        title: "v1.0.0",
+        added: [
+          t("options.releaseNote100Website"),
+          t("options.releaseNote100E2E"),
+        ],
+        changed: [
+          t("options.releaseNote100MentionCoverage"),
+          t("options.releaseNote100ThreadSemantics"),
+          t("options.releaseNote100Responsive"),
+          t("options.releaseNote100Reliability"),
+        ],
+        fixed: [
+          t("options.releaseNote100EditDelete"),
+        ],
+      } satisfies ReleaseNotes;
+    }
     if (releaseNotice.version === "0.2.6") {
       return {
         title: "v0.2.6",
@@ -2415,6 +2463,7 @@ function OptionsApp(): React.JSX.Element {
             {STORE_URL && (
               <a href={STORE_URL} target="_blank" rel="noreferrer">{text.storeLink}</a>
             )}
+            <a href={PRODUCT_SITE_URL} target="_blank" rel="noopener noreferrer">{text.officialWebsite}</a>
             <a href={PRIVACY_URL} target="_blank" rel="noreferrer">{text.privacyPolicy}</a>
             <a href={TERMS_URL} target="_blank" rel="noreferrer">{text.termsOfUse}</a>
             <a href={REPO_URL} target="_blank" rel="noreferrer">{text.github}</a>
@@ -2521,10 +2570,24 @@ function OptionsApp(): React.JSX.Element {
           {activePanel === "guide" && (
             <div className="options-panel">
               <div className="options-panel-header">
-                <h2>{text.guideTitle}</h2>
-                <p>
-                  {t("options.guideDesc")}
-                </p>
+                <div className="options-panel-header-copy">
+                  <h2>{text.guideTitle}</h2>
+                  <p>
+                    {t("options.guideDesc")}
+                  </p>
+                </div>
+                <a
+                  className="options-button options-button--ghost options-website-link"
+                  href={PRODUCT_SITE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span>{text.websiteCta}</span>
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M7 17 17 7" />
+                    <path d="M7 7h10v10" />
+                  </svg>
+                </a>
               </div>
 
               {/* Browser layout diagram */}

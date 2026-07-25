@@ -9,6 +9,15 @@ const docsAssetsDir = path.resolve("./docs/assets");
 const screenshotPath = path.join(docsAssetsDir, "readme-overview.png");
 const darkScreenshotPath = path.join(docsAssetsDir, "readme-overview-dark.png");
 const darkStoreScreenshotPath = path.join(docsAssetsDir, "readme-overview-dark-store.png");
+const localeScreenshotsDir = path.join(docsAssetsDir, "locale");
+const captureProfileId = "readme-capture-profile";
+const localeScreenshots = [
+  { language: "en", filename: "demo-en.png" },
+  { language: "ja", filename: "demo-ja.png" },
+  { language: "de", filename: "demo-de.png" },
+  { language: "fr", filename: "demo-fr.png" },
+  { language: "zh-CN", filename: "demo-ch.png" },
+];
 const headless = process.env.README_CAPTURE_HEADLESS !== "0";
 const keepOpen = process.env.README_CAPTURE_KEEP_OPEN === "1";
 const headedProfileDir = path.resolve("./.tmp-readme-browser/profile");
@@ -317,8 +326,7 @@ async function configureExtension(page, extensionId, baseUrl, team, showcaseChan
   });
 
   await page.evaluate(
-    async ({ baseUrl: origin, teamName, teamId, showcaseChannelId, dmChannelId }) => {
-      const profileId = "readme-capture-profile";
+    async ({ baseUrl: origin, profileId, teamName, teamId, showcaseChannelId, dmChannelId }) => {
       const now = Date.now();
       const settings = {
         "mattermostDeck.serverUrl.v1": origin,
@@ -360,11 +368,35 @@ async function configureExtension(page, extensionId, baseUrl, team, showcaseChan
     },
     {
       baseUrl,
+      profileId: captureProfileId,
       teamName: team.name,
       teamId: team.id,
       showcaseChannelId: showcaseChannel.id,
       dmChannelId: dmChannel.id,
     },
+  );
+}
+
+async function setExtensionLanguage(context, language) {
+  const [serviceWorker] = context.serviceWorkers();
+  if (!serviceWorker) {
+    throw new Error("The extension service worker is not available for locale capture.");
+  }
+
+  await serviceWorker.evaluate(
+    ({ language: nextLanguage, profileId }) => new Promise((resolve, reject) => {
+      chrome.storage.local.set({
+        "mattermostDeck.language.v1": nextLanguage,
+        [`mattermostDeck.language.v1.profile.${profileId}`]: nextLanguage,
+      }, () => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        resolve();
+      });
+    }),
+    { language, profileId: captureProfileId },
   );
 }
 
@@ -446,6 +478,20 @@ async function captureShowcase() {
       },
     });
 
+    await fs.mkdir(localeScreenshotsDir, { recursive: true });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    for (const locale of localeScreenshots) {
+      await setExtensionLanguage(context, locale.language);
+      await page.reload({ waitUntil: "networkidle", timeout: 60_000 });
+      await prepareDeckView(page);
+      const localePath = path.join(localeScreenshotsDir, locale.filename);
+      await page.screenshot({ path: localePath, type: "png" });
+      console.log(`Saved screenshot to ${path.relative(rootDir, localePath)}`);
+    }
+
+    await setExtensionLanguage(context, "en");
+    await page.setViewportSize({ width: 1720, height: 1080 });
+    await page.reload({ waitUntil: "networkidle", timeout: 60_000 });
     await applyMattermostThemeFromSettings(page, "Onyx");
     await prepareDeckView(page);
     await page.addStyleTag({

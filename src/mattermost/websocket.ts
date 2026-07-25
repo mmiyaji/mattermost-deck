@@ -4,10 +4,24 @@ import { addTraceEntry } from "../traceLog";
 import { hasMattermostMention } from "./mentions";
 
 export interface PostedEvent {
+  eventType: "posted" | "post_edited";
   channelId: string;
+  channelType?: string;
   teamId?: string;
   post: MattermostPost;
   mentionsUser: boolean;
+}
+
+export function appendPostedEvent(
+  current: PostedEvent[],
+  event: PostedEvent,
+  limit = 100,
+): PostedEvent[] {
+  const safeLimit = Math.max(1, Math.floor(limit));
+  const withoutDuplicate = current.filter(
+    (entry) => entry.post.id !== event.post.id,
+  );
+  return [...withoutDuplicate, event].slice(-safeLimit);
 }
 
 export type WebSocketStatus =
@@ -32,6 +46,9 @@ interface HookOptions {
   token: string | null;
   onReconnect: () => void;
   onPosted: (event: PostedEvent) => void;
+  onPostDeleted?: (postId: string) => void;
+  onMentionMetadataChanged?: () => void;
+  onUnreadChanged?: () => void;
   onAuthFailure: (message: string) => void;
 }
 
@@ -39,6 +56,7 @@ interface MattermostEventEnvelope {
   event?: string;
   data?: Record<string, unknown>;
   broadcast?: {
+    user_id?: string;
     channel_id?: string;
     team_id?: string;
   };
@@ -73,6 +91,136 @@ export function mentionsPayloadIncludesUser(mentions: string, userId: string | n
   }
 }
 
+export function isUnreadStateEvent(event: string | undefined): boolean {
+  return event === "multiple_channels_viewed" ||
+    event === "channel_viewed" ||
+    event === "thread_read_changed" ||
+    event === "post_unread" ||
+    event === "channel_deleted" ||
+    event === "channel_restored" ||
+    event === "user_added" ||
+    event === "user_removed";
+}
+
+export function getDeletedPostId(
+  event: string | undefined,
+  postPayload: unknown,
+  postIdPayload?: unknown,
+): string | null {
+  if (event !== "post_deleted") {
+    return null;
+  }
+  if (typeof postIdPayload === "string" && postIdPayload.trim()) {
+    return postIdPayload;
+  }
+
+  try {
+    const post = typeof postPayload === "string"
+      ? JSON.parse(postPayload) as { id?: unknown }
+      : postPayload as { id?: unknown } | null;
+    return typeof post?.id === "string" && post.id.trim()
+      ? post.id
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseEventValue(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function asEventRecord(value: unknown): Record<string, unknown> | null {
+  const parsed = parseEventValue(value);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : null;
+}
+
+export function isMentionMetadataEvent(
+  event: string | undefined,
+  data?: Record<string, unknown>,
+  currentUserId?: string | null,
+  broadcastUserId?: string,
+): boolean {
+  if (event === "user_updated") {
+    if (!currentUserId) {
+      return false;
+    }
+    const user = asEventRecord(data?.user);
+    const eventUserId =
+      typeof user?.id === "string"
+        ? user.id
+        : typeof data?.user_id === "string"
+          ? data.user_id
+          : null;
+    return eventUserId
+      ? eventUserId === currentUserId
+      : broadcastUserId === currentUserId;
+  }
+
+  if (
+    event === "preference_changed" ||
+    event === "preferences_changed" ||
+    event === "preferences_deleted"
+  ) {
+    if (!currentUserId) {
+      return false;
+    }
+    const rawPreferences = parseEventValue(
+      data?.preferences ?? data?.preference,
+    );
+    const preferences = Array.isArray(rawPreferences)
+      ? rawPreferences
+      : rawPreferences
+        ? [rawPreferences]
+        : [];
+    if (preferences.length === 0) {
+      return broadcastUserId === currentUserId;
+    }
+    return preferences.some((value) => {
+      const preference = asEventRecord(value);
+      if (!preference) {
+        return false;
+      }
+      const belongsToCurrentUser =
+        typeof preference.user_id !== "string" ||
+        preference.user_id === currentUserId;
+      return belongsToCurrentUser &&
+        preference.category === "display_settings" &&
+        preference.name === "collapsed_reply_threads";
+    });
+  }
+
+  return event === "config_changed" ||
+    event === "group_member_add" ||
+    event === "group_member_added" ||
+    event === "group_member_delete" ||
+    event === "group_member_deleted" ||
+    event === "group_updated" ||
+    event === "group_deleted";
+}
+
+export function resolvePostedEventTeamId(
+  broadcastTeamId: unknown,
+  dataTeamId: unknown,
+): string | undefined {
+  if (typeof broadcastTeamId === "string" && broadcastTeamId.trim()) {
+    return broadcastTeamId;
+  }
+  if (typeof dataTeamId === "string" && dataTeamId.trim()) {
+    return dataTeamId;
+  }
+  return undefined;
+}
+
 function jitter(ms: number): number {
   const variance = Math.floor(ms * 0.2);
   return ms + Math.floor((Math.random() * (variance * 2 + 1)) - variance);
@@ -84,12 +232,15 @@ function nextDelay(attempt: number): number {
   return document.hidden ? Math.max(withJitter, BACKGROUND_MIN_MS) : withJitter;
 }
 
-function parsePostedEvent(
+export function parsePostedEvent(
   payload: MattermostEventEnvelope,
   username: string | null,
   userId: string | null,
 ): PostedEvent | null {
-  if (payload.event !== "posted" || typeof payload.data?.post !== "string") {
+  if (
+    (payload.event !== "posted" && payload.event !== "post_edited") ||
+    typeof payload.data?.post !== "string"
+  ) {
     return null;
   }
 
@@ -106,8 +257,18 @@ function parsePostedEvent(
         mentionsPayloadIncludesUser(payload.data.mentions, userId));
 
     return {
+      eventType: payload.event,
       channelId,
-      teamId: payload.broadcast?.team_id,
+      channelType:
+        typeof payload.data?.channel_type === "string"
+          ? payload.data.channel_type
+          : undefined,
+      // Mattermost 9.x places the posted event's team_id in data while the
+      // broadcast envelope commonly contains an empty team_id.
+      teamId: resolvePostedEventTeamId(
+        payload.broadcast?.team_id,
+        payload.data?.team_id,
+      ),
       post,
       mentionsUser,
     };
@@ -235,6 +396,23 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
       authenticated = false;
       pendingAuthSeq = null;
 
+      const markAuthenticated = () => {
+        if (authenticated || disposed || socket !== currentSocket) {
+          return;
+        }
+        const wasReconnecting = reconnectAttempt > 0 || hasAuthenticatedOnce;
+        authenticated = true;
+        hasAuthenticatedOnce = true;
+        reconnectAttempt = 0;
+        clearReconnectTimer();
+        startHeartbeat(currentSocket);
+        updateStatus("connected");
+        log("info", "WS authenticated");
+        if (wasReconnecting) {
+          options.onReconnect();
+        }
+      };
+
       currentSocket.addEventListener("open", () => {
         if (disposed || socket !== currentSocket) {
           currentSocket.close();
@@ -271,20 +449,23 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
           return;
         }
 
+        if (
+          payload.event === "hello" &&
+          payload.broadcast?.user_id === options.userId
+        ) {
+          // A Mattermost browser session may authenticate the socket from its
+          // cookie before the PAT challenge arrives. In that case the server
+          // sends an authenticated hello and intentionally does not answer a
+          // second challenge.
+          pendingAuthSeq = null;
+          markAuthenticated();
+          return;
+        }
+
         if (pendingAuthSeq !== null && payload.seq_reply === pendingAuthSeq) {
           pendingAuthSeq = null;
           if (payload.status === "OK") {
-            const wasReconnecting = reconnectAttempt > 0 || hasAuthenticatedOnce;
-            authenticated = true;
-            hasAuthenticatedOnce = true;
-            reconnectAttempt = 0;
-            clearReconnectTimer();
-            startHeartbeat(currentSocket);
-            updateStatus("connected");
-            log("info", "WS authenticated");
-            if (wasReconnecting) {
-              options.onReconnect();
-            }
+            markAuthenticated();
             return;
           }
 
@@ -299,8 +480,26 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
         }
 
         const posted = parsePostedEvent(payload, options.username, options.userId);
+        const deletedPostId = authenticated
+          ? getDeletedPostId(
+              payload.event,
+              payload.data?.post,
+              payload.data?.post_id,
+            )
+          : null;
         if (posted) {
           options.onPosted(posted);
+        } else if (deletedPostId) {
+          options.onPostDeleted?.(deletedPostId);
+        } else if (authenticated && isMentionMetadataEvent(
+          payload.event,
+          payload.data,
+          options.userId,
+          payload.broadcast?.user_id,
+        )) {
+          options.onMentionMetadataChanged?.();
+        } else if (authenticated && isUnreadStateEvent(payload.event)) {
+          options.onUnreadChanged?.();
         }
       });
 

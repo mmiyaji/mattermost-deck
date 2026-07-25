@@ -51,6 +51,9 @@ describe("UI locale coverage", () => {
       "deck.diagnosticsTitle",
       "options.performanceTitle",
       "options.releaseNotesOpen",
+      "options.releaseNote100MentionCoverage",
+      "options.officialWebsite",
+      "options.websiteCta",
     ]) {
       expect(translated[key]).not.toBe(english[key]);
     }

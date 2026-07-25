@@ -37,13 +37,14 @@ Dark theme:
   - `mentions`
   - `channelWatch`
   - `dmWatch`
-  - `keywordWatch`
+  - `keywordWatch` (legacy layout-import compatibility; new keyword workflows use a search pane plus highlighting)
   - `search`
   - `saved`
   - `diagnostics`
 - Saved pane sets from the Views menu
 - Layout export and import as JSON
 - Optional realtime updates with a Mattermost PAT
+- Mattermost-aligned mention collection across teams and joined channels, including custom mention keys, group and special mentions, CRT and non-CRT thread semantics, and DM/GM conversations
 - Optional per-server profiles for switching between multiple saved setting sets
 - Mattermost-aware theme colors, optional pane identity accents, configurable default widths, and a compact mode that switches to dense `time author: content` rows with stable per-author colors
 - Inline URL detection and truncation for long tokens in post bodies
@@ -52,6 +53,7 @@ Dark theme:
 - Diagnostics pane with lightweight recent sync hints, plus a Performance tab with API endpoint summary, recent trace logs, and JSONL export
 - Japanese, English, German, Chinese (Simplified), and French UI
 - Localized extension package name and description for Chrome
+- Direct links from Settings to the official website, privacy policy, terms, support, and Chrome Web Store listing
 
 ## How It Works
 
@@ -82,6 +84,13 @@ On first install, Chrome opens the Options page. The recommended setup order is:
 
 Saving the server URL requests Chrome permission for that Mattermost origin. The extension injects only into configured Mattermost servers.
 Remote servers must use HTTPS; HTTP remains available only for localhost and loopback development. Mattermost Site URLs that include a subpath are supported.
+
+## Compatibility
+
+- Google Chrome version 120 or later
+- Release-gated against Mattermost 9.5.4 with Docker-backed E2E tests
+
+Newer Mattermost versions are expected to work, but every newer server release is not exercised by CI. Other Chromium-based browsers are not part of the release-gated support matrix. Validate the extension in a staging environment before deploying it to a business-critical Mattermost instance.
 
 ## Options Overview
 
@@ -157,6 +166,8 @@ Useful additional commands:
 
 ```powershell
 npm run check
+npm run check:release
+npm run check:site
 npm run test:e2e
 npm run mm95:start
 npm run mm95:stop
@@ -168,7 +179,7 @@ npm run capture:readme
 
 ## Release
 
-Push a tag in `v` format, such as `v0.2.6`, to trigger GitHub Actions.
+Push a tag in `v` format, such as `v1.0.0`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
 
 - Runs type checks, unit tests, the Docker-backed Playwright E2E suite, and a Chrome Web Store build with `STORE_BUILD=true`
 - Packages `dist/` as `mattermost-deck-<tag>.zip`
@@ -184,12 +195,15 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v0.2.6"
+$env:EXT_VERSION = "v1.0.0"
 npm run build
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v0.2.6.zip -Force
+npm run check:store
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.0.zip -Force
 ```
 
 The archive must contain `manifest.json` at its root. Store builds intentionally omit the localhost-only static content script; local development builds retain it for E2E testing.
+
+Before uploading to Chrome Web Store, load `dist/` as an unpacked extension in Chrome, save the test Mattermost URL, approve Chrome's native host-permission prompt, and confirm that Deck appears only on that configured origin. The native browser prompt requires a real user decision and is therefore a manual release check; CI verifies the ungranted startup state and the development build covers the injected UI end to end.
 
 Use [Chrome Web Store submission copy](./docs/chrome-web-store-submission.md) when maintaining the listing, privacy declarations, and permission justifications.
 

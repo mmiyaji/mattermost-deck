@@ -84,7 +84,10 @@ describe("WebSocket online lifecycle", () => {
 
     const first = TestSocket.instances[0];
     first.open();
-    first.message({ status: "OK", seq_reply: 1 });
+    first.message({
+      event: "hello",
+      broadcast: { user_id: "user-id" },
+    });
     fakeWindow.dispatchEvent(new Event("online"));
     expect(TestSocket.instances).toHaveLength(1);
 

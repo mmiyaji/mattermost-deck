@@ -3,8 +3,9 @@
 Use this copy when maintaining the Chrome Web Store listing and its Privacy practices tab.
 
 - Public listing: https://chromewebstore.google.com/detail/mattermost-deck/imbnblgiedelpebcfkenbhomcibomdpi
+- Official website: https://mattermost-deck.ruhenheim.org/
 - Support URL: https://github.com/mmiyaji/mattermost-deck/issues
-- Privacy policy URL: https://github.com/mmiyaji/mattermost-deck/blob/main/PRIVACY.md
+- Privacy policy URL: https://mattermost-deck.ruhenheim.org/privacy/
 - Store screenshot (1280 x 800): `docs/assets/readme-overview-dark-store.png`
 
 ## Single purpose
@@ -13,17 +14,17 @@ Mattermost Deck adds a multi-pane viewing and search workspace to Mattermost Web
 
 ## Detailed description
 
-Mattermost Deck adds monitoring-oriented panes to the right side of Mattermost Web. Users can arrange mentions, channels, direct messages, keyword watches, search results, and saved posts side by side. Mattermost remains the primary interface for login, posting, editing, team navigation, and thread views.
+Mattermost Deck adds monitoring-oriented panes to the right side of Mattermost Web. Users can arrange mentions, channels, direct messages, search results with keyword highlighting, and saved posts side by side. Mattermost remains the primary interface for login, posting, editing, team navigation, and thread views.
 
-## v0.2.6 release notes
+## v1.0.0 release notes
 
-- Added localized, browser-specific manual PWA installation guidance
-- Required HTTPS for remote Mattermost servers while retaining HTTP support for loopback development
-- Preserved Mattermost space on narrow windows and restored the requested Deck width when space returns
-- Fixed the update banner and narrow settings layout
-- Improved Mattermost Site URL subpath handling, profile synchronization, and WebSocket reconnection
-- Localized actionable API errors and improved keyboard accessibility
-- Strengthened Docker E2E, CI, dependency, and store-build checks
+- Improved mention coverage across teams and joined channels, including custom mention keys, group and special mentions, and DM/GM conversations
+- Matched Mattermost CRT and non-CRT thread notification and read-marker behavior
+- Removed edited, deleted, inaccessible, and retention-deleted posts from mention feeds without leaving ghost entries
+- Reduced overlapping API work with serialized polling, bounded reconciliation caches, and targeted metadata refreshes
+- Added direct Settings links to the official website, privacy policy, terms, support, and Chrome Web Store listing
+- Refined responsive Deck and Settings layouts for wide and narrow browser windows
+- Expanded Docker-backed E2E coverage and added release version consistency checks
 
 ## Permission justifications
 
@@ -42,10 +43,6 @@ Inserts the Deck UI only into a Mattermost site explicitly configured and permit
 ### tabs
 
 Finds and refreshes configured Mattermost tabs, opens user-selected post links, and creates and cleans up the temporary PWA installation tab.
-
-### windows
-
-Opens a Mattermost post or thread in a separate window when the user requests that action.
 
 ### Host permissions
 

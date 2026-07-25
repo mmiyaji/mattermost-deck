@@ -25,6 +25,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate release metadata and tag
+        run: npm run check:release -- "${GITHUB_REF_NAME}"
+
+      - name: Validate static site
+        run: npm run check:site
+
       - name: Type check
         run: npm run check
 
@@ -43,15 +49,42 @@ jobs:
       - name: Docker E2E tests
         run: npm run test:e2e
 
-      - name: Stop Mattermost test server
+      - name: Upload E2E evidence
         if: always()
-        run: npm run mm95:stop
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-e2e-evidence-${{ github.ref_name }}-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Build store extension
         run: npm run build
         env:
           EXT_VERSION: ${{ github.ref_name }}
           STORE_BUILD: "true"
+
+      - name: Validate store extension
+        run: npm run check:store
+
+      - name: Smoke test store extension shell
+        id: store-smoke
+        run: npx playwright test e2e/store-build-smoke.spec.ts --workers=1
+        env:
+          STORE_BUILD_SMOKE: "true"
+
+      - name: Stop Mattermost test server
+        if: always()
+        run: npm run mm95:stop
+
+      - name: Upload store smoke evidence
+        if: always() && steps.store-smoke.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-smoke-evidence-${{ github.ref_name }}-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Create release archive
         run: |

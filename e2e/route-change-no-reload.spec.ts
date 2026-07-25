@@ -151,7 +151,7 @@ test("route change to pl does not trigger deck app-state reload", async () => {
     expect(appStateRequests).toEqual([
       `GET ${baseUrl}/api/v4/users/me`,
       `GET ${baseUrl}/api/v4/users/me/teams`,
-      `GET ${baseUrl}/api/v4/users/${state.memberUser.id}/teams/unread`,
+      `GET ${baseUrl}/api/v4/users/${state.memberUser.id}/teams/unread?include_collapsed_threads=true`,
       `GET ${baseUrl}/api/v4/teams/name/${state.teamName}`,
     ]);
   } finally {

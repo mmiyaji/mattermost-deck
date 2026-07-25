@@ -6,7 +6,13 @@ on:
       - main
     paths:
       - "docs/**"
+      - "CHANGELOG.md"
+      - "package.json"
+      - "package-lock.json"
       - "scripts/check-site.mjs"
+      - "scripts/check-release.mjs"
+      - "src/manifest.json"
+      - "src/version.ts"
       - ".github/workflows/cloudflare-pages.yml"
   workflow_dispatch:
 
@@ -34,6 +40,9 @@ jobs:
 
       - name: Validate static site
         run: node ./scripts/check-site.mjs
+
+      - name: Validate release metadata
+        run: node ./scripts/check-release.mjs
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

@@ -41,7 +41,7 @@
     <meta property="og:image:height" content="560">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="https://mattermost-deck.ruhenheim.org/assets/webstore/marquee-promo-tile-1400x560.png">
-    <link rel="stylesheet" href="./assets/styles.css?v=0.2.6-screen-aspect">
+    <link rel="stylesheet" href="./assets/styles.css?v=1.0.0">
     <script src="./assets/site.js" defer></script>
   </head>
   <body>
@@ -103,9 +103,9 @@
               <strong>Mattermost Deck</strong>
               <span
                 class="version-note"
-                data-i18n-ja="Chrome 拡張 ・ v0.2.6"
-                data-i18n-en="Chrome extension · v0.2.6"
-              >Chrome 拡張 ・ v0.2.6</span>
+                data-i18n-ja="Chrome 拡張 ・ v1.0.0"
+                data-i18n-en="Chrome extension · v1.0.0"
+              >Chrome 拡張 ・ v1.0.0</span>
             </div>
           </div>
           <div
@@ -224,7 +224,7 @@
           <article class="feature-card">
             <span class="feature-card-number">01 / MENTIONS</span>
             <h3 data-i18n-ja="メンションを集約" data-i18n-en="Collect mentions">メンションを集約</h3>
-            <p data-i18n-ja="参加チームのメンションを一覧化し、未読だけに絞って確認できます。" data-i18n-en="Review mentions across joined teams and narrow the list to unread items.">参加チームのメンションを一覧化し、未読だけに絞って確認できます。</p>
+            <p data-i18n-ja="参加チーム・チャンネルのメンションを集約し、カスタムキー、特別／グループメンション、DM／GM、CRT／非CRTの返信をMattermost設定に沿って判定します。" data-i18n-en="Collect mentions across joined teams and channels using Mattermost-aware custom keys, special and group mentions, DM/GM behavior, and CRT or non-CRT reply rules.">参加チーム・チャンネルのメンションを集約し、カスタムキー、特別／グループメンション、DM／GM、CRT／非CRTの返信をMattermost設定に沿って判定します。</p>
           </article>
           <article class="feature-card">
             <span class="feature-card-number">02 / CHANNELS &amp; DMS</span>
@@ -501,7 +501,7 @@
           </details>
           <details class="faq-item">
             <summary data-i18n-ja="Mattermost Free Editionでも使えますか？" data-i18n-en="Can I use it with Mattermost Free Edition?">Mattermost Free Editionでも使えますか？</summary>
-            <p data-i18n-ja="ブラウザから利用できるMattermost Webと必要なAPIへアクセスできれば利用できます。環境固有のポリシーや権限については管理者に確認してください。" data-i18n-en="It can work when Mattermost Web and the required APIs are available in the browser. Check with your administrator about environment-specific policies and permissions.">ブラウザから利用できるMattermost Webと必要なAPIへアクセスできれば利用できます。環境固有のポリシーや権限については管理者に確認してください。</p>
+            <p data-i18n-ja="ブラウザからMattermost Webと必要なAPIへアクセスできれば利用できます。グループメンションなど一部機能は、サーバーのライセンス・設定・権限で利用可能な場合に限られます。" data-i18n-en="It can work when Mattermost Web and the required APIs are available in the browser. Some features, including group mentions, apply only when the server license, configuration, and permissions make them available.">ブラウザからMattermost Webと必要なAPIへアクセスできれば利用できます。グループメンションなど一部機能は、サーバーのライセンス・設定・権限で利用可能な場合に限られます。</p>
           </details>
           <details class="faq-item">
             <summary data-i18n-ja="PATは必須ですか？" data-i18n-en="Is a PAT required?">PATは必須ですか？</summary>
@@ -518,6 +518,10 @@
           <details class="faq-item">
             <summary data-i18n-ja="ウィンドウが狭い場合はどうなりますか？" data-i18n-en="What happens in a narrow window?">ウィンドウが狭い場合はどうなりますか？</summary>
             <p data-i18n-ja="Mattermostの作業領域を優先してDeckの実効幅を調整し、ウィンドウを再び広げるとユーザーが指定した幅へ戻します。" data-i18n-en="The rendered Deck width adjusts to preserve the Mattermost work area, then returns to the requested width when more space is available.">Mattermostの作業領域を優先してDeckの実効幅を調整し、ウィンドウを再び広げるとユーザーが指定した幅へ戻します。</p>
+          </details>
+          <details class="faq-item">
+            <summary data-i18n-ja="対応ブラウザーとMattermostのバージョンは？" data-i18n-en="Which browser and Mattermost versions are supported?">対応ブラウザーとMattermostのバージョンは？</summary>
+            <p data-i18n-ja="Google Chrome 120以降が必要です。リリース時はMattermost 9.5.4でDocker E2Eを実行しています。より新しいMattermostやその他のChromiumベースブラウザーは、すべての版をリリースゲートで検証しているわけではありません。" data-i18n-en="Google Chrome 120 or later is required. Releases run Docker-backed E2E tests against Mattermost 9.5.4. Not every newer Mattermost release or other Chromium-based browser is covered by the release gate.">Google Chrome 120以降が必要です。リリース時はMattermost 9.5.4でDocker E2Eを実行しています。より新しいMattermostやその他のChromiumベースブラウザーは、すべての版をリリースゲートで検証しているわけではありません。</p>
           </details>
           <details class="faq-item">
             <summary data-i18n-ja="サポートやソースコードはどこにありますか？" data-i18n-en="Where are support and source code available?">サポートやソースコードはどこにありますか？</summary>
@@ -541,7 +545,7 @@
       <section class="section">
         <div class="final-cta">
           <div>
-            <div class="eyebrow">Mattermost Deck v0.2.6</div>
+            <div class="eyebrow">Mattermost Deck v1.0.0</div>
             <h2 data-i18n-ja="会話の流れを、見渡せる場所へ。" data-i18n-en="Give every important stream a place in view.">会話の流れを、見渡せる場所へ。</h2>
             <p data-i18n-ja="Chrome ウェブストアから無料でインストールできます。" data-i18n-en="Install it free from the Chrome Web Store.">Chrome ウェブストアから無料でインストールできます。</p>
           </div>

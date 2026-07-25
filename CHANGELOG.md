@@ -7,6 +7,30 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-25
+
+### Added
+
+- Published the official Mattermost Deck website, privacy policy, and terms of use, and linked them from the extension Settings page and manifest.
+- Added Docker-backed E2E coverage for multi-channel mentions, CRT and non-CRT replies, custom mention keys, direct messages, edited and deleted posts, realtime bursts, and responsive Settings layouts.
+- Added release validation that keeps the package, manifest, in-app version, website, changelog, and Git tag aligned before an archive is published.
+
+### Changed
+
+- Aligned mention collection with Mattermost semantics across teams and joined channels, including custom mention keys, group and special mentions, CRT and non-CRT thread notification preferences, and DM/GM conversations.
+- Serialized polling and bounded reconciliation caches to reduce overlapping API requests while retaining reliable realtime recovery.
+- Narrowed channel and user metadata refreshes to the affected resources instead of broadly invalidating unrelated data.
+- Refined responsive Deck and Settings layouts so Mattermost remains usable across wide and narrow browser windows.
+- Declared Chrome 120 as the minimum browser version and removed the unnecessary `windows` named permission.
+- Updated the Chrome Web Store copy, release guidance, compatibility notes, public legal URLs, and localized in-app release notes for the stable 1.0.0 release.
+
+### Fixed
+
+- Prevented mentions from being missed when multiple channels receive posts close together or WebSocket events arrive in rapid succession.
+- Applied Mattermost read markers and thread notification preferences when deciding whether root posts and replies belong in the mention feed.
+- Reconciled edited, deleted, inaccessible, and retention-deleted posts so stale or ghost entries do not remain in Deck.
+- Prevented stale membership, channel, and user metadata from causing incorrect mention matches after server-side changes.
+
 ## [0.2.6] - 2026-07-23
 
 ### Changed

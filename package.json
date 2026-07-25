@@ -1,12 +1,14 @@
 {
   "name": "mattermost-deck",
-  "version": "0.2.6",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "node ./scripts/build.mjs",
     "capture:readme": "node ./scripts/capture-readme.mjs",
+    "check:release": "node ./scripts/check-release.mjs",
     "check:site": "node ./scripts/check-site.mjs",
+    "check:store": "node ./scripts/check-store-build.mjs",
     "dev": "node ./scripts/build.mjs --watch",
     "check": "tsc --noEmit",
     "open:mattermost": "node ./scripts/open-mattermost.mjs",

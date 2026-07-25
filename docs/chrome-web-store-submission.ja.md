@@ -4,23 +4,24 @@ Chrome Web Store の「プライバシーへの取り組み」タブで使用す
 
 公開ページ: [Mattermost Deck](https://chromewebstore.google.com/detail/mattermost-deck/imbnblgiedelpebcfkenbhomcibomdpi)
 
+- 公式サイト: https://mattermost-deck.ruhenheim.org/
 - サポートURL: https://github.com/mmiyaji/mattermost-deck/issues
-- プライバシーポリシーURL: https://github.com/mmiyaji/mattermost-deck/blob/main/PRIVACY.md
+- プライバシーポリシーURL: https://mattermost-deck.ruhenheim.org/privacy/
 - ストア用スクリーンショット（1280 x 800）: `docs/assets/readme-overview-dark-store.png`
 
 ## 詳細説明
 
-Mattermost Deck は、Mattermost Web の右側に監視向けマルチペインを追加する Chrome 拡張です。メンション、チャンネル、ダイレクトメッセージ、キーワード、検索結果、保存済み投稿を並べて確認できます。ログイン、投稿、編集、チーム移動、スレッド表示などの主要操作は Mattermost 本体を使用します。
+Mattermost Deck は、Mattermost Web の右側に監視向けマルチペインを追加する Chrome 拡張です。メンション、チャンネル、ダイレクトメッセージ、キーワード強調付きの検索結果、保存済み投稿を並べて確認できます。ログイン、投稿、編集、チーム移動、スレッド表示などの主要操作は Mattermost 本体を使用します。
 
-## v0.2.6 リリースノート
+## v1.0.0 リリースノート
 
-- ブラウザー別のPWA手動インストール手順を5言語で表示
-- リモートMattermostサーバーをHTTPS必須とし、ループバック開発環境ではHTTPを引き続きサポート
-- 狭いウィンドウでMattermostの表示領域を優先し、再拡大時にDeck幅を復元
-- 設定画面のアップデートバナーと狭幅レイアウトを修正
-- Mattermost Site URLのサブパス、プロファイル同期、WebSocket再接続を改善
-- APIエラー表示とキーボード操作を多言語化・改善
-- Docker E2E、CI、依存関係とストアビルドの安全確認を強化
+- カスタムメンションキー、グループ／特別メンション、DM／GMを含むチーム・参加チャンネル横断のメンション収集を改善
+- CRT／非CRTのスレッド通知と既読境界をMattermostの動作に合わせて判定
+- 編集・削除・アクセス不能・保存期間で削除された投稿がメンション一覧に残る問題を修正
+- ポーリングの直列化、照合キャッシュの上限設定、メタデータ更新の絞り込みによりAPI負荷を抑制
+- 設定画面から公式サイト、プライバシーポリシー、利用規約、サポート、Chrome ウェブストアへ移動できるリンクを追加
+- 広い画面と狭い画面でのDeckおよび設定画面のレスポンシブ表示を改善
+- Docker E2Eを拡充し、リリース版番号の整合性チェックを追加
 
 ## 単一用途
 
@@ -44,17 +45,13 @@ PWAインストールを開始する際に一時登録する補助スクリプ�
 
 設定済みMattermostタブの検出・更新、投稿リンクを新しいタブで開く処理、およびPWAインストール用タブの作成と後始末に使用します。
 
-### windows
-
-Mattermostの投稿またはスレッドをユーザー操作に応じて別ウィンドウで開く機能に使用します。
-
 ### ホスト権限
 
 ユーザーが設定画面で指定し、Chromeの確認画面で明示的に許可したMattermostサーバーだけでAPI通信とDeck UIの表示を行うために使用します。拡張機能は未設定のサイトでは動作しません。
 
 ## データ利用
 
-Mattermostのコンテンツは機能提供のためブラウザー内で処理され、設定済みMattermostサーバー以外へ送信されません。広告、分析、プロファイリング、第三者への販売には使用しません。詳細は https://github.com/mmiyaji/mattermost-deck/blob/main/PRIVACY.md を参照してください。
+Mattermostのコンテンツは機能提供のためブラウザー内で処理され、設定済みMattermostサーバー以外へ送信されません。広告、分析、プロファイリング、第三者への販売には使用しません。詳細は https://mattermost-deck.ruhenheim.org/privacy/ を参照してください。
 
 ## データ利用申告の確認表
 

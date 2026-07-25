@@ -11,12 +11,15 @@ const root = process.cwd();
 const srcDir = path.join(root, "src");
 const distDir = path.join(root, "dist");
 
-await fs.rm(distDir, { recursive: true, force: true });
-await fs.mkdir(distDir, { recursive: true });
-
-// Load the source manifest and override the version when EXT_VERSION is set.
+// Load the source manifest. Release builds may provide EXT_VERSION, but the
+// source version remains canonical and must already match the requested tag.
 const manifestPath = path.join(srcDir, "manifest.json");
 const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+const packageJson = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
+const versionSource = await fs.readFile(path.join(srcDir, "version.ts"), "utf8");
+const appVersion = versionSource.match(
+  /^\s*export const APP_VERSION = ["']([^"']+)["'];?\s*$/m,
+)?.[1];
 const localesDir = path.join(srcDir, "_locales");
 const LOCAL_DEVELOPMENT_MATCHES = new Set([
   "http://127.0.0.1/*",
@@ -37,12 +40,26 @@ function assertChromeExtensionVersion(version) {
   }
 }
 
-// If EXT_VERSION is provided, use it for the built manifest version. Validate
-// both tag-derived and source versions before creating a release artifact.
-manifest.version = process.env.EXT_VERSION
-  ? process.env.EXT_VERSION.replace(/^v/, "")
-  : manifest.version;
 assertChromeExtensionVersion(manifest.version);
+if (packageJson.version !== manifest.version) {
+  throw new Error(
+    `package.json version "${String(packageJson.version)}" does not match src/manifest.json version "${manifest.version}".`,
+  );
+}
+if (appVersion !== manifest.version) {
+  throw new Error(
+    `src/version.ts APP_VERSION "${String(appVersion)}" does not match src/manifest.json version "${manifest.version}".`,
+  );
+}
+if (process.env.EXT_VERSION) {
+  const requestedVersion = process.env.EXT_VERSION.replace(/^v/, "");
+  assertChromeExtensionVersion(requestedVersion);
+  if (requestedVersion !== manifest.version) {
+    throw new Error(
+      `EXT_VERSION "${process.env.EXT_VERSION}" does not match src/manifest.json version "${manifest.version}".`,
+    );
+  }
+}
 
 for (const localeEntry of await fs.readdir(localesDir, { withFileTypes: true })) {
   if (!localeEntry.isDirectory()) continue;
@@ -55,6 +72,9 @@ for (const localeEntry of await fs.readdir(localesDir, { withFileTypes: true }))
     );
   }
 }
+
+await fs.rm(distDir, { recursive: true, force: true });
+await fs.mkdir(distDir, { recursive: true });
 
 if (storeBuild && Array.isArray(manifest.content_scripts)) {
   manifest.content_scripts = manifest.content_scripts
@@ -104,13 +124,6 @@ await fs.cp(path.join(srcDir, "assets"), path.join(distDir, "assets"), {
 await fs.cp(localesDir, path.join(distDir, "_locales"), {
   recursive: true,
 });
-
-const appVersion = process.env.EXT_VERSION ? process.env.EXT_VERSION.replace(/^v/, "") : manifest.version;
-
-// Keep the in-app version label aligned with the build version.
-const versionPath = path.join(srcDir, "version.ts");
-const versionContent = `export const APP_VERSION = "${appVersion}";\n`;
-await fs.writeFile(versionPath, versionContent, "utf8");
 
 const ctx = await esbuild.context({
   entryPoints: {

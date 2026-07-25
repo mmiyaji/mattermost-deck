@@ -37,13 +37,14 @@ Cloudflare Pages 編集権限だけを持つ `CLOUDFLARE_API_TOKEN` が必要で
   - `mentions`
   - `channelWatch`
   - `dmWatch`
-  - `keywordWatch`
+  - `keywordWatch`（旧レイアウトimportとの互換用。新しいキーワード監視はsearchペインと強調表示を使用）
   - `search`
   - `saved`
   - `diagnostics`
 - Views メニューからの保存済みペインセット
 - JSON によるレイアウト export / import
 - Mattermost PAT を使った任意のリアルタイム更新
+- カスタムメンションキー、グループ／特別メンション、CRT／非CRTのスレッド、DM／GMを含む、チーム・参加チャンネル横断のMattermost準拠メンション収集
 - 同じサーバー向けに設定を切り替えられる任意のプロファイル機能
 - Mattermost 連動テーマ、任意のペイン識別カラー、幅設定、`時刻 投稿者: 本文` 形式の高密度表示に切り替えるコンパクトモード
 - 投稿本文内の URL 検出と長い文字列の省略表示
@@ -52,6 +53,7 @@ Cloudflare Pages 編集権限だけを持つ `CLOUDFLARE_API_TOKEN` が必要で
 - 日常監視向けの軽量な同期ヒントを出す Diagnostics と、API 集計や最近のトレース、JSONL 書き出しを備えた Performance タブ
 - 日本語、英語、ドイツ語、中国語簡体字、フランス語の UI
 - Chrome 拡張パッケージ名と説明文の多言語化
+- 設定画面から公式サイト、プライバシーポリシー、利用規約、サポート、Chrome ウェブストアへ移動できるリンク
 
 ## 動作概要
 
@@ -82,6 +84,13 @@ Chrome で `dist/` を unpacked extension として読み込んでください�
 
 Server URL を保存すると、その Mattermost origin に対する Chrome 権限が要求されます。拡張は設定済みの Mattermost サーバーでのみ有効になります。
 リモートサーバーには HTTPS が必須です。HTTP は localhost / loopback での開発時のみ利用できます。サブパスを含む Mattermost Site URL にも対応しています。
+
+## 対応環境
+
+- Google Chrome 120 以降
+- Docker E2E により Mattermost 9.5.4 をリリースゲートとして検証
+
+より新しい Mattermost も動作対象ですが、すべてのサーバーバージョンを CI で検証しているわけではありません。その他のChromiumベースブラウザーはリリースゲートの対象外です。業務上重要な環境へ導入する前に、ステージング環境で確認してください。
 
 ## 設定画面
 
@@ -166,6 +175,8 @@ npm run test
 
 ```powershell
 npm run check
+npm run check:release
+npm run check:site
 npm run test:e2e
 npm run mm95:start
 npm run mm95:stop
@@ -177,7 +188,7 @@ npm run capture:readme
 
 ## リリース
 
-`v0.2.6` のような `v` 形式タグを push すると GitHub Actions が動作します。
+`v1.0.0` のような `v` 形式タグを push すると GitHub Actions が動作します。パッケージ、manifest、アプリ内表示、公式サイト、CHANGELOGの版番号とタグが一致しない場合、リリースジョブは停止します。
 
 - 型チェック、単体テスト、Docker版Mattermostを使うPlaywright E2E、`STORE_BUILD=true`を指定したChrome Web Store用ビルドを実行
 - `dist/` を `mattermost-deck-<tag>.zip` として生成
@@ -193,12 +204,15 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v0.2.6"
+$env:EXT_VERSION = "v1.0.0"
 npm run build
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v0.2.6.zip -Force
+npm run check:store
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.0.zip -Force
 ```
 
 ZIP直下に `manifest.json` が配置されていることを確認してください。Web Store用ビルドではlocalhost専用の静的content scriptを意図的に除外し、E2Eテスト用の通常ビルドでは残します。
+
+Chrome Web Storeへアップロードする前に、`dist/` をChromeへ「パッケージ化されていない拡張機能」として読み込み、テスト用Mattermost URLを保存し、Chrome標準のホスト権限確認を承認して、設定したoriginだけでDeckが表示されることを確認してください。このブラウザ標準ダイアログは実ユーザーの判断を必要とするため手動リリースチェックとし、CIでは未許可状態で安全に起動すること、通常ビルドのE2Eでは注入後のUI動作を検証します。
 
 Chrome Web Storeの「プライバシーへの取り組み」に入力する単一用途と権限の説明は、[Chrome Web Store申請文](./docs/chrome-web-store-submission.ja.md)を参照してください。
 

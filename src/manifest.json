@@ -1,16 +1,18 @@
 {
   "manifest_version": 3,
   "name": "__MSG_appName__",
-  "version": "0.2.6",
+  "version": "1.0.0",
   "description": "__MSG_appDescription__",
+  "homepage_url": "https://mattermost-deck.ruhenheim.org/",
   "default_locale": "en",
+  "minimum_chrome_version": "120",
   "icons": {
     "16": "assets/icons/icon-16.png",
     "32": "assets/icons/icon-32.png",
     "48": "assets/icons/icon-48.png",
     "128": "assets/icons/icon-128.png"
   },
-  "permissions": ["storage", "scripting", "tabs", "windows", "alarms"],
+  "permissions": ["storage", "scripting", "tabs", "alarms"],
   "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
   "optional_host_permissions": [
     "https://*/*",

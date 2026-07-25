@@ -2,7 +2,7 @@
 
 Mattermost Deck processes user data only as needed to provide its single purpose: adding a multi-pane workspace to Mattermost Web.
 
-Last updated: 2026-07-24
+Last updated: 2026-07-25
 
 The canonical public version of this policy is available at:
 https://mattermost-deck.ruhenheim.org/privacy/
@@ -17,7 +17,7 @@ The extension stores configuration and UI state in the browser, including:
 If the user chooses to persist a Mattermost Personal Access Token (PAT), the token is stored locally in the browser with client-side encryption. Session-only storage is the default. Persistent storage is optional. This encryption helps avoid plain-text storage, but it is not a complete security boundary because the same client can decrypt it.
 
 ## What data the extension processes
-To display mentions, watched channels, DMs, search results, saved items, and related Mattermost content, the extension processes data made available from the configured Mattermost server, such as Mattermost user identifiers, usernames, display names, avatars, channel information, message lists, search queries entered by the user, and other content required for the extension’s visible features.
+To display mentions, watched channels, DMs, search results, saved items, and related Mattermost content, the extension processes data made available from the configured Mattermost server, such as Mattermost user identifiers, usernames, display names, avatars, team and channel information, message lists, search queries entered by the user, custom mention keys, user and group membership, thread notification preferences, and unread or mention state. Edited, deleted, inaccessible, and retention-deleted post state may also be processed to reconcile the visible mention feed.
 
 ## How data is used
 The extension uses this data only to provide the user-facing features of Mattermost Deck inside the user’s browser. The developer does not use this data for analytics, advertising, profiling, or resale.

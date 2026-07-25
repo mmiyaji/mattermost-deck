@@ -7,6 +7,36 @@ export interface MattermostUser {
   nickname?: string;
   first_name?: string;
   last_name?: string;
+  // Client-enriched list of group mention handles. Mattermost's user payload
+  // does not contain these; loadAppState fills them from /users/:id/groups.
+  mention_group_names?: string[];
+  collapsed_reply_threads?: boolean;
+  notify_props?: {
+    mention_keys?: string;
+    first_name?: string;
+    channel?: string;
+    comments?: string;
+  };
+}
+
+export interface MattermostGroup {
+  id: string;
+  name?: string | null;
+  display_name: string;
+  source: "ldap" | "custom" | string;
+  delete_at?: number;
+  allow_reference?: boolean;
+}
+
+export interface MattermostPreference {
+  user_id: string;
+  category: string;
+  name: string;
+  value: string;
+}
+
+export interface MattermostClientConfig {
+  CollapsedThreads?: string;
 }
 
 export interface MattermostTeam {
@@ -21,6 +51,7 @@ export interface MattermostChannel {
   display_name: string;
   type: string;
   team_id?: string;
+  delete_at?: number;
 }
 
 export interface MattermostChannelMember {
@@ -38,8 +69,13 @@ export interface MattermostPost {
   user_id: string;
   channel_id: string;
   create_at: number;
+  update_at?: number;
+  edit_at?: number;
+  delete_at?: number;
   message: string;
   root_id?: string;
+  type?: string;
+  props?: Record<string, unknown>;
   file_ids?: string[];
 }
 
@@ -58,12 +94,37 @@ export interface MattermostFileInfo {
 interface MattermostPostList {
   order: string[];
   posts: Record<string, MattermostPost>;
+  has_next?: boolean;
 }
 
 export interface TeamUnread {
   team_id: string;
   msg_count: number;
   mention_count: number;
+  mention_count_root?: number;
+  msg_count_root?: number;
+  thread_count?: number;
+  thread_mention_count?: number;
+  thread_urgent_mention_count?: number;
+}
+
+export interface MattermostUserThread {
+  id: string;
+  reply_count: number;
+  last_reply_at: number;
+  last_viewed_at: number;
+  post: MattermostPost;
+  unread_replies: number;
+  unread_mentions: number;
+  delete_at?: number;
+}
+
+export interface MattermostUserThreads {
+  total: number;
+  total_unread_threads: number;
+  total_unread_mentions: number;
+  total_unread_urgent_mentions?: number;
+  threads: MattermostUserThread[];
 }
 
 export interface CurrentRoute {
@@ -106,6 +167,9 @@ const API_POST_RATE_LIMIT_PER_MINUTE = 45;
 const API_POST_RATE_LIMIT_BURST = 10;
 const USER_LOOKUP_CACHE_TTL_MS = 5 * 60 * 1_000;
 const CHANNEL_LOOKUP_CACHE_TTL_MS = 5 * 60 * 1_000;
+const MENTION_METADATA_CACHE_TTL_MS = 30 * 1_000;
+const POST_BY_ID_CACHE_RETENTION_MS = 5 * 60 * 1_000;
+const POST_BY_ID_CACHE_MAX_ENTRIES = 2_000;
 let configuredMattermostServerUrl = "";
 let configuredMattermostBasePath = "";
 let apiServerGeneration = 0;
@@ -232,6 +296,11 @@ const userLookupCache = new Map<string, { expiresAt: number; user: MattermostUse
 const inflightUserLookups = new Map<string, Promise<MattermostUser[]>>();
 const channelLookupCache = new Map<string, { expiresAt: number; channel: MattermostChannel }>();
 const inflightChannelLookups = new Map<string, Promise<MattermostChannel>>();
+const mentionGroupLookupCache = new Map<string, { expiresAt: number; groups: MattermostGroup[] }>();
+const clientConfigCache = new Map<string, { expiresAt: number; config: MattermostClientConfig }>();
+const postByIdCache = new Map<string, { fetchedAt: number; post: MattermostPost | null }>();
+const inflightPostByIdLookups = new Map<string, Promise<MattermostPost | null>>();
+const postByIdLookupTokens = new Map<string, symbol>();
 const globalRateBucket: ApiRateBucket = createRateBucket(API_GLOBAL_RATE_LIMIT_BURST, API_GLOBAL_RATE_LIMIT_PER_MINUTE);
 const methodRateBuckets: Record<"GET" | "POST", ApiRateBucket> = {
   GET: createRateBucket(API_GET_RATE_LIMIT_BURST, API_GET_RATE_LIMIT_PER_MINUTE),
@@ -252,15 +321,36 @@ const requestSamples: Array<{
   failed: boolean;
 }> = [];
 
-function clearMattermostApiCaches(): void {
+function clearMattermostResponseCaches(includePostLookups = true): void {
   inflightGetRequests.clear();
   recentGetResponses.clear();
   userLookupCache.clear();
   inflightUserLookups.clear();
   channelLookupCache.clear();
   inflightChannelLookups.clear();
+  mentionGroupLookupCache.clear();
+  clientConfigCache.clear();
+  if (includePostLookups) {
+    postByIdCache.clear();
+    inflightPostByIdLookups.clear();
+    postByIdLookupTokens.clear();
+  }
+}
+
+function clearMattermostApiCaches(): void {
+  clearMattermostResponseCaches();
   requestQueue = Promise.resolve();
   nextRequestAt = 0;
+}
+
+export function invalidateMentionMetadataCaches(): void {
+  // Bump the request generation so in-flight metadata requests cannot
+  // repopulate the short-lived GET cache after an invalidation event.
+  apiServerGeneration += 1;
+  // Preserve the scheduler chain and its request gap. Resetting either while
+  // an older request is in flight would allow two supposedly serial chains to
+  // run concurrently.
+  clearMattermostResponseCaches(false);
 }
 
 function getGenerationCacheKey(pathname: string, generation = apiServerGeneration): string {
@@ -685,6 +775,71 @@ export async function getTeamsForCurrentUser(): Promise<MattermostTeam[]> {
   return await apiGet<MattermostTeam[]>("/users/me/teams");
 }
 
+export async function getMentionGroupsForUser(userId: string): Promise<MattermostGroup[]> {
+  const generation = apiServerGeneration;
+  const cacheKey = getGenerationCacheKey(userId, generation);
+  const cached = mentionGroupLookupCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.groups;
+  }
+
+  let groups: MattermostGroup[];
+  try {
+    groups = await apiGet<MattermostGroup[]>(
+      `/users/${encodeURIComponent(userId)}/groups`,
+    );
+  } catch (error) {
+    if (
+      error instanceof MattermostApiError &&
+      (error.status === 403 || error.status === 501)
+    ) {
+      // Group mentions are license-gated. Free and restricted servers must
+      // keep the rest of the mentions feed operational.
+      groups = [];
+    } else {
+      throw error;
+    }
+  }
+
+  const mentionableGroups = groups.filter(
+    (group) =>
+      Boolean(group.name?.trim()) &&
+      group.allow_reference !== false &&
+      (group.delete_at ?? 0) === 0,
+  );
+  if (generation === apiServerGeneration) {
+    mentionGroupLookupCache.set(cacheKey, {
+      expiresAt: Date.now() + MENTION_METADATA_CACHE_TTL_MS,
+      groups: mentionableGroups,
+    });
+  }
+  return mentionableGroups;
+}
+
+export async function getUserPreferences(userId: string): Promise<MattermostPreference[]> {
+  return await apiGet<MattermostPreference[]>(
+    `/users/${encodeURIComponent(userId)}/preferences`,
+  );
+}
+
+export async function getMattermostClientConfig(): Promise<MattermostClientConfig> {
+  const generation = apiServerGeneration;
+  const cacheKey = getGenerationCacheKey("client-config", generation);
+  const cached = clientConfigCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.config;
+  }
+
+  const config = await apiGet<MattermostClientConfig>("/config/client?format=old");
+  if (generation === apiServerGeneration) {
+    clientConfigCache.set(cacheKey, {
+      expiresAt: Date.now() + MENTION_METADATA_CACHE_TTL_MS,
+      config,
+    });
+  }
+  return config;
+}
+
 export async function getTeamByName(teamName: string): Promise<MattermostTeam> {
   return await apiGet<MattermostTeam>(`/teams/name/${encodeURIComponent(teamName)}`);
 }
@@ -771,7 +926,188 @@ export async function getRecentPosts(channelId: string, page = 0, perPage = 20):
 
   return payload.order
     .map((postId) => payload.posts[postId])
-    .filter((post): post is MattermostPost => Boolean(post));
+    .filter(
+      (post): post is MattermostPost =>
+        Boolean(post) && (post.delete_at ?? 0) === 0,
+    );
+}
+
+export async function getPostsSince(channelId: string, since: number): Promise<MattermostPost[]> {
+  const payload = await apiGet<MattermostPostList>(
+    `/channels/${encodeURIComponent(channelId)}/posts?since=${Math.max(0, Math.floor(since))}&skipFetchThreads=false`,
+  );
+
+  // Mattermost includes older root posts in `posts` as context for newly
+  // updated replies, but does not add those roots to `order`. Preserve that
+  // context so implicit root/participant notifications can be evaluated.
+  return Object.values(payload.posts)
+    .filter(
+      (post): post is MattermostPost =>
+        Boolean(post) && (post.delete_at ?? 0) === 0,
+    )
+    .sort((left, right) => right.create_at - left.create_at);
+}
+
+function prunePostByIdCache(now = Date.now()): void {
+  for (const [postId, cached] of postByIdCache) {
+    if (now - cached.fetchedAt > POST_BY_ID_CACHE_RETENTION_MS) {
+      postByIdCache.delete(postId);
+      if (!inflightPostByIdLookups.has(postId)) {
+        postByIdLookupTokens.delete(postId);
+      }
+    }
+  }
+
+  if (postByIdCache.size <= POST_BY_ID_CACHE_MAX_ENTRIES) {
+    return;
+  }
+  const expiredCount = postByIdCache.size - POST_BY_ID_CACHE_MAX_ENTRIES;
+  const oldestPostIds = Array.from(postByIdCache.entries())
+    .sort((left, right) => left[1].fetchedAt - right[1].fetchedAt)
+    .slice(0, expiredCount)
+    .map(([postId]) => postId);
+  for (const postId of oldestPostIds) {
+    postByIdCache.delete(postId);
+    if (!inflightPostByIdLookups.has(postId)) {
+      postByIdLookupTokens.delete(postId);
+    }
+  }
+}
+
+export async function getPostsByIds(
+  postIds: string[],
+  options: { maxAgeMs?: number } = {},
+): Promise<MattermostPost[]> {
+  const uniquePostIds = Array.from(new Set(postIds.filter(Boolean)));
+  if (uniquePostIds.length === 0) {
+    return [];
+  }
+
+  const maxAgeMs = Math.max(0, Math.floor(options.maxAgeMs ?? 0));
+  const now = Date.now();
+  prunePostByIdCache(now);
+  const pendingById = new Map<string, Promise<MattermostPost | null>>();
+  const missingPostIds: string[] = [];
+
+  for (const postId of uniquePostIds) {
+    const cached = postByIdCache.get(postId);
+    if (
+      maxAgeMs > 0 &&
+      cached &&
+      now - cached.fetchedAt <= maxAgeMs
+    ) {
+      pendingById.set(postId, Promise.resolve(cached.post));
+      continue;
+    }
+
+    const inflight = inflightPostByIdLookups.get(postId);
+    if (inflight) {
+      pendingById.set(postId, inflight);
+      continue;
+    }
+    missingPostIds.push(postId);
+  }
+
+  if (missingPostIds.length > 0) {
+    const generation = apiServerGeneration;
+    const batch = apiPost<MattermostPost[]>("/posts/ids", missingPostIds)
+      .then((posts) => new Map(posts.map((post) => [post.id, post])))
+      .catch((error: unknown) => {
+        if (error instanceof MattermostApiError && error.status === 404) {
+          // Mattermost returns ErrNotFound when every requested post was
+          // hard-deleted by retention. In that case the valid subset is empty.
+          return new Map<string, MattermostPost>();
+        }
+        throw error;
+      });
+
+    for (const postId of missingPostIds) {
+      const lookupToken = Symbol(postId);
+      postByIdLookupTokens.set(postId, lookupToken);
+      let lookup: Promise<MattermostPost | null>;
+      lookup = batch
+        .then((postsById) => {
+          const post = postsById.get(postId) ?? null;
+          if (
+            generation === apiServerGeneration &&
+            postByIdLookupTokens.get(postId) === lookupToken
+          ) {
+            postByIdCache.set(postId, { fetchedAt: Date.now(), post });
+          }
+          return post;
+        })
+        .finally(() => {
+          if (inflightPostByIdLookups.get(postId) === lookup) {
+            inflightPostByIdLookups.delete(postId);
+            if (!postByIdCache.has(postId)) {
+              postByIdLookupTokens.delete(postId);
+            }
+          }
+        });
+      inflightPostByIdLookups.set(postId, lookup);
+      pendingById.set(postId, lookup);
+    }
+  }
+
+  const posts = await Promise.all(
+    uniquePostIds.map((postId) => pendingById.get(postId) ?? Promise.resolve(null)),
+  );
+  prunePostByIdCache();
+  return posts.filter((post): post is MattermostPost => post !== null);
+}
+
+export function invalidatePostByIdCache(postId: string): void {
+  postByIdCache.delete(postId);
+  inflightPostByIdLookups.delete(postId);
+  postByIdLookupTokens.delete(postId);
+}
+
+export async function getPostThreadSince(
+  postId: string,
+  since: number,
+  perPage = 200,
+): Promise<MattermostPost[]> {
+  const safeSince = Math.max(0, Math.floor(since));
+  const safePerPage = Math.min(200, Math.max(1, Math.floor(perPage)));
+  const collected = new Map<string, MattermostPost>();
+  let fromCreateAt = safeSince;
+  let fromPost = "";
+
+  while (true) {
+    const cursor = fromPost
+      ? `&fromPost=${encodeURIComponent(fromPost)}&fromCreateAt=${fromCreateAt}`
+      : `&fromCreateAt=${safeSince}`;
+    const payload = await apiGet<MattermostPostList>(
+      `/posts/${encodeURIComponent(postId)}/thread?direction=down&perPage=${safePerPage}${cursor}`,
+    );
+    const rawPage = payload.order
+      .map((threadPostId) => payload.posts[threadPostId])
+      .filter((post): post is MattermostPost => Boolean(post))
+      .filter((post) => post.id !== postId && post.create_at > safeSince);
+    const page = rawPage.filter((post) => (post.delete_at ?? 0) === 0);
+
+    for (const post of page) {
+      collected.set(post.id, post);
+    }
+
+    if (!payload.has_next || rawPage.length === 0) {
+      break;
+    }
+
+    const lastPost = rawPage.reduce((latest, post) =>
+      post.create_at > latest.create_at ||
+      (post.create_at === latest.create_at && post.id > latest.id)
+        ? post
+        : latest,
+    );
+    if (lastPost.id === fromPost && lastPost.create_at === fromCreateAt) {
+      break;
+    }
+    fromPost = lastPost.id;
+    fromCreateAt = lastPost.create_at;
+  }
+
+  return Array.from(collected.values()).sort((left, right) => right.create_at - left.create_at);
 }
 
 export async function getFlaggedPosts(page = 0, perPage = 20): Promise<MattermostPost[]> {
@@ -779,11 +1115,29 @@ export async function getFlaggedPosts(page = 0, perPage = 20): Promise<Mattermos
 
   return payload.order
     .map((postId) => payload.posts[postId])
-    .filter((post): post is MattermostPost => Boolean(post));
+    .filter(
+      (post): post is MattermostPost =>
+        Boolean(post) && (post.delete_at ?? 0) === 0,
+    );
 }
 
-export async function getTeamUnread(userId: string): Promise<TeamUnread[]> {
-  return await apiGet<TeamUnread[]>(`/users/${encodeURIComponent(userId)}/teams/unread`);
+export async function getTeamUnread(userId: string, includeCollapsedThreads = true): Promise<TeamUnread[]> {
+  return await apiGet<TeamUnread[]>(
+    `/users/${encodeURIComponent(userId)}/teams/unread?include_collapsed_threads=${includeCollapsedThreads ? "true" : "false"}`,
+  );
+}
+
+export async function getUserThreads(
+  userId: string,
+  teamId: string,
+  options: { unread?: boolean; perPage?: number; before?: string } = {},
+): Promise<MattermostUserThreads> {
+  const unread = options.unread ?? false;
+  const perPage = Math.min(200, Math.max(1, Math.floor(options.perPage ?? 100)));
+  const before = options.before ? `&before=${encodeURIComponent(options.before)}` : "";
+  return await apiGet<MattermostUserThreads>(
+    `/users/${encodeURIComponent(userId)}/teams/${encodeURIComponent(teamId)}/threads?unread=${unread ? "true" : "false"}&extended=false&deleted=false&per_page=${perPage}${before}`,
+  );
 }
 
 export async function searchPostsInTeam(
@@ -806,7 +1160,10 @@ export async function searchPostsInTeam(
 
   return payload.order
     .map((postId) => payload.posts[postId])
-    .filter((post): post is MattermostPost => Boolean(post));
+    .filter(
+      (post): post is MattermostPost =>
+        Boolean(post) && (post.delete_at ?? 0) === 0,
+    );
 }
 
 export async function getMyChannelMember(channelId: string): Promise<MattermostChannelMember> {

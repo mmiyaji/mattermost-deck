@@ -54,7 +54,7 @@ async function loadBackground(localValues: Map<string, unknown>) {
       onChanged: { addListener },
     },
     runtime: {
-      getManifest: () => ({ version: "0.2.6" }),
+      getManifest: () => ({ version: "1.0.0" }),
       openOptionsPage: vi.fn(async () => undefined),
       onInstalled: { addListener },
       onStartup: { addListener },

@@ -70,6 +70,107 @@ test("options page shows server-scoped profiles", async () => {
   }
 });
 
+test("official website resources stay reachable on wide and narrow settings layouts", async ({}, testInfo) => {
+  const extensionPath = path.resolve("./dist");
+  const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-options-website-"));
+  const context = await chromium.launchPersistentContext(userDataDir, {
+    channel: "chromium",
+    headless: true,
+    viewport: { width: 1_280, height: 800 },
+    args: [
+      `--disable-extensions-except=${extensionPath}`,
+      `--load-extension=${extensionPath}`,
+    ],
+  });
+
+  try {
+    const [existingSw] = context.serviceWorkers();
+    const sw = existingSw ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
+    await sw.evaluate(() => new Promise<void>((resolve) => {
+      chrome.storage.local.set({
+        "mattermostDeck.language.v1": "ja",
+      }, () => resolve());
+    }));
+
+    const extensionId = new URL(sw.url()).host;
+    const manifestHomepage = await sw.evaluate(
+      () => chrome.runtime.getManifest().homepage_url,
+    );
+    expect(manifestHomepage).toBe("https://mattermost-deck.ruhenheim.org/");
+    const page = await context.newPage();
+    await page.goto(`chrome-extension://${extensionId}/options.html`);
+    await page.locator(".options-nav-item").first().click();
+
+    const websiteUrl = "https://mattermost-deck.ruhenheim.org/";
+    const websiteCta = page.locator(".options-website-link");
+    await expect(websiteCta).toBeVisible({ timeout: 10_000 });
+    await expect(websiteCta).toHaveAttribute("href", websiteUrl);
+    await expect(websiteCta).toHaveAttribute("target", "_blank");
+    await expect(websiteCta).toHaveAttribute("rel", /noopener/);
+    await expect(websiteCta).toHaveAttribute("rel", /noreferrer/);
+
+    const sidebarLinks = page.locator(".options-sidebar-footer a");
+    await expect(sidebarLinks.filter({ hasText: "公式サイト" })).toHaveAttribute("href", websiteUrl);
+    await expect(sidebarLinks.filter({ hasText: "プライバシーポリシー" })).toHaveAttribute(
+      "href",
+      `${websiteUrl}privacy/`,
+    );
+    await expect(sidebarLinks.filter({ hasText: "利用規約" })).toHaveAttribute(
+      "href",
+      `${websiteUrl}terms/`,
+    );
+
+    let websiteFocusedFromKeyboard = false;
+    for (let index = 0; index < 24; index += 1) {
+      await page.keyboard.press("Tab");
+      websiteFocusedFromKeyboard = await page.evaluate(
+        () => document.activeElement?.classList.contains("options-website-link") ?? false,
+      );
+      if (websiteFocusedFromKeyboard) {
+        break;
+      }
+    }
+    expect(websiteFocusedFromKeyboard).toBe(true);
+    const focusStyle = await websiteCta.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        outlineStyle: style.outlineStyle,
+        outlineWidth: style.outlineWidth,
+      };
+    });
+    expect(focusStyle.outlineStyle).not.toBe("none");
+    expect(focusStyle.outlineWidth).not.toBe("0px");
+    await page.screenshot({
+      path: testInfo.outputPath("options-official-website-wide.png"),
+      fullPage: true,
+    });
+
+    await page.setViewportSize({ width: 480, height: 800 });
+    await expect(websiteCta).toBeVisible();
+    const narrowLayout = await page.evaluate(() => {
+      const cta = document.querySelector<HTMLElement>(".options-website-link")!;
+      const rect = cta.getBoundingClientRect();
+      return {
+        left: rect.left,
+        right: rect.right,
+        viewportWidth: window.innerWidth,
+        pageScrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      };
+    });
+    expect(narrowLayout.left).toBeGreaterThanOrEqual(0);
+    expect(narrowLayout.right).toBeLessThanOrEqual(narrowLayout.viewportWidth);
+    expect(narrowLayout.pageScrollWidth).toBeLessThanOrEqual(narrowLayout.clientWidth);
+    await page.screenshot({
+      path: testInfo.outputPath("options-official-website-narrow.png"),
+      fullPage: true,
+    });
+  } finally {
+    await context.close();
+    await fs.rm(userDataDir, { recursive: true, force: true });
+  }
+});
+
 test("release notice banner stays aligned and wraps actions on narrow screens", async () => {
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-release-banner-"));
@@ -91,8 +192,8 @@ test("release notice banner stays aligned and wraps actions on narrow screens", 
         chrome.storage.local.set({
           "mattermostDeck.language.v1": "ja",
           "mattermostDeck.releaseNotice.v1": {
-            version: "0.2.6",
-            previousVersion: "0.2.5",
+            version: "1.0.0",
+            previousVersion: "0.2.6",
             seen: false,
           },
         }, () => resolve());
@@ -105,6 +206,7 @@ test("release notice banner stays aligned and wraps actions on narrow screens", 
 
     const releaseBanner = page.locator(".options-release-banner");
     await expect(releaseBanner).toBeVisible({ timeout: 10_000 });
+    await expect(releaseBanner).toContainText("v1.0.0");
     await expect(releaseBanner.locator(".options-release-banner-actions .options-button")).toHaveCount(3);
 
     const narrowLayout = await page.evaluate(() => {
@@ -161,6 +263,13 @@ test("release notice banner stays aligned and wraps actions on narrow screens", 
       actionsContained: true,
       noHorizontalOverflow: true,
     });
+
+    await releaseBanner.getByRole("button", { name: "新機能" }).click();
+    const releaseDialog = page.getByRole("dialog", { name: "v1.0.0" });
+    await expect(releaseDialog).toBeVisible();
+    await expect(releaseDialog.locator(".options-modal-section")).toHaveCount(3);
+    await expect(releaseDialog).toContainText("チーム・参加チャンネル横断");
+    await expect(releaseDialog).toContainText("公式サイト");
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });
