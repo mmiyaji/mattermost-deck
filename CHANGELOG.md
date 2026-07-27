@@ -7,6 +7,22 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Stream mention results into Deck as each channel and thread scan completes, with localized loading progress while the remaining teams are checked.
+- Show the last verified mention result immediately from a bounded session cache while the live multi-team result is rebuilt in the background.
+
+### Changed
+
+- Serialize mention refreshes, stop stale fan-out work between batches, keep the three mention pipelines within the same bounded team batch, and reuse shared channel metadata across each all-team refresh.
+- Bound channel, thread, member, user, and metadata collection so large or long-lived multi-team sessions retain only the data needed by the 500-post mention feed.
+- Suspend attachment preview data outside the visible area and performance sampling when no diagnostics pane is open.
+
+### Fixed
+
+- Prevent superseded all-team mention scans and abandoned manual test-browser sessions from accumulating memory after team, profile, or test-session changes.
+- Keep scanning past ordinary unread threads for later mention-bearing threads, and retain server-counted replies when a bounded thread window cannot disprove older participation.
+
 ## [1.0.2] - 2026-07-27
 
 ### Added

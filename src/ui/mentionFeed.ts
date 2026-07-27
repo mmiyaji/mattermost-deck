@@ -217,7 +217,7 @@ export function postMatchesImplicitMention(
 export function buildMentionReadState(
   members: MattermostChannelMember[],
   threads: MattermostUserThread[],
-  activeChannelIds: string[] | null = null,
+  activeChannelIds: string[] | Record<string, true> | null = null,
 ): MentionReadState {
   return {
     channelLastViewedAt: Object.fromEntries(
@@ -226,46 +226,90 @@ export function buildMentionReadState(
     threadLastViewedAt: Object.fromEntries(
       threads.map((thread) => [thread.id, Math.max(0, thread.last_viewed_at ?? 0)]),
     ),
-    activeChannelIds: activeChannelIds === null
-      ? null
-      : Object.fromEntries(activeChannelIds.map((channelId) => [channelId, true])),
+    activeChannelIds:
+      activeChannelIds === null
+        ? null
+        : Array.isArray(activeChannelIds)
+          ? Object.fromEntries(
+              activeChannelIds.map((channelId) => [channelId, true]),
+            )
+          : activeChannelIds,
   };
 }
 
 export function mergeMentionReadStates(states: MentionReadState[]): MentionReadState {
-  const knownActiveChannelStates = states.filter(
-    (state) => state.activeChannelIds !== null,
+  const channelLastViewedAt: Record<string, number> = {};
+  const threadLastViewedAt: Record<string, number> = {};
+  let activeChannelIds: Record<string, true> | null = null;
+
+  for (const state of states) {
+    Object.assign(channelLastViewedAt, state.channelLastViewedAt);
+    Object.assign(threadLastViewedAt, state.threadLastViewedAt);
+    if (state.activeChannelIds !== null) {
+      // Each mention scan obtains one server-wide active-channel snapshot.
+      // A later known snapshot supersedes an older one; unioning snapshots
+      // would retain channels that the user has since left.
+      activeChannelIds = state.activeChannelIds;
+    }
+  }
+
+  return {
+    channelLastViewedAt,
+    threadLastViewedAt,
+    activeChannelIds,
+  };
+}
+
+export function compactMentionReadState(
+  readState: MentionReadState,
+  posts: MattermostPost[],
+  options: { preserveActiveChannelIds?: boolean } = {},
+): MentionReadState {
+  const channelIds = new Set(posts.map((post) => post.channel_id));
+  const threadIds = new Set(
+    posts
+      .map((post) => post.root_id)
+      .filter((rootId): rootId is string => Boolean(rootId)),
   );
-  return states.reduce<MentionReadState>(
-    (merged, state) => ({
-      channelLastViewedAt: { ...merged.channelLastViewedAt, ...state.channelLastViewedAt },
-      threadLastViewedAt: { ...merged.threadLastViewedAt, ...state.threadLastViewedAt },
-      activeChannelIds: knownActiveChannelStates.length === 0
+
+  return {
+    channelLastViewedAt: Object.fromEntries(
+      [...channelIds].flatMap((channelId) => {
+        const viewedAt = readState.channelLastViewedAt[channelId];
+        return viewedAt === undefined ? [] : [[channelId, viewedAt]];
+      }),
+    ),
+    threadLastViewedAt: Object.fromEntries(
+      [...threadIds].flatMap((threadId) => {
+        const viewedAt = readState.threadLastViewedAt[threadId];
+        return viewedAt === undefined ? [] : [[threadId, viewedAt]];
+      }),
+    ),
+    activeChannelIds:
+      readState.activeChannelIds === null
         ? null
-        : {
-            ...(merged.activeChannelIds ?? {}),
-            ...(state.activeChannelIds ?? {}),
-          },
-    }),
-    {
-      channelLastViewedAt: {},
-      threadLastViewedAt: {},
-      activeChannelIds: knownActiveChannelStates.length === 0 ? null : {},
-    },
-  );
+        : options.preserveActiveChannelIds
+          ? readState.activeChannelIds
+          : Object.fromEntries(
+              [...channelIds]
+                .filter(
+                  (channelId) =>
+                    readState.activeChannelIds?.[channelId] === true,
+                )
+                .map((channelId) => [channelId, true] as const),
+            ),
+  };
 }
 
 function mergeViewedAtMaps(
   current: Record<string, number>,
   incoming: Record<string, number>,
 ): Record<string, number> {
-  return Object.entries(incoming).reduce<Record<string, number>>(
-    (merged, [id, viewedAt]) => ({
-      ...merged,
-      [id]: Math.max(merged[id] ?? 0, viewedAt),
-    }),
-    { ...current },
-  );
+  const merged = { ...current };
+  for (const [id, viewedAt] of Object.entries(incoming)) {
+    merged[id] = Math.max(merged[id] ?? 0, viewedAt);
+  }
+  return merged;
 }
 
 export function mergeMentionReadMarkers(

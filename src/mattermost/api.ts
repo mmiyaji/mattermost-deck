@@ -166,6 +166,7 @@ const API_GET_RATE_LIMIT_BURST = 18;
 const API_POST_RATE_LIMIT_PER_MINUTE = 45;
 const API_POST_RATE_LIMIT_BURST = 10;
 const USER_LOOKUP_CACHE_TTL_MS = 5 * 60 * 1_000;
+const USER_LOOKUP_CACHE_MAX_ENTRIES = 2_000;
 const CHANNEL_LOOKUP_CACHE_TTL_MS = 5 * 60 * 1_000;
 const MENTION_METADATA_CACHE_TTL_MS = 30 * 1_000;
 const POST_BY_ID_CACHE_RETENTION_MS = 5 * 60 * 1_000;
@@ -384,6 +385,24 @@ function pruneChannelLookupCache(now = Date.now()): void {
     if (entry.expiresAt <= now) {
       channelLookupCache.delete(channelId);
     }
+  }
+}
+
+function pruneUserLookupCache(now = Date.now()): void {
+  for (const [userId, entry] of userLookupCache) {
+    if (entry.expiresAt <= now) {
+      userLookupCache.delete(userId);
+    }
+  }
+
+  while (userLookupCache.size > USER_LOOKUP_CACHE_MAX_ENTRIES) {
+    const oldestUserId = userLookupCache.keys().next().value as
+      | string
+      | undefined;
+    if (!oldestUserId) {
+      return;
+    }
+    userLookupCache.delete(oldestUserId);
   }
 }
 
@@ -718,12 +737,13 @@ export async function checkApiHealth(pathname: string): Promise<boolean> {
 }
 
 export async function getUsersByIds(userIds: string[]): Promise<MattermostUser[]> {
+  const now = Date.now();
+  pruneUserLookupCache(now);
   if (userIds.length === 0) {
     return [];
   }
 
   const generation = apiServerGeneration;
-  const now = Date.now();
   const orderedUniqueIds = Array.from(new Set(userIds));
   const cachedUsers: MattermostUser[] = [];
   const missingIds: string[] = [];
@@ -758,6 +778,7 @@ export async function getUsersByIds(userIds: string[]): Promise<MattermostUser[]
       for (const user of fetchedUsers) {
         userLookupCache.set(user.id, { expiresAt, user });
       }
+      pruneUserLookupCache();
     }
 
     const userDirectory = new Map<string, MattermostUser>();
@@ -939,7 +960,18 @@ export async function getRecentPosts(channelId: string, page = 0, perPage = 20):
     );
 }
 
-export async function getPostsSince(channelId: string, since: number): Promise<MattermostPost[]> {
+export async function getPostsSince(
+  channelId: string,
+  since: number,
+  maxPosts?: number,
+): Promise<MattermostPost[]> {
+  const safeMaxPosts =
+    maxPosts === undefined || !Number.isFinite(maxPosts)
+      ? null
+      : Math.max(0, Math.floor(maxPosts));
+  if (safeMaxPosts === 0) {
+    return [];
+  }
   const payload = await apiGet<MattermostPostList>(
     `/channels/${encodeURIComponent(channelId)}/posts?since=${Math.max(0, Math.floor(since))}&skipFetchThreads=false`,
   );
@@ -947,12 +979,13 @@ export async function getPostsSince(channelId: string, since: number): Promise<M
   // Mattermost includes older root posts in `posts` as context for newly
   // updated replies, but does not add those roots to `order`. Preserve that
   // context so implicit root/participant notifications can be evaluated.
-  return Object.values(payload.posts)
+  const posts = Object.values(payload.posts)
     .filter(
       (post): post is MattermostPost =>
         Boolean(post) && (post.delete_at ?? 0) === 0,
     )
     .sort((left, right) => right.create_at - left.create_at);
+  return safeMaxPosts === null ? posts : posts.slice(0, safeMaxPosts);
 }
 
 function prunePostByIdCache(now = Date.now()): void {
@@ -1069,23 +1102,43 @@ export function invalidatePostByIdCache(postId: string): void {
   postByIdLookupTokens.delete(postId);
 }
 
-export async function getPostThreadSince(
+export interface PostThreadSinceResult {
+  posts: MattermostPost[];
+  truncated: boolean;
+}
+
+async function loadPostThreadSince(
   postId: string,
   since: number,
   perPage = 200,
-): Promise<MattermostPost[]> {
+  maxPosts?: number,
+): Promise<PostThreadSinceResult> {
   const safeSince = Math.max(0, Math.floor(since));
   const safePerPage = Math.min(200, Math.max(1, Math.floor(perPage)));
+  const safeMaxPosts =
+    maxPosts === undefined || !Number.isFinite(maxPosts)
+      ? null
+      : Math.max(0, Math.floor(maxPosts));
+  if (safeMaxPosts === 0) {
+    return { posts: [], truncated: true };
+  }
+  const newestFirst = safeMaxPosts !== null;
   const collected = new Map<string, MattermostPost>();
-  let fromCreateAt = safeSince;
+  let truncated = false;
+  let fromCreateAt = newestFirst ? Number.MAX_SAFE_INTEGER : safeSince;
   let fromPost = "";
 
   while (true) {
+    const remainingPosts =
+      safeMaxPosts === null
+        ? safePerPage
+        : Math.max(1, safeMaxPosts - collected.size);
+    const requestPerPage = Math.min(safePerPage, remainingPosts);
     const cursor = fromPost
       ? `&fromPost=${encodeURIComponent(fromPost)}&fromCreateAt=${fromCreateAt}`
-      : `&fromCreateAt=${safeSince}`;
+      : `&fromCreateAt=${fromCreateAt}`;
     const payload = await apiGet<MattermostPostList>(
-      `/posts/${encodeURIComponent(postId)}/thread?direction=down&perPage=${safePerPage}${cursor}`,
+      `/posts/${encodeURIComponent(postId)}/thread?direction=${newestFirst ? "up" : "down"}&perPage=${requestPerPage}${cursor}`,
     );
     const rawPage = payload.order
       .map((threadPostId) => payload.posts[threadPostId])
@@ -1097,16 +1150,27 @@ export async function getPostThreadSince(
       collected.set(post.id, post);
     }
 
+    const exceededLimit =
+      safeMaxPosts !== null && collected.size > safeMaxPosts;
+    const reachedLimit =
+      safeMaxPosts !== null && collected.size >= safeMaxPosts;
+    if (reachedLimit) {
+      truncated = exceededLimit || payload.has_next === true;
+      break;
+    }
+
     if (!payload.has_next || rawPage.length === 0) {
       break;
     }
 
-    const lastPost = rawPage.reduce((latest, post) =>
-      post.create_at > latest.create_at ||
-      (post.create_at === latest.create_at && post.id > latest.id)
-        ? post
-        : latest,
-    );
+    const lastPost = rawPage.reduce((cursorPost, post) => {
+      const shouldAdvanceCursor = newestFirst
+        ? post.create_at < cursorPost.create_at ||
+          (post.create_at === cursorPost.create_at && post.id < cursorPost.id)
+        : post.create_at > cursorPost.create_at ||
+          (post.create_at === cursorPost.create_at && post.id > cursorPost.id);
+      return shouldAdvanceCursor ? post : cursorPost;
+    });
     if (lastPost.id === fromPost && lastPost.create_at === fromCreateAt) {
       break;
     }
@@ -1114,7 +1178,32 @@ export async function getPostThreadSince(
     fromCreateAt = lastPost.create_at;
   }
 
-  return Array.from(collected.values()).sort((left, right) => right.create_at - left.create_at);
+  const posts = Array.from(collected.values()).sort(
+    (left, right) => right.create_at - left.create_at,
+  );
+  return {
+    posts: safeMaxPosts === null ? posts : posts.slice(0, safeMaxPosts),
+    truncated,
+  };
+}
+
+export async function getPostThreadSinceWithMetadata(
+  postId: string,
+  since: number,
+  perPage = 200,
+  maxPosts?: number,
+): Promise<PostThreadSinceResult> {
+  return loadPostThreadSince(postId, since, perPage, maxPosts);
+}
+
+export async function getPostThreadSince(
+  postId: string,
+  since: number,
+  perPage = 200,
+  maxPosts?: number,
+): Promise<MattermostPost[]> {
+  const result = await loadPostThreadSince(postId, since, perPage, maxPosts);
+  return result.posts;
 }
 
 export async function getFlaggedPosts(page = 0, perPage = 20): Promise<MattermostPost[]> {

@@ -10,6 +10,7 @@ import {
   applyMentionReadMarkers,
   buildMentionReadState,
   buildMentionSearchTerms,
+  compactMentionReadState,
   filterActiveMentionPosts,
   filterUnreadMentionPosts,
   getEffectiveTeamMentionCount,
@@ -19,6 +20,7 @@ import {
   invalidateMentionReadMarkers,
   isCollapsedThreadsEnabled,
   mergeMentionReadMarkers,
+  mergeMentionReadStates,
   messageMatchesMentionKeys,
   postMatchesMentionCandidate,
   postMatchesImplicitMention,
@@ -240,6 +242,82 @@ describe("mention feed", () => {
       [activePost, removedPost],
       buildMentionReadState([], []),
     ).map(({ id }) => id)).toEqual(["active-post", "removed-post"]);
+  });
+
+  it("reuses a shared active-channel directory across team read states", () => {
+    const activeChannelIds = {
+      "channel-a": true,
+      "channel-b": true,
+    } as const;
+    const first = buildMentionReadState(
+      [{ channel_id: "channel-a", user_id: "me", last_viewed_at: 100 }],
+      [],
+      activeChannelIds,
+    );
+    const second = buildMentionReadState(
+      [{ channel_id: "channel-b", user_id: "me", last_viewed_at: 200 }],
+      [],
+      activeChannelIds,
+    );
+    const merged = mergeMentionReadStates([first, second]);
+
+    expect(first.activeChannelIds).toBe(activeChannelIds);
+    expect(second.activeChannelIds).toBe(activeChannelIds);
+    expect(merged.activeChannelIds).toBe(activeChannelIds);
+  });
+
+  it("compacts read markers to the posts retained by the feed", () => {
+    const readState = {
+      channelLastViewedAt: {
+        "channel-a": 100,
+        "channel-b": 200,
+        "channel-c": 300,
+      },
+      threadLastViewedAt: {
+        "root-a": 110,
+        "root-b": 220,
+      },
+      activeChannelIds: {
+        "channel-a": true,
+        "channel-b": true,
+        "channel-c": true,
+      } as Record<string, true>,
+    };
+    const retainedPosts = [
+      post("root-a", "channel-a", 120),
+      post("reply-b", "channel-b", 230, "root-b"),
+    ];
+    const compacted = compactMentionReadState(
+      readState,
+      retainedPosts,
+    );
+
+    expect(compacted).toEqual({
+      channelLastViewedAt: {
+        "channel-a": 100,
+        "channel-b": 200,
+      },
+      threadLastViewedAt: { "root-b": 220 },
+      activeChannelIds: {
+        "channel-a": true,
+        "channel-b": true,
+      },
+    });
+
+    const runtimeCompacted = compactMentionReadState(
+      readState,
+      retainedPosts,
+      { preserveActiveChannelIds: true },
+    );
+    expect(runtimeCompacted.channelLastViewedAt).toEqual(
+      compacted.channelLastViewedAt,
+    );
+    expect(runtimeCompacted.threadLastViewedAt).toEqual(
+      compacted.threadLastViewedAt,
+    );
+    expect(runtimeCompacted.activeChannelIds).toBe(
+      readState.activeChannelIds,
+    );
   });
 
   it("uses the thread read marker for replies when collapsed threads are available", () => {

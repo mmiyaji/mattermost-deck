@@ -390,13 +390,34 @@ test("switching teams keeps Deck panes mounted and avoids a full refetch", async
         .map((entry) => ({
           event: entry.event,
           path: String(entry.payload?.fullPath ?? entry.payload?.path ?? ""),
-        }));
+      }));
 
       expect(appStateRequests).toEqual([]);
-      expect(deckApiRequests).toEqual([{
+      const expectedRouteLookup = {
         event: "request.complete",
         path: `/teams/${destination.team.id}/channels/name/town-square`,
-      }]);
+      };
+      expect(
+        deckApiRequests.filter(
+          (entry) => entry.path === expectedRouteLookup.path,
+        ),
+      ).toEqual([expectedRouteLookup]);
+      // Author/channel labels for already loaded mention cards resolve in the
+      // background and may finish during navigation. These narrow metadata
+      // lookups are not a Deck refetch and must not make the route-stability
+      // assertion timing-dependent.
+      expect(
+        deckApiRequests.filter(
+          (entry) =>
+            entry.path !== expectedRouteLookup.path &&
+            !/^\/channels\/[^/]+$/.test(entry.path),
+        ),
+      ).toEqual([]);
+      expect(
+        deckApiRequests
+          .filter((entry) => /^\/channels\/[^/]+$/.test(entry.path))
+          .every((entry) => entry.event === "request.complete"),
+      ).toBe(true);
       expect(traceEntries.some((entry) =>
         entry.source === "app" &&
         (entry.event === "app.mount" || entry.event === "app.unmount")

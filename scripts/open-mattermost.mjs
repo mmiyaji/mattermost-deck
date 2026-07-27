@@ -2,6 +2,44 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "@playwright/test";
 
+const DEFAULT_MAX_LIFETIME_MINUTES = 8 * 60;
+const PARENT_CHECK_INTERVAL_MS = 5_000;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const startedAt = Date.now();
+const parentPidAtStartup = process.ppid;
+
+function parseMaxLifetimeMinutes(value) {
+  if (value === undefined || value.trim() === "") {
+    return DEFAULT_MAX_LIFETIME_MINUTES;
+  }
+
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes) || minutes < 0) {
+    throw new Error(
+      "MM95_BROWSER_MAX_LIFETIME_MINUTES must be a non-negative number.",
+    );
+  }
+  return minutes;
+}
+
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      return true;
+    }
+    if (error?.code === "ESRCH") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+const maxLifetimeMinutes = parseMaxLifetimeMinutes(
+  process.env.MM95_BROWSER_MAX_LIFETIME_MINUTES,
+);
 const extensionPath = path.resolve("./dist");
 const statePath = path.resolve(process.env.MM95_STATE_FILE ?? "e2e/mm95-state.json");
 const userDataDir = path.resolve(
@@ -138,6 +176,121 @@ const context = await chromium.launchPersistentContext(userDataDir, {
   ],
 });
 
+let shutdownPromise = null;
+let requestedExitCode = 0;
+let parentWatchTimer = null;
+let maxLifetimeTimer = null;
+let keepAliveTimer = null;
+
+const clearLifecycleTimers = () => {
+  if (parentWatchTimer !== null) {
+    clearInterval(parentWatchTimer);
+    parentWatchTimer = null;
+  }
+  if (maxLifetimeTimer !== null) {
+    clearTimeout(maxLifetimeTimer);
+    maxLifetimeTimer = null;
+  }
+  if (keepAliveTimer !== null) {
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = null;
+  }
+};
+
+const shutdown = async (exitCode, reason, error) => {
+  if (exitCode !== 0) {
+    requestedExitCode = exitCode;
+  }
+  if (error !== undefined) {
+    console.error(`${reason}:`, error);
+  } else {
+    console.log(reason);
+  }
+
+  if (!shutdownPromise) {
+    shutdownPromise = Promise.resolve().then(async () => {
+      clearLifecycleTimers();
+      await context.close().catch((closeError) => {
+        console.error("Failed to close the browser context:", closeError);
+      });
+    });
+  }
+
+  await shutdownPromise;
+  process.exit(requestedExitCode);
+};
+
+const requestShutdown = (exitCode, reason, error) => {
+  void shutdown(exitCode, reason, error);
+};
+
+process.on("SIGINT", () => {
+  requestShutdown(130, "Received SIGINT; closing the browser context.");
+});
+process.on("SIGTERM", () => {
+  requestShutdown(143, "Received SIGTERM; closing the browser context.");
+});
+process.on("uncaughtException", (error, origin) => {
+  requestShutdown(
+    1,
+    `Uncaught exception (${origin}); closing the browser context.`,
+    error,
+  );
+});
+process.on("unhandledRejection", (reason) => {
+  requestShutdown(
+    1,
+    "Unhandled rejection; closing the browser context.",
+    reason,
+  );
+});
+context.on("close", () => {
+  if (!shutdownPromise) {
+    requestShutdown(0, "Browser context closed.");
+  }
+});
+
+const scheduleMaxLifetime = () => {
+  if (maxLifetimeMinutes === 0) {
+    return;
+  }
+
+  const deadline = startedAt + maxLifetimeMinutes * 60_000;
+  const checkDeadline = () => {
+    maxLifetimeTimer = null;
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      requestShutdown(
+        0,
+        `Browser maximum lifetime of ${maxLifetimeMinutes} minute(s) reached.`,
+      );
+      return;
+    }
+    maxLifetimeTimer = setTimeout(
+      checkDeadline,
+      Math.min(remainingMs, MAX_TIMER_DELAY_MS),
+    );
+  };
+  checkDeadline();
+};
+
+try {
+  if (!isProcessAlive(parentPidAtStartup)) {
+    await shutdown(
+      0,
+      `Parent process ${parentPidAtStartup} is no longer running.`,
+    );
+  }
+  parentWatchTimer = setInterval(() => {
+    if (!isProcessAlive(parentPidAtStartup)) {
+      requestShutdown(
+        0,
+        `Parent process ${parentPidAtStartup} exited; closing the browser context.`,
+      );
+    }
+  }, PARENT_CHECK_INTERVAL_MS);
+  scheduleMaxLifetime();
+
 // Always create a dedicated Mattermost tab. A fresh extension install opens
 // options.html automatically, and reusing the first tab can race that flow.
 const page = await context.newPage();
@@ -196,17 +349,17 @@ await page.bringToFront();
 console.log(`Mattermost Deck is ready for screen checking at ${page.url()}`);
 
 if (process.env.MM95_BROWSER_CLOSE_AFTER_READY === "1") {
-  await context.close();
-  process.exit(0);
+  await shutdown(0, "MM95_BROWSER_CLOSE_AFTER_READY requested.");
 }
 
-const shutdown = async () => {
-  await context.close().catch(() => undefined);
-  process.exit(0);
-};
-
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
-
 // Keep the browser session alive for manual interaction.
-setInterval(() => {}, 1 << 30);
+// Do not unref this or the lifecycle timers: the launcher must remain resident
+// so it can close the persistent context when its parent exits.
+keepAliveTimer = setInterval(() => {}, 1 << 30);
+} catch (error) {
+  await shutdown(
+    1,
+    "Mattermost browser setup failed; closing the browser context.",
+    error,
+  );
+}

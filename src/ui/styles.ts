@@ -1661,11 +1661,17 @@ export const railCssText = `
     word-break: break-word;
   }
 
+  .deck-card--post {
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 120px;
+  }
+
   .deck-card--post-compact {
     padding: 5px 0;
     border: none;
     border-radius: 0;
     background: transparent;
+    contain-intrinsic-block-size: auto 34px;
   }
 
   .deck-card--post-compact p {
@@ -1804,6 +1810,15 @@ export const railCssText = `
     object-fit: cover;
     background: color-mix(in srgb, var(--deck-card) 80%, var(--deck-text) 20%);
     border: 1px solid color-mix(in srgb, var(--deck-border) 60%, transparent);
+  }
+
+  .deck-card-avatar--placeholder {
+    display: inline-block;
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--deck-card) 82%, var(--deck-text) 18%),
+      color-mix(in srgb, var(--deck-card) 68%, var(--deck-text) 32%)
+    );
   }
 
   .deck-post-compact-line {
@@ -2248,6 +2263,45 @@ export const railCssText = `
     margin: 0;
   }
 
+  .deck-loading-progress {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid var(--deck-border);
+    border-radius: 10px;
+    background: var(--deck-bg-soft);
+    color: var(--deck-text);
+  }
+
+  .deck-loading-progress .deck-loading-spinner {
+    width: 14px;
+    height: 14px;
+    flex: none;
+  }
+
+  .deck-loading-progress-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .deck-loading-progress strong {
+    font-size: calc(12px * var(--deck-font-scale));
+    line-height: 1.25;
+  }
+
+  .deck-loading-progress-copy > span {
+    overflow: hidden;
+    color: var(--deck-text-faint);
+    font-size: calc(11px * var(--deck-font-scale));
+    line-height: 1.35;
+    text-overflow: ellipsis;
+  }
+
   .deck-loading-state p {
     margin: 0;
     color: var(--deck-text-faint);
@@ -2295,6 +2349,14 @@ export const railCssText = `
     }
     100% {
       background-position: -200% 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .deck-loading-spinner,
+    .deck-refresh-icon--spinning,
+    .deck-loading-skeleton {
+      animation: none;
     }
   }
 `;

@@ -32,6 +32,26 @@ export function useAppText() {
     importLayout: t("deck.importLayout"),
     choosePane: t("deck.choosePane"),
     loading: t("deck.loading"),
+    loadingMentions: t("deck.loadingMentions"),
+    refreshingMentions: t("deck.refreshingMentions"),
+    loadingMentionsProgress: (
+      count: number,
+      completed: number,
+      total: number,
+    ) => t("deck.loadingMentionsProgress", { count, completed, total }),
+    loadingMentionsTeamsProgress: (completed: number, total: number) =>
+      t("deck.loadingMentionsTeamsProgress", { completed, total }),
+    refreshingCachedMentionsProgress: (
+      count: number,
+      completed: number,
+      total: number,
+    ) =>
+      t("deck.refreshingCachedMentionsProgress", {
+        count,
+        completed,
+        total,
+      }),
+    showingCachedMentions: t("deck.showingCachedMentions"),
     sessionExpired: t("deck.sessionExpired"),
     apiSessionExpired: t("deck.apiSessionExpired"),
     apiPermissionDenied: t("deck.apiPermissionDenied"),

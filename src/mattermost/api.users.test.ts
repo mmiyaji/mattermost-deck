@@ -87,4 +87,59 @@ describe("getUsersByIds", () => {
     await expect(second).resolves.toEqual([mockUser("u1")]);
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
   });
+
+  it("prunes all expired users before processing another lookup", async () => {
+    vi.useFakeTimers();
+    try {
+      const initialTime = new Date("2026-01-01T00:00:00.000Z").getTime();
+      vi.setSystemTime(initialTime);
+      const { getUsersByIds } = await loadApiModule();
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(makeFetchOk([mockUser("expired")]))
+        .mockResolvedValueOnce(makeFetchOk([mockUser("active")]))
+        .mockResolvedValueOnce(makeFetchOk([mockUser("expired", {
+          username: "refetched",
+        })]));
+
+      await getUsersByIds(["expired"]);
+      vi.setSystemTime(initialTime + 4 * 60_000);
+      await getUsersByIds(["active"]);
+
+      vi.setSystemTime(initialTime + 5 * 60_000 + 1);
+      await expect(getUsersByIds(["active"])).resolves.toEqual([
+        mockUser("active"),
+      ]);
+
+      vi.setSystemTime(initialTime + 60_000);
+      const refetched = getUsersByIds(["expired"]);
+      await vi.advanceTimersByTimeAsync(3 * 60_000 + 120);
+
+      await expect(refetched).resolves.toEqual([
+        mockUser("expired", { username: "refetched" }),
+      ]);
+      expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("limits the user lookup cache to 2000 entries", async () => {
+    const { getUsersByIds } = await loadApiModule();
+    const users = Array.from({ length: 2_001 }, (_, index) =>
+      mockUser(`u${index}`)
+    );
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(makeFetchOk(users))
+      .mockResolvedValueOnce(makeFetchOk([
+        mockUser("u0", { username: "refetched" }),
+      ]));
+
+    await expect(getUsersByIds(users.map((user) => user.id))).resolves.toHaveLength(
+      2_001,
+    );
+    await expect(getUsersByIds(["u0"])).resolves.toEqual([
+      mockUser("u0", { username: "refetched" }),
+    ]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+  });
 });

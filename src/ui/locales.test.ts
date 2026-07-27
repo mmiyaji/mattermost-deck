@@ -46,6 +46,12 @@ describe("UI locale coverage", () => {
     for (const key of [
       "deck.startWithChannel",
       "deck.failedToLoadPosts",
+      "deck.loadingMentions",
+      "deck.refreshingMentions",
+      "deck.loadingMentionsProgress",
+      "deck.loadingMentionsTeamsProgress",
+      "deck.refreshingCachedMentionsProgress",
+      "deck.showingCachedMentions",
       "deck.loadingSearchResults",
       "deck.noSavedPosts",
       "deck.diagnosticsTitle",

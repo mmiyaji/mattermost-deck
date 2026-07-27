@@ -177,6 +177,7 @@ npm run capture:readme
 ```
 
 `mm95:start` starts Mattermost 9.5.4 by default; use the versioned command above to start 9.5.11. `test:e2e` and screenshot capture require a reachable Mattermost test environment.
+`open:mattermost` closes its browser when the launcher exits and limits unattended sessions to eight hours by default. Set `MM95_BROWSER_MAX_LIFETIME_MINUTES` to another non-negative minute value, or `0` to disable the lifetime limit.
 
 ## Release
 

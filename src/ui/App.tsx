@@ -18,6 +18,7 @@ import {
   getMentionGroupsForUser,
   getPostsByIds,
   getPostThreadSince,
+  getPostThreadSinceWithMetadata,
   getPostsSince,
   getRecentPosts,
   getTeamUnread,
@@ -104,6 +105,7 @@ import { shouldGroupAdjacentPosts } from "./postGrouping";
 import { focusMattermostPost } from "./mattermostNavigation";
 import { dedupeRecentTargets, type RecentChannelTarget } from "./recentTargets";
 import { mapInBatches } from "./asyncBatch";
+import { collectUnreadMentionThreads } from "./mentionThreadCollector";
 import { useElementVisibility } from "./useElementVisibility";
 import {
   calculateResponsiveRailWidth,
@@ -117,6 +119,7 @@ import {
   applyMentionReadMarkers,
   buildMentionReadState,
   buildMentionSearchTerms,
+  compactMentionReadState,
   filterActiveMentionPosts,
   filterUnreadMentionPosts,
   getEffectiveTeamMentionCount,
@@ -133,6 +136,13 @@ import {
   type MentionReadMarkers,
   type MentionReadState,
 } from "./mentionFeed";
+import {
+  buildMentionCacheEntryId,
+  loadMentionCache,
+  removeMentionCache,
+  saveMentionCache,
+  type MentionCacheContext,
+} from "./mentionCache";
 
 
 interface AppProps {
@@ -178,6 +188,65 @@ interface PostState {
   loadingMore: boolean;
 }
 
+interface MentionLoadProgressState {
+  runId: number;
+  active: boolean;
+  posts: MattermostPost[];
+  readState: MentionReadState;
+  completedTeams: number;
+  totalTeams: number;
+}
+
+interface MentionCacheDisplayState {
+  entryId: string | null;
+  ownerUserId: string | null;
+  scopeTeamId: string | null;
+  active: boolean;
+  posts: MattermostPost[];
+  readState: MentionReadState;
+  savedAt: number | null;
+}
+
+type ChannelMentionLoadProgress =
+  | {
+      type: "context";
+      members: MattermostChannelMember[];
+      activeChannelIds: Record<string, true> | null;
+    }
+  | {
+      type: "posts";
+      posts: MattermostPost[];
+    };
+
+type ThreadMentionLoadProgress =
+  | {
+      type: "context";
+      threads: MattermostUserThread[];
+    }
+  | {
+      type: "posts";
+      posts: MattermostPost[];
+    };
+
+type MentionLoadPipeline = "search" | "channel" | "thread";
+
+interface MentionTeamLoadAccumulator {
+  posts: MattermostPost[];
+  channelContext: {
+    members: MattermostChannelMember[];
+    activeChannelIds: Record<string, true> | null;
+  } | null;
+  threadContext: MattermostUserThread[] | null;
+  readState: MentionReadState | null;
+  completedPipelines: Set<MentionLoadPipeline>;
+}
+
+interface MentionActiveChannelSnapshot {
+  channels: MattermostChannel[] | null;
+  activeChannelIds: Record<string, true> | null;
+  channelDirectory: ReadonlyMap<string, MattermostChannel>;
+}
+
 interface WsLogEntry {
   level: "info" | "warn" | "error";
   message: string;
@@ -202,6 +271,66 @@ interface RuntimePerformanceSnapshot {
 
 type ApiHealthStatus = "healthy" | "degraded" | "error";
 
+function createEmptyMentionReadState(): MentionReadState {
+  return {
+    channelLastViewedAt: {},
+    threadLastViewedAt: {},
+    activeChannelIds: null,
+  };
+}
+
+function createMentionLoadProgressState(
+  runId: number,
+  totalTeams = 0,
+  active = false,
+): MentionLoadProgressState {
+  return {
+    runId,
+    active,
+    posts: [],
+    readState: createEmptyMentionReadState(),
+    completedTeams: 0,
+    totalTeams,
+  };
+}
+
+function createMentionCacheDisplayState(
+  entryId: string | null = null,
+): MentionCacheDisplayState {
+  return {
+    entryId,
+    ownerUserId: null,
+    scopeTeamId: null,
+    active: false,
+    posts: [],
+    readState: createEmptyMentionReadState(),
+    savedAt: null,
+  };
+}
+
+async function loadMentionActiveChannelSnapshot(): Promise<MentionActiveChannelSnapshot> {
+  try {
+    const channels = (await getDirectChannelsForCurrentUser()).filter(
+      (channel) => (channel.delete_at ?? 0) === 0,
+    );
+    return {
+      channels,
+      activeChannelIds: Object.fromEntries(
+        channels.map((channel) => [channel.id, true]),
+      ),
+      channelDirectory: new Map(
+        channels.map((channel) => [channel.id, channel]),
+      ),
+    };
+  } catch {
+    return {
+      channels: null,
+      activeChannelIds: null,
+      channelDirectory: new Map(),
+    };
+  }
+}
+
 const FALLBACK_SYNC_INTERVAL_WS_MS = 300_000;
 const FALLBACK_SYNC_INTERVAL_HIDDEN_MS = 180_000;
 const DRAWER_UNMOUNT_DELAY_MS = 5 * 60 * 1_000;
@@ -222,6 +351,12 @@ const POSTS_PAGE_SIZE = 20;
 const POSTS_MAX_BUFFER = 100;
 const MENTIONS_PAGE_SIZE = 100;
 const MENTIONS_MAX_BUFFER = 500;
+const MENTION_CHANNEL_POST_SCAN_LIMIT = 1_000;
+const MENTION_THREAD_POST_SCAN_LIMIT = 500;
+const MENTION_UNREAD_THREAD_SCAN_LIMIT = 500;
+const MENTION_FULL_THREAD_LOOKUP_LIMIT = 50;
+const USER_DIRECTORY_MAX_ENTRIES = 2_000;
+const MENTION_METADATA_DIRECTORY_MAX_ENTRIES = 2_000;
 const MENTION_UNREAD_RECONCILE_CACHE_MAX_MS = 5_000;
 const MENTION_HISTORY_RECONCILE_CACHE_MS = 5 * 60_000;
 const THREADS_PAGE_SIZE = 200;
@@ -238,10 +373,12 @@ const HOST_LAYOUT_SETTLE_MS = 360;
 const DECK_CONTENT_ID = "mattermost-deck-content";
 const SPECIAL_MENTION_MEMBER_TTL_MS = 45_000;
 const SPECIAL_MENTION_MEMBER_TTL_WS_MS = 180_000;
+const SPECIAL_MENTION_MEMBER_CACHE_MAX_TEAMS = 12;
 const TEAM_FANOUT_BATCH_SIZE = 2;
 const TEAM_FANOUT_GAP_MS = 250;
 const CHANNEL_FANOUT_BATCH_SIZE = 3;
 const CHANNEL_FANOUT_GAP_MS = 150;
+const MENTION_PROGRESS_FLUSH_MS = 150;
 const ROUTE_EVENT = "mattermost-deck-route-change";
 
 function getCurrentDateLocale(): string {
@@ -381,6 +518,8 @@ function useColumnPolling(
     onDisabled?: () => void;
   },
 ): void {
+  const runQueueRef = useRef<Promise<void>>(Promise.resolve());
+
   useEffect(() => {
     let cancelled = false;
     const isCancelled = () => cancelled;
@@ -414,7 +553,15 @@ function useColumnPolling(
       }
       running = true;
       try {
-        await run(isCancelled);
+        const queuedRun = runQueueRef.current.then(async () => {
+          if (cancelled) {
+            return;
+          }
+          await run(isCancelled);
+        });
+        const settledRun = queuedRun.catch(() => undefined);
+        runQueueRef.current = settledRun;
+        await settledRun;
       } finally {
         running = false;
         schedule();
@@ -3387,6 +3534,7 @@ function PostFileAttachments({
 
   useEffect(() => {
     if (!isVisible) {
+      setFileInfos((current) => (current.length > 0 ? [] : current));
       return;
     }
     let cancelled = false;
@@ -3479,6 +3627,7 @@ function PostListItem({
   showImagePreviews,
   highlightTerms,
   currentUserId,
+  deferRemoteContent,
   viewport,
 }: {
   entry: Extract<PostListEntry, { type: "post" }>;
@@ -3493,6 +3642,7 @@ function PostListItem({
   showImagePreviews: boolean;
   highlightTerms: string[];
   currentUserId?: string | null;
+  deferRemoteContent: boolean;
   viewport: HTMLDivElement | null;
 }): React.JSX.Element {
   const [node, setNode] = useState<HTMLLIElement | null>(null);
@@ -3579,15 +3729,26 @@ function PostListItem({
         <div className="deck-card-header">
           <strong>{formatPostTime(post.create_at)}</strong>
           <span className="deck-card-author">
-            <img
-              className="deck-card-avatar"
-              src={getUserAvatarUrl(post.user_id)}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              referrerPolicy="no-referrer"
-            />
-            <span className="deck-card-author-label">{getUserLabel(userDirectory[post.user_id], post.user_id)}</span>
+            {deferRemoteContent ? (
+              <span
+                className="deck-card-avatar deck-card-avatar--placeholder"
+                aria-hidden="true"
+              />
+            ) : (
+              <img
+                className="deck-card-avatar"
+                src={getUserAvatarUrl(post.user_id)}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                referrerPolicy="no-referrer"
+              />
+            )}
+            <span className="deck-card-author-label">
+              {deferRemoteContent && !userDirectory[post.user_id]
+                ? "…"
+                : getUserLabel(userDirectory[post.user_id], post.user_id)}
+            </span>
           </span>
         </div>
       ) : null}
@@ -3605,7 +3766,7 @@ function PostListItem({
           <p>{body}</p>
         )
       ) : null}
-      {post.file_ids && post.file_ids.length > 0 ? (
+      {!deferRemoteContent && post.file_ids && post.file_ids.length > 0 ? (
         <PostFileAttachments fileIds={post.file_ids} postId={post.id} showImagePreviews={showImagePreviews} viewport={viewport} />
       ) : null}
     </li>
@@ -3634,6 +3795,9 @@ function PostList({
   markReadLabel = "Mark as read",
   jumpToLatestLabel = "Latest",
   newPostsLabel = (count: number) => `${count} new`,
+  suppressEndState = false,
+  suppressNewPostNotifications = false,
+  deferredPostIds,
 }: {
   posts: MattermostPost[];
   userDirectory: Record<string, MattermostUser>;
@@ -3656,6 +3820,9 @@ function PostList({
   markReadLabel?: string;
   jumpToLatestLabel?: string;
   newPostsLabel?: (count: number) => string;
+  suppressEndState?: boolean;
+  suppressNewPostNotifications?: boolean;
+  deferredPostIds?: ReadonlySet<string>;
 }): React.JSX.Element {
   const text = useAppText();
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -3743,6 +3910,12 @@ function PostList({
     previousTopPostIdRef.current = nextTopPostId;
     previousPostCountRef.current = posts.length;
 
+    if (suppressNewPostNotifications) {
+      setNewPostCount(0);
+      setShowJumpToLatest(false);
+      return;
+    }
+
     if (!nextTopPostId || !previousTopPostId || nextTopPostId === previousTopPostId) {
       return;
     }
@@ -3776,7 +3949,7 @@ function PostList({
       setNewPostCount(0);
       setShowJumpToLatest(false);
     }
-  }, [posts]);
+  }, [posts, suppressNewPostNotifications]);
 
   const renderEntry = (entry: PostListEntry, entryIndex: number): React.ReactNode => {
     if (entry.type === "separator") {
@@ -3815,6 +3988,8 @@ function PostList({
       );
     }
 
+    const deferRemoteContent =
+      deferredPostIds?.has(entry.post.id) ?? false;
     return (
       <PostListItem
         key={entry.key}
@@ -3825,17 +4000,18 @@ function PostList({
         compactMode={compactMode}
         renderMeta={renderMeta}
         renderBody={renderBody}
-        onOpenPost={onOpenPost}
+        onOpenPost={deferRemoteContent ? undefined : onOpenPost}
         postClickAction={postClickAction}
         showImagePreviews={showImagePreviews}
         highlightTerms={highlightTerms}
         currentUserId={currentUserId}
+        deferRemoteContent={deferRemoteContent}
         viewport={viewportRef.current}
       />
     );
   };
 
-  const footerNode = hasMore || loadingMore ? (
+  const footerNode = suppressEndState ? null : hasMore || loadingMore ? (
     <div className="deck-list-footer">
       <button
         type="button"
@@ -3997,6 +4173,10 @@ function MentionsColumn({
   const [sectionNode, setSectionNode] = useState<HTMLElement | null>(null);
   const specialMentionMembersCacheRef = useRef<Record<string, { expiresAt: number; members: MattermostChannelMember[] }>>({});
   const mentionPostsRef = useRef<MattermostPost[]>([]);
+  const mentionLoadRunIdRef = useRef(0);
+  const mentionCacheHydratedEntryIdRef = useRef<string | null>(null);
+  const mentionCacheSaveEntryIdRef = useRef<string | null>(null);
+  const mentionCacheStoredPostIdsRef = useRef<Set<string>>(new Set());
   const postedEventsRef = useRef(postedEvents);
   const currentRouteRef = useRef({
     teamId: currentTeamId,
@@ -4012,18 +4192,122 @@ function MentionsColumn({
     threadLastViewedAt: {},
     activeChannelIds: null,
   });
+  const [mentionLoadProgress, setMentionLoadProgress] =
+    useState<MentionLoadProgressState>(() =>
+      createMentionLoadProgressState(mentionLoadRunIdRef.current),
+    );
+  const [mentionCacheState, setMentionCacheState] =
+    useState<MentionCacheDisplayState>(() =>
+      createMentionCacheDisplayState(),
+    );
+  const [mentionCacheSaveVersion, setMentionCacheSaveVersion] =
+    useState(0);
+  const [mentionCacheLastSavedAt, setMentionCacheLastSavedAt] =
+    useState<number | null>(null);
+  const mentionCacheActiveForContext =
+    mentionCacheState.active &&
+    mentionCacheState.ownerUserId === currentUserId &&
+    mentionCacheState.scopeTeamId === (column.teamId ?? null);
+  const displayedMentionReadState = useMemo(
+    () =>
+      mentionLoadProgress.active
+        ? mergeMentionReadStates([
+            mentionReadState,
+            mentionLoadProgress.readState,
+          ])
+        : mentionReadState,
+    [mentionLoadProgress.active, mentionLoadProgress.readState, mentionReadState],
+  );
   const effectiveMentionReadState = useMemo(
-    () => applyMentionReadMarkers(mentionReadState, realtimeReadMarkers),
-    [mentionReadState, realtimeReadMarkers],
+    () => applyMentionReadMarkers(displayedMentionReadState, realtimeReadMarkers),
+    [displayedMentionReadState, realtimeReadMarkers],
+  );
+  const effectiveCachedMentionReadState = useMemo(
+    () =>
+      applyMentionReadMarkers(
+        mentionCacheState.readState,
+        realtimeReadMarkers,
+      ),
+    [mentionCacheState.readState, realtimeReadMarkers],
+  );
+  const liveDisplayedPosts = useMemo(
+    () =>
+      mentionLoadProgress.active
+        ? mergePosts(
+            postState.posts,
+            mentionLoadProgress.posts,
+            MENTIONS_MAX_BUFFER,
+          )
+        : postState.posts,
+    [mentionLoadProgress.active, mentionLoadProgress.posts, postState.posts],
+  );
+  const displayedPosts = useMemo(
+    () =>
+      mentionCacheActiveForContext
+        ? mergePosts(
+            liveDisplayedPosts,
+            mentionCacheState.posts,
+            MENTIONS_MAX_BUFFER,
+          )
+        : liveDisplayedPosts,
+    [
+      liveDisplayedPosts,
+      mentionCacheActiveForContext,
+      mentionCacheState.posts,
+    ],
   );
   const selectedTeam = teams.find((team) => team.id === column.teamId);
   const activePosts = useMemo(
-    () => filterActiveMentionPosts(postState.posts, effectiveMentionReadState),
-    [effectiveMentionReadState, postState.posts],
+    () =>
+      mergePosts(
+        filterActiveMentionPosts(
+          liveDisplayedPosts,
+          effectiveMentionReadState,
+        ),
+        mentionCacheActiveForContext
+          ? filterActiveMentionPosts(
+              mentionCacheState.posts,
+              effectiveCachedMentionReadState,
+            )
+          : [],
+        MENTIONS_MAX_BUFFER,
+      ),
+    [
+      effectiveCachedMentionReadState,
+      effectiveMentionReadState,
+      liveDisplayedPosts,
+      mentionCacheActiveForContext,
+      mentionCacheState.posts,
+    ],
   );
   const unreadPosts = useMemo(
-    () => filterUnreadMentionPosts(activePosts, effectiveMentionReadState),
-    [activePosts, effectiveMentionReadState],
+    () =>
+      mergePosts(
+        filterUnreadMentionPosts(
+          filterActiveMentionPosts(
+            liveDisplayedPosts,
+            effectiveMentionReadState,
+          ),
+          effectiveMentionReadState,
+        ),
+        mentionCacheActiveForContext
+          ? filterUnreadMentionPosts(
+              filterActiveMentionPosts(
+                mentionCacheState.posts,
+                effectiveCachedMentionReadState,
+              ),
+              effectiveCachedMentionReadState,
+            )
+          : [],
+        MENTIONS_MAX_BUFFER,
+      ),
+    [
+      effectiveCachedMentionReadState,
+      effectiveMentionReadState,
+      liveDisplayedPosts,
+      mentionCacheActiveForContext,
+      mentionCacheState.posts,
+    ],
   );
   const mentionCount = useMemo(
     () => {
@@ -4058,6 +4342,34 @@ function MentionsColumn({
     () => (column.unreadOnly ? unreadPosts : activePosts),
     [activePosts, column.unreadOnly, unreadPosts],
   );
+  const provisionalPostIds = useMemo(() => {
+    if (!mentionLoadProgress.active || mentionLoadProgress.posts.length === 0) {
+      return new Set<string>();
+    }
+    const authoritativePostIds = new Set(
+      postState.posts.map((post) => post.id),
+    );
+    return new Set(
+      mentionLoadProgress.posts
+        .filter((post) => !authoritativePostIds.has(post.id))
+        .map((post) => post.id),
+    );
+  }, [
+    mentionLoadProgress.active,
+    mentionLoadProgress.posts,
+    postState.posts,
+  ]);
+  const cachedPostIds = useMemo(
+    () =>
+      mentionCacheActiveForContext
+        ? new Set(mentionCacheState.posts.map((post) => post.id))
+        : new Set<string>(),
+    [mentionCacheActiveForContext, mentionCacheState.posts],
+  );
+  const deferredMentionPostIds = useMemo(
+    () => new Set([...provisionalPostIds, ...cachedPostIds]),
+    [cachedPostIds, provisionalPostIds],
+  );
 
   useEffect(() => {
     mentionPostsRef.current = postState.posts;
@@ -4084,11 +4396,62 @@ function MentionsColumn({
   );
   const collapsedReplyThreads = currentUser?.collapsed_reply_threads === true;
   const commentsNotify = currentUser?.notify_props?.comments;
+  const mentionCacheSignature = useMemo(
+    () =>
+      JSON.stringify({
+        mentionKeySignature,
+        collapsedReplyThreads,
+        commentsNotify: commentsNotify ?? "",
+        groupNames: [
+          ...(currentUser?.mention_group_names ?? []),
+        ].sort(),
+      }),
+    [
+      collapsedReplyThreads,
+      commentsNotify,
+      currentUser?.mention_group_names,
+      mentionKeySignature,
+    ],
+  );
+  const mentionCacheServerScope = getMattermostUrl("/");
+  const mentionCacheContext = useMemo<MentionCacheContext | null>(
+    () =>
+      currentUserId
+        ? {
+            serverScope: mentionCacheServerScope,
+            userId: currentUserId,
+            scopeTeamId: column.teamId ?? null,
+            teamIds,
+            mentionSignature: mentionCacheSignature,
+          }
+        : null,
+    [
+      column.teamId,
+      currentUserId,
+      mentionCacheServerScope,
+      mentionCacheSignature,
+      teamIds,
+    ],
+  );
+  const mentionCacheEntryId = useMemo(
+    () =>
+      mentionCacheContext
+        ? buildMentionCacheEntryId(mentionCacheContext)
+        : null,
+    [mentionCacheContext],
+  );
   const shouldShowLoadingState =
-    postState.posts.length === 0 &&
-    (postState.status === "idle" || postState.status === "loading") &&
+    visiblePosts.length === 0 &&
+    (
+      mentionLoadProgress.active ||
+      postState.status === "idle" ||
+      postState.status === "loading"
+    ) &&
     teamIds.length > 0 &&
     Boolean(username) &&
+    !hasCompletedInitialLoad;
+  const suppressMentionNewPostNotifications =
+    (mentionLoadProgress.active || mentionCacheActiveForContext) &&
     !hasCompletedInitialLoad;
   const isPaneVisible = useElementVisibility(sectionNode, { rootMargin: "600px 0px", defaultVisible: true });
   const specialMentionMemberTtlMs = realtimeEnabled
@@ -4104,7 +4467,14 @@ function MentionsColumn({
   }, [onSetMentionsLastReadAt, visiblePosts]);
 
   useEffect(() => {
+    mentionLoadRunIdRef.current += 1;
+    mentionPostsRef.current = [];
+    mentionCacheHydratedEntryIdRef.current = null;
+    mentionCacheSaveEntryIdRef.current = null;
+    mentionCacheStoredPostIdsRef.current = new Set();
     setHasCompletedInitialLoad(false);
+    setMentionCacheSaveVersion(0);
+    setMentionCacheLastSavedAt(null);
     setPostState({
       status: "idle",
       posts: [],
@@ -4118,7 +4488,13 @@ function MentionsColumn({
       threadLastViewedAt: {},
       activeChannelIds: null,
     });
-  }, [column.teamId, username]);
+    setMentionLoadProgress(
+      createMentionLoadProgressState(mentionLoadRunIdRef.current),
+    );
+    setMentionCacheState(
+      createMentionCacheDisplayState(mentionCacheEntryId),
+    );
+  }, [mentionCacheEntryId]);
 
   useEffect(() => {
     specialMentionMembersCacheRef.current = {};
@@ -4130,13 +4506,34 @@ function MentionsColumn({
     }
   }, [isFocusedPane]);
 
+  useEffect(() => {
+    if (!paused) {
+      return;
+    }
+    mentionLoadRunIdRef.current += 1;
+    setMentionLoadProgress(
+      createMentionLoadProgressState(mentionLoadRunIdRef.current),
+    );
+  }, [paused]);
+
   const loadUnreadChannelMentionPosts = useCallback(
-    async (teamId: string) => {
-      if (!currentUserId || mentionKeys.length === 0) {
+    async (
+      teamId: string,
+      onProgress?: (progress: ChannelMentionLoadProgress) => void,
+      isCancelled?: () => boolean,
+      activeChannelSnapshotPromise?: Promise<MentionActiveChannelSnapshot>,
+    ) => {
+      const shouldCancel = () => isCancelled?.() ?? false;
+      if (!currentUserId || mentionKeys.length === 0 || shouldCancel()) {
+        onProgress?.({
+          type: "context",
+          members: [],
+          activeChannelIds: null,
+        });
         return {
           posts: [] as MattermostPost[],
           members: [] as MattermostChannelMember[],
-          activeChannelIds: null as string[] | null,
+          activeChannelIds: null as Record<string, true> | null,
         };
       }
 
@@ -4145,16 +4542,38 @@ function MentionsColumn({
         channelId: activeChannelId,
       } = currentRouteRef.current;
       const now = Date.now();
-      const cachedMembers = specialMentionMembersCacheRef.current[teamId];
+      const memberCache = specialMentionMembersCacheRef.current;
+      for (const [cachedTeamId, cachedEntry] of Object.entries(memberCache)) {
+        if (cachedEntry.expiresAt <= now) {
+          delete memberCache[cachedTeamId];
+        }
+      }
+      const cachedMembers = memberCache[teamId];
       let members: MattermostChannelMember[];
       if (cachedMembers && cachedMembers.expiresAt > now) {
         members = cachedMembers.members;
+        delete memberCache[teamId];
+        memberCache[teamId] = cachedMembers;
       } else {
         members = await getChannelMembersForCurrentUser(teamId);
-        specialMentionMembersCacheRef.current[teamId] = {
-          expiresAt: now + specialMentionMemberTtlMs,
+        if (shouldCancel()) {
+          return {
+            posts: [] as MattermostPost[],
+            members: [] as MattermostChannelMember[],
+            activeChannelIds: null as Record<string, true> | null,
+          };
+        }
+        memberCache[teamId] = {
+          expiresAt: Date.now() + specialMentionMemberTtlMs,
           members,
         };
+      }
+      const cachedTeamIds = Object.keys(memberCache);
+      while (cachedTeamIds.length > SPECIAL_MENTION_MEMBER_CACHE_MAX_TEAMS) {
+        const oldestTeamId = cachedTeamIds.shift();
+        if (oldestTeamId) {
+          delete memberCache[oldestTeamId];
+        }
       }
 
       const serverCountedMembers = members.filter(
@@ -4179,40 +4598,62 @@ function MentionsColumn({
       }
       const candidateMembers = Array.from(candidateMembersByChannel.values());
 
-      const activeChannels = await getDirectChannelsForCurrentUser()
-        .catch(() => null);
-      const activeChannelIds = activeChannels?.filter(
-        (channel) => (channel.delete_at ?? 0) === 0,
-      ).map((channel) => channel.id) ?? null;
+      const activeChannelSnapshot = await (
+        activeChannelSnapshotPromise ?? loadMentionActiveChannelSnapshot()
+      );
+      if (shouldCancel()) {
+        return {
+          posts: [] as MattermostPost[],
+          members: [] as MattermostChannelMember[],
+          activeChannelIds: null as Record<string, true> | null,
+        };
+      }
+      const {
+        channels: activeChannels,
+        activeChannelIds,
+        channelDirectory: candidateChannelDirectory,
+      } = activeChannelSnapshot;
+      onProgress?.({
+        type: "context",
+        members,
+        activeChannelIds,
+      });
       if (candidateMembers.length === 0) {
         recordSpecialMentionScan({ hits: 0, channelsScanned: 0 });
         return { posts: [] as MattermostPost[], members, activeChannelIds };
       }
 
-      const candidateChannelDirectory = new Map(
-        (activeChannels ?? []).map((channel) => [channel.id, channel]),
-      );
       const scannableCandidateMembers = activeChannels
         ? candidateMembers.filter(
             (member) =>
-              (candidateChannelDirectory.get(member.channel_id)?.delete_at ?? 0) === 0 &&
               candidateChannelDirectory.has(member.channel_id),
           )
         : candidateMembers;
-      const channelPosts = await mapInBatches(
+      let posts: MattermostPost[] = [];
+      await mapInBatches(
         scannableCandidateMembers,
         CHANNEL_FANOUT_BATCH_SIZE,
         async (member) => {
+          if (shouldCancel()) {
+            return;
+          }
           try {
             const isCurrentChannel =
               activeTeamId === teamId &&
               activeChannelId === member.channel_id;
             const [postsSinceReadMarker, recentPosts] = await Promise.all([
-              getPostsSince(member.channel_id, member.last_viewed_at ?? 0),
+              getPostsSince(
+                member.channel_id,
+                member.last_viewed_at ?? 0,
+                MENTION_CHANNEL_POST_SCAN_LIMIT,
+              ),
               isCurrentChannel
                 ? getRecentPosts(member.channel_id, 0, POSTS_PAGE_SIZE)
                 : Promise.resolve([] as MattermostPost[]),
             ]);
+            if (shouldCancel()) {
+              return;
+            }
             const readMarker = member.last_viewed_at ?? 0;
             const unreadPosts = postsSinceReadMarker.filter(
               (post) => post.create_at > readMarker,
@@ -4230,13 +4671,31 @@ function MentionsColumn({
             const contextById = new Map(
               postsSinceReadMarker.map((post) => [post.id, post]),
             );
-            const fullThreadCache = new Map<
+            const threadContextByRoot = new Map<string, MattermostPost[]>();
+            for (const contextPost of postsSinceReadMarker) {
+              if (!contextPost.root_id) {
+                continue;
+              }
+              const current = threadContextByRoot.get(contextPost.root_id);
+              if (current) {
+                current.push(contextPost);
+              } else {
+                threadContextByRoot.set(contextPost.root_id, [contextPost]);
+              }
+            }
+            const fullThreadParticipationCache = new Map<
               string,
-              Promise<MattermostPost[]>
+              Promise<{
+                firstCurrentUserPostAt: number | null;
+                truncated: boolean;
+              }>
             >();
             const filteredPosts: MattermostPost[] = [];
 
             for (const post of candidatePosts) {
+              if (shouldCancel()) {
+                break;
+              }
               const isUnread = post.create_at > readMarker;
               if (postMatchesMentionCandidate(
                 post,
@@ -4260,11 +4719,7 @@ function MentionsColumn({
                 ? contextById.get(post.root_id)
                 : undefined;
               const threadContext = post.root_id
-                ? postsSinceReadMarker.filter(
-                    (entry) =>
-                      entry.id === post.root_id ||
-                      entry.root_id === post.root_id,
-                  )
+                ? threadContextByRoot.get(post.root_id) ?? []
                 : [];
               const implicitSettings = {
                 currentUserId,
@@ -4281,34 +4736,93 @@ function MentionsColumn({
                 continue;
               }
 
+              if (
+                !collapsedReplyThreads &&
+                post.root_id &&
+                commentsNotify === "root" &&
+                !rootPost &&
+                serverCountedChannel &&
+                post.user_id !== currentUserId
+              ) {
+                // The channel-since response can omit an older root. A
+                // server-counted non-self reply is the conservative fallback
+                // when root ownership cannot be established locally.
+                filteredPosts.push(post);
+                continue;
+              }
+
               const mayNeedFullThread =
                 !collapsedReplyThreads &&
                 Boolean(post.root_id) &&
-                (commentsNotify === "root" || commentsNotify === "any") &&
-                (
-                  !rootPost ||
-                  commentsNotify === "any"
-                );
+                commentsNotify === "any";
               if (!mayNeedFullThread || !post.root_id) {
                 continue;
               }
 
               try {
-                let fullThread = fullThreadCache.get(post.root_id);
-                if (!fullThread) {
-                  fullThread = getPostThreadSince(post.root_id, 0);
-                  fullThreadCache.set(post.root_id, fullThread);
+                let participation =
+                  fullThreadParticipationCache.get(post.root_id);
+                if (!participation) {
+                  if (
+                    fullThreadParticipationCache.size >=
+                    MENTION_FULL_THREAD_LOOKUP_LIMIT
+                  ) {
+                    if (
+                      serverCountedChannel &&
+                      post.user_id !== currentUserId
+                    ) {
+                      filteredPosts.push(post);
+                    }
+                    continue;
+                  }
+                  participation =
+                    getPostThreadSinceWithMetadata(
+                      post.root_id,
+                      0,
+                      200,
+                      MENTION_THREAD_POST_SCAN_LIMIT,
+                    ).then(({ posts: threadPosts, truncated }) => {
+                      let firstCurrentUserPostAt: number | null = null;
+                      for (const threadPost of threadPosts) {
+                        if (threadPost.user_id !== currentUserId) {
+                          continue;
+                        }
+                        firstCurrentUserPostAt =
+                          firstCurrentUserPostAt === null
+                            ? threadPost.create_at
+                            : Math.min(
+                                firstCurrentUserPostAt,
+                                threadPost.create_at,
+                              );
+                      }
+                      return {
+                        firstCurrentUserPostAt,
+                        truncated,
+                      };
+                    });
+                  fullThreadParticipationCache.set(
+                    post.root_id,
+                    participation,
+                  );
                 }
-                if (postMatchesImplicitMention(
-                  post,
-                  rootPost,
-                  await fullThread,
-                  implicitSettings,
-                )) {
+                const {
+                  firstCurrentUserPostAt,
+                  truncated,
+                } = await participation;
+                if (
+                  firstCurrentUserPostAt !== null &&
+                  firstCurrentUserPostAt < post.create_at
+                ) {
                   filteredPosts.push(post);
-                } else if (!rootPost && serverCountedChannel) {
-                  // The thread endpoint omits the root. If the channel-since
-                  // response also omitted it, retain the server-counted reply.
+                } else if (
+                  (truncated || !rootPost) &&
+                  serverCountedChannel &&
+                  post.user_id !== currentUserId
+                ) {
+                  // A bounded response cannot disprove older participation.
+                  // The endpoint also omits the root, so retain a
+                  // server-counted non-self reply when either context is
+                  // incomplete.
                   filteredPosts.push(post);
                 }
               } catch {
@@ -4321,17 +4835,24 @@ function MentionsColumn({
               }
             }
 
-            return filteredPosts;
+            if (!shouldCancel()) {
+              posts = mergePosts(
+                filteredPosts,
+                posts,
+                MENTIONS_MAX_BUFFER,
+              );
+              onProgress?.({ type: "posts", posts: filteredPosts });
+            }
           } catch {
             // One inaccessible or archived channel must not discard the other
             // channels in the mentions feed.
-            return [];
+            return;
           }
         },
         scannableCandidateMembers.length > CHANNEL_FANOUT_BATCH_SIZE ? CHANNEL_FANOUT_GAP_MS : 0,
+        shouldCancel,
       );
 
-      const posts = channelPosts.flat();
       recordSpecialMentionScan({
         hits: posts.length,
         channelsScanned: scannableCandidateMembers.length,
@@ -4350,11 +4871,19 @@ function MentionsColumn({
   );
 
   const loadUnreadThreadMentionPosts = useCallback(
-    async (teamId: string) => {
-      if (!currentUserId) {
+    async (
+      teamId: string,
+      onProgress?: (progress: ThreadMentionLoadProgress) => void,
+      isCancelled?: () => boolean,
+      activeChannelSnapshotPromise?: Promise<MentionActiveChannelSnapshot>,
+    ) => {
+      const shouldCancel = () => isCancelled?.() ?? false;
+      if (!currentUserId || shouldCancel()) {
+        onProgress?.({ type: "context", threads: [] });
         return { posts: [] as MattermostPost[], threads: [] as MattermostUserThread[] };
       }
 
+      let hasReportedContext = false;
       try {
         const [recentPage, firstUnreadPage] = await Promise.all([
           getUserThreads(currentUserId, teamId, {
@@ -4366,87 +4895,109 @@ function MentionsColumn({
             perPage: THREADS_PAGE_SIZE,
           }),
         ]);
-        const unreadThreadDirectory = new Map(
-          firstUnreadPage.threads.map((thread) => [thread.id, thread]),
-        );
-        let page = firstUnreadPage;
-        while (
-          unreadThreadDirectory.size < firstUnreadPage.total &&
-          page.threads.length === THREADS_PAGE_SIZE
-        ) {
-          const before = page.threads.at(-1)?.id;
-          if (!before) {
-            break;
-          }
-          page = await getUserThreads(currentUserId, teamId, {
-            unread: true,
-            perPage: THREADS_PAGE_SIZE,
-            before,
-          });
-          const previousSize = unreadThreadDirectory.size;
-          for (const thread of page.threads) {
-            unreadThreadDirectory.set(thread.id, thread);
-          }
-          if (unreadThreadDirectory.size === previousSize) {
-            break;
-          }
+        if (shouldCancel()) {
+          return {
+            posts: [] as MattermostPost[],
+            threads: [] as MattermostUserThread[],
+          };
         }
-        const unreadThreads = Array.from(unreadThreadDirectory.values());
-        const serverMentionThreads = unreadThreads.filter(
-          (thread) =>
-            (thread.unread_replies ?? 0) > 0 &&
-            (thread.unread_mentions ?? 0) > 0,
+        const serverMentionThreads =
+          await collectUnreadMentionThreads(
+            firstUnreadPage,
+            async (before) =>
+              await getUserThreads(currentUserId, teamId, {
+                unread: true,
+                perPage: THREADS_PAGE_SIZE,
+                before,
+              }),
+            {
+              perPage: THREADS_PAGE_SIZE,
+              maxMentionThreads:
+                MENTION_UNREAD_THREAD_SCAN_LIMIT,
+              shouldCancel,
+            },
         );
-        const candidateChannels = await getDirectChannelsForCurrentUser()
-          .catch(() => null);
-        const candidateChannelDirectory = new Map(
-          (candidateChannels ?? []).map((channel) => [channel.id, channel]),
+        const activeChannelSnapshot = await (
+          activeChannelSnapshotPromise ?? loadMentionActiveChannelSnapshot()
         );
+        if (shouldCancel()) {
+          return {
+            posts: [] as MattermostPost[],
+            threads: [] as MattermostUserThread[],
+          };
+        }
+        const {
+          channels: candidateChannels,
+          channelDirectory: candidateChannelDirectory,
+        } = activeChannelSnapshot;
         const candidateThreads = candidateChannels
           ? serverMentionThreads.filter(
               (thread) =>
-                candidateChannelDirectory.has(thread.post.channel_id) &&
-                (candidateChannelDirectory.get(thread.post.channel_id)?.delete_at ?? 0) === 0,
+                candidateChannelDirectory.has(thread.post.channel_id),
             )
           : serverMentionThreads;
+        const readStateThreadDirectory = new Map(
+          recentPage.threads.map((thread) => [thread.id, thread]),
+        );
+        for (const thread of serverMentionThreads) {
+          readStateThreadDirectory.set(thread.id, thread);
+        }
+        const readStateThreads = Array.from(
+          readStateThreadDirectory.values(),
+        );
+        onProgress?.({ type: "context", threads: readStateThreads });
+        hasReportedContext = true;
 
-        const threadPosts = await mapInBatches(
+        let posts: MattermostPost[] = [];
+        await mapInBatches(
           candidateThreads,
           CHANNEL_FANOUT_BATCH_SIZE,
           async (thread) => {
+            if (shouldCancel()) {
+              return;
+            }
             try {
-              const posts = await getPostThreadSince(
+              const threadPosts = await getPostThreadSince(
                 thread.id,
                 thread.last_viewed_at ?? 0,
+                200,
+                MENTION_THREAD_POST_SCAN_LIMIT,
               );
-              return getUnreadPostsFromThread(
+              if (shouldCancel()) {
+                return;
+              }
+              const unreadPosts = getUnreadPostsFromThread(
                 thread,
-                posts,
+                threadPosts,
                 currentUserId,
                 candidateChannels ? mentionKeys : undefined,
                 candidateChannelDirectory.get(thread.post.channel_id)?.type,
               );
+              posts = mergePosts(
+                unreadPosts,
+                posts,
+                MENTIONS_MAX_BUFFER,
+              );
+              onProgress?.({ type: "posts", posts: unreadPosts });
             } catch {
-              return [];
+              return;
             }
           },
           candidateThreads.length > CHANNEL_FANOUT_BATCH_SIZE ? CHANNEL_FANOUT_GAP_MS : 0,
+          shouldCancel,
         );
 
-        const readStateThreadDirectory = new Map(
-          recentPage.threads.map((thread) => [thread.id, thread]),
-        );
-        for (const thread of unreadThreads) {
-          readStateThreadDirectory.set(thread.id, thread);
-        }
         return {
-          posts: threadPosts.flat(),
-          threads: Array.from(readStateThreadDirectory.values()),
+          posts,
+          threads: readStateThreads,
         };
       } catch {
         // Threads were introduced after the first supported Mattermost
         // versions. Falling back to channel read markers keeps compatibility
         // with older or CRT-disabled servers.
+        if (!hasReportedContext && !shouldCancel()) {
+          onProgress?.({ type: "context", threads: [] });
+        }
         return { posts: [] as MattermostPost[], threads: [] as MattermostUserThread[] };
       }
     },
@@ -4470,80 +5021,429 @@ function MentionsColumn({
         return;
       }
       const resolvedCurrentUserId = currentUserId;
+      const runId = mentionLoadRunIdRef.current + 1;
+      mentionLoadRunIdRef.current = runId;
+      const activeChannelSnapshotPromise =
+        loadMentionActiveChannelSnapshot();
+      let successfulSearchCount = 0;
+      let firstSearchError: unknown = null;
+      let searchHasMore = false;
+      let searchPosts: MattermostPost[] = [];
+      let unreadChannelPosts: MattermostPost[] = [];
+      let unreadThreadPosts: MattermostPost[] = [];
+      let completedMentionReadState = createEmptyMentionReadState();
+      const teamProgressById = new Map<string, MentionTeamLoadAccumulator>(
+        teamIds.map((teamId) => [
+          teamId,
+          {
+            posts: [],
+            channelContext: null,
+            threadContext: null,
+            readState: null,
+            completedPipelines: new Set<MentionLoadPipeline>(),
+          },
+        ]),
+      );
+      const completedTeamIds = new Set<string>();
+      const pendingTeamProgressIds = new Set<string>();
+      let progressFlushTimer: number | null = null;
+      const canPublishProgress = () =>
+        !isCancelled() && mentionLoadRunIdRef.current === runId;
+      const publishTeamProgress = (teamId: string) => {
+        if (!canPublishProgress()) {
+          return;
+        }
+        const teamProgress = teamProgressById.get(teamId);
+        const teamReadState = teamProgress?.readState;
+        if (!teamProgress || !teamReadState) {
+          return;
+        }
+        // Root posts can be classified as soon as channel read markers arrive.
+        // Replies wait for thread markers so unread-only mode never flashes a
+        // reply that the user has already read in collapsed-thread mode.
+        const contextSafePosts =
+          teamProgress.threadContext === null
+            ? teamProgress.posts.filter((post) => !post.root_id)
+            : teamProgress.posts;
+        const publishablePosts = filterActiveMentionPosts(
+          contextSafePosts.filter(
+            (post) => !deletedPostIdsRef.current?.has(post.id),
+          ),
+          teamReadState,
+        );
+        teamProgress.posts =
+          teamProgress.threadContext === null
+            ? teamProgress.posts.filter((post) => Boolean(post.root_id))
+            : [];
+        setMentionLoadProgress((current) => {
+          if (current.runId !== runId || !current.active) {
+            return current;
+          }
+          const retainedProgressPosts = current.posts.filter(
+            (post) => !deletedPostIdsRef.current?.has(post.id),
+          );
+          const nextPosts = mergePosts(
+            publishablePosts,
+            retainedProgressPosts,
+            MENTIONS_MAX_BUFFER,
+          );
+          return {
+            ...current,
+            posts: nextPosts,
+            readState: compactMentionReadState(
+              mergeMentionReadStates([
+                current.readState,
+                teamReadState,
+              ]),
+              nextPosts,
+              { preserveActiveChannelIds: true },
+            ),
+            completedTeams: completedTeamIds.size,
+          };
+        });
+      };
+      const flushTeamProgress = () => {
+        progressFlushTimer = null;
+        const teamIdsToPublish = Array.from(pendingTeamProgressIds);
+        pendingTeamProgressIds.clear();
+        for (const teamId of teamIdsToPublish) {
+          publishTeamProgress(teamId);
+        }
+      };
+      const scheduleTeamProgress = (teamId: string) => {
+        if (!canPublishProgress()) {
+          return;
+        }
+        pendingTeamProgressIds.add(teamId);
+        if (progressFlushTimer !== null) {
+          return;
+        }
+        progressFlushTimer = window.setTimeout(
+          flushTeamProgress,
+          MENTION_PROGRESS_FLUSH_MS,
+        );
+      };
+      const cancelTeamProgressFlush = () => {
+        if (progressFlushTimer !== null) {
+          window.clearTimeout(progressFlushTimer);
+          progressFlushTimer = null;
+        }
+        pendingTeamProgressIds.clear();
+      };
+      const appendTeamProgressPosts = (
+        teamId: string,
+        posts: MattermostPost[],
+      ) => {
+        if (!canPublishProgress() || posts.length === 0) {
+          return;
+        }
+        const teamProgress = teamProgressById.get(teamId);
+        if (!teamProgress) {
+          return;
+        }
+        teamProgress.posts = mergePosts(
+          posts,
+          teamProgress.posts,
+          MENTIONS_MAX_BUFFER,
+        );
+        scheduleTeamProgress(teamId);
+      };
+      const setTeamChannelContext = (
+        teamId: string,
+        members: MattermostChannelMember[],
+        activeChannelIds: Record<string, true> | null,
+      ) => {
+        if (!canPublishProgress()) {
+          return;
+        }
+        const teamProgress = teamProgressById.get(teamId);
+        if (!teamProgress) {
+          return;
+        }
+        teamProgress.channelContext = { members, activeChannelIds };
+        teamProgress.readState = buildMentionReadState(
+          members,
+          teamProgress.threadContext ?? [],
+          activeChannelIds,
+        );
+        scheduleTeamProgress(teamId);
+      };
+      const setTeamThreadContext = (
+        teamId: string,
+        threads: MattermostUserThread[],
+      ) => {
+        if (!canPublishProgress()) {
+          return;
+        }
+        const teamProgress = teamProgressById.get(teamId);
+        if (!teamProgress) {
+          return;
+        }
+        teamProgress.threadContext = threads;
+        if (teamProgress.channelContext) {
+          teamProgress.readState = buildMentionReadState(
+            teamProgress.channelContext.members,
+            threads,
+            teamProgress.channelContext.activeChannelIds,
+          );
+        }
+        scheduleTeamProgress(teamId);
+      };
+      const completeTeamPipeline = (
+        teamId: string,
+        pipeline: MentionLoadPipeline,
+      ) => {
+        if (!canPublishProgress()) {
+          return;
+        }
+        const teamProgress = teamProgressById.get(teamId);
+        if (!teamProgress) {
+          return;
+        }
+        teamProgress.completedPipelines.add(pipeline);
+        if (teamProgress.completedPipelines.size === 3) {
+          completedTeamIds.add(teamId);
+          if (teamProgress.readState) {
+            Object.assign(
+              completedMentionReadState.channelLastViewedAt,
+              teamProgress.readState.channelLastViewedAt,
+            );
+            Object.assign(
+              completedMentionReadState.threadLastViewedAt,
+              teamProgress.readState.threadLastViewedAt,
+            );
+            if (teamProgress.readState.activeChannelIds !== null) {
+              if (
+                completedMentionReadState.activeChannelIds === null
+              ) {
+                completedMentionReadState.activeChannelIds =
+                  teamProgress.readState.activeChannelIds;
+              } else if (
+                completedMentionReadState.activeChannelIds !==
+                teamProgress.readState.activeChannelIds
+              ) {
+                completedMentionReadState.activeChannelIds = {
+                  ...completedMentionReadState.activeChannelIds,
+                  ...teamProgress.readState.activeChannelIds,
+                };
+              }
+            }
+          }
+          pendingTeamProgressIds.delete(teamId);
+          publishTeamProgress(teamId);
+          teamProgress.posts = [];
+          teamProgress.channelContext = null;
+          teamProgress.threadContext = null;
+          teamProgress.readState = null;
+          return;
+        }
+        scheduleTeamProgress(teamId);
+      };
+      setMentionLoadProgress(
+        createMentionLoadProgressState(runId, teamIds.length, true),
+      );
       setPostState((current) => ({
         ...current,
         status: current.posts.length > 0 ? current.status : "loading",
         error: null,
       }));
 
-      try {
-        const [results, unreadChannelResults, unreadThreadResults] = await Promise.all([
-          mapInBatches(
-            teamIds,
-            TEAM_FANOUT_BATCH_SIZE,
-            async (teamId) => {
-              try {
-                return {
-                  teamId,
-                  posts: await searchPostsInTeam(teamId, mentionSearchTerms, 0, MENTIONS_PAGE_SIZE, { isOrSearch: true }),
-                  error: null as unknown,
-                };
-              } catch (error) {
-                return { teamId, posts: [] as MattermostPost[], error };
-              }
-            },
-            teamIds.length > TEAM_FANOUT_BATCH_SIZE ? TEAM_FANOUT_GAP_MS : 0,
-          ),
-          mapInBatches(
-            teamIds,
-            TEAM_FANOUT_BATCH_SIZE,
-            async (teamId) => {
-              try {
-                return { teamId, ...(await loadUnreadChannelMentionPosts(teamId)) };
-              } catch {
-                return {
-                  teamId,
-                  posts: [] as MattermostPost[],
-                  members: [] as MattermostChannelMember[],
-                  activeChannelIds: null as string[] | null,
-                };
-              }
-            },
-            teamIds.length > TEAM_FANOUT_BATCH_SIZE ? TEAM_FANOUT_GAP_MS : 0,
-          ),
-          mapInBatches(
-            teamIds,
-            TEAM_FANOUT_BATCH_SIZE,
-            async (teamId) => ({ teamId, ...(await loadUnreadThreadMentionPosts(teamId)) }),
-            teamIds.length > TEAM_FANOUT_BATCH_SIZE ? TEAM_FANOUT_GAP_MS : 0,
-          ),
-        ]);
-        if (isCancelled()) {
+      if (
+        mentionCacheContext &&
+        mentionCacheEntryId &&
+        mentionCacheHydratedEntryIdRef.current !== mentionCacheEntryId
+      ) {
+        mentionCacheHydratedEntryIdRef.current = mentionCacheEntryId;
+        const cached = await loadMentionCache(mentionCacheContext);
+        if (!canPublishProgress()) {
           return;
         }
+        setMentionCacheState(
+          cached && cached.posts.length > 0
+            ? {
+                entryId: mentionCacheEntryId,
+                ownerUserId: cached.userId,
+                scopeTeamId: cached.scopeTeamId,
+                active: true,
+                posts: cached.posts.filter(
+                  (post) =>
+                    !deletedPostIdsRef.current?.has(post.id),
+                ),
+                readState: cached.readState,
+                savedAt: cached.savedAt,
+              }
+            : createMentionCacheDisplayState(mentionCacheEntryId),
+        );
+        mentionCacheStoredPostIdsRef.current = new Set(
+          cached?.posts.map((post) => post.id) ?? [],
+        );
+      }
 
-        const successfulSearchResults = results.filter((entry) => entry.error === null);
-        if (teamIds.length > 0 && successfulSearchResults.length === 0) {
-          throw results.find((entry) => entry.error)?.error ?? new Error(text.failedToLoadMentions);
+      try {
+        await mapInBatches(
+          teamIds,
+          TEAM_FANOUT_BATCH_SIZE,
+          async (teamId) => {
+            if (!canPublishProgress()) {
+              return;
+            }
+            await Promise.all([
+              (async () => {
+                if (!canPublishProgress()) {
+                  return;
+                }
+                try {
+                  const posts = await searchPostsInTeam(
+                    teamId,
+                    mentionSearchTerms,
+                    0,
+                    MENTIONS_PAGE_SIZE,
+                    { isOrSearch: true },
+                  );
+                  if (!canPublishProgress()) {
+                    return;
+                  }
+                  successfulSearchCount += 1;
+                  searchHasMore =
+                    searchHasMore ||
+                    posts.length === MENTIONS_PAGE_SIZE;
+                  searchPosts = mergePosts(
+                    posts,
+                    searchPosts,
+                    MENTIONS_MAX_BUFFER,
+                  );
+                  appendTeamProgressPosts(teamId, posts);
+                } catch (error) {
+                  if (firstSearchError === null) {
+                    firstSearchError = error;
+                  }
+                } finally {
+                  completeTeamPipeline(teamId, "search");
+                }
+              })(),
+              (async () => {
+                if (!canPublishProgress()) {
+                  return;
+                }
+                try {
+                  const result = await loadUnreadChannelMentionPosts(
+                    teamId,
+                    (progress) => {
+                      if (progress.type === "context") {
+                        setTeamChannelContext(
+                          teamId,
+                          progress.members,
+                          progress.activeChannelIds,
+                        );
+                      } else {
+                        appendTeamProgressPosts(
+                          teamId,
+                          progress.posts,
+                        );
+                      }
+                    },
+                    () => !canPublishProgress(),
+                    activeChannelSnapshotPromise,
+                  );
+                  if (!canPublishProgress()) {
+                    return;
+                  }
+                  unreadChannelPosts = mergePosts(
+                    result.posts,
+                    unreadChannelPosts,
+                    MENTIONS_MAX_BUFFER,
+                  );
+                  if (
+                    !teamProgressById.get(teamId)?.channelContext
+                  ) {
+                    setTeamChannelContext(
+                      teamId,
+                      result.members,
+                      result.activeChannelIds,
+                    );
+                  }
+                } catch {
+                  if (canPublishProgress()) {
+                    setTeamChannelContext(teamId, [], null);
+                  }
+                } finally {
+                  completeTeamPipeline(teamId, "channel");
+                }
+              })(),
+              (async () => {
+                if (!canPublishProgress()) {
+                  return;
+                }
+                try {
+                  const result = await loadUnreadThreadMentionPosts(
+                    teamId,
+                    (progress) => {
+                      if (progress.type === "context") {
+                        setTeamThreadContext(
+                          teamId,
+                          progress.threads,
+                        );
+                      } else {
+                        appendTeamProgressPosts(
+                          teamId,
+                          progress.posts,
+                        );
+                      }
+                    },
+                    () => !canPublishProgress(),
+                    activeChannelSnapshotPromise,
+                  );
+                  if (!canPublishProgress()) {
+                    return;
+                  }
+                  unreadThreadPosts = mergePosts(
+                    result.posts,
+                    unreadThreadPosts,
+                    MENTIONS_MAX_BUFFER,
+                  );
+                  if (
+                    teamProgressById.get(teamId)?.threadContext === null
+                  ) {
+                    setTeamThreadContext(teamId, result.threads);
+                  }
+                } catch {
+                  if (canPublishProgress()) {
+                    setTeamThreadContext(teamId, []);
+                  }
+                } finally {
+                  completeTeamPipeline(teamId, "thread");
+                }
+              })(),
+            ]);
+          },
+          teamIds.length > TEAM_FANOUT_BATCH_SIZE
+            ? TEAM_FANOUT_GAP_MS
+            : 0,
+          () => !canPublishProgress(),
+        );
+        if (isCancelled()) {
+          cancelTeamProgressFlush();
+          return;
+        }
+        if (progressFlushTimer !== null) {
+          window.clearTimeout(progressFlushTimer);
+          progressFlushTimer = null;
+        }
+        flushTeamProgress();
+
+        if (teamIds.length > 0 && successfulSearchCount === 0) {
+          throw firstSearchError ?? new Error(text.failedToLoadMentions);
         }
 
-        const readStates = teamIds.map((teamId) => {
-          const channelResult = unreadChannelResults.find((entry) => entry.teamId === teamId);
-          const threadResult = unreadThreadResults.find((entry) => entry.teamId === teamId);
-          return buildMentionReadState(
-            channelResult?.members ?? [],
-            threadResult?.threads ?? [],
-            channelResult?.activeChannelIds ?? null,
-          );
-        });
-        const nextMentionReadState = mergeMentionReadStates(readStates);
         const rawLatestPosts = mergePosts(
-          results.flatMap((entry) => entry.posts),
-          [
-            ...unreadChannelResults.flatMap((entry) => entry.posts),
-            ...unreadThreadResults.flatMap((entry) => entry.posts),
-          ],
+          searchPosts,
+          [...unreadChannelPosts, ...unreadThreadPosts],
           MENTIONS_MAX_BUFFER,
+        );
+        const nextMentionReadState = compactMentionReadState(
+          completedMentionReadState,
+          [...rawLatestPosts, ...mentionPostsRef.current],
+          { preserveActiveChannelIds: true },
         );
         const retainedPostSnapshotById = new Map(
           mentionPostsRef.current.map((post) => [post.id, post]),
@@ -4648,7 +5548,12 @@ function MentionsColumn({
                   maxAgeMs: MENTION_HISTORY_RECONCILE_CACHE_MS,
                 }),
                 commentsNotify === "any"
-                  ? getPostThreadSince(editedPost.root_id, 0)
+                  ? getPostThreadSince(
+                      editedPost.root_id,
+                      0,
+                      200,
+                      MENTION_THREAD_POST_SCAN_LIMIT,
+                    )
                   : Promise.resolve([] as MattermostPost[]),
               ]);
               if (postMatchesImplicitMention(
@@ -4766,23 +5671,40 @@ function MentionsColumn({
           ),
           error: null,
           nextPage: 1,
-          hasMore: results.some((entry) => entry.posts.length === MENTIONS_PAGE_SIZE),
+          hasMore: searchHasMore,
           loadingMore: false,
         }));
+        setMentionCacheState(
+          createMentionCacheDisplayState(mentionCacheEntryId),
+        );
+        cancelTeamProgressFlush();
+        setMentionLoadProgress((current) =>
+          current.runId === runId
+            ? createMentionLoadProgressState(runId)
+            : current,
+        );
         setHasCompletedInitialLoad(true);
+        mentionCacheSaveEntryIdRef.current = mentionCacheEntryId;
+        setMentionCacheSaveVersion((current) => current + 1);
         finishRefresh();
       } catch (error) {
+        cancelTeamProgressFlush();
         if (isCancelled()) {
           return;
         }
-        setPostState({
+        setPostState((current) => ({
           status: "error",
-          posts: [],
+          posts: current.posts,
           error: getLocalizedApiErrorMessage(error, text.failedToLoadMentions),
-          nextPage: 1,
-          hasMore: false,
+          nextPage: current.nextPage,
+          hasMore: current.hasMore,
           loadingMore: false,
-        });
+        }));
+        setMentionLoadProgress((current) =>
+          current.runId === runId
+            ? createMentionLoadProgressState(runId)
+            : current,
+        );
         setHasCompletedInitialLoad(true);
         finishRefresh();
       }
@@ -4792,6 +5714,7 @@ function MentionsColumn({
       enabled: teamIds.length > 0 && Boolean(currentUserId) && Boolean(mentionSearchTerms),
       paused,
       onDisabled: () => {
+        mentionLoadRunIdRef.current += 1;
         setHasCompletedInitialLoad(false);
         setPostState({
           status: "idle",
@@ -4806,6 +5729,12 @@ function MentionsColumn({
           threadLastViewedAt: {},
           activeChannelIds: null,
         });
+        setMentionLoadProgress(
+          createMentionLoadProgressState(mentionLoadRunIdRef.current),
+        );
+        setMentionCacheState(
+          createMentionCacheDisplayState(mentionCacheEntryId),
+        );
         finishRefresh();
       },
       dependencies: [
@@ -4816,6 +5745,8 @@ function MentionsColumn({
         loadUnreadChannelMentionPosts,
         loadUnreadThreadMentionPosts,
         mentionPollingIntervalMs,
+        mentionCacheContext,
+        mentionCacheEntryId,
         mentionSearchTerms,
         paused,
         readRefreshNonce,
@@ -4826,6 +5757,51 @@ function MentionsColumn({
       ],
     },
   );
+
+  useEffect(() => {
+    if (
+      mentionCacheSaveVersion === 0 ||
+      !mentionCacheContext ||
+      !mentionCacheEntryId ||
+      mentionCacheSaveEntryIdRef.current !== mentionCacheEntryId ||
+      postState.status !== "ready"
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const savedAt = Date.now();
+    const posts = postState.posts.filter(
+      (post) => !deletedPostIdsRef.current?.has(post.id),
+    );
+    const readState = applyMentionReadMarkers(
+      mentionReadState,
+      realtimeReadMarkers,
+    );
+    // Track the in-flight snapshot synchronously. If an edit or deletion
+    // arrives before storage.set resolves, the queued cache removal must
+    // still run after this write and invalidate the stale snapshot.
+    mentionCacheStoredPostIdsRef.current = new Set(
+      posts.map((post) => post.id),
+    );
+    void saveMentionCache(
+      mentionCacheContext,
+      posts,
+      readState,
+      savedAt,
+    ).then(() => {
+      if (!cancelled) {
+        setMentionCacheLastSavedAt(savedAt);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    mentionCacheEntryId,
+    mentionCacheSaveVersion,
+  ]);
 
   useEffect(() => {
     const matchingEvents = postedEvents.filter(
@@ -4860,13 +5836,77 @@ function MentionsColumn({
       return;
     }
     const deletedPostIdSet = new Set(deletedPostIds);
+    const invalidatesStoredCache =
+      mentionCacheState.posts.some((post) =>
+        deletedPostIdSet.has(post.id)
+      ) ||
+      [...mentionCacheStoredPostIdsRef.current].some((postId) =>
+        deletedPostIdSet.has(postId)
+      );
     setPostState((current) => {
       const posts = current.posts.filter((post) => !deletedPostIdSet.has(post.id));
       return posts.length === current.posts.length
         ? current
         : { ...current, posts };
     });
-  }, [deletedPostIds]);
+    setMentionLoadProgress((current) => {
+      const posts = current.posts.filter(
+        (post) => !deletedPostIdSet.has(post.id),
+      );
+      return posts.length === current.posts.length
+        ? current
+        : { ...current, posts };
+    });
+    setMentionCacheState((current) => {
+      const posts = current.posts.filter(
+        (post) => !deletedPostIdSet.has(post.id),
+      );
+      return posts.length === current.posts.length
+        ? current
+        : { ...current, posts };
+    });
+    if (invalidatesStoredCache && mentionCacheContext) {
+      mentionCacheStoredPostIdsRef.current = new Set();
+      void removeMentionCache(mentionCacheContext);
+    }
+  }, [
+    deletedPostIds,
+    mentionCacheContext,
+    mentionCacheState.posts,
+  ]);
+
+  useEffect(() => {
+    const editedPostIds = new Set(
+      postedEvents
+        .filter((event) => event.eventType === "post_edited")
+        .map((event) => event.post.id),
+    );
+    if (
+      editedPostIds.size === 0 ||
+      !mentionCacheState.posts.some((post) =>
+        editedPostIds.has(post.id)
+      ) &&
+      ![...mentionCacheStoredPostIdsRef.current].some((postId) =>
+        editedPostIds.has(postId)
+      )
+    ) {
+      return;
+    }
+    setMentionCacheState((current) => ({
+      ...current,
+      posts: current.posts.filter(
+        (post) => !editedPostIds.has(post.id),
+      ),
+    }));
+    if (mentionCacheContext) {
+      mentionCacheStoredPostIdsRef.current = new Set();
+      void removeMentionCache(mentionCacheContext);
+    }
+  }, [
+    mentionCacheContext,
+    mentionCacheState.posts,
+    postedEvents,
+  ]);
 
   useEffect(() => {
     const missingChannelIds = Array.from(
@@ -4887,7 +5927,19 @@ function MentionsColumn({
         setChannelDirectory((current) => {
           const next = { ...current };
           for (const channel of channels) {
+            delete next[channel.id];
             next[channel.id] = channel;
+          }
+          const channelIds = Object.keys(next);
+          while (
+            channelIds.length >
+            MENTION_METADATA_DIRECTORY_MAX_ENTRIES
+          ) {
+            const oldestChannelId = channelIds.shift();
+            if (!oldestChannelId) {
+              break;
+            }
+            delete next[oldestChannelId];
           }
           return next;
         });
@@ -4920,7 +5972,27 @@ function MentionsColumn({
           }
         }
 
-        setMemberDirectory((current) => ({ ...current, ...nextMemberDirectory }));
+        setMemberDirectory((current) => {
+          const next = { ...current };
+          for (const [channelId, userIds] of Object.entries(
+            nextMemberDirectory,
+          )) {
+            delete next[channelId];
+            next[channelId] = userIds;
+          }
+          const channelIds = Object.keys(next);
+          while (
+            channelIds.length >
+            MENTION_METADATA_DIRECTORY_MAX_ENTRIES
+          ) {
+            const oldestChannelId = channelIds.shift();
+            if (!oldestChannelId) {
+              break;
+            }
+            delete next[oldestChannelId];
+          }
+          return next;
+        });
         void ensureUsers(Object.values(nextMemberDirectory).flat());
       } catch {
         return;
@@ -4960,19 +6032,33 @@ function MentionsColumn({
     setPostState((current) => ({ ...current, loadingMore: true, error: null }));
 
     try {
-      const [results] = await Promise.all([
+      let posts: MattermostPost[] = [];
+      let hasFullPage = false;
+      await Promise.all([
         mapInBatches(
           teamIds,
           TEAM_FANOUT_BATCH_SIZE,
-          async (teamId) => ({
-            teamId,
-            posts: await searchPostsInTeam(teamId, mentionSearchTerms, postState.nextPage, MENTIONS_PAGE_SIZE, { isOrSearch: true }),
-          }),
+          async (teamId) => {
+            const teamPosts = await searchPostsInTeam(
+              teamId,
+              mentionSearchTerms,
+              postState.nextPage,
+              MENTIONS_PAGE_SIZE,
+              { isOrSearch: true },
+            );
+            hasFullPage =
+              hasFullPage ||
+              teamPosts.length === MENTIONS_PAGE_SIZE;
+            posts = mergePosts(
+              teamPosts,
+              posts,
+              MENTIONS_MAX_BUFFER,
+            );
+          },
           teamIds.length > TEAM_FANOUT_BATCH_SIZE ? TEAM_FANOUT_GAP_MS : 0,
         ),
         new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
       ]);
-      const posts = mergePosts(results.flatMap((entry) => entry.posts), []);
       void ensureUsers(posts.map((post) => post.user_id));
       setPostState((current) => ({
         status: "ready",
@@ -4980,7 +6066,7 @@ function MentionsColumn({
         error: null,
         nextPage: current.nextPage + 1,
         hasMore:
-          results.some((entry) => entry.posts.length === MENTIONS_PAGE_SIZE) &&
+          hasFullPage &&
           current.posts.length + posts.length < MENTIONS_MAX_BUFFER,
         loadingMore: false,
       }));
@@ -5005,11 +6091,32 @@ function MentionsColumn({
       postStatus: postState.status,
       postIds: postState.posts.map((post) => post.id),
       postMessages: postState.posts.map((post) => post.message),
+      displayedPostIds: displayedPosts.map((post) => post.id),
+      displayedPostMessages: displayedPosts.map((post) => post.message),
       visiblePostIds: visiblePosts.map((post) => post.id),
       visiblePostMessages: visiblePosts.map((post) => post.message),
       channelLastViewedAt: effectiveMentionReadState.channelLastViewedAt,
       threadLastViewedAt: effectiveMentionReadState.threadLastViewedAt,
       mentionCount,
+      mentionLoadActive: mentionLoadProgress.active,
+      mentionLoadCompletedTeams: mentionLoadProgress.completedTeams,
+      mentionLoadTotalTeams: mentionLoadProgress.totalTeams,
+      provisionalPostIds: Array.from(provisionalPostIds),
+      cachedPostIds: Array.from(cachedPostIds),
+      mentionCacheActive: mentionCacheActiveForContext,
+      mentionCacheSavedAt: mentionCacheState.savedAt,
+      mentionCacheLastSavedAt,
+      mentionNotificationsSuppressed:
+        suppressMentionNewPostNotifications,
+      mentionCachePhase: mentionCacheActiveForContext
+        ? mentionLoadProgress.active
+          ? "revalidating"
+          : "stale"
+        : mentionLoadProgress.active
+          ? "miss"
+          : hasCompletedInitialLoad
+            ? "ready"
+            : "idle",
       teamId: column.teamId,
     };
 
@@ -5021,11 +6128,22 @@ function MentionsColumn({
   }, [
     column.id,
     column.teamId,
+    cachedPostIds,
+    hasCompletedInitialLoad,
     mentionCount,
     effectiveMentionReadState.channelLastViewedAt,
     effectiveMentionReadState.threadLastViewedAt,
+    displayedPosts,
+    mentionLoadProgress.active,
+    mentionLoadProgress.completedTeams,
+    mentionLoadProgress.totalTeams,
+    mentionCacheLastSavedAt,
+    mentionCacheActiveForContext,
+    mentionCacheState.savedAt,
     postState.posts,
     postState.status,
+    provisionalPostIds,
+    suppressMentionNewPostNotifications,
     visiblePosts,
   ]);
 
@@ -5159,57 +6277,112 @@ function MentionsColumn({
         </div>
       ) : null}
 
-      {postState.status === "error" ? (
+      {postState.status === "error" &&
+      !mentionLoadProgress.active &&
+      visiblePosts.length === 0 ? (
         <article className="deck-card">
           <strong>{text.failedToLoadMentions}</strong>
           <p>{postState.error ?? text.unknownError}</p>
         </article>
       ) : shouldShowLoadingState ? (
         <ColumnLoadingState
-          title={text.loading}
-          detail={text.mentionsWillAppear}
+          title={text.loadingMentions}
+          detail={text.loadingMentionsProgress(
+            visiblePosts.length,
+            mentionLoadProgress.completedTeams,
+            mentionLoadProgress.totalTeams || teamIds.length,
+          )}
         />
-      ) : visiblePosts.length === 0 ? (
-        <article className="deck-card">
-          <strong>{text.noMentions}</strong>
-          <p>{column.unreadOnly ? text.noUnreadMentions : text.mentionsWillAppear}</p>
-        </article>
       ) : (
-        <PostList
-          posts={visiblePosts}
-          userDirectory={userDirectory}
-          compactMode={compactMode}
-          hasMore={postState.hasMore}
-          loadingMore={postState.loadingMore}
-          onLoadMore={handleLoadMore}
-          renderMeta={renderPostMeta}
-          onOpenPost={(post) => {
-            const channel = channelDirectory[post.channel_id];
-            const teamId = channel?.team_id;
-            onOpenPost(post, {
-              teamName: teamId ? teamDirectory[teamId]?.name : selectedTeam?.name,
-              channelName: channel?.name,
-            });
-          }}
-          postClickAction={postClickAction}
-          showImagePreviews={showImagePreviews}
-          language={language}
-          reversedPostOrder={reversedPostOrder}
-          highlightTerms={highlightTerms}
-          currentUserId={currentUserId}
-          lastViewedAt={mentionsLastReadAt}
-          onMarkRead={handleMarkRead}
-          unreadSeparatorLabel={text.unreadSeparatorLabel}
-          markReadLabel={text.markRead}
-          jumpToLatestLabel={text.jumpToLatest}
-          newPostsLabel={text.newPosts}
-        />
+        <>
+          {postState.status === "error" &&
+          !mentionLoadProgress.active &&
+          visiblePosts.length > 0 ? (
+            <article className="deck-card deck-card--muted">
+              <strong>{text.failedToLoadMentions}</strong>
+              <p>{text.showingCachedMentions}</p>
+              <p>{postState.error ?? text.unknownError}</p>
+            </article>
+          ) : null}
+          {mentionLoadProgress.active ? (
+            <ColumnLoadingProgress
+              title={
+                mentionCacheActiveForContext
+                  ? text.refreshingMentions
+                  : text.loadingMentions
+              }
+              detail={
+                mentionCacheActiveForContext
+                  ? text.refreshingCachedMentionsProgress(
+                      visiblePosts.length,
+                      mentionLoadProgress.completedTeams,
+                      mentionLoadProgress.totalTeams,
+                    )
+                  : text.loadingMentionsProgress(
+                      visiblePosts.length,
+                      mentionLoadProgress.completedTeams,
+                      mentionLoadProgress.totalTeams,
+                    )
+              }
+              announcement={text.loadingMentionsTeamsProgress(
+                mentionLoadProgress.completedTeams,
+                mentionLoadProgress.totalTeams,
+              )}
+            />
+          ) : null}
+          {visiblePosts.length === 0 && !mentionLoadProgress.active ? (
+            <article className="deck-card">
+              <strong>{text.noMentions}</strong>
+              <p>{column.unreadOnly ? text.noUnreadMentions : text.mentionsWillAppear}</p>
+            </article>
+          ) : visiblePosts.length > 0 ? (
+            <PostList
+              posts={visiblePosts}
+              userDirectory={userDirectory}
+              compactMode={compactMode}
+              hasMore={postState.hasMore}
+              loadingMore={postState.loadingMore}
+              onLoadMore={handleLoadMore}
+              renderMeta={renderPostMeta}
+              onOpenPost={(post) => {
+                const channel = channelDirectory[post.channel_id];
+                const teamId = channel?.team_id;
+                onOpenPost(post, {
+                  teamName: teamId ? teamDirectory[teamId]?.name : selectedTeam?.name,
+                  channelName: channel?.name,
+                });
+              }}
+              postClickAction={postClickAction}
+              showImagePreviews={showImagePreviews}
+              language={language}
+              reversedPostOrder={reversedPostOrder}
+              highlightTerms={highlightTerms}
+              currentUserId={currentUserId}
+              lastViewedAt={mentionsLastReadAt}
+              onMarkRead={handleMarkRead}
+              unreadSeparatorLabel={text.unreadSeparatorLabel}
+              markReadLabel={text.markRead}
+              jumpToLatestLabel={text.jumpToLatest}
+              newPostsLabel={text.newPosts}
+              suppressEndState={
+                mentionLoadProgress.active ||
+                mentionCacheActiveForContext
+              }
+              suppressNewPostNotifications={
+                suppressMentionNewPostNotifications
+              }
+              deferredPostIds={deferredMentionPostIds}
+            />
+          ) : null}
+        </>
       )}
     </section>
   );
 }
 
-function useRuntimePerformanceSnapshot(): RuntimePerformanceSnapshot {
+function useRuntimePerformanceSnapshot(
+  enabled: boolean,
+): RuntimePerformanceSnapshot {
   const [snapshot, setSnapshot] = useState<RuntimePerformanceSnapshot>(() => {
     const api = getApiPerformanceSnapshot();
     const diagnostics = getDeckDiagnosticsSnapshot();
@@ -5227,6 +6400,10 @@ function useRuntimePerformanceSnapshot(): RuntimePerformanceSnapshot {
   });
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     const collect = () => {
       const api = getApiPerformanceSnapshot();
       const diagnostics = getDeckDiagnosticsSnapshot();
@@ -5250,7 +6427,7 @@ function useRuntimePerformanceSnapshot(): RuntimePerformanceSnapshot {
     collect();
     const timer = window.setInterval(collect, 2_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [enabled]);
 
   return snapshot;
 }
@@ -5947,7 +7124,12 @@ function ColumnLoadingState({
   detail: string;
 }): React.JSX.Element {
   return (
-    <article className="deck-loading-state deck-loading-state--column" aria-live="polite">
+    <article
+      className="deck-loading-state deck-loading-state--column"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
       <div className="deck-loading-spinner" aria-hidden="true" />
       <strong>{title}</strong>
       <p>{detail}</p>
@@ -5956,6 +7138,34 @@ function ColumnLoadingState({
         <div className="deck-loading-skeleton" />
       </div>
     </article>
+  );
+}
+
+function ColumnLoadingProgress({
+  title,
+  detail,
+  announcement,
+}: {
+  title: string;
+  detail: string;
+  announcement: string;
+}): React.JSX.Element {
+  return (
+    <div className="deck-loading-progress">
+      <div className="deck-loading-spinner" aria-hidden="true" />
+      <div className="deck-loading-progress-copy">
+        <strong>{title}</strong>
+        <span>{detail}</span>
+      </div>
+      <span
+        className="deck-sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {announcement}
+      </span>
+    </div>
   );
 }
 
@@ -7032,7 +8242,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const pendingWidthRef = useRef<number | null>(null);
   const wsStatus = useWebSocketStatus();
   const syncLogs = useSyncLogs();
-  const runtimeMetrics = useRuntimePerformanceSnapshot();
+  const runtimeMetrics = useRuntimePerformanceSnapshot(
+    (columns ?? []).some((column) => column.type === "diagnostics"),
+  );
   const mattermostThemeState = useMattermostThemeStyle(deckSettings.theme);
   const mattermostThemeStyle = mattermostThemeState.style;
   const apiHealthStatus = useApiHealth(state.status, deckSettings.healthCheckPath, deckSettings.pollingIntervalSeconds);
@@ -7160,7 +8372,22 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         setUserDirectory((current) => {
           const next = { ...current };
           for (const user of users) {
+            delete next[user.id];
             next[user.id] = user;
+          }
+          const directoryUserIds = Object.keys(next);
+          while (
+            directoryUserIds.length > USER_DIRECTORY_MAX_ENTRIES
+          ) {
+            const oldestUserId = directoryUserIds.shift();
+            if (!oldestUserId) {
+              break;
+            }
+            if (oldestUserId === state.userId) {
+              directoryUserIds.push(oldestUserId);
+              continue;
+            }
+            delete next[oldestUserId];
           }
           return next;
         });
@@ -7168,7 +8395,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         return;
       }
     },
-    [],
+    [state.userId],
   );
   const statusText = useMemo(() => {
     if (state.status === "error") {
@@ -8073,6 +9300,29 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
           spinnerPresent: Boolean(debugShadowRoot.querySelector(".deck-loading-spinner")),
           skeletonCount: debugShadowRoot.querySelectorAll(".deck-loading-skeleton").length,
           text: loadingState?.querySelector("strong")?.textContent?.trim() ?? null,
+        };
+      } else if (action === "getMentionLoadingProgress" && debugShadowRoot) {
+        const progressState = debugShadowRoot.querySelector(
+          ".deck-loading-progress",
+        );
+        result = {
+          present: Boolean(progressState),
+          spinnerPresent: Boolean(
+            progressState?.querySelector(".deck-loading-spinner"),
+          ),
+          text: progressState?.textContent?.replace(/\s+/g, " ").trim() ?? null,
+        };
+      } else if (action === "getPostCardState" && debugShadowRoot) {
+        const textToFind = String(payload.text ?? "");
+        const postCard = Array.from(
+          debugShadowRoot.querySelectorAll(".deck-card--post"),
+        ).find((card) => card.textContent?.includes(textToFind));
+        result = {
+          present: Boolean(postCard),
+          clickable: postCard?.classList.contains(
+            "deck-card--clickable",
+          ) ?? false,
+          role: postCard?.getAttribute("role") ?? null,
         };
       } else if (action === "getUnreadDebugInfo" && debugShadowRoot) {
         result = {

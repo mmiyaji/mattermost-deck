@@ -127,6 +127,49 @@ describe("Mattermost base path", () => {
     );
   });
 
+  it("keeps only the newest channel posts when a maximum is provided", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch).mockResolvedValue(response({
+      order: ["older", "newest", "middle"],
+      posts: {
+        older: {
+          id: "older",
+          user_id: "other",
+          channel_id: "channel-id",
+          create_at: 124,
+          message: "older",
+        },
+        newest: {
+          id: "newest",
+          user_id: "other",
+          channel_id: "channel-id",
+          create_at: 300,
+          message: "newest",
+        },
+        middle: {
+          id: "middle",
+          user_id: "other",
+          channel_id: "channel-id",
+          create_at: 200,
+          message: "middle",
+        },
+      },
+    }));
+
+    await expect(api.getPostsSince("channel-id", 123, 2)).resolves.toMatchObject([
+      { id: "newest" },
+      { id: "middle" },
+    ]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not request channel posts when the maximum is zero", async () => {
+    const api = await loadApi();
+
+    await expect(api.getPostsSince("channel-id", 123, 0)).resolves.toEqual([]);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
   it("reconciles retained mention posts in one bounded request", async () => {
     const api = await loadApi();
     vi.mocked(fetch).mockResolvedValue(response([
@@ -440,14 +483,177 @@ describe("Mattermost base path", () => {
         has_next: false,
       }));
 
-    await expect(api.getPostThreadSince("root-id", 100, 1)).resolves.toMatchObject([
-      { id: "reply-b" },
-      { id: "reply-a" },
-    ]);
+    await expect(
+      api.getPostThreadSinceWithMetadata("root-id", 100, 1),
+    ).resolves.toMatchObject({
+      posts: [
+        { id: "reply-b" },
+        { id: "reply-a" },
+      ],
+      truncated: false,
+    });
     expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([
       "/company/mattermost/api/v4/posts/root-id/thread?direction=down&perPage=1&fromCreateAt=100",
       "/company/mattermost/api/v4/posts/root-id/thread?direction=down&perPage=1&fromPost=reply-a&fromCreateAt=200",
     ]);
+  });
+
+  it("loads newest thread pages first and stops when the maximum is reached", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(response({
+        order: ["root-id", "reply-newest", "reply-deleted"],
+        posts: {
+          "root-id": {
+            id: "root-id",
+            user_id: "author",
+            channel_id: "channel-id",
+            create_at: 50,
+            message: "root",
+          },
+          "reply-newest": {
+            id: "reply-newest",
+            user_id: "author",
+            channel_id: "channel-id",
+            create_at: 300,
+            message: "@alice newest",
+            root_id: "root-id",
+          },
+          "reply-deleted": {
+            id: "reply-deleted",
+            user_id: "author",
+            channel_id: "channel-id",
+            create_at: 250,
+            delete_at: 260,
+            message: "",
+            root_id: "root-id",
+          },
+        },
+        has_next: true,
+      }))
+      .mockResolvedValueOnce(response({
+        order: ["root-id", "reply-next"],
+        posts: {
+          "root-id": {
+            id: "root-id",
+            user_id: "author",
+            channel_id: "channel-id",
+            create_at: 50,
+            message: "root",
+          },
+          "reply-next": {
+            id: "reply-next",
+            user_id: "author",
+            channel_id: "channel-id",
+            create_at: 200,
+            message: "@alice next",
+            root_id: "root-id",
+          },
+        },
+        has_next: true,
+      }));
+
+    await expect(
+      api.getPostThreadSinceWithMetadata("root-id", 100, 2, 2),
+    ).resolves.toMatchObject({
+      posts: [
+        { id: "reply-newest" },
+        { id: "reply-next" },
+      ],
+      truncated: true,
+    });
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([
+      "/company/mattermost/api/v4/posts/root-id/thread?direction=up&perPage=2&fromCreateAt=9007199254740991",
+      "/company/mattermost/api/v4/posts/root-id/thread?direction=up&perPage=1&fromPost=reply-deleted&fromCreateAt=250",
+    ]);
+  });
+
+  it("does not request thread pages when the maximum is zero", async () => {
+    const api = await loadApi();
+
+    await expect(
+      api.getPostThreadSince("root-id", 100, 200, 0),
+    ).resolves.toEqual([]);
+    await expect(
+      api.getPostThreadSinceWithMetadata("root-id", 100, 200, 0),
+    ).resolves.toEqual({ posts: [], truncated: true });
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("does not mark a fully loaded bounded thread as truncated", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch).mockResolvedValueOnce(response({
+      order: ["root-id", "reply-newest", "reply-next"],
+      posts: {
+        "root-id": {
+          id: "root-id",
+          user_id: "author",
+          channel_id: "channel-id",
+          create_at: 50,
+          message: "root",
+        },
+        "reply-newest": {
+          id: "reply-newest",
+          user_id: "author",
+          channel_id: "channel-id",
+          create_at: 300,
+          message: "@alice newest",
+          root_id: "root-id",
+        },
+        "reply-next": {
+          id: "reply-next",
+          user_id: "author",
+          channel_id: "channel-id",
+          create_at: 200,
+          message: "@alice next",
+          root_id: "root-id",
+        },
+      },
+      has_next: false,
+    }));
+
+    await expect(
+      api.getPostThreadSinceWithMetadata("root-id", 100, 2, 2),
+    ).resolves.toMatchObject({
+      posts: [
+        { id: "reply-newest" },
+        { id: "reply-next" },
+      ],
+      truncated: false,
+    });
+  });
+
+  it("marks a bounded thread as truncated when a page exceeds the maximum", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch).mockResolvedValueOnce(response({
+      order: ["reply-newest", "reply-next"],
+      posts: {
+        "reply-newest": {
+          id: "reply-newest",
+          user_id: "author",
+          channel_id: "channel-id",
+          create_at: 300,
+          message: "@alice newest",
+          root_id: "root-id",
+        },
+        "reply-next": {
+          id: "reply-next",
+          user_id: "author",
+          channel_id: "channel-id",
+          create_at: 200,
+          message: "@alice next",
+          root_id: "root-id",
+        },
+      },
+      has_next: false,
+    }));
+
+    await expect(
+      api.getPostThreadSinceWithMetadata("root-id", 100, 1, 1),
+    ).resolves.toMatchObject({
+      posts: [{ id: "reply-newest" }],
+      truncated: true,
+    });
   });
 
   it("invalidates the member cache after marking a channel viewed", async () => {
