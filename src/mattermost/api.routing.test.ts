@@ -463,6 +463,21 @@ describe("Mattermost base path", () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3);
   });
 
+  it("can bypass the burst cache when a WebSocket read event has newer state", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(response({ channel_id: "c1", last_viewed_at: 1 }))
+      .mockResolvedValueOnce(response({ channel_id: "c1", last_viewed_at: 2 }));
+
+    await expect(api.getMyChannelMember("c1")).resolves.toMatchObject({
+      last_viewed_at: 1,
+    });
+    await expect(api.getMyChannelMember("c1", { fresh: true })).resolves.toMatchObject({
+      last_viewed_at: 2,
+    });
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+  });
+
   it("does not reuse GET, user, or channel caches after the base path changes", async () => {
     const api = await loadApi();
     vi.mocked(fetch)

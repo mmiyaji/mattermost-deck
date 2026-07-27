@@ -32,7 +32,7 @@ Cloudflare Pages 編集権限だけを持つ `CLOUDFLARE_API_TOKEN` が必要で
 
 ## 主な機能
 
-- 狭いウィンドウでは Mattermost の表示領域を優先し、再拡大時に指定幅へ戻る横スクロール対応の右側 Deck レイアウト
+- Mattermost のスレッドペイン表示中は自動的に幅を縮小または折り畳み、狭いウィンドウでもメイン表示領域を優先し、終了後に指定幅とスクロール位置へ戻る右側 Deck レイアウト
 - ペイン種別:
   - `mentions`
   - `channelWatch`
@@ -88,7 +88,7 @@ Server URL を保存すると、その Mattermost origin に対する Chrome 権
 ## 対応環境
 
 - Google Chrome 120 以降
-- Docker E2E により Mattermost 9.5.4 をリリースゲートとして検証
+- Docker E2E により Mattermost 9.5.4 と 9.5.11 を検証済み（CI の既定は 9.5.4）
 
 より新しい Mattermost も動作対象ですが、すべてのサーバーバージョンを CI で検証しているわけではありません。その他のChromiumベースブラウザーはリリースゲートの対象外です。業務上重要な環境へ導入する前に、ステージング環境で確認してください。
 
@@ -179,12 +179,13 @@ npm run check:release
 npm run check:site
 npm run test:e2e
 npm run mm95:start
+node scripts/mm95-start.mjs --version 9.5.11
 npm run mm95:stop
 npm run open:mattermost
 npm run capture:readme
 ```
 
-`test:e2e` とスクリーンショット更新には、到達可能な Mattermost テスト環境が必要です。
+`mm95:start` は既定で Mattermost 9.5.4 を起動します。9.5.11 を起動する場合は、上記のバージョン指定コマンドを使用してください。`test:e2e` とスクリーンショット更新には、到達可能な Mattermost テスト環境が必要です。
 
 ## リリース
 

@@ -17,6 +17,11 @@ export interface MentionReadState {
   activeChannelIds: Record<string, true> | null;
 }
 
+export type MentionReadMarkers = Pick<
+  MentionReadState,
+  "channelLastViewedAt" | "threadLastViewedAt"
+>;
+
 export interface ImplicitMentionSettings {
   currentUserId: string;
   collapsedReplyThreads: boolean;
@@ -248,6 +253,78 @@ export function mergeMentionReadStates(states: MentionReadState[]): MentionReadS
       activeChannelIds: knownActiveChannelStates.length === 0 ? null : {},
     },
   );
+}
+
+function mergeViewedAtMaps(
+  current: Record<string, number>,
+  incoming: Record<string, number>,
+): Record<string, number> {
+  return Object.entries(incoming).reduce<Record<string, number>>(
+    (merged, [id, viewedAt]) => ({
+      ...merged,
+      [id]: Math.max(merged[id] ?? 0, viewedAt),
+    }),
+    { ...current },
+  );
+}
+
+export function mergeMentionReadMarkers(
+  current: MentionReadMarkers,
+  incoming: MentionReadMarkers,
+): MentionReadMarkers {
+  return {
+    channelLastViewedAt: mergeViewedAtMaps(
+      current.channelLastViewedAt,
+      incoming.channelLastViewedAt,
+    ),
+    threadLastViewedAt: mergeViewedAtMaps(
+      current.threadLastViewedAt,
+      incoming.threadLastViewedAt,
+    ),
+  };
+}
+
+function omitViewedAtMarkers(
+  current: Record<string, number>,
+  affectedIds: string[],
+): Record<string, number> {
+  if (affectedIds.length === 0) {
+    return current;
+  }
+
+  const affected = new Set(affectedIds);
+  return Object.fromEntries(
+    Object.entries(current).filter(([id]) => !affected.has(id)),
+  );
+}
+
+export function invalidateMentionReadMarkers(
+  current: MentionReadMarkers,
+  affected: {
+    channelIds: string[];
+    threadIds: string[];
+  },
+): MentionReadMarkers {
+  return {
+    channelLastViewedAt: omitViewedAtMarkers(
+      current.channelLastViewedAt,
+      affected.channelIds,
+    ),
+    threadLastViewedAt: omitViewedAtMarkers(
+      current.threadLastViewedAt,
+      affected.threadIds,
+    ),
+  };
+}
+
+export function applyMentionReadMarkers(
+  state: MentionReadState,
+  markers: MentionReadMarkers,
+): MentionReadState {
+  return {
+    ...state,
+    ...mergeMentionReadMarkers(state, markers),
+  };
 }
 
 export function filterActiveMentionPosts(

@@ -23,7 +23,7 @@ Mattermost Deck adds monitoring-oriented panes to the right side of Mattermost W
 - Removed edited, deleted, inaccessible, and retention-deleted posts from mention feeds without leaving ghost entries
 - Reduced overlapping API work with serialized polling, bounded reconciliation caches, and targeted metadata refreshes
 - Added direct Settings links to the official website, privacy policy, terms, support, and Chrome Web Store listing
-- Refined responsive Deck and Settings layouts for wide and narrow browser windows
+- Refined responsive Deck and Settings layouts, including automatic Deck width adjustment while Mattermost's thread pane is open
 - Expanded Docker-backed E2E coverage and added release version consistency checks
 
 ## Permission justifications

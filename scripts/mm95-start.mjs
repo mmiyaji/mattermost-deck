@@ -4,14 +4,24 @@
  *
  * Usage:
  *   node scripts/mm95-start.mjs          # 起動 + 初期化
+ *   node scripts/mm95-start.mjs --version 9.5.11
  *   node scripts/mm95-start.mjs --stop   # コンテナ停止・削除
  */
 
 import { execSync, spawnSync } from "node:child_process";
 import { writeFileSync, mkdirSync } from "node:fs";
 
+const args = process.argv.slice(2);
+const versionArgIndex = args.indexOf("--version");
+const requestedVersion =
+  versionArgIndex >= 0 ? args[versionArgIndex + 1] : process.env.MM95_VERSION;
+const MATTERMOST_VERSION = requestedVersion?.trim() || "9.5.4";
+if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(MATTERMOST_VERSION)) {
+  throw new Error(`Invalid Mattermost image tag: ${MATTERMOST_VERSION}`);
+}
+
 const CONTAINER_NAME = "mm95-theme-test";
-const IMAGE = "mattermost/mattermost-preview:9.5.4";
+const IMAGE = `mattermost/mattermost-preview:${MATTERMOST_VERSION}`;
 const HOST_PORT = 8066;
 const BASE_URL = `http://127.0.0.1:${HOST_PORT}`;
 
@@ -74,8 +84,6 @@ async function waitForHealth(maxWaitMs = 120_000) {
 
 // ── main ─────────────────────────────────────────────────────────────────────
 
-const args = process.argv.slice(2);
-
 if (args.includes("--stop")) {
   console.log("Stopping and removing container...");
   run(`docker stop ${CONTAINER_NAME}`);
@@ -85,8 +93,8 @@ if (args.includes("--stop")) {
 }
 
 // Check if already running
-const running = run(`docker inspect --format '{{.State.Running}}' ${CONTAINER_NAME}`);
-if (running.code === 0 && running.stdout === "true") {
+const running = run(`docker inspect --format "{{.State.Running}}|{{.Config.Image}}" ${CONTAINER_NAME}`);
+if (running.code === 0 && running.stdout === `true|${IMAGE}`) {
   console.log(`Container ${CONTAINER_NAME} is already running on port ${HOST_PORT}.`);
 } else {
   // Remove stopped container if exists
@@ -243,6 +251,7 @@ const stateFile = `${stateDir}/mm95-state.json`;
 mkdirSync(stateDir, { recursive: true });
 writeFileSync(stateFile, JSON.stringify({
   baseUrl: BASE_URL,
+  mattermostVersion: MATTERMOST_VERSION,
   team: {
     id: teamId,
     name: TEAM_NAME,
@@ -264,7 +273,7 @@ writeFileSync(stateFile, JSON.stringify({
 }, null, 2));
 
 console.log(`\nState written to ${stateFile}`);
-console.log(`Mattermost 9.5.4 is ready at ${BASE_URL}`);
+console.log(`Mattermost ${MATTERMOST_VERSION} is ready at ${BASE_URL}`);
 console.log(`  Admin:  ${ADMIN_USERNAME} / ${ADMIN_PASSWORD}`);
 console.log(`  Member: ${MEMBER_USERNAME} / ${MEMBER_PASSWORD}`);
 console.log(`\nRun theme test:`);

@@ -5,11 +5,20 @@ import path from "node:path";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.json");
+const TRACE_CAPTURE_STORAGE_KEY = "mattermostDeck.traceCapture.v1";
+const TRACE_LOG_STORAGE_KEY = "mattermostDeck.traceEntries.v1";
+const LAYOUT_STORAGE_KEY = "mattermostDeck.layout.v1";
 
 interface E2EState {
   baseUrl: string;
   teamName: string;
   memberUser: { id: string; username: string; password: string; token: string };
+}
+
+interface TraceLogEntry {
+  source: "app" | "content" | "api" | "ws";
+  event: string;
+  payload?: Record<string, unknown>;
 }
 
 async function readState(): Promise<E2EState> {
@@ -62,7 +71,36 @@ async function login(page: import("@playwright/test").Page, username: string, pa
   await page.waitForURL(/channels|messages/, { timeout: 30_000 });
 }
 
-test("route change to pl does not trigger deck app-state reload", async () => {
+async function debugRequest<T>(
+  page: import("@playwright/test").Page,
+  action: string,
+  payload?: Record<string, unknown>,
+): Promise<T> {
+  return await page.evaluate(({ action, payload }) => {
+    return new Promise<T>((resolve, reject) => {
+      const id = `deck-debug-${Math.random().toString(36).slice(2)}`;
+      const timeoutId = window.setTimeout(() => {
+        window.removeEventListener("mattermost-deck-debug-response", handleResponse as EventListener);
+        reject(new Error(`Deck debug request timed out: ${action}`));
+      }, 5_000);
+      const handleResponse = (event: Event) => {
+        const customEvent = event as CustomEvent<{ id?: string; result?: T }>;
+        if (customEvent.detail?.id !== id) {
+          return;
+        }
+        window.clearTimeout(timeoutId);
+        window.removeEventListener("mattermost-deck-debug-response", handleResponse as EventListener);
+        resolve(customEvent.detail?.result as T);
+      };
+      window.addEventListener("mattermost-deck-debug-response", handleResponse as EventListener);
+      window.dispatchEvent(new CustomEvent("mattermost-deck-debug-request", {
+        detail: { id, action, payload },
+      }));
+    });
+  }, { action, payload });
+}
+
+test("switching channels keeps Deck panes mounted and avoids a full refetch", async () => {
   const state = await readState();
   const token = await loginApi(state.memberUser.username, state.memberUser.password);
   const extensionPath = path.resolve("./dist");
@@ -73,13 +111,9 @@ test("route change to pl does not trigger deck app-state reload", async () => {
 
   const channels = await apiGet<Array<{ id: string; name: string }>>(token, `/users/me/teams/${team!.id}/channels`);
   const townSquare = channels.find((entry) => entry.name === "town-square");
+  const offTopic = channels.find((entry) => entry.name === "off-topic");
   expect(townSquare).toBeTruthy();
-
-  const postsResponse = await apiGet<{
-    order: string[];
-  }>(token, `/channels/${townSquare!.id}/posts?page=0&per_page=20`);
-  expect(postsResponse.order.length).toBeGreaterThan(0);
-  const postId = postsResponse.order[0]!;
+  expect(offTopic).toBeTruthy();
 
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-route-"));
   const context = await chromium.launchPersistentContext(userDataDir, {
@@ -92,7 +126,6 @@ test("route change to pl does not trigger deck app-state reload", async () => {
   });
 
   const appStateRequests: string[] = [];
-  const debugLogs: string[] = [];
   let capture = false;
   context.on("request", (request) => {
     if (!capture) {
@@ -112,48 +145,164 @@ test("route change to pl does not trigger deck app-state reload", async () => {
   try {
     const [existingSw] = context.serviceWorkers();
     const sw = existingSw ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
-    await sw.evaluate((serverUrl: string) => {
+    await sw.evaluate(({
+      serverUrl,
+      token,
+      teamId,
+      traceCaptureStorageKey,
+      traceLogStorageKey,
+      layoutStorageKey,
+    }) => {
       return new Promise<void>((resolve) => {
-        chrome.storage.local.set({ "mattermostDeck.serverUrl.v1": serverUrl }, () => resolve());
+        chrome.storage.local.set({
+          "mattermostDeck.serverUrl.v1": serverUrl,
+          "mattermostDeck.wsPat.v1": token,
+          "mattermostDeck.persistPat.v1": "true",
+          "mattermostDeck.pollingIntervalSeconds.v1": "120",
+          [traceCaptureStorageKey]: true,
+          [traceLogStorageKey]: [],
+          [layoutStorageKey]: [{
+            id: "mentions-route-stability",
+            type: "mentions",
+            teamId,
+            unreadOnly: false,
+          }],
+        }, () => resolve());
       });
-    }, baseUrl);
+    }, {
+      serverUrl: baseUrl,
+      token,
+      teamId: team!.id,
+      traceCaptureStorageKey: TRACE_CAPTURE_STORAGE_KEY,
+      traceLogStorageKey: TRACE_LOG_STORAGE_KEY,
+      layoutStorageKey: LAYOUT_STORAGE_KEY,
+    });
 
     const page = await context.newPage();
-    page.on("console", (message) => {
-      const text = message.text();
-      if (text.includes("[deck-debug]")) {
-        debugLogs.push(text);
-      }
-    });
     await page.addInitScript(() => {
       window.localStorage.setItem("mattermostDeck.debugLogs", "1");
+      const debugWindow = window as typeof window & {
+        __deckWsStatuses?: string[];
+      };
+      debugWindow.__deckWsStatuses = [];
+      window.addEventListener("mattermost-deck-ws-status", (event) => {
+        debugWindow.__deckWsStatuses?.push(String((event as CustomEvent).detail));
+      });
     });
     await login(page, state.memberUser.username, state.memberUser.password);
     await page.goto(`${baseUrl}/${state.teamName}/channels/town-square`);
     await page.waitForURL(new RegExp(`/${state.teamName}/channels/town-square`), { timeout: 30_000 });
 
     await expect(page.locator("#mattermost-deck-root")).toBeAttached({ timeout: 20_000 });
-    await page.waitForTimeout(2_500);
+    await expect.poll(async () => {
+      return (await debugRequest<{ stateStatus?: string }>(page, "getState")).stateStatus;
+    }, { timeout: 30_000 }).toBe("ready");
+    await expect.poll(async () => {
+      return (await debugRequest<{ postStatus?: string } | null>(
+        page,
+        "getColumnState",
+        { id: "mentions-route-stability" },
+      ))?.postStatus;
+    }, { timeout: 30_000 }).toBe("ready");
+    await expect.poll(
+      () => page.evaluate(() => {
+        const debugWindow = window as typeof window & {
+          __deckWsStatuses?: string[];
+        };
+        return debugWindow.__deckWsStatuses?.includes("connected") ?? false;
+      }),
+      { timeout: 30_000 },
+    ).toBe(true);
+
+    const rootMarker = `route-stability-${Date.now()}`;
+    await page.evaluate((marker) => {
+      const root = document.querySelector<HTMLElement>("#mattermost-deck-root");
+      if (!root) {
+        throw new Error("Deck root not found");
+      }
+      root.dataset.e2eMarker = marker;
+    }, rootMarker);
+
+    await page.waitForTimeout(500);
+    await sw.evaluate((traceLogStorageKey) => {
+      return new Promise<void>((resolve) => {
+        chrome.storage.local.set({ [traceLogStorageKey]: [] }, () => resolve());
+      });
+    }, TRACE_LOG_STORAGE_KEY);
+    await page.waitForTimeout(500);
 
     capture = true;
-    await page.evaluate(({ teamName, postId }) => {
-      window.dispatchEvent(new CustomEvent("mattermost-deck-debug-open-thread", {
-        detail: { teamName, postId, channelName: "town-square" },
+    const offTopicLink = page.locator(`a[href="/${state.teamName}/channels/off-topic"]`).first();
+    await expect(offTopicLink).toBeVisible({ timeout: 20_000 });
+    // The fresh Mattermost test profile can display its welcome tour over the
+    // sidebar. Invoke the real sidebar link while keeping this Deck regression
+    // independent from Mattermost's onboarding overlay.
+    await offTopicLink.evaluate((link) => (link as HTMLAnchorElement).click());
+    await page.waitForURL(new RegExp(`/${state.teamName}/channels/off-topic`), { timeout: 30_000 });
+    await expect.poll(async () => {
+      const snapshot = await debugRequest<{
+        stateStatus?: string;
+        currentChannelId?: string;
+        wsStatus?: string;
+      }>(page, "getState");
+      return {
+        stateStatus: snapshot.stateStatus,
+        currentChannelId: snapshot.currentChannelId,
+        wsStatus: snapshot.wsStatus,
+      };
+    }, { timeout: 30_000 }).toEqual({
+      stateStatus: "ready",
+      currentChannelId: offTopic!.id,
+      wsStatus: "connected",
+    });
+    await page.waitForTimeout(750);
+
+    const traceEntries = await sw.evaluate((traceLogStorageKey) => {
+      return new Promise<TraceLogEntry[]>((resolve) => {
+        chrome.storage.local.get(traceLogStorageKey, (value) => {
+          resolve((value[traceLogStorageKey] as TraceLogEntry[] | undefined) ?? []);
+        });
+      });
+    }, TRACE_LOG_STORAGE_KEY);
+    const deckApiPaths = traceEntries
+      .filter((entry) =>
+        entry.source === "api" &&
+        (entry.event === "request.complete" || entry.event === "request.error")
+      )
+      .map((entry) => ({
+        event: entry.event,
+        path: String(entry.payload?.fullPath ?? entry.payload?.path ?? ""),
       }));
-    }, { teamName: state.teamName, postId });
-    await page.waitForTimeout(3_000);
 
-    console.log("DEBUG LOGS AFTER ROUTE CHANGE");
-    for (const line of debugLogs) {
-      console.log(line);
-    }
-
-    expect(appStateRequests).toEqual([
-      `GET ${baseUrl}/api/v4/users/me`,
-      `GET ${baseUrl}/api/v4/users/me/teams`,
-      `GET ${baseUrl}/api/v4/users/${state.memberUser.id}/teams/unread?include_collapsed_threads=true`,
-      `GET ${baseUrl}/api/v4/teams/name/${state.teamName}`,
+    expect(appStateRequests).toEqual([]);
+    expect(deckApiPaths).toEqual([
+      {
+        event: "request.complete",
+        path: `/teams/${team!.id}/channels/name/off-topic`,
+      },
     ]);
+    expect(traceEntries.some((entry) =>
+      entry.source === "app" &&
+      (entry.event === "app.mount" || entry.event === "app.unmount")
+    )).toBe(false);
+    expect(traceEntries.some((entry) =>
+      entry.source === "app" &&
+      entry.event === "app.deck-state.route-refresh"
+    )).toBe(false);
+    await expect.poll(async () => {
+      return await page.evaluate((marker) => {
+        const root = document.querySelector<HTMLElement>("#mattermost-deck-root");
+        return {
+          marker: root?.dataset.e2eMarker ?? null,
+          rootCount: document.querySelectorAll("#mattermost-deck-root").length,
+        };
+      }, rootMarker);
+    }).toEqual({ marker: rootMarker, rootCount: 1 });
+    expect((await debugRequest<{ postStatus?: string } | null>(
+      page,
+      "getColumnState",
+      { id: "mentions-route-stability" },
+    ))?.postStatus).toBe("ready");
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });

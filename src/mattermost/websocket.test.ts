@@ -3,9 +3,11 @@ import {
   appendPostedEvent,
   getDeletedPostId,
   hasMentionForDeck,
+  isChannelReadStateEvent,
   isMentionMetadataEvent,
   isUnreadStateEvent,
   mentionsPayloadIncludesUser,
+  parseUnreadStateChange,
   parsePostedEvent,
   resolvePostedEventTeamId,
   type PostedEvent,
@@ -46,6 +48,74 @@ describe("isUnreadStateEvent", () => {
     expect(isUnreadStateEvent("channel_deleted")).toBe(true);
     expect(isUnreadStateEvent("user_removed")).toBe(true);
     expect(isUnreadStateEvent("posted")).toBe(false);
+  });
+
+  it("parses bulk channel timestamps without requiring an API refresh", () => {
+    expect(parseUnreadStateChange(
+      "multiple_channels_viewed",
+      {
+        channel_times: {
+          "channel-a": 1_234,
+          "channel-b": "5678",
+          invalid: "not-a-number",
+        },
+      },
+    )).toEqual({
+      eventType: "multiple_channels_viewed",
+      channelLastViewedAt: {
+        "channel-a": 1_234,
+        "channel-b": 5_678,
+      },
+      threadLastViewedAt: {},
+      channelIds: ["channel-a", "channel-b"],
+      threadIds: [],
+    });
+  });
+
+  it("classifies empty channel-read events separately from structural changes", () => {
+    expect(isChannelReadStateEvent("channel_viewed")).toBe(true);
+    expect(isChannelReadStateEvent("multiple_channels_viewed")).toBe(true);
+    expect(isChannelReadStateEvent("thread_read_changed")).toBe(false);
+    expect(isChannelReadStateEvent("channel_deleted")).toBe(false);
+  });
+
+  it("accepts serialized bulk timestamps and legacy channel payloads", () => {
+    expect(parseUnreadStateChange(
+      "multiple_channels_viewed",
+      { channel_times: JSON.stringify({ "channel-a": 1_234 }) },
+    ).channelLastViewedAt).toEqual({ "channel-a": 1_234 });
+
+    expect(parseUnreadStateChange(
+      "channel_viewed",
+      { channel_id: "channel-b", last_viewed_at: 5_678 },
+    )).toMatchObject({
+      channelLastViewedAt: { "channel-b": 5_678 },
+      channelIds: ["channel-b"],
+    });
+  });
+
+  it("parses thread markers and retains affected IDs when a timestamp is absent", () => {
+    expect(parseUnreadStateChange(
+      "thread_read_changed",
+      {
+        thread: JSON.stringify({
+          id: "thread-a",
+          last_viewed_at: 9_999,
+        }),
+      },
+    )).toMatchObject({
+      threadLastViewedAt: { "thread-a": 9_999 },
+      threadIds: ["thread-a"],
+    });
+
+    expect(parseUnreadStateChange(
+      "channel_viewed",
+      {},
+      { channel_id: "legacy-channel" },
+    )).toMatchObject({
+      channelLastViewedAt: {},
+      channelIds: ["legacy-channel"],
+    });
   });
 });
 

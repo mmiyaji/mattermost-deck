@@ -25,6 +25,7 @@ const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("./e2e/mm95-state.
 interface Mm95State {
   memberUser: { username: string; password: string; token: string };
   teamName: string;
+  mattermostVersion?: string;
 }
 
 // ── colour helpers ────────────────────────────────────────────────────────────
@@ -221,7 +222,7 @@ test("Mattermost theme is applied correctly to the deck", async ({ }, testInfo) 
 
     // ── 6. Write variable report ──────────────────────────────────────────────
     const report = {
-      mattermostVersion: "9.5.4",
+      mattermostVersion: state.mattermostVersion ?? process.env.MM95_VERSION ?? "9.5.4",
       baseUrl,
       mattermostCssVars: mmVars,
       deckCssVars: deckVars,

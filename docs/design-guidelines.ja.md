@@ -41,6 +41,7 @@ Mattermost Web 本体を作り直さずに、右側へ監視向けのマルチ�
 - `body` 配下に Shadow DOM をマウント
 - Mattermost 側の幅を調整して Deck 用スペースを確保
 - viewport 変更時は可能な限り Mattermost に 720 px 以上を残し、さらに狭い場合は Deck を最大 40% まで縮小し、再拡大時に指定した Deck 幅へ戻す
+- Mattermost のスレッドペイン表示中は中央コンテンツを 560 px 以上確保するため、Deck を一時的に 360 px へ縮小、または 52 px へ折り畳み、終了時に指定幅と水平スクロール位置を復元する
 
 ### 描画ガード
 

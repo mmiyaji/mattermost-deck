@@ -20,7 +20,6 @@ import {
   getPostThreadSince,
   getPostsSince,
   getRecentPosts,
-  getTeamByName,
   getTeamUnread,
   getTeamsForCurrentUser,
   getUserPreferences,
@@ -33,6 +32,7 @@ import {
   viewChannel,
   readCurrentRoute,
   searchPostsInTeam,
+  type CurrentRoute,
   type MattermostChannel,
   type MattermostChannelMember,
   type MattermostFileInfo,
@@ -45,6 +45,7 @@ import {
 import {
   appendPostedEvent,
   connectMattermostWebSocket,
+  isChannelReadStateEvent,
   type PostedEvent,
   type WebSocketStatus,
 } from "../mattermost/websocket";
@@ -104,9 +105,16 @@ import { focusMattermostPost } from "./mattermostNavigation";
 import { dedupeRecentTargets, type RecentChannelTarget } from "./recentTargets";
 import { mapInBatches } from "./asyncBatch";
 import { useElementVisibility } from "./useElementVisibility";
-import { calculateResponsiveRailWidth } from "./railLayout";
-import { getLocalizedApiErrorMessage, isMattermostSessionExpiredError } from "./apiErrorMessage";
 import {
+  calculateResponsiveRailWidth,
+  calculateThreadAwareRailLayout,
+  type MattermostHostLayout,
+  type ResponsiveRailMode,
+} from "./railLayout";
+import { getLocalizedApiErrorMessage, isMattermostSessionExpiredError } from "./apiErrorMessage";
+import { getMattermostApiErrorStatus } from "../mattermost/errors";
+import {
+  applyMentionReadMarkers,
   buildMentionReadState,
   buildMentionSearchTerms,
   filterActiveMentionPosts,
@@ -115,11 +123,14 @@ import {
   getMattermostMentionKeys,
   getUnreadPostsFromThread,
   hasMentionRelevantPostChanged,
+  invalidateMentionReadMarkers,
   isCollapsedThreadsEnabled,
+  mergeMentionReadMarkers,
   mergeMentionReadStates,
   postMatchesMentionCandidate,
   postMatchesImplicitMention,
   type MattermostMentionKey,
+  type MentionReadMarkers,
   type MentionReadState,
 } from "./mentionFeed";
 
@@ -143,6 +154,14 @@ interface AppState {
   error: string | null;
   sessionExpired: boolean;
 }
+
+type CurrentRouteContext = Pick<
+  AppState,
+  | "currentTeamId"
+  | "currentChannelId"
+  | "currentTeamLabel"
+  | "currentChannelLabel"
+>;
 
 interface ChannelState {
   status: "idle" | "loading" | "ready" | "error";
@@ -215,6 +234,8 @@ const MAX_SAVED_VIEWS = 8;
 const DEBUG_FLAG_KEY = "mattermostDeck.debugLogs";
 const MENTIONS_LAST_READ_AT_STORAGE_KEY = "mattermostDeck.mentionsLastReadAt.v1";
 const COMPACT_HEADER_BREAKPOINT_PX = 620;
+const HOST_LAYOUT_SETTLE_MS = 360;
+const DECK_CONTENT_ID = "mattermost-deck-content";
 const SPECIAL_MENTION_MEMBER_TTL_MS = 45_000;
 const SPECIAL_MENTION_MEMBER_TTL_WS_MS = 180_000;
 const TEAM_FANOUT_BATCH_SIZE = 2;
@@ -239,6 +260,16 @@ declare global {
         currentChannelId?: string;
         currentTeamLabel: string | null;
         currentChannelLabel: string | null;
+        wsStatus: WebSocketStatus;
+        drawerOpen: boolean;
+        effectiveDrawerOpen: boolean;
+        railWidth: number;
+        requestedRailWidth: number;
+        autoAdjustThreadLayout: boolean;
+        canResizeRail: boolean;
+        threadLayoutMode: ResponsiveRailMode | "override";
+        hostLayout: MattermostHostLayout;
+        horizontalScrollLeft: number;
         columns: Array<{
           id: string;
           type: DeckColumnType;
@@ -1490,10 +1521,7 @@ function extractMattermostThemeStyle(): MattermostThemeStyle {
   };
 }
 
-function useMattermostThemeStyle(
-  theme: DeckTheme,
-  routeKey: string,
-): {
+function useMattermostThemeStyle(theme: DeckTheme): {
   initialSource: "cache" | "extract" | "none";
   style: MattermostThemeStyle | undefined;
 } {
@@ -1585,7 +1613,7 @@ function useMattermostThemeStyle(
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [routeKey, theme]);
+  }, [theme]);
 
   return {
     initialSource: initialSourceRef.current,
@@ -1625,14 +1653,17 @@ function parseDmChannelUserIds(channel: MattermostChannel): string[] {
   return parts.length === 2 ? parts.filter(Boolean) : [];
 }
 
-async function loadAppState(): Promise<Omit<AppState, "status" | "error">> {
-  const route = readCurrentRoute();
+interface LoadedAppState {
+  data: Omit<AppState, "status" | "error">;
+  routeIdentity: string;
+}
+
+async function loadAppState(): Promise<LoadedAppState> {
   const baseUser = await getCurrentUser();
 
-  const [teams, unreads, routeTeam, mentionGroups, preferences, clientConfig] = await Promise.all([
+  const [teams, unreads, mentionGroups, preferences, clientConfig] = await Promise.all([
     getTeamsForCurrentUser(),
     getTeamUnread(baseUser.id),
-    route.teamName ? getTeamByName(route.teamName).catch(() => null) : Promise.resolve(null),
     getMentionGroupsForUser(baseUser.id).catch(() => []),
     getUserPreferences(baseUser.id).catch(() => []),
     getMattermostClientConfig().catch(() => ({ CollapsedThreads: undefined })),
@@ -1653,22 +1684,53 @@ async function loadAppState(): Promise<Omit<AppState, "status" | "error">> {
     ),
   };
 
+  const route = readCurrentRoute();
+  const routeContext = await loadCurrentRouteContext(teams, route);
+
+  return {
+    data: {
+      userId: user.id,
+      username: user.username,
+      currentUser: user,
+      teams,
+      unreads,
+      ...routeContext,
+      sessionExpired: false,
+    },
+    routeIdentity: getRouteIdentity(route),
+  };
+}
+
+function getRouteIdentity(route: CurrentRoute): string {
+  return `${route.teamName ?? ""}\n${route.channelName ?? ""}`;
+}
+
+function getCurrentRouteIdentity(): string {
+  return getRouteIdentity(readCurrentRoute());
+}
+
+async function loadCurrentRouteContext(
+  teams: MattermostTeam[],
+  route = readCurrentRoute(),
+): Promise<CurrentRouteContext> {
+  const routeTeam = route.teamName
+    ? teams.find((team) => team.name === route.teamName) ?? null
+    : null;
   const routeChannel =
     routeTeam && route.channelName && !isLikelyDirectChannelRouteName(route.channelName)
-      ? await getChannelByName(routeTeam.id, route.channelName).catch(() => null)
+      ? await getChannelByName(routeTeam.id, route.channelName).catch((error: unknown) => {
+          if (getMattermostApiErrorStatus(error) === 404) {
+            return null;
+          }
+          throw error;
+        })
       : null;
 
   return {
-    userId: user.id,
-    username: user.username,
-    currentUser: user,
-    teams,
-    unreads,
     currentTeamId: routeTeam?.id,
     currentChannelId: routeChannel?.id,
     currentTeamLabel: routeTeam?.display_name ?? routeTeam?.name ?? route.teamName,
     currentChannelLabel: routeChannel?.display_name ?? routeChannel?.name ?? route.channelName,
-    sessionExpired: false,
   };
 }
 
@@ -1692,7 +1754,9 @@ function useDeckState(
     error: null,
     sessionExpired: false,
   });
-  const initialRouteHandledRef = useRef(false);
+  const routeIdentityRef = useRef<string | null>(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   useEffect(() => {
     if (state.sessionExpired) {
@@ -1712,24 +1776,38 @@ function useDeckState(
       if (showLoading) {
         setState((current) => ({
           ...current,
-          status: "loading",
+          status: current.status === "ready" ? "ready" : "loading",
           error: null,
         }));
       }
 
       try {
-        const data = await loadAppState();
+        const loaded = await loadAppState();
         if (!cancelled) {
+          const routeChangedWhileLoading =
+            loaded.routeIdentity !== getCurrentRouteIdentity();
           debugLog("app.deck-state.ready", {
-            currentTeamId: data.currentTeamId ?? null,
-            currentChannelId: data.currentChannelId ?? null,
+            currentTeamId: loaded.data.currentTeamId ?? null,
+            currentChannelId: loaded.data.currentChannelId ?? null,
+            routeContextPreserved: routeChangedWhileLoading,
             path: window.location.pathname,
           });
-          setState({
+          setState((current) => ({
             status: "ready",
             error: null,
-            ...data,
-          });
+            ...loaded.data,
+            ...(routeChangedWhileLoading
+              ? {
+                  currentTeamId: current.currentTeamId,
+                  currentChannelId: current.currentChannelId,
+                  currentTeamLabel: current.currentTeamLabel,
+                  currentChannelLabel: current.currentChannelLabel,
+                }
+              : {}),
+          }));
+          if (!routeChangedWhileLoading) {
+            routeIdentityRef.current = loaded.routeIdentity;
+          }
         }
       } catch (error) {
         if (!cancelled) {
@@ -1809,53 +1887,95 @@ function useDeckState(
     };
   }, [pollingIntervalSeconds, realtimeEnabled, refreshNonce, state.sessionExpired]);
 
+  const teamsSignature = state.teams
+    .map((team) => `${team.id}:${team.name}`)
+    .sort()
+    .join(",");
+
   useEffect(() => {
     if (state.sessionExpired) {
       return;
     }
 
-    if (!initialRouteHandledRef.current) {
-      initialRouteHandledRef.current = true;
+    if (state.teams.length === 0 && state.status === "loading") {
+      return;
+    }
+
+    const nextRouteIdentity = getCurrentRouteIdentity();
+    if (nextRouteIdentity === routeIdentityRef.current) {
+      debugLog("app.deck-state.route-context-skip", {
+        routeKey,
+        reason: "same-team-and-channel",
+        path: window.location.pathname,
+      });
       return;
     }
 
     let cancelled = false;
-    const run = async () => {
-      debugLog("app.deck-state.route-refresh", {
+    let retryTimer: number | null = null;
+    const run = async (attempt = 0) => {
+      debugLog("app.deck-state.route-context", {
         routeKey,
         path: window.location.pathname,
       });
 
       try {
-        const data = await loadAppState();
+        const data = await loadCurrentRouteContext(stateRef.current.teams);
         if (cancelled) {
+          return;
+        }
+        if (nextRouteIdentity !== getCurrentRouteIdentity()) {
           return;
         }
         setState((current) => ({
           ...current,
           ...data,
-          status: current.status === "error" ? "ready" : current.status,
-          error: null,
         }));
+        routeIdentityRef.current = nextRouteIdentity;
       } catch (error) {
         if (cancelled) {
           return;
         }
-        const message = getLocalizedApiErrorMessage(error, i18n.t("deck.failedToLoad"));
-        setState((current) => ({
-          ...current,
-          status: "error",
-          error: message,
-          sessionExpired: isMattermostSessionExpiredError(error),
-        }));
+        if (isMattermostSessionExpiredError(error)) {
+          const message = getLocalizedApiErrorMessage(error, i18n.t("deck.failedToLoad"));
+          setState((current) => ({
+            ...current,
+            status: "error",
+            error: message,
+            sessionExpired: true,
+          }));
+        } else if (
+          attempt < 2 &&
+          nextRouteIdentity === getCurrentRouteIdentity()
+        ) {
+          const retryDelayMs = 1_000 * (2 ** attempt);
+          debugLog("app.deck-state.route-context-retry", {
+            routeKey,
+            attempt: attempt + 1,
+            retryDelayMs,
+            path: window.location.pathname,
+          });
+          retryTimer = window.setTimeout(() => {
+            retryTimer = null;
+            void run(attempt + 1);
+          }, retryDelayMs);
+        }
+        debugLog("app.deck-state.route-context-error", {
+          routeKey,
+          message: error instanceof Error ? error.message : String(error),
+          path: window.location.pathname,
+        });
       }
     };
 
     void run();
     return () => {
       cancelled = true;
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer);
+      }
     };
-  }, [routeKey, state.sessionExpired]);
+  }, [routeKey, state.sessionExpired, state.status, teamsSignature]);
 
   return state;
 }
@@ -2265,6 +2385,7 @@ function useDeckSettingsState(): {
   pollingIntervalSeconds: number;
   fontScalePercent: number;
   preferredRailWidth: number;
+  autoAdjustThreadLayout: boolean;
   preferredColumnWidth: number;
   healthCheckPath: string;
   compactMode: boolean;
@@ -2283,6 +2404,7 @@ function useDeckSettingsState(): {
     pollingIntervalSeconds: number;
     fontScalePercent: number;
     preferredRailWidth: number;
+    autoAdjustThreadLayout: boolean;
     preferredColumnWidth: number;
     healthCheckPath: string;
     compactMode: boolean;
@@ -2300,6 +2422,7 @@ function useDeckSettingsState(): {
     pollingIntervalSeconds: 45,
     fontScalePercent: DEFAULT_SETTINGS.fontScalePercent,
     preferredRailWidth: DEFAULT_SETTINGS.preferredRailWidth,
+    autoAdjustThreadLayout: DEFAULT_SETTINGS.autoAdjustThreadLayout,
     preferredColumnWidth: DEFAULT_SETTINGS.preferredColumnWidth,
     healthCheckPath: DEFAULT_SETTINGS.healthCheckPath,
     compactMode: DEFAULT_SETTINGS.compactMode,
@@ -2410,10 +2533,291 @@ function useApiHealth(
   return healthStatus;
 }
 
+const MATTERMOST_RHS_SELECTOR = [
+  "#sidebar-right",
+  "#rhsContainer",
+  ".sidebar--right",
+  ".rhs-root",
+].join(", ");
+const MATTERMOST_CENTER_TARGET_SELECTOR = [
+  ".app__content",
+  "#channel_view",
+  ".product-wrapper",
+].join(", ");
+const MATTERMOST_THREAD_TARGET_SELECTOR = [
+  ".ThreadViewer",
+  "[data-testid='thread-viewer']",
+  "#reply_textbox",
+  "[id^='rhsPost_']",
+].join(", ");
+const MATTERMOST_LAYOUT_TARGET_SELECTOR = [
+  MATTERMOST_RHS_SELECTOR,
+  MATTERMOST_CENTER_TARGET_SELECTOR,
+  MATTERMOST_THREAD_TARGET_SELECTOR,
+].join(", ");
+
+function getHorizontalIntersectionWidth(left: DOMRect, right: DOMRect): number {
+  return Math.max(0, Math.min(left.right, right.right) - Math.max(left.left, right.left));
+}
+
+function isRenderedHostElement(element: HTMLElement): boolean {
+  const style = window.getComputedStyle(element);
+  const rect = element.getBoundingClientRect();
+  return (
+    style.display !== "none" &&
+    style.visibility !== "hidden" &&
+    rect.width > 1 &&
+    rect.height > 1
+  );
+}
+
+function readMattermostHostLayout(): MattermostHostLayout {
+  const mattermostRoot = document.querySelector<HTMLElement>("#root");
+  if (!mattermostRoot) {
+    return {
+      mattermostWidth: 0,
+      centerWidth: 0,
+      rightSidebarWidth: 0,
+    };
+  }
+
+  const mattermostRect = mattermostRoot.getBoundingClientRect();
+  const rootReportsRhsOpen =
+    mattermostRoot.classList.contains("rhs-open") ||
+    Boolean(mattermostRoot.querySelector(".channel-view.rhs-open, .channel__wrap.rhs-open"));
+  const visibleThread = Array.from(
+    mattermostRoot.querySelectorAll<HTMLElement>(MATTERMOST_THREAD_TARGET_SELECTOR),
+  ).some(isRenderedHostElement);
+  let rightSidebarWidth = 0;
+
+  for (const candidate of mattermostRoot.querySelectorAll<HTMLElement>(MATTERMOST_RHS_SELECTOR)) {
+    if (!isRenderedHostElement(candidate)) {
+      continue;
+    }
+
+    const rect = candidate.getBoundingClientRect();
+    const explicitlyOpen =
+      visibleThread &&
+      (
+        rootReportsRhsOpen ||
+        candidate.matches(".is-open, .move--left, [data-expanded='true']") ||
+        Boolean(candidate.closest(".is-open, .move--left, .rhs-open"))
+      );
+    const intersectionWidth = getHorizontalIntersectionWidth(rect, mattermostRect);
+    if (!explicitlyOpen || intersectionWidth < 1) {
+      continue;
+    }
+
+    rightSidebarWidth = Math.max(
+      rightSidebarWidth,
+      Math.min(rect.width, mattermostRect.width),
+    );
+  }
+
+  let centerWidth = 0;
+  for (const candidate of mattermostRoot.querySelectorAll<HTMLElement>(
+    MATTERMOST_CENTER_TARGET_SELECTOR,
+  )) {
+    if (!isRenderedHostElement(candidate)) {
+      continue;
+    }
+    centerWidth = Math.max(centerWidth, candidate.getBoundingClientRect().width);
+  }
+
+  return {
+    mattermostWidth: Math.max(0, Math.round(mattermostRect.width)),
+    centerWidth: Math.max(0, Math.round(centerWidth)),
+    rightSidebarWidth: Math.max(0, Math.round(rightSidebarWidth)),
+  };
+}
+
+const EMPTY_MATTERMOST_HOST_LAYOUT: MattermostHostLayout = {
+  mattermostWidth: 0,
+  centerWidth: 0,
+  rightSidebarWidth: 0,
+};
+
+function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
+  const [layout, setLayout] = useState<MattermostHostLayout>(() => (
+    enabled ? readMattermostHostLayout() : EMPTY_MATTERMOST_HOST_LAYOUT
+  ));
+
+  useEffect(() => {
+    if (!enabled) {
+      setLayout((current) => (
+        current.mattermostWidth === 0 &&
+        current.centerWidth === 0 &&
+        current.rightSidebarWidth === 0
+          ? current
+          : EMPTY_MATTERMOST_HOST_LAYOUT
+      ));
+      return;
+    }
+
+    let frame: number | null = null;
+    let settleTimer: number | null = null;
+    let observedMattermostRoot: HTMLElement | null = null;
+    const observedResizeTargets = new Set<HTMLElement>();
+
+    const commitMeasurement = () => {
+      frame = null;
+      const next = readMattermostHostLayout();
+      setLayout((current) => (
+        current.mattermostWidth === next.mattermostWidth &&
+        current.centerWidth === next.centerWidth &&
+        current.rightSidebarWidth === next.rightSidebarWidth
+          ? current
+          : next
+      ));
+    };
+
+    const requestMeasurement = () => {
+      if (frame === null) {
+        frame = window.requestAnimationFrame(commitMeasurement);
+      }
+    };
+
+    const scheduleSettledMeasurement = () => {
+      if (settleTimer !== null) {
+        window.clearTimeout(settleTimer);
+      }
+      settleTimer = window.setTimeout(() => {
+        settleTimer = null;
+        requestMeasurement();
+      }, HOST_LAYOUT_SETTLE_MS);
+    };
+
+    const scheduleMeasurement = () => {
+      requestMeasurement();
+      scheduleSettledMeasurement();
+    };
+
+    const resizeObserver = new ResizeObserver(scheduleSettledMeasurement);
+    const attributeObserver = new MutationObserver(() => {
+      syncResizeTargets();
+      scheduleMeasurement();
+    });
+
+    const syncAttributeTargets = () => {
+      attributeObserver.disconnect();
+      const mattermostRoot = document.querySelector<HTMLElement>("#root");
+      if (!mattermostRoot) {
+        return;
+      }
+
+      const options: MutationObserverInit = {
+        attributes: true,
+        attributeFilter: ["class", "aria-hidden", "data-expanded"],
+      };
+      attributeObserver.observe(mattermostRoot, options);
+      for (const element of mattermostRoot.querySelectorAll<HTMLElement>(
+        `${MATTERMOST_RHS_SELECTOR}, ${MATTERMOST_THREAD_TARGET_SELECTOR}`,
+      )) {
+        attributeObserver.observe(element, options);
+      }
+    };
+
+    const syncResizeTargets = () => {
+      const mattermostRoot = document.querySelector<HTMLElement>("#root");
+      const nextTargets = new Set<HTMLElement>();
+      if (mattermostRoot) {
+        nextTargets.add(mattermostRoot);
+        for (const element of mattermostRoot.querySelectorAll<HTMLElement>(
+          MATTERMOST_LAYOUT_TARGET_SELECTOR,
+        )) {
+          nextTargets.add(element);
+        }
+      }
+
+      for (const target of observedResizeTargets) {
+        if (!nextTargets.has(target)) {
+          resizeObserver.unobserve(target);
+          observedResizeTargets.delete(target);
+        }
+      }
+      for (const target of nextTargets) {
+        if (!observedResizeTargets.has(target)) {
+          resizeObserver.observe(target);
+          observedResizeTargets.add(target);
+        }
+      }
+
+      syncAttributeTargets();
+    };
+
+    const touchesLayoutTarget = (node: Node): boolean => {
+      if (!(node instanceof Element)) {
+        return false;
+      }
+      return (
+        node.id === "root" ||
+        node.matches(MATTERMOST_LAYOUT_TARGET_SELECTOR) ||
+        Boolean(node.querySelector(MATTERMOST_LAYOUT_TARGET_SELECTOR))
+      );
+    };
+
+    const structureObserver = new MutationObserver((mutations) => {
+      if (!mutations.some((mutation) => (
+        [...mutation.addedNodes, ...mutation.removedNodes].some(touchesLayoutTarget)
+      ))) {
+        return;
+      }
+      observeStructureTargets();
+      syncResizeTargets();
+      scheduleMeasurement();
+    });
+
+    const observeStructureTargets = () => {
+      const mattermostRoot = document.querySelector<HTMLElement>("#root");
+      if (mattermostRoot === observedMattermostRoot) {
+        return;
+      }
+
+      structureObserver.disconnect();
+      structureObserver.observe(document.body, { childList: true });
+      if (mattermostRoot) {
+        structureObserver.observe(mattermostRoot, {
+          childList: true,
+          subtree: true,
+        });
+      }
+      observedMattermostRoot = mattermostRoot;
+    };
+
+    observeStructureTargets();
+    syncResizeTargets();
+    scheduleMeasurement();
+    window.addEventListener("resize", scheduleMeasurement);
+
+    return () => {
+      window.removeEventListener("resize", scheduleMeasurement);
+      structureObserver.disconnect();
+      attributeObserver.disconnect();
+      resizeObserver.disconnect();
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+      if (settleTimer !== null) {
+        window.clearTimeout(settleTimer);
+      }
+    };
+  }, [enabled]);
+
+  return layout;
+}
+
 function useRailWidth(
   drawerOpen: boolean,
   preferredRailWidth: number,
-): [number, (nextWidth: number) => void, (nextWidth?: number) => void] {
+  hostLayout: MattermostHostLayout,
+  suppressThreadAdjustment: boolean,
+): [
+  number,
+  (nextWidth: number) => void,
+  (nextWidth?: number) => void,
+  ResponsiveRailMode,
+  number,
+] {
   const normalizedPreferredRailWidth = clampRailWidth(normalisePreferredRailWidth(preferredRailWidth));
   const [requestedRailWidth, setRequestedRailWidth] = useState<number>(normalizedPreferredRailWidth);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
@@ -2421,10 +2825,20 @@ function useRailWidth(
   const preferredRailWidthRef = useRef(normalizedPreferredRailWidth);
   const hasManualOverrideRef = useRef(false);
   const viewportResizeTimerRef = useRef<number | null>(null);
-  const railWidth = useMemo(
-    () => calculateResponsiveRailWidth(requestedRailWidth, viewportWidth),
-    [requestedRailWidth, viewportWidth],
+  const threadLayout = useMemo(
+    () => calculateThreadAwareRailLayout(requestedRailWidth, viewportWidth, hostLayout),
+    [
+      hostLayout.centerWidth,
+      hostLayout.mattermostWidth,
+      hostLayout.rightSidebarWidth,
+      requestedRailWidth,
+      viewportWidth,
+    ],
   );
+  const railWidth = suppressThreadAdjustment
+    ? calculateResponsiveRailWidth(requestedRailWidth, viewportWidth)
+    : threadLayout.width;
+  const threadLayoutMode = suppressThreadAdjustment ? "normal" : threadLayout.mode;
 
   useEffect(() => {
     let cancelled = false;
@@ -2472,7 +2886,14 @@ function useRailWidth(
   useEffect(() => {
     const handleResize = () => {
       const nextViewportWidth = window.innerWidth;
-      const nextRailWidth = calculateResponsiveRailWidth(requestedRailWidth, nextViewportWidth);
+      const nextThreadLayout = calculateThreadAwareRailLayout(
+        requestedRailWidth,
+        nextViewportWidth,
+        hostLayout,
+      );
+      const nextRailWidth = suppressThreadAdjustment
+        ? calculateResponsiveRailWidth(requestedRailWidth, nextViewportWidth)
+        : nextThreadLayout.width;
       document.body.classList.add(VIEWPORT_RESIZING_CLASS);
       document.documentElement.style.setProperty("--mattermost-deck-rail-width", `${nextRailWidth}px`);
       document.documentElement.style.setProperty(
@@ -2499,7 +2920,7 @@ function useRailWidth(
       }
       document.body.classList.remove(VIEWPORT_RESIZING_CLASS);
     };
-  }, [drawerOpen, requestedRailWidth]);
+  }, [drawerOpen, hostLayout, requestedRailWidth, suppressThreadAdjustment]);
 
   const updateRailWidth = useCallback((nextWidth: number) => {
     const normalizedWidth = clampRailWidth(nextWidth);
@@ -2518,7 +2939,13 @@ function useRailWidth(
     void saveStoredNumber(RAIL_WIDTH_STORAGE_KEY, normalizedWidth);
   }, []);
 
-  return [railWidth, updateRailWidth, persistRailWidth];
+  return [
+    railWidth,
+    updateRailWidth,
+    persistRailWidth,
+    threadLayoutMode,
+    requestedRailWidth,
+  ];
 }
 
 function TeamSelect({
@@ -3486,6 +3913,8 @@ function MentionsColumn({
   deletedPostIds,
   deletedPostIdsRef,
   reconnectNonce,
+  readRefreshNonce,
+  realtimeReadMarkers,
   pollingIntervalSeconds,
   canMoveLeft,
   canMoveRight,
@@ -3520,6 +3949,8 @@ function MentionsColumn({
   deletedPostIds: string[];
   deletedPostIdsRef: React.RefObject<Set<string>>;
   reconnectNonce: number;
+  readRefreshNonce: number;
+  realtimeReadMarkers: MentionReadMarkers;
   pollingIntervalSeconds: number;
   canMoveLeft: boolean;
   canMoveRight: boolean;
@@ -3567,20 +3998,32 @@ function MentionsColumn({
   const specialMentionMembersCacheRef = useRef<Record<string, { expiresAt: number; members: MattermostChannelMember[] }>>({});
   const mentionPostsRef = useRef<MattermostPost[]>([]);
   const postedEventsRef = useRef(postedEvents);
+  const currentRouteRef = useRef({
+    teamId: currentTeamId,
+    channelId: currentChannelId,
+  });
   postedEventsRef.current = postedEvents;
+  currentRouteRef.current = {
+    teamId: currentTeamId,
+    channelId: currentChannelId,
+  };
   const [mentionReadState, setMentionReadState] = useState<MentionReadState>({
     channelLastViewedAt: {},
     threadLastViewedAt: {},
     activeChannelIds: null,
   });
+  const effectiveMentionReadState = useMemo(
+    () => applyMentionReadMarkers(mentionReadState, realtimeReadMarkers),
+    [mentionReadState, realtimeReadMarkers],
+  );
   const selectedTeam = teams.find((team) => team.id === column.teamId);
   const activePosts = useMemo(
-    () => filterActiveMentionPosts(postState.posts, mentionReadState),
-    [mentionReadState, postState.posts],
+    () => filterActiveMentionPosts(postState.posts, effectiveMentionReadState),
+    [effectiveMentionReadState, postState.posts],
   );
   const unreadPosts = useMemo(
-    () => filterUnreadMentionPosts(activePosts, mentionReadState),
-    [activePosts, mentionReadState],
+    () => filterUnreadMentionPosts(activePosts, effectiveMentionReadState),
+    [activePosts, effectiveMentionReadState],
   );
   const mentionCount = useMemo(
     () => {
@@ -3697,6 +4140,10 @@ function MentionsColumn({
         };
       }
 
+      const {
+        teamId: activeTeamId,
+        channelId: activeChannelId,
+      } = currentRouteRef.current;
       const now = Date.now();
       const cachedMembers = specialMentionMembersCacheRef.current[teamId];
       let members: MattermostChannelMember[];
@@ -3721,13 +4168,13 @@ function MentionsColumn({
       const candidateMembersByChannel = new Map(
         serverCountedMembers.map((member) => [member.channel_id, member]),
       );
-      if (currentTeamId === teamId && currentChannelId) {
-        const currentMember = members.find((member) => member.channel_id === currentChannelId);
+      if (activeTeamId === teamId && activeChannelId) {
+        const currentMember = members.find((member) => member.channel_id === activeChannelId);
         if (currentMember) {
           // Mattermost does not count a user's own @here/@channel post as an
           // unread mention, but it is still part of their recent-mentions
           // search. Scanning the open channel also bridges search-index delay.
-          candidateMembersByChannel.set(currentChannelId, currentMember);
+          candidateMembersByChannel.set(activeChannelId, currentMember);
         }
       }
       const candidateMembers = Array.from(candidateMembersByChannel.values());
@@ -3758,8 +4205,8 @@ function MentionsColumn({
         async (member) => {
           try {
             const isCurrentChannel =
-              currentTeamId === teamId &&
-              currentChannelId === member.channel_id;
+              activeTeamId === teamId &&
+              activeChannelId === member.channel_id;
             const [postsSinceReadMarker, recentPosts] = await Promise.all([
               getPostsSince(member.channel_id, member.last_viewed_at ?? 0),
               isCurrentChannel
@@ -3894,8 +4341,6 @@ function MentionsColumn({
       return { posts, members, activeChannelIds };
     },
     [
-      currentChannelId,
-      currentTeamId,
       currentUserId,
       collapsedReplyThreads,
       commentsNotify,
@@ -4373,6 +4818,7 @@ function MentionsColumn({
         mentionPollingIntervalMs,
         mentionSearchTerms,
         paused,
+        readRefreshNonce,
         reconnectNonce,
         refreshNonce,
         teamIds,
@@ -4561,8 +5007,8 @@ function MentionsColumn({
       postMessages: postState.posts.map((post) => post.message),
       visiblePostIds: visiblePosts.map((post) => post.id),
       visiblePostMessages: visiblePosts.map((post) => post.message),
-      channelLastViewedAt: mentionReadState.channelLastViewedAt,
-      threadLastViewedAt: mentionReadState.threadLastViewedAt,
+      channelLastViewedAt: effectiveMentionReadState.channelLastViewedAt,
+      threadLastViewedAt: effectiveMentionReadState.threadLastViewedAt,
       mentionCount,
       teamId: column.teamId,
     };
@@ -4576,8 +5022,8 @@ function MentionsColumn({
     column.id,
     column.teamId,
     mentionCount,
-    mentionReadState.channelLastViewedAt,
-    mentionReadState.threadLastViewedAt,
+    effectiveMentionReadState.channelLastViewedAt,
+    effectiveMentionReadState.threadLastViewedAt,
     postState.posts,
     postState.status,
     visiblePosts,
@@ -6490,6 +6936,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
   const currentRoute = useMemo(() => readCurrentRoute(), [currentRouteKey]);
   const [reconnectNonce, setReconnectNonce] = useState(0);
+  const [mentionReadRefreshNonce, setMentionReadRefreshNonce] = useState(0);
+  const [realtimeReadMarkers, setRealtimeReadMarkers] = useState<MentionReadMarkers>({
+    channelLastViewedAt: {},
+    threadLastViewedAt: {},
+  });
   const [stateRefreshNonce, setStateRefreshNonce] = useState(0);
   const [postedEvents, setPostedEvents] = useState<PostedEvent[]>([]);
   const [deletedPostIds, setDeletedPostIds] = useState<string[]>([]);
@@ -6505,11 +6956,48 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   useEffect(() => { void i18n.changeLanguage(deckSettings.language); }, [deckSettings.language]);
   const effectiveRealtimeEnabled = deckSettings.wsPat.trim().length > 0 && !realtimeAuthError;
   const state = useDeckState(currentRouteKey, stateRefreshNonce, effectiveRealtimeEnabled, deckSettings.pollingIntervalSeconds);
+  useEffect(() => {
+    setRealtimeReadMarkers({
+      channelLastViewedAt: {},
+      threadLastViewedAt: {},
+    });
+  }, [state.userId]);
   const [mentionsLastReadAt, setMentionsLastReadAt] = useMentionsLastReadAt();
   const [columns, addColumn, removeColumn, updateColumn, moveColumn, replaceColumns] = useDeckLayout();
   const [recentTargets, rememberRecentTarget] = useRecentTargets();
   const [savedViews, saveView, removeView, getView] = useSavedViews();
-  const [railWidth, setRailWidth, persistRailWidth] = useRailWidth(drawerOpen, deckSettings.preferredRailWidth);
+  const automaticThreadLayoutEnabled = (
+    deckSettings.loaded &&
+    deckSettings.autoAdjustThreadLayout
+  );
+  const hostLayout = useMattermostHostLayout(automaticThreadLayoutEnabled);
+  const [threadLayoutOverride, setThreadLayoutOverride] = useState(false);
+  const [
+    railWidth,
+    setRailWidth,
+    persistRailWidth,
+    threadLayoutMode,
+    requestedRailWidth,
+  ] = useRailWidth(
+    drawerOpen,
+    deckSettings.preferredRailWidth,
+    hostLayout,
+    threadLayoutOverride || !automaticThreadLayoutEnabled,
+  );
+  const autoCollapsed = (
+    drawerOpen &&
+    threadLayoutMode === "collapsed" &&
+    !threadLayoutOverride
+  );
+  const effectiveDrawerOpen = drawerOpen && !autoCollapsed;
+  const threadLayoutConstrained = (
+    hostLayout.rightSidebarWidth > 0 &&
+    threadLayoutMode !== "normal" &&
+    !threadLayoutOverride
+  );
+  const canResizeRail = effectiveDrawerOpen && !threadLayoutConstrained;
+  const [threadLayoutAnnouncement, setThreadLayoutAnnouncement] = useState("");
+  const previousThreadLayoutModeRef = useRef<ResponsiveRailMode>("normal");
   const [isResizing, setIsResizing] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showViewsMenu, setShowViewsMenu] = useState(false);
@@ -6522,6 +7010,13 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const [focusedColumnId, setFocusedColumnId] = useState<string | null>(null);
   const [pendingScrollColumnId, setPendingScrollColumnId] = useState<string | null>(null);
   const shellRef = useRef<HTMLElement | null>(null);
+  const drawerToggleRef = useRef<HTMLButtonElement | null>(null);
+  const deckContentRef = useRef<HTMLDivElement | null>(null);
+  const scrollWrapRef = useRef<HTMLDivElement | null>(null);
+  const lastHorizontalScrollLeftRef = useRef(0);
+  const threadScrollLeftRef = useRef<number | null>(null);
+  const wasThreadConstrainedRef = useRef(false);
+  const deckContentHadFocusRef = useRef(false);
   const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const previousColumnRectsRef = useRef<Record<string, DOMRect>>({});
   const previousColumnOrderRef = useRef<string[]>([]);
@@ -6538,7 +7033,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const wsStatus = useWebSocketStatus();
   const syncLogs = useSyncLogs();
   const runtimeMetrics = useRuntimePerformanceSnapshot();
-  const mattermostThemeState = useMattermostThemeStyle(deckSettings.theme, currentRouteKey);
+  const mattermostThemeState = useMattermostThemeStyle(deckSettings.theme);
   const mattermostThemeStyle = mattermostThemeState.style;
   const apiHealthStatus = useApiHealth(state.status, deckSettings.healthCheckPath, deckSettings.pollingIntervalSeconds);
   const shellStyle = useMemo(
@@ -6555,6 +7050,72 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   useEffect(() => {
     userDirectoryRef.current = userDirectory;
   }, [userDirectory]);
+
+  useEffect(() => {
+    if (hostLayout.rightSidebarWidth <= 0) {
+      setThreadLayoutOverride(false);
+    }
+  }, [hostLayout.rightSidebarWidth]);
+
+  useEffect(() => {
+    const previousMode = previousThreadLayoutModeRef.current;
+    if (previousMode === threadLayoutMode) {
+      return;
+    }
+
+    if (threadLayoutMode === "compact") {
+      setThreadLayoutAnnouncement(text.threadLayoutCompactStatus);
+    } else if (threadLayoutMode === "collapsed") {
+      setThreadLayoutAnnouncement(text.threadLayoutCollapsedStatus);
+    } else {
+      setThreadLayoutAnnouncement(text.threadLayoutRestoredStatus);
+    }
+    previousThreadLayoutModeRef.current = threadLayoutMode;
+  }, [
+    text.threadLayoutCollapsedStatus,
+    text.threadLayoutCompactStatus,
+    text.threadLayoutRestoredStatus,
+    threadLayoutMode,
+  ]);
+
+  useLayoutEffect(() => {
+    const wasConstrained = wasThreadConstrainedRef.current;
+    const scrollWrap = scrollWrapRef.current;
+
+    if (threadLayoutConstrained && !wasConstrained && scrollWrap) {
+      threadScrollLeftRef.current = lastHorizontalScrollLeftRef.current;
+    } else if (!threadLayoutConstrained && wasConstrained && scrollWrap) {
+      const restoreLeft = threadScrollLeftRef.current;
+      if (restoreLeft !== null) {
+        scrollWrap.scrollLeft = restoreLeft;
+        lastHorizontalScrollLeftRef.current = restoreLeft;
+        window.requestAnimationFrame(() => {
+          if (scrollWrap.isConnected) {
+            scrollWrap.scrollLeft = restoreLeft;
+          }
+        });
+      }
+      threadScrollLeftRef.current = null;
+    }
+
+    wasThreadConstrainedRef.current = threadLayoutConstrained;
+  }, [threadLayoutConstrained]);
+
+  useLayoutEffect(() => {
+    if (!autoCollapsed) {
+      return;
+    }
+
+    const activeElement = shadowRoot?.activeElement;
+    const contentContainsFocus = Boolean(
+      activeElement &&
+      deckContentRef.current?.contains(activeElement),
+    );
+    if (contentContainsFocus || deckContentHadFocusRef.current) {
+      drawerToggleRef.current?.focus();
+      deckContentHadFocusRef.current = false;
+    }
+  }, [autoCollapsed, shadowRoot]);
 
   useEffect(() => {
     setRealtimeAuthError(null);
@@ -6687,6 +7248,13 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   }, [isResizing]);
 
   useEffect(() => {
+    if (!canResizeRail && isResizing) {
+      resizeStateRef.current = null;
+      setIsResizing(false);
+    }
+  }, [canResizeRail, isResizing]);
+
+  useEffect(() => {
     if (!focusedColumnId) {
       return;
     }
@@ -6812,7 +7380,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       return;
     }
 
-    return connectMattermostWebSocket({
+    let websocketEffectActive = true;
+    const disconnect = connectMattermostWebSocket({
       userId: state.userId,
       username: state.username,
       enabled: effectiveRealtimeEnabled && !state.sessionExpired,
@@ -6884,8 +7453,110 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         setStateRefreshNonce((current) => current + 1);
         setReconnectNonce((current) => current + 1);
       },
-      onUnreadChanged: () => {
-        debugLog("app.ws.unread-refresh", { reason: "read-state-changed" });
+      onUnreadChanged: (change) => {
+        const hasChannelMarkers =
+          Object.keys(change.channelLastViewedAt).length > 0;
+        const hasThreadMarkers =
+          Object.keys(change.threadLastViewedAt).length > 0;
+        if (hasChannelMarkers || hasThreadMarkers) {
+          debugLog("app.ws.unread-local-update", {
+            eventType: change.eventType,
+            channelCount: Object.keys(change.channelLastViewedAt).length,
+            threadCount: Object.keys(change.threadLastViewedAt).length,
+          });
+          setRealtimeReadMarkers((current) =>
+            mergeMentionReadMarkers(current, change)
+          );
+          return;
+        }
+
+        if (isChannelReadStateEvent(change.eventType)) {
+          if (change.channelIds.length === 0) {
+            debugLog("app.ws.unread-local-noop", {
+              eventType: change.eventType,
+              reason: "channel-read-event-without-markers",
+            });
+            return;
+          }
+          debugLog("app.ws.unread-marker-lookup", {
+            eventType: change.eventType,
+            channelCount: change.channelIds.length,
+          });
+          void Promise.all(
+            change.channelIds.map(async (channelId) => {
+              for (let attempt = 0; attempt < 2; attempt += 1) {
+                try {
+                  return await getMyChannelMember(channelId, { fresh: true });
+                } catch (error) {
+                  if (
+                    isMattermostSessionExpiredError(error) ||
+                    attempt === 1
+                  ) {
+                    return null;
+                  }
+                  await new Promise((resolve) =>
+                    window.setTimeout(resolve, 750)
+                  );
+                  if (!websocketEffectActive) {
+                    return null;
+                  }
+                }
+              }
+              return null;
+            }),
+          ).then((members) => {
+            if (!websocketEffectActive) {
+              return;
+            }
+            const channelLastViewedAt = Object.fromEntries(
+              members.flatMap((member) =>
+                member?.channel_id && member.last_viewed_at !== undefined
+                  ? [[
+                      member.channel_id,
+                      Math.max(0, member.last_viewed_at),
+                    ] as const]
+                  : []
+              ),
+            );
+            if (Object.keys(channelLastViewedAt).length > 0) {
+              setRealtimeReadMarkers((current) =>
+                mergeMentionReadMarkers(current, {
+                  channelLastViewedAt,
+                  threadLastViewedAt: {},
+                })
+              );
+            } else {
+              debugLog("app.ws.unread-marker-lookup-failed", {
+                eventType: change.eventType,
+                channelCount: change.channelIds.length,
+                reason: "read-marker-will-reconcile-on-next-poll",
+              });
+            }
+          });
+          return;
+        }
+
+        if (
+          change.eventType === "thread_read_changed" ||
+          change.eventType === "post_unread"
+        ) {
+          if (change.eventType === "post_unread") {
+            setRealtimeReadMarkers((current) =>
+              invalidateMentionReadMarkers(current, change)
+            );
+          }
+          debugLog("app.ws.unread-mentions-refresh", {
+            eventType: change.eventType,
+            reason: "read-marker-not-in-event",
+          });
+          setMentionReadRefreshNonce((current) => current + 1);
+          return;
+        }
+
+        debugLog("app.ws.unread-structural-refresh", {
+          eventType: change.eventType,
+          reason: "channel-or-membership-changed",
+        });
         setStateRefreshNonce((current) => current + 1);
         setReconnectNonce((current) => current + 1);
       },
@@ -6893,10 +7564,14 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         setRealtimeAuthError(message);
       },
     });
+    return () => {
+      websocketEffectActive = false;
+      disconnect();
+    };
   }, [columns, deckSettings.wsPat, effectiveRealtimeEnabled, state.sessionExpired, state.userId, state.username]);
 
   useEffect(() => {
-    if (!isResizing || !drawerOpen) {
+    if (!isResizing || !canResizeRail) {
       return;
     }
 
@@ -6955,7 +7630,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       }
       pendingWidthRef.current = null;
     };
-  }, [drawerOpen, isResizing, persistRailWidth, setRailWidth]);
+  }, [canResizeRail, isResizing, persistRailWidth, setRailWidth]);
 
   useEffect(() => {
     const root = document.getElementById(DECK_ROOT_ID);
@@ -6964,7 +7639,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   }, [isResizing]);
 
   const handleResizeStart = (event: React.PointerEvent<HTMLButtonElement>) => {
-    if (!drawerOpen) {
+    if (!canResizeRail) {
       return;
     }
 
@@ -6975,7 +7650,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   };
 
   const handleResizeKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (!drawerOpen || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) {
+    if (!canResizeRail || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) {
       return;
     }
 
@@ -6983,6 +7658,18 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     const nextWidth = railWidth + (event.key === "ArrowLeft" ? step : -step);
     persistRailWidth(nextWidth);
     event.preventDefault();
+  };
+
+  const handleDrawerToggle = () => {
+    if (!effectiveDrawerOpen && threadLayoutMode === "collapsed") {
+      setThreadLayoutOverride(true);
+      if (!drawerOpen) {
+        setDrawerOpen(true);
+      }
+      return;
+    }
+
+    setDrawerOpen(!drawerOpen);
   };
 
   const handleOpenSettings = () => {
@@ -7280,6 +7967,20 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         currentChannelId: state.currentChannelId,
         currentTeamLabel: state.currentTeamLabel,
         currentChannelLabel: state.currentChannelLabel,
+        wsStatus,
+        drawerOpen,
+        effectiveDrawerOpen,
+        railWidth,
+        requestedRailWidth,
+        autoAdjustThreadLayout: deckSettings.autoAdjustThreadLayout,
+        canResizeRail,
+        threadLayoutMode: (
+          threadLayoutOverride && hostLayout.rightSidebarWidth > 0
+            ? "override"
+            : threadLayoutMode
+        ),
+        hostLayout,
+        horizontalScrollLeft: scrollWrapRef.current?.scrollLeft ?? 0,
         columns: (columns ?? []).map((column) => ({
           id: column.id,
           type: column.type,
@@ -7322,6 +8023,13 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       let result: unknown = null;
       if (action === "getState") {
         result = debugApi?.getState() ?? null;
+      } else if (action === "setHorizontalScrollLeft") {
+        const next = Number(payload.value);
+        if (scrollWrapRef.current && Number.isFinite(next)) {
+          scrollWrapRef.current.scrollLeft = next;
+          lastHorizontalScrollLeftRef.current = scrollWrapRef.current.scrollLeft;
+          result = scrollWrapRef.current.scrollLeft;
+        }
       } else if (action === "getThemeState") {
         result = debugApi?.getThemeState() ?? null;
       } else if (action === "addColumn") {
@@ -7409,16 +8117,31 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     };
   }, [
     columns,
+    canResizeRail,
     contentMounted,
+    currentRouteKey,
+    deckSettings.autoAdjustThreadLayout,
     deckSettings.theme,
+    drawerOpen,
+    effectiveDrawerOpen,
     handleAddColumn,
+    hostLayout,
     mattermostThemeState.initialSource,
     mattermostThemeStyle,
     moveColumn,
+    railWidth,
     removeColumn,
+    requestedRailWidth,
+    state.currentChannelId,
+    state.currentChannelLabel,
+    state.currentTeamId,
+    state.currentTeamLabel,
     state.status,
     state.username,
+    threadLayoutMode,
+    threadLayoutOverride,
     updateColumn,
+    wsStatus,
   ]);
 
   const isInitialLoading = state.status === "loading" || columns === null;
@@ -7428,10 +8151,15 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     <ShadowRootContext.Provider value={shadowRoot}>
     <aside
       ref={shellRef}
-      className={`deck-shell${drawerOpen ? "" : " deck-shell--collapsed"}`}
+      className={`deck-shell${effectiveDrawerOpen ? "" : " deck-shell--collapsed"}`}
       aria-label="Mattermost Deck"
       data-theme={deckSettings.theme === "mattermost" ? "mattermost" : resolveTheme(deckSettings.theme)}
       data-column-color-enabled={deckSettings.columnColorEnabled ? "true" : "false"}
+      data-thread-layout-mode={
+        threadLayoutOverride && hostLayout.rightSidebarWidth > 0
+          ? "override"
+          : threadLayoutMode
+      }
       style={shellStyle}
     >
       <input
@@ -7441,12 +8169,15 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         className="deck-hidden-file-input"
         onChange={handleImportFileChange}
       />
+      <div className="deck-sr-only" aria-live="polite" aria-atomic="true">
+        {threadLayoutAnnouncement}
+      </div>
       <button
         type="button"
         className={`deck-resizer${isResizing ? " deck-resizer--active" : ""}`}
         onPointerDown={handleResizeStart}
         onKeyDown={handleResizeKeyDown}
-        disabled={!drawerOpen}
+        disabled={!canResizeRail}
         aria-label={text.resizeLabel}
         aria-keyshortcuts="ArrowLeft ArrowRight"
         title={text.resizeDrag}
@@ -7455,18 +8186,37 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       </button>
 
       <button
+        ref={drawerToggleRef}
         type="button"
         className="deck-drawer-toggle"
-        onClick={() => setDrawerOpen(!drawerOpen)}
-        aria-label={drawerOpen ? text.hideDeck : text.showDeck}
-        title={drawerOpen ? text.hideDeck : text.showDeck}
+        onClick={handleDrawerToggle}
+        aria-controls={DECK_CONTENT_ID}
+        aria-expanded={effectiveDrawerOpen}
+        aria-label={effectiveDrawerOpen ? text.hideDeck : text.showDeck}
+        title={effectiveDrawerOpen ? text.hideDeck : text.showDeck}
       >
-        <DrawerToggleIcon open={drawerOpen} />
+        <DrawerToggleIcon open={effectiveDrawerOpen} />
       </button>
 
-      {!drawerOpen && <div className="deck-collapsed-banner">Mattermost Deck</div>}
+      {!effectiveDrawerOpen && <div className="deck-collapsed-banner">Mattermost Deck</div>}
       {contentMounted && (
-        <div style={{ display: drawerOpen ? "contents" : "none" }}>
+        <div
+          ref={deckContentRef}
+          id={DECK_CONTENT_ID}
+          style={{ display: effectiveDrawerOpen ? "contents" : "none" }}
+          onFocusCapture={() => {
+            deckContentHadFocusRef.current = true;
+          }}
+          onBlurCapture={() => {
+            window.requestAnimationFrame(() => {
+              const activeElement = shadowRoot?.activeElement;
+              deckContentHadFocusRef.current = Boolean(
+                activeElement &&
+                deckContentRef.current?.contains(activeElement),
+              );
+            });
+          }}
+        >
           <header className={`deck-topbar deck-topbar--compact${isCompactHeader ? " deck-topbar--collapsed" : ""}`}>
             <div className="deck-topbar-copy">
               <h1>
@@ -7813,7 +8563,15 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
             </div>
           </header>
 
-          <div className="deck-scroll-wrap">
+          <div
+            ref={scrollWrapRef}
+            className="deck-scroll-wrap"
+            onScroll={(event) => {
+              if (effectiveDrawerOpen) {
+                lastHorizontalScrollLeftRef.current = event.currentTarget.scrollLeft;
+              }
+            }}
+          >
             <main
               className={`deck-columns${focusedColumnId ? " deck-columns--focus" : ""}`}
               style={{
@@ -7872,6 +8630,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           deletedPostIds={deletedPostIds}
                           deletedPostIdsRef={deletedPostIdsRef}
                           reconnectNonce={reconnectNonce}
+                          readRefreshNonce={mentionReadRefreshNonce}
+                          realtimeReadMarkers={realtimeReadMarkers}
                           pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
                           canMoveLeft={index > 0}
                           canMoveRight={index < allColumns.length - 1}

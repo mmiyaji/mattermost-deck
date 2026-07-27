@@ -17,6 +17,7 @@ const ROOT_WIDTH_EXPR = "clamp(320px, 32vw, 420px)";
 const INITIAL_RENDER_DELAY_MS = 100;
 const MATTERMOST_GUARD_SUCCESS_TTL_MS = 30_000;
 const MATTERMOST_GUARD_FAILURE_TTL_MS = 10_000;
+const MATTERMOST_SESSION_HEARTBEAT_MS = 60_000;
 const ROUTE_SETTLE_DELAY_MS = 180;
 const ROUTE_MISMATCH_GRACE_MS = 500;
 const ROUTE_FALLBACK_POLL_MS = 5_000;
@@ -28,6 +29,7 @@ let routeNotifyTimer: number | null = null;
 let dialogMutationTimer: number | null = null;
 let dialogObserver: MutationObserver | null = null;
 let cleanupTimer: number | null = null;
+let sessionHeartbeatTimer: number | null = null;
 let lastRenderKey = "";
 let renderVersion = 0;
 let currentSettings: DeckSettings = DEFAULT_SETTINGS;
@@ -41,6 +43,7 @@ let guardCache:
     }
   | null = null;
 let guardInflight: Promise<boolean> | null = null;
+let guardLastStatus: number | null = null;
 const DEBUG_FLAG_KEY = "mattermostDeck.debugLogs";
 
 function getConfiguredLocation(): { origin: string; basePath: string } | null {
@@ -177,6 +180,7 @@ async function verifyMattermostSession(): Promise<boolean> {
       });
 
       const ok = response.ok;
+      guardLastStatus = response.status;
       guardCache = {
         origin: window.location.origin,
         expiresAt: Date.now() + (ok ? MATTERMOST_GUARD_SUCCESS_TTL_MS : MATTERMOST_GUARD_FAILURE_TTL_MS),
@@ -184,6 +188,7 @@ async function verifyMattermostSession(): Promise<boolean> {
       };
       return ok;
     } catch {
+      guardLastStatus = null;
       guardCache = {
         origin: window.location.origin,
         expiresAt: Date.now() + MATTERMOST_GUARD_FAILURE_TTL_MS,
@@ -196,6 +201,27 @@ async function verifyMattermostSession(): Promise<boolean> {
   })();
 
   return await guardInflight;
+}
+
+function ensureSessionHeartbeat(): void {
+  if (sessionHeartbeatTimer !== null) {
+    return;
+  }
+
+  sessionHeartbeatTimer = window.setInterval(() => {
+    if (!appRoot || !matchesConfiguredRoute()) {
+      return;
+    }
+
+    void verifyMattermostSession().then((ok) => {
+      if (!ok && guardLastStatus === 401 && appRoot) {
+        debugLog("content.session.expired", {
+          path: window.location.pathname,
+        });
+        cleanup();
+      }
+    });
+  }, MATTERMOST_SESSION_HEARTBEAT_MS);
 }
 
 function ensureStyle(): void {
@@ -260,6 +286,13 @@ function ensureStyle(): void {
       right: 0 !important;
     }
 
+    @media (prefers-reduced-motion: reduce) {
+      #${ROOT_ID},
+      body.${BODY_CLASS} #root {
+        transition: none !important;
+      }
+    }
+
     @media (max-width: 1100px) {
       :root {
         ${RAIL_WIDTH_VAR}: clamp(280px, 38vw, 360px);
@@ -298,6 +331,10 @@ function cleanup(): void {
   if (appRoot) {
     appRoot.unmount();
     appRoot = null;
+  }
+  if (sessionHeartbeatTimer !== null) {
+    window.clearInterval(sessionHeartbeatTimer);
+    sessionHeartbeatTimer = null;
   }
   deckShadowRoot = null;
 }
@@ -359,6 +396,28 @@ async function render(): Promise<void> {
 
   clearPendingCleanup();
 
+  const existingMountPoint = document.getElementById(ROOT_ID);
+  if (
+    appRoot &&
+    existingMountPoint instanceof HTMLDivElement &&
+    deckShadowRoot?.host === existingMountPoint
+  ) {
+    // Route changes inside an already-authenticated Mattermost SPA must not
+    // repeat the session guard or recreate the Deck tree. API polling detects
+    // an expired session independently.
+    ensureStyle();
+    document.body.classList.add(BODY_CLASS);
+    const normalZIndex = currentSettings.highZIndex ? "2147483646" : "999";
+    existingMountPoint.style.zIndex = dialogOpen ? "0" : normalZIndex;
+    debugLog("content.render.route-update", { routeKey });
+    notifyAppRouteChange(routeKey);
+    return;
+  }
+  if (appRoot) {
+    // Recover from external DOM removal before establishing a fresh root.
+    cleanup();
+  }
+
   if (!(await verifyMattermostSession())) {
     debugLog("content.render.skip.session", { routeKey });
     cleanup();
@@ -409,7 +468,6 @@ async function render(): Promise<void> {
     shadowRoot.append(style);
   }
 
-  const hadMountedApp = Boolean(appRoot);
   let reactRoot = shadowRoot.getElementById(REACT_ROOT_ID);
   if (!(reactRoot instanceof HTMLDivElement)) {
     reactRoot = document.createElement("div");
@@ -421,14 +479,9 @@ async function render(): Promise<void> {
 
   appRoot ??= createRoot(reactRoot);
 
-  if (hadMountedApp) {
-    debugLog("content.render.route-update", { routeKey });
-    notifyAppRouteChange(routeKey);
-    return;
-  }
-
   debugLog("content.render.commit", { routeKey });
   appRoot.render(<App routeKey={routeKey} shadowRoot={shadowRoot} />);
+  ensureSessionHeartbeat();
 }
 
 function installRouteWatcher(): void {

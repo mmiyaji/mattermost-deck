@@ -7,6 +7,7 @@ import type {
   TeamUnread,
 } from "../mattermost/api";
 import {
+  applyMentionReadMarkers,
   buildMentionReadState,
   buildMentionSearchTerms,
   filterActiveMentionPosts,
@@ -15,7 +16,9 @@ import {
   getMattermostMentionKeys,
   getUnreadPostsFromThread,
   hasMentionRelevantPostChanged,
+  invalidateMentionReadMarkers,
   isCollapsedThreadsEnabled,
+  mergeMentionReadMarkers,
   messageMatchesMentionKeys,
   postMatchesMentionCandidate,
   postMatchesImplicitMention,
@@ -265,6 +268,85 @@ describe("mention feed", () => {
         [{ ...threads[0], last_viewed_at: 350, unread_replies: 0, unread_mentions: 0 }],
       ),
     )).toEqual([]);
+  });
+
+  it("applies realtime read markers monotonically without changing channel membership", () => {
+    const state = buildMentionReadState(
+      [
+        { channel_id: "channel-a", user_id: "me", last_viewed_at: 300 },
+        { channel_id: "channel-b", user_id: "me", last_viewed_at: 200 },
+      ],
+      [{
+        id: "root-a",
+        reply_count: 1,
+        last_reply_at: 300,
+        last_viewed_at: 250,
+        post: post("root-a", "channel-a", 100),
+        unread_replies: 1,
+        unread_mentions: 1,
+      }],
+      ["channel-a", "channel-b"],
+    );
+    const markers = mergeMentionReadMarkers(
+      {
+        channelLastViewedAt: { "channel-a": 350 },
+        threadLastViewedAt: {},
+      },
+      {
+        channelLastViewedAt: {
+          "channel-a": 325,
+          "channel-b": 450,
+        },
+        threadLastViewedAt: { "root-a": 500 },
+      },
+    );
+
+    expect(applyMentionReadMarkers(state, markers)).toEqual({
+      channelLastViewedAt: {
+        "channel-a": 350,
+        "channel-b": 450,
+      },
+      threadLastViewedAt: { "root-a": 500 },
+      activeChannelIds: {
+        "channel-a": true,
+        "channel-b": true,
+      },
+    });
+  });
+
+  it("invalidates only the read markers named by a post-unread event", () => {
+    const current = {
+      channelLastViewedAt: {
+        "channel-a": 300,
+        "channel-b": 400,
+      },
+      threadLastViewedAt: {
+        "root-a": 500,
+        "root-b": 600,
+      },
+    };
+
+    expect(invalidateMentionReadMarkers(current, {
+      channelIds: ["channel-a"],
+      threadIds: [],
+    })).toEqual({
+      channelLastViewedAt: { "channel-b": 400 },
+      threadLastViewedAt: {
+        "root-a": 500,
+        "root-b": 600,
+      },
+    });
+
+    expect(invalidateMentionReadMarkers(current, {
+      channelIds: [],
+      threadIds: ["root-b"],
+    })).toEqual({
+      channelLastViewedAt: {
+        "channel-a": 300,
+        "channel-b": 400,
+      },
+      threadLastViewedAt: { "root-a": 500 },
+    });
   });
 
   it("uses collapsed-thread mention totals without double counting channel replies", () => {

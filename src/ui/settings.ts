@@ -33,6 +33,7 @@ export interface DeckSettings {
   language: DeckLanguage;
   fontScalePercent: number;
   preferredRailWidth: number;
+  autoAdjustThreadLayout: boolean;
   preferredColumnWidth: number;
   compactMode: boolean;
   columnColorEnabled: boolean;
@@ -56,6 +57,7 @@ export const SETTINGS_KEYS = {
   language: "mattermostDeck.language.v1",
   fontScalePercent: "mattermostDeck.fontScalePercent.v1",
   preferredRailWidth: "mattermostDeck.preferredRailWidth.v1",
+  autoAdjustThreadLayout: "mattermostDeck.autoAdjustThreadLayout.v1",
   preferredColumnWidth: "mattermostDeck.preferredColumnWidth.v1",
   compactMode: "mattermostDeck.compactMode.v1",
   columnColorEnabled: "mattermostDeck.columnColorEnabled.v1",
@@ -90,6 +92,7 @@ export const DEFAULT_SETTINGS: DeckSettings = {
   language: "ja",
   fontScalePercent: 100,
   preferredRailWidth: 720,
+  autoAdjustThreadLayout: true,
   preferredColumnWidth: 320,
   compactMode: false,
   columnColorEnabled: false,
@@ -282,7 +285,11 @@ export function originToPermissionPattern(origin: string): string | null {
     return null;
   }
 
-  return `${new URL(normalized).origin}/*`;
+  const url = new URL(normalized);
+  // Chrome match patterns grant host access across ports and do not accept a
+  // concrete port in the host component. Keep the port in serverUrl itself,
+  // but omit it from permission checks and dynamic content-script matches.
+  return `${url.protocol}//${url.hostname}/*`;
 }
 
 function normaliseTheme(value: string | null): DeckTheme {
@@ -347,6 +354,7 @@ export async function loadDeckSettings(origin?: string): Promise<DeckSettings> {
     language,
     fontScalePercent,
     preferredRailWidth,
+    autoAdjustThreadLayout,
     preferredColumnWidth,
     compactMode,
     columnColorEnabled,
@@ -370,6 +378,7 @@ export async function loadDeckSettings(origin?: string): Promise<DeckSettings> {
     loadScopedStoredString(SETTINGS_KEYS.language, "local", origin),
     loadScopedStoredString(SETTINGS_KEYS.fontScalePercent, "local", origin),
     loadScopedStoredString(SETTINGS_KEYS.preferredRailWidth, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.autoAdjustThreadLayout, "local", origin),
     loadScopedStoredString(SETTINGS_KEYS.preferredColumnWidth, "local", origin),
     loadScopedStoredString(SETTINGS_KEYS.compactMode, "local", origin),
     loadScopedStoredString(SETTINGS_KEYS.columnColorEnabled, "local", origin),
@@ -394,6 +403,10 @@ export async function loadDeckSettings(origin?: string): Promise<DeckSettings> {
     language: normaliseLanguage(language),
     fontScalePercent: normaliseFontScalePercent(fontScalePercent),
     preferredRailWidth: normalisePreferredRailWidth(preferredRailWidth),
+    autoAdjustThreadLayout: normaliseBoolean(
+      autoAdjustThreadLayout,
+      DEFAULT_SETTINGS.autoAdjustThreadLayout,
+    ),
     preferredColumnWidth: normalisePreferredColumnWidth(preferredColumnWidth),
     compactMode: normaliseBoolean(compactMode, DEFAULT_SETTINGS.compactMode),
     columnColorEnabled: normaliseColumnColorEnabled(columnColorEnabled, columnIdentityMode),
@@ -431,6 +444,7 @@ export async function saveDeckSettings(settings: DeckSettings, origin?: string):
       [profileKey(SETTINGS_KEYS.language)]: settings.language,
       [profileKey(SETTINGS_KEYS.fontScalePercent)]: String(normaliseFontScalePercent(settings.fontScalePercent)),
       [profileKey(SETTINGS_KEYS.preferredRailWidth)]: String(normalisePreferredRailWidth(settings.preferredRailWidth)),
+      [profileKey(SETTINGS_KEYS.autoAdjustThreadLayout)]: settings.autoAdjustThreadLayout ? "true" : "false",
       [profileKey(SETTINGS_KEYS.preferredColumnWidth)]: String(normalisePreferredColumnWidth(settings.preferredColumnWidth)),
       [profileKey(SETTINGS_KEYS.compactMode)]: settings.compactMode ? "true" : "false",
       [profileKey(SETTINGS_KEYS.columnColorEnabled)]: settings.columnColorEnabled ? "true" : "false",

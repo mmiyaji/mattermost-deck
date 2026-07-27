@@ -11,7 +11,8 @@ const stateFile =
 
 interface E2EState {
   team: { id: string; name: string };
-  memberUser: { username: string; password: string; token: string };
+  adminUser: { token: string };
+  memberUser: { id: string; username: string; password: string; token: string };
 }
 
 async function readState(): Promise<E2EState> {
@@ -37,6 +38,19 @@ async function apiPost<T>(token: string, pathname: string, body: unknown): Promi
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`POST ${pathname} failed with ${res.status}: ${text}`);
+  }
+  return (await res.json()) as T;
+}
+
+async function apiPut<T>(token: string, pathname: string, body: unknown): Promise<T> {
+  const res = await fetch(`${baseUrl}/api/v4${pathname}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`PUT ${pathname} failed with ${res.status}: ${text}`);
   }
   return (await res.json()) as T;
 }
@@ -93,33 +107,61 @@ async function debugRequest<T>(
 }
 
 test("mentions column includes @here posts on initial load", async () => {
+  test.setTimeout(150_000);
   const state = await readState();
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-special-mentions-"));
+  const presenceUserDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-special-presence-"));
   let postId = "";
+  let context: import("@playwright/test").BrowserContext | null = null;
+  let presenceContext: import("@playwright/test").BrowserContext | null = null;
+  const previousStatus = await apiGet<{ status: string }>(
+    state.memberUser.token,
+    `/users/${state.memberUser.id}/status`,
+  );
 
   const channels = await apiGet<Array<{ id: string; name: string }>>(state.memberUser.token, `/users/me/teams/${state.team.id}/channels`);
   const townSquare = channels.find((channel) => channel.name === "town-square");
   expect(townSquare).toBeTruthy();
 
   const marker = `special-mention-${Date.now()}`;
-  const created = await apiPost<{ id: string }>(state.memberUser.token, "/posts", {
-    channel_id: townSquare!.id,
-    message: `Deck mentions bootstrap check @here ${marker}`,
-  });
-  postId = created.id;
-  await new Promise((resolve) => setTimeout(resolve, 2_000));
-
-  const context = await chromium.launchPersistentContext(userDataDir, {
-    channel: "chromium",
-    headless: true,
-    args: [
-      `--disable-extensions-except=${extensionPath}`,
-      `--load-extension=${extensionPath}`,
-    ],
-  });
 
   try {
+    presenceContext = await chromium.launchPersistentContext(presenceUserDataDir, {
+      channel: "chromium",
+      headless: true,
+    });
+    const presencePage = presenceContext.pages()[0] ?? await presenceContext.newPage();
+    await login(presencePage, state.memberUser.username, state.memberUser.password);
+    await apiPut(state.memberUser.token, `/users/${state.memberUser.id}/status`, {
+      user_id: state.memberUser.id,
+      status: "online",
+    });
+    await expect.poll(
+      async () => (
+        await apiGet<{ status: string }>(
+          state.memberUser.token,
+          `/users/${state.memberUser.id}/status`,
+        )
+      ).status,
+      { timeout: 10_000 },
+    ).toBe("online");
+
+    const created = await apiPost<{ id: string }>(state.adminUser.token, "/posts", {
+      channel_id: townSquare!.id,
+      message: `Deck mentions bootstrap check @here ${marker}`,
+    });
+    postId = created.id;
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+
+    context = await chromium.launchPersistentContext(userDataDir, {
+      channel: "chromium",
+      headless: true,
+      args: [
+        `--disable-extensions-except=${extensionPath}`,
+        `--load-extension=${extensionPath}`,
+      ],
+    });
     const [existingSw] = context.serviceWorkers();
     const sw = existingSw ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
     await sw.evaluate((serverUrl: string) => {
@@ -156,10 +198,16 @@ test("mentions column includes @here posts on initial load", async () => {
       }, { timeout: 60_000 })
       .toContainEqual(expect.stringContaining(marker));
   } finally {
-    await context.close();
+    await context?.close().catch(() => undefined);
+    await presenceContext?.close().catch(() => undefined);
     await fs.rm(userDataDir, { recursive: true, force: true });
+    await fs.rm(presenceUserDataDir, { recursive: true, force: true });
     if (postId) {
-      await apiDelete(state.memberUser.token, `/posts/${postId}`);
+      await apiDelete(state.adminUser.token, `/posts/${postId}`);
     }
+    await apiPut(state.memberUser.token, `/users/${state.memberUser.id}/status`, {
+      user_id: state.memberUser.id,
+      status: previousStatus.status,
+    }).catch(() => undefined);
   }
 });

@@ -31,6 +31,7 @@ const PROFILE_SCOPED_STORAGE_KEYS = [
   "mattermostDeck.language.v1",
   "mattermostDeck.fontScalePercent.v1",
   "mattermostDeck.preferredRailWidth.v1",
+  "mattermostDeck.autoAdjustThreadLayout.v1",
   "mattermostDeck.preferredColumnWidth.v1",
   "mattermostDeck.compactMode.v1",
   "mattermostDeck.columnColorEnabled.v1",

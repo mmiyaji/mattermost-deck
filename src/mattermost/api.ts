@@ -568,22 +568,29 @@ async function scheduleApiRequest<T>(method: "GET" | "POST", task: () => Promise
   }
 }
 
-async function apiGet<T>(pathname: string): Promise<T> {
+async function apiGet<T>(
+  pathname: string,
+  { fresh = false }: { fresh?: boolean } = {},
+): Promise<T> {
   const generation = apiServerGeneration;
   const cacheKey = getGenerationCacheKey(pathname, generation);
   const requestPath = getApiPath(pathname);
   const now = Date.now();
-  const cached = recentGetResponses.get(cacheKey);
-  if (cached && cached.expiresAt > now) {
-    return cached.value as T;
-  }
-  if (cached) {
-    recentGetResponses.delete(cacheKey);
-  }
+  if (!fresh) {
+    const cached = recentGetResponses.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.value as T;
+    }
+    if (cached) {
+      recentGetResponses.delete(cacheKey);
+    }
 
-  const inflight = inflightGetRequests.get(cacheKey);
-  if (inflight) {
-    return (await inflight) as T;
+    const inflight = inflightGetRequests.get(cacheKey);
+    if (inflight) {
+      return (await inflight) as T;
+    }
+  } else {
+    recentGetResponses.delete(cacheKey);
   }
 
   const csrfToken = document.cookie
@@ -1166,8 +1173,14 @@ export async function searchPostsInTeam(
     );
 }
 
-export async function getMyChannelMember(channelId: string): Promise<MattermostChannelMember> {
-  return await apiGet<MattermostChannelMember>(`/channels/${encodeURIComponent(channelId)}/members/me`);
+export async function getMyChannelMember(
+  channelId: string,
+  options?: { fresh?: boolean },
+): Promise<MattermostChannelMember> {
+  return await apiGet<MattermostChannelMember>(
+    `/channels/${encodeURIComponent(channelId)}/members/me`,
+    options,
+  );
 }
 
 export async function viewChannel(channelId: string): Promise<void> {

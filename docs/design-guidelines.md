@@ -41,6 +41,7 @@ Build a Chrome extension that adds a monitoring-oriented multi-pane deck to the 
 - Shadow DOM mount attached to `body`
 - Mattermost layout width is reduced to reserve deck space
 - On viewport resize, keep at least 720 px for Mattermost while space permits; compact Deck to at most 40% on narrower viewports and restore the requested Deck width when space returns
+- When Mattermost's thread pane opens, keep at least 560 px for the center content by temporarily reducing Deck to 360 px or collapsing it to 52 px; preserve the user's requested width and horizontal scroll position for restoration
 
 ### Rendering Guard
 

@@ -48,8 +48,26 @@ interface HookOptions {
   onPosted: (event: PostedEvent) => void;
   onPostDeleted?: (postId: string) => void;
   onMentionMetadataChanged?: () => void;
-  onUnreadChanged?: () => void;
+  onUnreadChanged?: (change: UnreadStateChange) => void;
   onAuthFailure: (message: string) => void;
+}
+
+export type UnreadStateEvent =
+  | "multiple_channels_viewed"
+  | "channel_viewed"
+  | "thread_read_changed"
+  | "post_unread"
+  | "channel_deleted"
+  | "channel_restored"
+  | "user_added"
+  | "user_removed";
+
+export interface UnreadStateChange {
+  eventType: UnreadStateEvent;
+  channelLastViewedAt: Record<string, number>;
+  threadLastViewedAt: Record<string, number>;
+  channelIds: string[];
+  threadIds: string[];
 }
 
 interface MattermostEventEnvelope {
@@ -91,7 +109,7 @@ export function mentionsPayloadIncludesUser(mentions: string, userId: string | n
   }
 }
 
-export function isUnreadStateEvent(event: string | undefined): boolean {
+export function isUnreadStateEvent(event: string | undefined): event is UnreadStateEvent {
   return event === "multiple_channels_viewed" ||
     event === "channel_viewed" ||
     event === "thread_read_changed" ||
@@ -100,6 +118,12 @@ export function isUnreadStateEvent(event: string | undefined): boolean {
     event === "channel_restored" ||
     event === "user_added" ||
     event === "user_removed";
+}
+
+export function isChannelReadStateEvent(
+  event: UnreadStateEvent,
+): boolean {
+  return event === "channel_viewed" || event === "multiple_channels_viewed";
 }
 
 export function getDeletedPostId(
@@ -142,6 +166,83 @@ function asEventRecord(value: unknown): Record<string, unknown> | null {
   return parsed && typeof parsed === "object" && !Array.isArray(parsed)
     ? parsed as Record<string, unknown>
     : null;
+}
+
+function asEventTimestamp(value: unknown): number | null {
+  const numericValue = typeof value === "string" && value.trim()
+    ? Number(value)
+    : value;
+  return typeof numericValue === "number" && Number.isFinite(numericValue)
+    ? Math.max(0, Math.floor(numericValue))
+    : null;
+}
+
+function getEventId(...values: unknown[]): string | null {
+  const value = values.find(
+    (candidate) => typeof candidate === "string" && candidate.trim(),
+  );
+  return typeof value === "string" ? value : null;
+}
+
+function parseViewedAtMap(value: unknown): Record<string, number> {
+  const record = asEventRecord(value);
+  if (!record) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(record).flatMap(([id, timestamp]) => {
+      const viewedAt = asEventTimestamp(timestamp);
+      return id.trim() && viewedAt !== null ? [[id, viewedAt]] : [];
+    }),
+  );
+}
+
+export function parseUnreadStateChange(
+  eventType: UnreadStateEvent,
+  data?: Record<string, unknown>,
+  broadcast?: MattermostEventEnvelope["broadcast"],
+): UnreadStateChange {
+  const channelLastViewedAt = eventType === "multiple_channels_viewed"
+    ? parseViewedAtMap(data?.channel_times)
+    : {};
+  const threadLastViewedAt: Record<string, number> = {};
+  const channelId = getEventId(data?.channel_id, broadcast?.channel_id);
+  const threadRecord = asEventRecord(data?.thread);
+  const threadId = getEventId(
+    data?.thread_id,
+    data?.root_id,
+    threadRecord?.id,
+  );
+  const viewedAt = asEventTimestamp(
+    data?.last_viewed_at ??
+    data?.timestamp ??
+    threadRecord?.last_viewed_at,
+  );
+
+  if (eventType === "channel_viewed" && channelId && viewedAt !== null) {
+    channelLastViewedAt[channelId] = viewedAt;
+  }
+  if (eventType === "thread_read_changed" && threadId && viewedAt !== null) {
+    threadLastViewedAt[threadId] = viewedAt;
+  }
+
+  const channelIds = new Set(Object.keys(channelLastViewedAt));
+  if (channelId) {
+    channelIds.add(channelId);
+  }
+  const threadIds = new Set(Object.keys(threadLastViewedAt));
+  if (threadId) {
+    threadIds.add(threadId);
+  }
+
+  return {
+    eventType,
+    channelLastViewedAt,
+    threadLastViewedAt,
+    channelIds: Array.from(channelIds),
+    threadIds: Array.from(threadIds),
+  };
 }
 
 export function isMentionMetadataEvent(
@@ -499,7 +600,13 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
         )) {
           options.onMentionMetadataChanged?.();
         } else if (authenticated && isUnreadStateEvent(payload.event)) {
-          options.onUnreadChanged?.();
+          options.onUnreadChanged?.(
+            parseUnreadStateChange(
+              payload.event,
+              payload.data,
+              payload.broadcast,
+            ),
+          );
         }
       });
 

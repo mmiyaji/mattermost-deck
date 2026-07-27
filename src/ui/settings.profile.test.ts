@@ -40,8 +40,15 @@ describe("server URL normalization", () => {
   it("allows loopback HTTP but rejects remote clear-text servers", () => {
     expect(normaliseServerUrl("http://127.0.0.1:8065/mattermost"))
       .toBe("http://127.0.0.1:8065/mattermost");
+    expect(originToPermissionPattern("http://127.0.0.1:8065/mattermost"))
+      .toBe("http://127.0.0.1/*");
     expect(normaliseServerUrl("http://mattermost.example.test"))
       .toBe("");
+  });
+
+  it("omits non-default ports from Chrome host permission patterns", () => {
+    expect(originToPermissionPattern("https://example.test:8443/company/mattermost"))
+      .toBe("https://example.test/*");
   });
 
   it("rejects Mattermost screen URLs instead of treating them as Site URLs", () => {
@@ -86,6 +93,29 @@ describe("profile-aware settings", () => {
     expect(stored[SETTINGS_KEYS.serverUrl]).toBe(serverUrl);
     expect(Object.keys(stored)).toContainEqual(expect.stringMatching(/^mattermostDeck\.serverUrl\.v1\.profile\./));
     await expect(loadDeckSettings()).resolves.toMatchObject({ serverUrl, compactMode: true });
+  });
+
+  it("enables thread layout adjustment by default and persists an opt-out per profile", async () => {
+    await expect(loadDeckSettings()).resolves.toMatchObject({
+      autoAdjustThreadLayout: true,
+    });
+
+    const serverUrl = "https://mattermost.example.test/company/mattermost";
+    await saveDeckSettings({
+      ...DEFAULT_SETTINGS,
+      serverUrl,
+      autoAdjustThreadLayout: false,
+    }, serverUrl);
+
+    const stored = await chrome.storage.local.get(null);
+    const scopedKey = Object.keys(stored).find((key) => (
+      key.startsWith(`${SETTINGS_KEYS.autoAdjustThreadLayout}.profile.`)
+    ));
+    expect(scopedKey).toBeDefined();
+    expect(stored[scopedKey!]).toBe("false");
+    await expect(loadDeckSettings()).resolves.toMatchObject({
+      autoAdjustThreadLayout: false,
+    });
   });
 
   it("mirrors the selected profile URL when profiles use different subpaths on one origin", async () => {

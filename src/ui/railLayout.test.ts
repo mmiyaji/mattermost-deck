@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculateThreadAwareRailLayout,
+  COLLAPSED_RESPONSIVE_RAIL_WIDTH,
   calculateResponsiveRailWidth,
   MAX_RESPONSIVE_RAIL_SHARE,
+  MIN_MATTERMOST_CENTER_WIDTH,
   MIN_MATTERMOST_WIDTH,
   MIN_RESPONSIVE_RAIL_WIDTH,
 } from "./railLayout";
@@ -56,5 +59,73 @@ describe("calculateResponsiveRailWidth", () => {
         expect(railWidth).toBeLessThanOrEqual(viewportWidth * MAX_RESPONSIVE_RAIL_SHARE);
       }
     }
+  });
+});
+
+describe("calculateThreadAwareRailLayout", () => {
+  it("keeps the normal width when Mattermost has no visible right sidebar", () => {
+    expect(calculateThreadAwareRailLayout(720, 1_920, {
+      mattermostWidth: 1_200,
+      centerWidth: 900,
+      rightSidebarWidth: 0,
+    })).toEqual({
+      width: 720,
+      mode: "normal",
+    });
+  });
+
+  it("temporarily compacts Deck to preserve the Mattermost center beside a thread", () => {
+    const layout = calculateThreadAwareRailLayout(560, 1_800, {
+      mattermostWidth: 1_240,
+      centerWidth: 451,
+      rightSidebarWidth: 500,
+    });
+
+    expect(layout).toEqual({
+      width: 360,
+      mode: "compact",
+    });
+    expect(1_800 - layout.width - (1_240 - 451)).toBeGreaterThanOrEqual(
+      MIN_MATTERMOST_CENTER_WIDTH,
+    );
+  });
+
+  it("uses the collapsed rail when a useful one-pane Deck cannot fit", () => {
+    expect(calculateThreadAwareRailLayout(560, 1_280, {
+      mattermostWidth: 720,
+      centerWidth: 385,
+      rightSidebarWidth: 400,
+    })).toEqual({
+      width: COLLAPSED_RESPONSIVE_RAIL_WIDTH,
+      mode: "collapsed",
+    });
+  });
+
+  it("falls back to the measured RHS width when center measurements are unavailable", () => {
+    expect(calculateThreadAwareRailLayout(720, 1_600, {
+      mattermostWidth: 0,
+      centerWidth: 0,
+      rightSidebarWidth: 400,
+    })).toEqual({
+      width: 360,
+      mode: "compact",
+    });
+  });
+
+  it("restores the exact normal width after the thread closes", () => {
+    const requestedWidth = 560;
+    const open = calculateThreadAwareRailLayout(requestedWidth, 1_800, {
+      mattermostWidth: 1_240,
+      centerWidth: 451,
+      rightSidebarWidth: 500,
+    });
+    const closed = calculateThreadAwareRailLayout(requestedWidth, 1_800, {
+      mattermostWidth: 1_349,
+      centerWidth: 1_060,
+      rightSidebarWidth: 0,
+    });
+
+    expect(open.mode).toBe("compact");
+    expect(closed).toEqual({ width: requestedWidth, mode: "normal" });
   });
 });

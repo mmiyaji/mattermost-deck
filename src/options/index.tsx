@@ -155,6 +155,7 @@ function useOptionsText() {
     serverUrlPlaceholder: t("options.serverUrlPlaceholder"),
     teamSlugLabel: t("options.teamSlugLabel"),
     teamSlugPlaceholder: t("options.teamSlugPlaceholder"),
+    teamSlugHint: t("options.teamSlugHint"),
     targetHint: t("options.targetHint"),
     advanced: t("options.advanced"),
     routeKindsLabel: t("options.routeKindsLabel"),
@@ -180,6 +181,8 @@ function useOptionsText() {
     fontScaleHint: t("options.fontScaleHint", { min: MIN_FONT_SCALE_PERCENT, max: MAX_FONT_SCALE_PERCENT }),
     paneWidthLabel: t("options.paneWidthLabel"),
     paneWidthHint: t("options.paneWidthHint", { min: MIN_PREFERRED_RAIL_WIDTH, max: MAX_PREFERRED_RAIL_WIDTH }),
+    autoAdjustThreadLayoutLabel: t("options.autoAdjustThreadLayoutLabel"),
+    autoAdjustThreadLayoutHint: t("options.autoAdjustThreadLayoutHint"),
     columnWidthLabel: t("options.columnWidthLabel"),
     columnWidthHint: t("options.columnWidthHint", { min: MIN_PREFERRED_COLUMN_WIDTH, max: MAX_PREFERRED_COLUMN_WIDTH }),
     compactModeLabel: t("options.compactModeLabel"),
@@ -2437,6 +2440,7 @@ function OptionsApp(): React.JSX.Element {
               <button
                 key={id}
                 type="button"
+                data-testid={`options-nav-${id}`}
                 className={`options-nav-item${activePanel === id ? " active" : ""}`}
                 onClick={() => setActivePanel(id)}
                 aria-label={label}
@@ -2781,7 +2785,7 @@ function OptionsApp(): React.JSX.Element {
                     autoComplete="off"
                     spellCheck={false}
                   />
-                  <span className="options-hint">{text.targetHint}</span>
+                  <span className="options-hint">{text.teamSlugHint}</span>
                 </label>
               </div>
 
@@ -3108,6 +3112,27 @@ function OptionsApp(): React.JSX.Element {
                   />
                   <span className="options-hint">{text.paneWidthHint}</span>
                 </label>
+                <div className="options-field">
+                  <span id="auto-adjust-thread-layout-label" className="options-label">
+                    {text.autoAdjustThreadLayoutLabel}
+                  </span>
+                  <label className="options-choice">
+                    <input
+                      type="checkbox"
+                      data-testid="auto-adjust-thread-layout"
+                      checked={settings.autoAdjustThreadLayout}
+                      aria-labelledby="auto-adjust-thread-layout-label"
+                      aria-describedby="auto-adjust-thread-layout-hint"
+                      onChange={(e) => setSettings((s) => ({
+                        ...s,
+                        autoAdjustThreadLayout: e.target.checked,
+                      }))}
+                    />
+                    <span id="auto-adjust-thread-layout-hint">
+                      {text.autoAdjustThreadLayoutHint}
+                    </span>
+                  </label>
+                </div>
                 <label className="options-field">
                   <span className="options-label">{text.columnWidthLabel}</span>
                   <input

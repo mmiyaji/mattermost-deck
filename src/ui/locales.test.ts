@@ -49,6 +49,7 @@ describe("UI locale coverage", () => {
       "deck.loadingSearchResults",
       "deck.noSavedPosts",
       "deck.diagnosticsTitle",
+      "options.autoAdjustThreadLayoutHint",
       "options.performanceTitle",
       "options.releaseNotesOpen",
       "options.releaseNote100MentionCoverage",

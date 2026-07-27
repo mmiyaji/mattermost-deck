@@ -7,6 +7,21 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added an optional thread-aware layout that narrows or collapses Deck while Mattermost's thread pane is open, then restores the requested width and scroll position.
+
+### Changed
+
+- Kept Deck panes mounted during Mattermost channel and team navigation and limited route updates to the destination channel lookup.
+- Made the Docker-backed Mattermost test runner version selectable while keeping 9.5.4 as the default, and verified E2E compatibility with Mattermost 9.5.11.
+- Clarified that leaving Team Slug blank keeps Deck state available across all teams on the configured Mattermost server.
+
+### Fixed
+
+- Applied WebSocket channel and thread read markers locally so navigation does not trigger a broad Deck refresh or delay read-state synchronization.
+- Normalized Chrome host-permission patterns without explicit ports so loopback and other non-default-port Mattermost servers can be saved and activated correctly.
+
 ## [1.0.0] - 2026-07-25
 
 ### Added

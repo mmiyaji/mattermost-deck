@@ -32,7 +32,7 @@ Dark theme:
 
 ## Features
 
-- Resizable right-side deck that preserves Mattermost space on narrow windows and restores the requested Deck width when space returns
+- Resizable right-side deck that automatically narrows or collapses while Mattermost's thread pane is open, preserves the main content area on narrow windows, and restores the requested width and scroll position afterward
 - Pane types:
   - `mentions`
   - `channelWatch`
@@ -88,7 +88,7 @@ Remote servers must use HTTPS; HTTP remains available only for localhost and loo
 ## Compatibility
 
 - Google Chrome version 120 or later
-- Release-gated against Mattermost 9.5.4 with Docker-backed E2E tests
+- Docker-backed E2E tests verified against Mattermost 9.5.4 and 9.5.11; CI uses 9.5.4 by default
 
 Newer Mattermost versions are expected to work, but every newer server release is not exercised by CI. Other Chromium-based browsers are not part of the release-gated support matrix. Validate the extension in a staging environment before deploying it to a business-critical Mattermost instance.
 
@@ -170,12 +170,13 @@ npm run check:release
 npm run check:site
 npm run test:e2e
 npm run mm95:start
+node scripts/mm95-start.mjs --version 9.5.11
 npm run mm95:stop
 npm run open:mattermost
 npm run capture:readme
 ```
 
-`test:e2e` and screenshot capture require a reachable Mattermost test environment.
+`mm95:start` starts Mattermost 9.5.4 by default; use the versioned command above to start 9.5.11. `test:e2e` and screenshot capture require a reachable Mattermost test environment.
 
 ## Release
 
