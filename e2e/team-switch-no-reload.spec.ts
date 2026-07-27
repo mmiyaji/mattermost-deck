@@ -11,6 +11,7 @@ const TRACE_CAPTURE_STORAGE_KEY = "mattermostDeck.traceCapture.v1";
 const TRACE_LOG_STORAGE_KEY = "mattermostDeck.traceEntries.v1";
 const LAYOUT_STORAGE_KEY = "mattermostDeck.layout.v1";
 const TARGET_TEAM_NAME = "test";
+const CUSTOM_WAIT_TIMEOUT_MS = 10_000;
 
 interface E2EState {
   teamName: string;
@@ -23,6 +24,27 @@ interface TraceLogEntry {
   payload?: Record<string, unknown>;
 }
 
+async function withTimeout<T>(
+  promise: Promise<T>,
+  label: string,
+  timeoutMs = CUSTOM_WAIT_TIMEOUT_MS,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(
+      () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 async function readState(): Promise<E2EState> {
   return JSON.parse(await fs.readFile(stateFile, "utf8")) as E2EState;
 }
@@ -32,6 +54,7 @@ async function loginApi(username: string, password: string): Promise<string> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ login_id: username, password }),
+    signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) {
     throw new Error(`login failed with ${response.status}`);
@@ -48,6 +71,7 @@ async function apiPost<T>(token: string, pathname: string, body: unknown): Promi
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -59,6 +83,7 @@ async function apiPost<T>(token: string, pathname: string, body: unknown): Promi
 async function apiGet<T>(token: string, pathname: string): Promise<T> {
   const response = await fetch(`${baseUrl}/api/v4${pathname}`, {
     headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -70,6 +95,7 @@ async function apiGet<T>(token: string, pathname: string): Promise<T> {
 async function apiGetOptional<T>(token: string, pathname: string): Promise<T | null> {
   const response = await fetch(`${baseUrl}/api/v4${pathname}`, {
     headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(20_000),
   });
   if (response.status === 404) {
     return null;
@@ -106,28 +132,31 @@ async function debugRequest<T>(
   action: string,
   payload?: Record<string, unknown>,
 ): Promise<T> {
-  return await page.evaluate(({ action, payload }) => {
-    return new Promise<T>((resolve, reject) => {
-      const id = `deck-debug-${Math.random().toString(36).slice(2)}`;
-      const timeoutId = window.setTimeout(() => {
-        window.removeEventListener("mattermost-deck-debug-response", handleResponse as EventListener);
-        reject(new Error(`Deck debug request timed out: ${action}`));
-      }, 5_000);
-      const handleResponse = (event: Event) => {
-        const customEvent = event as CustomEvent<{ id?: string; result?: T }>;
-        if (customEvent.detail?.id !== id) {
-          return;
-        }
-        window.clearTimeout(timeoutId);
-        window.removeEventListener("mattermost-deck-debug-response", handleResponse as EventListener);
-        resolve(customEvent.detail?.result as T);
-      };
-      window.addEventListener("mattermost-deck-debug-response", handleResponse as EventListener);
-      window.dispatchEvent(new CustomEvent("mattermost-deck-debug-request", {
-        detail: { id, action, payload },
-      }));
-    });
-  }, { action, payload });
+  return await withTimeout(
+    page.evaluate(({ action, payload }) => {
+      return new Promise<T>((resolve, reject) => {
+        const id = `deck-debug-${Math.random().toString(36).slice(2)}`;
+        const timeoutId = window.setTimeout(() => {
+          window.removeEventListener("mattermost-deck-debug-response", handleResponse as EventListener);
+          reject(new Error(`Deck debug request timed out: ${action}`));
+        }, 5_000);
+        const handleResponse = (event: Event) => {
+          const customEvent = event as CustomEvent<{ id?: string; result?: T }>;
+          if (customEvent.detail?.id !== id) {
+            return;
+          }
+          window.clearTimeout(timeoutId);
+          window.removeEventListener("mattermost-deck-debug-response", handleResponse as EventListener);
+          resolve(customEvent.detail?.result as T);
+        };
+        window.addEventListener("mattermost-deck-debug-response", handleResponse as EventListener);
+        window.dispatchEvent(new CustomEvent("mattermost-deck-debug-request", {
+          detail: { id, action, payload },
+        }));
+      });
+    }, { action, payload }),
+    `Deck debug request "${action}"`,
+  );
 }
 
 async function dismissOfflineStatusModal(
@@ -138,15 +167,39 @@ async function dismissOfflineStatusModal(
     return;
   }
 
-  const title = (await confirmModal.locator("#confirmModalLabel").innerText()).trim();
-  if (!/Status is Set to "Offline"/i.test(title)) {
-    throw new Error(`Unexpected Mattermost confirmation modal: ${title}`);
+  const result = await withTimeout(page.evaluate(() => {
+    const modal = document.querySelector<HTMLElement>("#confirmModal");
+    if (!modal || modal.getClientRects().length === 0) {
+      return { visible: false, title: "", clicked: false };
+    }
+    const title =
+      modal.querySelector<HTMLElement>("#confirmModalLabel")
+        ?.innerText.trim() ?? "";
+    if (!/Status is Set to "Offline"/i.test(title)) {
+      return { visible: true, title, clicked: false };
+    }
+    const cancelButton =
+      modal.querySelector<HTMLButtonElement>("#cancelModalButton");
+    cancelButton?.click();
+    return { visible: true, title, clicked: Boolean(cancelButton) };
+  }), "inspect Mattermost offline modal");
+  if (!result.visible) {
+    return;
   }
-  await confirmModal.locator("#cancelModalButton").click({ timeout: 10_000 });
-  await expect(confirmModal).toBeHidden({ timeout: 5_000 });
+  if (!/Status is Set to "Offline"/i.test(result.title)) {
+    throw new Error(`Unexpected Mattermost confirmation modal: ${result.title}`);
+  }
+  if (!result.clicked) {
+    throw new Error("Mattermost offline confirmation modal has no cancel button");
+  }
+  await expect(page.locator("#confirmModal:visible")).toHaveCount(0, {
+    timeout: 5_000,
+  });
 }
 
 test("switching teams keeps Deck panes mounted and avoids a full refetch", async () => {
+  test.setTimeout(180_000);
+
   const state = await readState();
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-team-switch-"));
@@ -188,6 +241,7 @@ test("switching teams keeps Deck panes mounted and avoids a full refetch", async
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: "chromium",
     headless: true,
+    timeout: 30_000,
     args: [
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`,
@@ -213,16 +267,16 @@ test("switching teams keeps Deck panes mounted and avoids a full refetch", async
   try {
     const [existingSw] = context.serviceWorkers();
     const sw = existingSw ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
-    await sw.evaluate(({
-      serverUrl,
-      token,
-      teamId,
-      traceCaptureStorageKey,
-      traceLogStorageKey,
-      layoutStorageKey,
-    }) => {
-      return new Promise<void>((resolve) => {
-        chrome.storage.local.set({
+    await test.step("seed extension storage", async () => {
+      await withTimeout(sw.evaluate(async ({
+        serverUrl,
+        token,
+        teamId,
+        traceCaptureStorageKey,
+        traceLogStorageKey,
+        layoutStorageKey,
+      }) => {
+        await chrome.storage.local.set({
           "mattermostDeck.serverUrl.v1": serverUrl,
           "mattermostDeck.teamSlug.v1": "",
           "mattermostDeck.wsPat.v1": token,
@@ -236,38 +290,40 @@ test("switching teams keeps Deck panes mounted and avoids a full refetch", async
             teamId,
             unreadOnly: false,
           }],
-        }, () => resolve());
-      });
-    }, {
-      serverUrl: baseUrl,
-      token: memberToken,
-      teamId: originalTeam.id,
-      traceCaptureStorageKey: TRACE_CAPTURE_STORAGE_KEY,
-      traceLogStorageKey: TRACE_LOG_STORAGE_KEY,
-      layoutStorageKey: LAYOUT_STORAGE_KEY,
+        });
+      }, {
+        serverUrl: baseUrl,
+        token: memberToken,
+        teamId: originalTeam.id,
+        traceCaptureStorageKey: TRACE_CAPTURE_STORAGE_KEY,
+        traceLogStorageKey: TRACE_LOG_STORAGE_KEY,
+        layoutStorageKey: LAYOUT_STORAGE_KEY,
+      }), "seed extension storage");
     });
 
-    const page = await context.newPage();
-    await page.addInitScript(() => {
-      window.localStorage.setItem("mattermostDeck.debugLogs", "1");
-      const debugWindow = window as typeof window & {
-        __deckWsStatuses?: string[];
-      };
-      debugWindow.__deckWsStatuses = [];
-      window.addEventListener("mattermost-deck-ws-status", (event) => {
-        debugWindow.__deckWsStatuses?.push(String((event as CustomEvent).detail));
-      });
-    });
+    const page = await withTimeout(context.newPage(), "create Mattermost test page");
+    await withTimeout(page.addInitScript(() => {
+        window.localStorage.setItem("mattermostDeck.debugLogs", "1");
+        const debugWindow = window as typeof window & {
+          __deckWsStatuses?: string[];
+        };
+        debugWindow.__deckWsStatuses = [];
+        window.addEventListener("mattermost-deck-ws-status", (event) => {
+          debugWindow.__deckWsStatuses?.push(String((event as CustomEvent).detail));
+        });
+      }), "install Mattermost page diagnostics");
 
     await login(page, state.memberUser.username, state.memberUser.password);
-    await page.goto(`${baseUrl}/${state.teamName}/channels/town-square`);
+    await page.goto(`${baseUrl}/${state.teamName}/channels/town-square`, {
+      timeout: 30_000,
+    });
     await page.waitForURL(
       new RegExp(`/${state.teamName}/channels/town-square$`),
       { timeout: 30_000 },
     );
     const dismissOnboarding = page.getByText(/No thanks, I.*figure it out myself/);
     if (await dismissOnboarding.isVisible().catch(() => false)) {
-      await dismissOnboarding.click();
+      await dismissOnboarding.click({ timeout: 5_000, force: true });
     }
     await dismissOfflineStatusModal(page);
     await expect(page.locator("#mattermost-deck-root")).toBeAttached({ timeout: 20_000 });
@@ -299,7 +355,7 @@ test("switching teams keeps Deck panes mounted and avoids a full refetch", async
     }, { timeout: 30_000 }).toBe("connected");
 
     const rootMarker = `team-stability-${Date.now()}`;
-    await page.evaluate((marker) => {
+    await withTimeout(page.evaluate((marker) => {
       const root = document.querySelector<HTMLElement>("#mattermost-deck-root");
       if (!root) {
         throw new Error("Deck root not found");
@@ -310,7 +366,7 @@ test("switching teams keeps Deck panes mounted and avoids a full refetch", async
         __deckWsStatuses?: string[];
       };
       debugWindow.__deckWsStatuses = [];
-    }, rootMarker);
+    }, rootMarker), "mark the initial Deck root");
     const destinations = [
       {
         team: targetTeam,
@@ -324,36 +380,31 @@ test("switching teams keeps Deck panes mounted and avoids a full refetch", async
 
     for (const destination of destinations) {
       appStateRequests.length = 0;
-      await sw.evaluate((traceLogStorageKey) => {
-        return new Promise<void>((resolve) => {
-          chrome.storage.local.set({ [traceLogStorageKey]: [] }, () => resolve());
-        });
-      }, TRACE_LOG_STORAGE_KEY);
-      await page.evaluate(() => {
+      await withTimeout(sw.evaluate(async (traceLogStorageKey) => {
+        await chrome.storage.local.set({ [traceLogStorageKey]: [] });
+      }, TRACE_LOG_STORAGE_KEY), "clear Deck trace log");
+      await withTimeout(page.evaluate(() => {
         const debugWindow = window as typeof window & {
           __deckWsStatuses?: string[];
         };
         debugWindow.__deckWsStatuses = [];
-      });
+      }), "clear WebSocket status log");
       await page.waitForTimeout(500);
 
-      const onboardingPopover = page.locator('[data-popper-placement="top-start"]');
-      if (await onboardingPopover.isVisible().catch(() => false)) {
-        await onboardingPopover
-          .getByText(/No thanks, I.?ll figure it out myself/)
-          .click();
-        await expect(onboardingPopover).toBeHidden({ timeout: 5_000 });
-      }
       await dismissOfflineStatusModal(page);
 
       const teamLink = page.locator(`a[href="/${destination.team.name}"]`);
-      await expect(teamLink).toBeVisible();
+      await expect(teamLink).toBeVisible({ timeout: 10_000 });
       capture = true;
-      await teamLink.click({ noWaitAfter: true, timeout: 10_000 });
-      await page.waitForURL(
-        new RegExp(`/${destination.team.name}/channels/town-square$`),
-        { timeout: 30_000 },
-      );
+      await test.step(`navigate to team ${destination.team.name}`, async () => {
+        await withTimeout(teamLink.evaluate((link) => {
+          (link as HTMLAnchorElement).click();
+        }), `click team link for ${destination.team.name}`);
+        await page.waitForURL(
+          new RegExp(`/${destination.team.name}/channels/town-square$`),
+          { timeout: 30_000 },
+        );
+      });
       await expect.poll(async () => {
         const snapshot = await debugRequest<{
           stateStatus?: string;
@@ -375,13 +426,13 @@ test("switching teams keeps Deck panes mounted and avoids a full refetch", async
       });
       await page.waitForTimeout(750);
 
-      const traceEntries = await sw.evaluate((traceLogStorageKey) => {
-        return new Promise<TraceLogEntry[]>((resolve) => {
-          chrome.storage.local.get(traceLogStorageKey, (value) => {
-            resolve((value[traceLogStorageKey] as TraceLogEntry[] | undefined) ?? []);
-          });
-        });
-      }, TRACE_LOG_STORAGE_KEY);
+      const traceEntries = await withTimeout(
+        sw.evaluate(async (traceLogStorageKey) => {
+          const value = await chrome.storage.local.get(traceLogStorageKey);
+          return (value[traceLogStorageKey] as TraceLogEntry[] | undefined) ?? [];
+        }, TRACE_LOG_STORAGE_KEY),
+        "read Deck trace log",
+      );
       const deckApiRequests = traceEntries
         .filter((entry) =>
           entry.source === "api" &&
@@ -433,14 +484,14 @@ test("switching teams keeps Deck panes mounted and avoids a full refetch", async
         entry.source === "app" &&
         entry.event === "app.deck-state.route-refresh"
       )).toBe(false);
-      expect(await page.evaluate(() => {
+      expect(await withTimeout(page.evaluate(() => {
         const debugWindow = window as typeof window & {
           __deckWsStatuses?: string[];
         };
         return debugWindow.__deckWsStatuses ?? [];
-      })).toEqual([]);
+      }), "read WebSocket status log")).toEqual([]);
       await expect.poll(async () => {
-        return await page.evaluate((marker) => {
+        return await withTimeout(page.evaluate((marker) => {
           const root = document.querySelector<HTMLElement>("#mattermost-deck-root");
           return {
             marker: root?.dataset.e2eMarker ?? null,
@@ -449,7 +500,7 @@ test("switching teams keeps Deck panes mounted and avoids a full refetch", async
               window as typeof window & { __deckRootRef?: Element }
             ).__deckRootRef === root,
           };
-        }, rootMarker);
+        }, rootMarker), "inspect Deck root identity");
       }).toEqual({ marker: rootMarker, rootCount: 1, sameRoot: true });
       expect((await debugRequest<{ postStatus?: string } | null>(
         page,
@@ -458,7 +509,10 @@ test("switching teams keeps Deck panes mounted and avoids a full refetch", async
       ))?.postStatus).toBe("ready");
     }
   } finally {
-    await context.close();
-    await fs.rm(userDataDir, { recursive: true, force: true });
+    await withTimeout(context.close(), "close Chromium extension context", 15_000);
+    await withTimeout(
+      fs.rm(userDataDir, { recursive: true, force: true }),
+      "remove temporary Chromium profile",
+    );
   }
 });

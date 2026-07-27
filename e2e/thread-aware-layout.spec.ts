@@ -102,14 +102,24 @@ async function login(page: Page, username: string, password: string): Promise<vo
 }
 
 async function dismissFirstRunOverlays(page: Page): Promise<void> {
-  const onboardingOverlay = page.locator('[data-cy="onboarding-task-list-overlay"]');
-  if (await onboardingOverlay.isVisible().catch(() => false)) {
-    await onboardingOverlay.click({
-      position: { x: 10, y: 10 },
-      force: true,
-    }).catch(() => undefined);
-  }
+  const dismissOnboardingOverlay = async () => {
+    const visibleOverlays = page.locator(
+      '[data-cy="onboarding-task-list-overlay"]:visible',
+    );
+    if (await visibleOverlays.count() > 0) {
+      await visibleOverlays.last().click({
+        position: { x: 10, y: 10 },
+        timeout: 5_000,
+      }).catch(async (error: unknown) => {
+        if (await visibleOverlays.count() > 0) {
+          throw error;
+        }
+      });
+    }
+    await expect(visibleOverlays).toHaveCount(0, { timeout: 5_000 });
+  };
 
+  await dismissOnboardingOverlay();
   for (const locator of [
     page.locator('[data-testid="close_tutorial_tip"]'),
     page.getByRole("button", { name: /got it/i }),
@@ -118,20 +128,59 @@ async function dismissFirstRunOverlays(page: Page): Promise<void> {
       await locator.click({ force: true });
     }
   }
+  // Closing a tutorial can reveal the task-list overlay again.
+  await dismissOnboardingOverlay();
 }
 
 async function dismissOfflineStatusModal(page: Page): Promise<void> {
-  const confirmModal = page.locator("#confirmModal:visible");
-  if (!await confirmModal.isVisible().catch(() => false)) {
-    return;
+  const deadline = Date.now() + 10_000;
+  let lastKnownTitle = "";
+
+  while (Date.now() < deadline) {
+    const state = await page.locator("#confirmModal:visible").evaluateAll((modals) => {
+      if (modals.length === 0) {
+        return { kind: "hidden" as const, title: "" };
+      }
+
+      const visibleTitles = modals.map((modal) =>
+        (modal.querySelector("#confirmModalLabel")?.textContent ?? "").trim()
+      );
+      const unexpectedTitle = visibleTitles.find(
+        (title) => title && !/Status is Set to "Offline"/i.test(title),
+      );
+      if (unexpectedTitle) {
+        return { kind: "unexpected" as const, title: unexpectedTitle };
+      }
+
+      const modal = modals.at(-1);
+      const title = visibleTitles.at(-1) ?? "";
+      const cancelButton = modal?.querySelector<HTMLElement>("#cancelModalButton");
+      if (!title || !cancelButton) {
+        return { kind: "pending" as const, title };
+      }
+
+      // Mattermost can replace this modal while its status is settling. Read
+      // the title and activate the button in one DOM task so a detached
+      // instance cannot make Playwright wait on stale actionability state.
+      cancelButton.click();
+      return { kind: "clicked" as const, title };
+    });
+
+    if (state.kind === "hidden") {
+      return;
+    }
+    if (state.kind === "unexpected") {
+      throw new Error(`Unexpected Mattermost confirmation modal: ${state.title}`);
+    }
+    if (state.title) {
+      lastKnownTitle = state.title;
+    }
+    await page.waitForTimeout(50);
   }
 
-  const title = (await confirmModal.locator("#confirmModalLabel").innerText()).trim();
-  if (!/Status is Set to "Offline"/i.test(title)) {
-    throw new Error(`Unexpected Mattermost confirmation modal: ${title}`);
-  }
-  await confirmModal.locator("#cancelModalButton").click({ timeout: 10_000 });
-  await expect(confirmModal).toBeHidden({ timeout: 5_000 });
+  throw new Error(
+    `Mattermost confirmation modal did not close: ${lastKnownTitle || "title unavailable"}`,
+  );
 }
 
 async function debugRequest<T>(
@@ -286,8 +335,8 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     await page.goto(`${baseUrl}/${state.team.name}/channels/${channel.name}`);
     await expect(page.locator("#mattermost-deck-root")).toBeAttached({ timeout: 20_000 });
     await expect(page.locator(`#post_${rootPost.id}`)).toBeVisible({ timeout: 20_000 });
-    await dismissFirstRunOverlays(page);
     await dismissOfflineStatusModal(page);
+    await dismissFirstRunOverlays(page);
     await expect.poll(
       async () => (await debugRequest<DeckDebugState>(page, "getState")).stateStatus,
       { timeout: 30_000 },
@@ -317,6 +366,13 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     ).toBe(120);
 
     const rootPostElement = page.locator(`#post_${rootPost.id}`);
+    // The onboarding task list can mount after the channel and Deck have both
+    // reported ready, so clear and verify it immediately before real pointer
+    // interaction with the Mattermost post.
+    await dismissFirstRunOverlays(page);
+    await expect(
+      page.locator('[data-cy="onboarding-task-list-overlay"]:visible'),
+    ).toHaveCount(0, { timeout: 5_000 });
     await rootPostElement.hover({ timeout: 10_000 });
     const commentIcon = page.locator(`#CENTER_commentIcon_${rootPost.id}`);
     await expect(commentIcon).toBeVisible({ timeout: 10_000 });
