@@ -20,7 +20,7 @@ If you discover a security vulnerability in Mattermost Deck, please report it to
 
 ## Security Updates
 
-Security updates will be released as patch versions (for example, 1.0.1) and will be documented in the [CHANGELOG.md](CHANGELOG.md).
+Security updates will be released as patch versions (for example, 1.0.3) and will be documented in the [CHANGELOG.md](CHANGELOG.md).
 
 ## Best Practices
 

@@ -189,7 +189,7 @@ npm run capture:readme
 
 ## リリース
 
-`v1.0.0` のような `v` 形式タグを push すると GitHub Actions が動作します。パッケージ、manifest、アプリ内表示、公式サイト、CHANGELOGの版番号とタグが一致しない場合、リリースジョブは停止します。
+`v1.0.2` のような `v` 形式タグを push すると GitHub Actions が動作します。パッケージ、manifest、アプリ内表示、公式サイト、CHANGELOGの版番号とタグが一致しない場合、リリースジョブは停止します。
 
 - 型チェック、単体テスト、Docker版Mattermostを使うPlaywright E2E、`STORE_BUILD=true`を指定したChrome Web Store用ビルドを実行
 - `dist/` を `mattermost-deck-<tag>.zip` として生成
@@ -205,10 +205,10 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.0.0"
+$env:EXT_VERSION = "v1.0.2"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.0.zip -Force
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.2.zip -Force
 ```
 
 ZIP直下に `manifest.json` が配置されていることを確認してください。Web Store用ビルドではlocalhost専用の静的content scriptを意図的に除外し、E2Eテスト用の通常ビルドでは残します。

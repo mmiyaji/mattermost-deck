@@ -180,7 +180,7 @@ npm run capture:readme
 
 ## Release
 
-Push a tag in `v` format, such as `v1.0.0`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
+Push a tag in `v` format, such as `v1.0.2`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
 
 - Runs type checks, unit tests, the Docker-backed Playwright E2E suite, and a Chrome Web Store build with `STORE_BUILD=true`
 - Packages `dist/` as `mattermost-deck-<tag>.zip`
@@ -196,10 +196,10 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.0.0"
+$env:EXT_VERSION = "v1.0.2"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.0.zip -Force
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.2.zip -Force
 ```
 
 The archive must contain `manifest.json` at its root. Store builds intentionally omit the localhost-only static content script; local development builds retain it for E2E testing.

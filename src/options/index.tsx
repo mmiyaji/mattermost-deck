@@ -2371,6 +2371,23 @@ function OptionsApp(): React.JSX.Element {
   };
   const currentReleaseNotes = useMemo(() => {
     if (!releaseNotice) return null;
+    if (releaseNotice.version === "1.0.2") {
+      return {
+        title: "v1.0.2",
+        added: [
+          t("options.releaseNote102ThreadLayout"),
+        ],
+        changed: [
+          t("options.releaseNote102Navigation"),
+          t("options.releaseNote102Compatibility"),
+          t("options.releaseNote102TeamScope"),
+        ],
+        fixed: [
+          t("options.releaseNote102ReadMarkers"),
+          t("options.releaseNote102Permissions"),
+        ],
+      } satisfies ReleaseNotes;
+    }
     if (releaseNotice.version === "1.0.0") {
       return {
         title: "v1.0.0",

@@ -7,6 +7,8 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-07-27
+
 ### Added
 
 - Added an optional thread-aware layout that narrows or collapses Deck while Mattermost's thread pane is open, then restores the requested width and scroll position.
@@ -16,6 +18,7 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Kept Deck panes mounted during Mattermost channel and team navigation and limited route updates to the destination channel lookup.
 - Made the Docker-backed Mattermost test runner version selectable while keeping 9.5.4 as the default, and verified E2E compatibility with Mattermost 9.5.11.
 - Clarified that leaving Team Slug blank keeps Deck state available across all teams on the configured Mattermost server.
+- Advanced the release version to 1.0.2 because 1.0.1 was used for a rollback distribution.
 
 ### Fixed
 
