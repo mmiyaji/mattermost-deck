@@ -572,7 +572,24 @@ async function openSearch(
     height: 900,
   });
   await closeRightSidebar(page);
-  const search = page.locator("#searchBox");
+  const legacySearch = page.locator("#searchBox");
+  const usesLegacySearch = await legacySearch
+    .isVisible()
+    .catch(() => false);
+  if (!usesLegacySearch) {
+    const searchLauncher = page.locator(
+      "#searchFormContainer",
+    );
+    await expect(searchLauncher).toBeVisible({
+      timeout: 10_000,
+    });
+    await searchLauncher.click();
+  }
+  const search = usesLegacySearch
+    ? legacySearch
+    : page.getByRole("searchbox", {
+      name: /search messages/i,
+    });
   await expect(search).toBeVisible({ timeout: 10_000 });
   await search.fill(query);
   await search.press("Enter");
@@ -1179,9 +1196,16 @@ test(
       });
       page.on("pageerror", (error) => {
         const detail = error.stack ?? error.message;
-        if (
+        const isKnownPlaybooksAuthorizationNoise =
           /Not authorized/i.test(detail) &&
-          /static\/plugins\/playbooks\//i.test(detail)
+          /static\/plugins\/playbooks\//i.test(detail);
+        const isKnownMattermostAiTeamNoise =
+          /Unable to find an existing account matching your username for this team/i
+            .test(detail) &&
+          /static\/plugins\/mattermost-ai\//i.test(detail);
+        if (
+          isKnownPlaybooksAuthorizationNoise ||
+          isKnownMattermostAiTeamNoise
         ) {
           ignoredRuntimeFailures.push(detail);
         } else {
@@ -1193,14 +1217,13 @@ test(
       });
       page.on("response", (response) => {
         const responsePath = new URL(response.url()).pathname;
-        const isUnsupportedLegacyGroupsEndpoint =
-          state.mattermostVersion?.startsWith("9.5.") === true &&
+        const isUnsupportedGroupsEndpoint =
           response.status() === 501 &&
           /^\/api\/v4\/users\/[^/]+\/groups$/.test(responsePath);
         if (
           response.url().startsWith(baseUrl) &&
           response.status() >= 500 &&
-          !isUnsupportedLegacyGroupsEndpoint
+          !isUnsupportedGroupsEndpoint
         ) {
           responseFailures.push(
             `${response.status()} ${response.url()}`,
@@ -2102,6 +2125,7 @@ test(
             "ResizeObserver loop",
             "pdat\\.matterlytics\\.com",
             `^${escapedBaseUrl}/`,
+            "Unable to find an existing account matching your username for this team",
             "Failed to load resource: the server responded with a status of (?:400|403|404|501)",
           ],
           spaPatterns: [

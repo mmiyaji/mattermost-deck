@@ -12,14 +12,13 @@ import path from "node:path";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.json");
-const ADMIN_USERNAME = "mm95admin";
-const ADMIN_PASSWORD = "Admin1234!";
 const LAYOUT_STORAGE_KEY = "mattermostDeck.layout.v1";
 const MENTION_CACHE_STORAGE_KEY =
   "mattermostDeck.mentionFeedCache.v1";
 
 interface E2EState {
   teamName: string;
+  adminUser: { username: string; password: string };
   memberUser: { id: string; username: string; password: string; token: string };
 }
 
@@ -277,7 +276,10 @@ test("all-teams mention refresh keeps rows stable until updates are applied", as
   const state = await readState();
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-mentions-fanout-"));
-  const adminToken = await loginViaApi(ADMIN_USERNAME, ADMIN_PASSWORD);
+  const adminToken = await loginViaApi(
+    state.adminUser.username,
+    state.adminUser.password,
+  );
   const memberWsToken = await loginViaApi(
     state.memberUser.username,
     state.memberUser.password,

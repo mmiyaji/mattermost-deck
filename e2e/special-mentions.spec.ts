@@ -16,7 +16,21 @@ interface E2EState {
 }
 
 async function readState(): Promise<E2EState> {
-  return JSON.parse(await fs.readFile(stateFile, "utf8")) as E2EState;
+  const state = JSON.parse(await fs.readFile(stateFile, "utf8")) as {
+    team: E2EState["team"];
+    adminUser?: E2EState["adminUser"];
+    bridgeUser?: E2EState["adminUser"];
+    memberUser: E2EState["memberUser"];
+  };
+  const adminUser = state.adminUser ?? state.bridgeUser;
+  if (!adminUser) {
+    throw new Error("E2E state is missing adminUser or bridgeUser");
+  }
+  return {
+    team: state.team,
+    adminUser,
+    memberUser: state.memberUser,
+  };
 }
 
 async function apiGet<T>(token: string, pathname: string): Promise<T> {

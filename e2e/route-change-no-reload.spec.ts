@@ -205,14 +205,11 @@ test("switching channels keeps Deck panes mounted and avoids a full refetch", as
       ))?.postStatus;
     }, { timeout: 30_000 }).toBe("ready");
     await expect.poll(
-      () => page.evaluate(() => {
-        const debugWindow = window as typeof window & {
-          __deckWsStatuses?: string[];
-        };
-        return debugWindow.__deckWsStatuses?.includes("connected") ?? false;
-      }),
+      async () => (
+        await debugRequest<{ wsStatus?: string }>(page, "getState")
+      ).wsStatus,
       { timeout: 30_000 },
-    ).toBe(true);
+    ).toBe("connected");
 
     const rootMarker = `route-stability-${Date.now()}`;
     await page.evaluate((marker) => {

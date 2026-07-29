@@ -5,8 +5,6 @@ import path from "node:path";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.json");
-const ADMIN_USERNAME = "mm95admin";
-const ADMIN_PASSWORD = "Admin1234!";
 const TRACE_CAPTURE_STORAGE_KEY = "mattermostDeck.traceCapture.v1";
 const TRACE_LOG_STORAGE_KEY = "mattermostDeck.traceEntries.v1";
 const LAYOUT_STORAGE_KEY = "mattermostDeck.layout.v1";
@@ -15,6 +13,7 @@ const CUSTOM_WAIT_TIMEOUT_MS = 10_000;
 
 interface E2EState {
   teamName: string;
+  adminUser: { username: string; password: string };
   memberUser: { id: string; username: string; password: string };
 }
 
@@ -203,7 +202,10 @@ test("switching teams keeps Deck panes mounted and avoids a full refetch", async
   const state = await readState();
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-team-switch-"));
-  const adminToken = await loginApi(ADMIN_USERNAME, ADMIN_PASSWORD);
+  const adminToken = await loginApi(
+    state.adminUser.username,
+    state.adminUser.password,
+  );
   const memberToken = await loginApi(state.memberUser.username, state.memberUser.password);
   const originalTeam = await apiGet<{ id: string; name: string }>(
     memberToken,
@@ -457,16 +459,19 @@ test("switching teams keeps Deck panes mounted and avoids a full refetch", async
       // background and may finish during navigation. These narrow metadata
       // lookups are not a Deck refetch and must not make the route-stability
       // assertion timing-dependent.
+      const isDeferredCardMetadataLookup = (path: string) =>
+        path === "/users/ids" ||
+        /^\/channels\/[^/]+$/.test(path);
       expect(
         deckApiRequests.filter(
           (entry) =>
             entry.path !== expectedRouteLookup.path &&
-            !/^\/channels\/[^/]+$/.test(entry.path),
+            !isDeferredCardMetadataLookup(entry.path),
         ),
       ).toEqual([]);
       expect(
         deckApiRequests
-          .filter((entry) => /^\/channels\/[^/]+$/.test(entry.path))
+          .filter((entry) => isDeferredCardMetadataLookup(entry.path))
           .every((entry) => entry.event === "request.complete"),
       ).toBe(true);
       expect(traceEntries.some((entry) =>

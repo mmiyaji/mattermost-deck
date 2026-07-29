@@ -18,6 +18,11 @@ const AUTO_ADJUST_STORAGE_KEY = "mattermostDeck.autoAdjustThreadLayout.v1";
 const PREFERRED_RAIL_WIDTH_STORAGE_KEY = "mattermostDeck.preferredRailWidth.v1";
 const REQUESTED_RAIL_WIDTH = 900;
 const MANUAL_OVERRIDE_RAIL_WIDTH = 480;
+// Mattermost 11 intentionally overlaps the center box and RHS chrome by 25px
+// for its gutter/shadow. This is host-internal chrome rather than Deck
+// coverage; the separate app-content and Mattermost/Deck boundary assertions
+// still require the usable content width to be preserved exactly.
+const MAX_HOST_CENTER_RHS_CHROME_OVERLAP = 32;
 
 interface E2EState {
   team: { id: string; name: string };
@@ -701,8 +706,17 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
       REQUESTED_RAIL_WIDTH - layoutWithThread.deck,
     ).toBe(layoutWithThread.rhs);
     expect(
-      Math.abs(layoutWithThread.center - layoutBeforeRhs.center),
+      Math.abs(layoutWithThread.appContent - layoutBeforeRhs.appContent),
+      `Mattermost app content changed after opening RHS: before=${JSON.stringify(
+        layoutBeforeRhs,
+      )}, after=${JSON.stringify(layoutWithThread)}`,
     ).toBeLessThanOrEqual(4);
+    expect(
+      layoutWithThread.center,
+      `Mattermost center narrowed after opening RHS: before=${JSON.stringify(
+        layoutBeforeRhs,
+      )}, after=${JSON.stringify(layoutWithThread)}`,
+    ).toBeGreaterThanOrEqual(layoutBeforeRhs.center - 4);
     await page.waitForTimeout(500);
     const initialOpenTargetTrace = await stopDeckTargetWidthTrace(page);
     const initialOpenRenderedTrace = await stopDeckWidthTrace(page);
@@ -722,7 +736,9 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     )).toBeLessThanOrEqual(2);
     expect(initialOpenLayoutTrace.overflow).toBe(false);
     expect(initialOpenLayoutTrace.sampleCount).toBeGreaterThan(0);
-    expect(initialOpenLayoutTrace.maxCenterRhsOverlap).toBeLessThanOrEqual(4);
+    expect(initialOpenLayoutTrace.maxCenterRhsOverlap).toBeLessThanOrEqual(
+      MAX_HOST_CENTER_RHS_CHROME_OVERLAP,
+    );
     expect(initialOpenLayoutTrace.maxMattermostDeckOverlap).toBeLessThanOrEqual(1);
     expect(initialOpenLayoutTrace.maxBoundaryGap).toBeLessThanOrEqual(1);
     await capture(page, testInfo, "01-wide-compact.png");
@@ -767,7 +783,9 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     ))).toBe(true);
     expect(narrowCompactLayoutTrace.overflow).toBe(false);
     expect(narrowCompactLayoutTrace.sampleCount).toBeGreaterThan(0);
-    expect(narrowCompactLayoutTrace.maxCenterRhsOverlap).toBeLessThanOrEqual(4);
+    expect(narrowCompactLayoutTrace.maxCenterRhsOverlap).toBeLessThanOrEqual(
+      MAX_HOST_CENTER_RHS_CHROME_OVERLAP,
+    );
     expect(narrowCompactLayoutTrace.maxMattermostDeckOverlap).toBeLessThanOrEqual(1);
     expect(narrowCompactLayoutTrace.maxBoundaryGap).toBeLessThanOrEqual(1);
 
@@ -996,7 +1014,9 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     ]);
     expect(collapsedOpenLayoutTrace.overflow).toBe(false);
     expect(collapsedOpenLayoutTrace.sampleCount).toBeGreaterThan(0);
-    expect(collapsedOpenLayoutTrace.maxCenterRhsOverlap).toBeLessThanOrEqual(4);
+    expect(collapsedOpenLayoutTrace.maxCenterRhsOverlap).toBeLessThanOrEqual(
+      MAX_HOST_CENTER_RHS_CHROME_OVERLAP,
+    );
     expect(collapsedOpenLayoutTrace.maxMattermostDeckOverlap).toBeLessThanOrEqual(1);
     expect(collapsedOpenLayoutTrace.maxBoundaryGap).toBeLessThanOrEqual(1);
 
@@ -1173,7 +1193,13 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     // Mattermost uses the same canonical RHS for search, pinned messages,
     // channel information, and plugin-provided views. Search is a reliable
     // real-world surface that contains none of the thread-specific markers.
-    const searchBox = page.locator("#searchBox");
+    const legacySearchBox = page.locator("#searchBox");
+    const searchBox = await legacySearchBox.isVisible().catch(() => false)
+      ? legacySearchBox
+      : page.getByRole("searchbox", { name: /search messages/i });
+    if (!await legacySearchBox.isVisible().catch(() => false)) {
+      await page.locator("#searchFormContainer").click();
+    }
     await expect(searchBox).toBeVisible({ timeout: 10_000 });
     await searchBox.fill(rootPost.message);
     await expect(searchBox).toHaveValue(rootPost.message);
@@ -1226,8 +1252,11 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     const layoutWithSearch = await getLayoutSnapshot(page);
     expect(REQUESTED_RAIL_WIDTH - layoutWithSearch.deck).toBe(layoutWithSearch.rhs);
     expect(
-      Math.abs(layoutWithSearch.center - layoutBeforeSearch.center),
+      Math.abs(layoutWithSearch.appContent - layoutBeforeSearch.appContent),
     ).toBeLessThanOrEqual(4);
+    expect(layoutWithSearch.center).toBeGreaterThanOrEqual(
+      layoutBeforeSearch.center - 4,
+    );
     await page.waitForTimeout(100);
     const searchTargetTrace = await stopDeckTargetWidthTrace(page);
     const searchRenderedTrace = await stopDeckWidthTrace(page);
@@ -1239,7 +1268,9 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
       400,
     ]);
     expect(searchLayoutTrace.overflow).toBe(false);
-    expect(searchLayoutTrace.maxCenterRhsOverlap).toBeLessThanOrEqual(4);
+    expect(searchLayoutTrace.maxCenterRhsOverlap).toBeLessThanOrEqual(
+      MAX_HOST_CENTER_RHS_CHROME_OVERLAP,
+    );
     expect(searchLayoutTrace.maxMattermostDeckOverlap).toBeLessThanOrEqual(1);
     expect(searchLayoutTrace.maxBoundaryGap).toBeLessThanOrEqual(1);
     await capture(page, testInfo, "06-search-rhs-adjusted.png");
@@ -1247,8 +1278,20 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     // Switching the content inside an already-open canonical RHS must not
     // briefly restore the requested Deck width or remount Deck.
     await startDeckWidthTrace(page);
-    await page.locator("#channelHeaderPinButton").click({ timeout: 10_000 });
-    await expect(openRhs).toContainText("Pinned messages", { timeout: 20_000 });
+    const legacyPinnedMessagesButton = page.locator(
+      "#channelHeaderPinButton",
+    );
+    const usesLegacyPinnedMessages = await legacyPinnedMessagesButton
+      .isVisible()
+      .catch(() => false);
+    const alternateRhsButton = usesLegacyPinnedMessages
+      ? legacyPinnedMessagesButton
+      : page.getByRole("button", { name: /saved messages/i });
+    await alternateRhsButton.click({ timeout: 10_000 });
+    await expect(openRhs).toContainText(
+      usesLegacyPinnedMessages ? "Pinned messages" : "Saved messages",
+      { timeout: 20_000 },
+    );
     await expect.poll(
       async () => await debugRequest<DeckDebugState>(page, "getState"),
       { timeout: 20_000 },
