@@ -83,8 +83,13 @@ async function dismissOfflineStatusModal(page: Page): Promise<void> {
   if (await modal.count() === 0) {
     return;
   }
-  const title = (await modal.locator("#confirmModalLabel").textContent() ?? "").trim();
-  if (!/Status is Set to "Offline"/i.test(title)) {
+  const title = (
+    await modal
+      .locator("#confirmModalLabel, #genericModalLabel")
+      .first()
+      .textContent() ?? ""
+  ).trim();
+  if (!/status is (?:set to )?["“]?offline["”]?/i.test(title)) {
     throw new Error(`Unexpected Mattermost confirmation modal: ${title}`);
   }
   await modal.locator("#cancelModalButton").click({ force: true });

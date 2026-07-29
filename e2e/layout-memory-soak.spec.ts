@@ -589,10 +589,15 @@ async function dismissOfflineStatusModal(page: Page): Promise<void> {
       }
 
       const visibleTitles = modals.map((modal) =>
-        (modal.querySelector("#confirmModalLabel")?.textContent ?? "").trim()
+        (
+          modal.querySelector("#confirmModalLabel, #genericModalLabel")
+            ?.textContent ?? ""
+        ).trim()
       );
       const unexpectedTitle = visibleTitles.find(
-        (title) => title && !/Status is Set to "Offline"/i.test(title),
+        (title) =>
+          title &&
+          !/status is (?:set to )?["“]?offline["”]?/i.test(title),
       );
       if (unexpectedTitle) {
         return { kind: "unexpected" as const, title: unexpectedTitle };

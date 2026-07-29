@@ -162,7 +162,7 @@ async function login(page: import("@playwright/test").Page, username: string, pa
   await page.getByRole("button", { name: /log in/i }).click();
   await page.waitForURL(/channels|messages/, { timeout: 30_000 });
   const setOnlineButton = page.getByRole("button", {
-    name: /set my status to "Online"/i,
+    name: /set (?:my )?status to ["“]?online["”]?/i,
   });
   await setOnlineButton
     .waitFor({ state: "visible", timeout: 2_000 })
@@ -170,6 +170,26 @@ async function login(page: import("@playwright/test").Page, username: string, pa
   if (await setOnlineButton.isVisible().catch(() => false)) {
     await setOnlineButton.click();
   }
+}
+
+async function dismissOfflineStatusModal(
+  page: import("@playwright/test").Page,
+): Promise<void> {
+  const modal = page.locator("#confirmModal:visible");
+  if (await modal.count() === 0) {
+    return;
+  }
+  const title = (
+    await modal
+      .locator("#confirmModalLabel, #genericModalLabel")
+      .first()
+      .textContent() ?? ""
+  ).trim();
+  if (!/status is (?:set to )?["“]?offline["”]?/i.test(title)) {
+    throw new Error(`Unexpected Mattermost confirmation modal: ${title}`);
+  }
+  await modal.locator("#cancelModalButton").click({ force: true });
+  await expect(modal).toHaveCount(0, { timeout: 5_000 });
 }
 
 async function debugRequest<T>(
@@ -505,6 +525,7 @@ test("all-teams mention refresh keeps rows stable until updates are applied", as
       );
     });
     await login(page, state.memberUser.username, state.memberUser.password);
+    await dismissOfflineStatusModal(page);
 
     await expect(page.locator("#mattermost-deck-root")).toBeAttached({ timeout: 20_000 });
     await expect

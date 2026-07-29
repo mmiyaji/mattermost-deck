@@ -172,9 +172,11 @@ async function dismissOfflineStatusModal(
       return { visible: false, title: "", clicked: false };
     }
     const title =
-      modal.querySelector<HTMLElement>("#confirmModalLabel")
+      modal.querySelector<HTMLElement>(
+        "#confirmModalLabel, #genericModalLabel",
+      )
         ?.innerText.trim() ?? "";
-    if (!/Status is Set to "Offline"/i.test(title)) {
+    if (!/status is (?:set to )?["“]?offline["”]?/i.test(title)) {
       return { visible: true, title, clicked: false };
     }
     const cancelButton =
@@ -185,7 +187,7 @@ async function dismissOfflineStatusModal(
   if (!result.visible) {
     return;
   }
-  if (!/Status is Set to "Offline"/i.test(result.title)) {
+  if (!/status is (?:set to )?["“]?offline["”]?/i.test(result.title)) {
     throw new Error(`Unexpected Mattermost confirmation modal: ${result.title}`);
   }
   if (!result.clicked) {

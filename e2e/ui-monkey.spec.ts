@@ -325,14 +325,14 @@ async function dismissMattermostOverlays(
         const titles = modals.map((modal) =>
           (
             modal.querySelector(
-              "#confirmModalLabel",
+              "#confirmModalLabel, #genericModalLabel",
             )?.textContent ?? ""
           ).trim()
         );
         const unexpectedTitle = titles.find(
           (title) =>
             title &&
-            !/Status is Set to "Offline"/i.test(title),
+            !/status is (?:set to )?["“]?offline["”]?/i.test(title),
         );
         if (unexpectedTitle) {
           return {
