@@ -16,15 +16,13 @@ Mattermost Deck adds a multi-pane viewing and search workspace to Mattermost Web
 
 Mattermost Deck adds monitoring-oriented panes to the right side of Mattermost Web. Users can arrange mentions, channels, direct messages, search results with keyword highlighting, and saved posts side by side. Mattermost remains the primary interface for login, posting, editing, team navigation, and thread views.
 
-## v1.0.2 release notes
+## v1.0.3 release notes
 
-- Added optional thread-aware sizing that narrows or collapses Deck while Mattermost's thread pane is open, then restores the requested width
-- Kept Deck panes mounted across channel and team navigation so pane state is preserved without a broad refetch
-- Synchronized WebSocket channel and thread read markers locally without reloading unrelated Deck data
-- Clarified that leaving Team Slug blank keeps the same Deck state available across all teams on the configured server
-- Verified Docker-backed E2E compatibility with Mattermost 9.5.11 while retaining 9.5.4 coverage
-- Fixed Chrome host-permission matching for Mattermost servers that use non-default ports
-- Published as 1.0.2 because 1.0.1 was used for a rollback distribution
+- Improved automatic sizing for threads, search results, and pinned posts by subtracting the right pane's full measured width from Deck in the same frame, preserving the pre-open main-content width without staged resizing
+- Kept mouse and keyboard resizing available while Deck is temporarily compacted, and preserves the user-selected width as a manual override
+- Bounded layout observation to Mattermost's root and canonical right pane so loading large result sets does not grow observer work or retained targets
+- Switched release builds to the React production runtime and replaced full-tree profiling with bounded render diagnostics to prevent User Timing data from accumulating during long sessions
+- Added a 20-minute fixed-seed memory soak with 384 Mattermost posts and tens of thousands of right-pane mutations; Mattermost 9.5.11 completed without a renderer crash or OOM signal
 
 ## Permission justifications
 

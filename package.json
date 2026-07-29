@@ -1,6 +1,6 @@
 {
   "name": "mattermost-deck",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,6 +14,10 @@
     "open:mattermost": "node ./scripts/open-mattermost.mjs",
     "test": "vitest run",
     "test:e2e": "playwright test --workers=1",
+    "test:monkey": "node ./scripts/run-ui-monkey.mjs",
+    "test:soak": "node ./scripts/run-layout-memory-soak.mjs",
+    "test:soak:auto-adjust-off": "node ./scripts/run-layout-memory-soak.mjs --auto-adjust-off",
+    "test:soak:control": "node ./scripts/run-layout-memory-soak.mjs --control",
     "mm95:start": "node ./scripts/mm95-start.mjs",
     "mm95:stop": "node ./scripts/mm95-start.mjs --stop",
     "test:theme": "playwright test e2e/theme-compat.spec.ts --headed"
@@ -30,6 +34,7 @@
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
+    "chaosbringer": "^0.9.0",
     "esbuild": "^0.28.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.4"

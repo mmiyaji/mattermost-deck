@@ -34,6 +34,10 @@ export function useAppText() {
     loading: t("deck.loading"),
     loadingMentions: t("deck.loadingMentions"),
     refreshingMentions: t("deck.refreshingMentions"),
+    mentionUpdatesAvailable: (count: number) =>
+      t("deck.mentionUpdatesAvailable", { count }),
+    showMentionUpdates: (count: number) =>
+      t("deck.showMentionUpdates", { count }),
     loadingMentionsProgress: (
       count: number,
       completed: number,

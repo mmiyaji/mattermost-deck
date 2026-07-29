@@ -32,7 +32,7 @@ Cloudflare Pages 編集権限だけを持つ `CLOUDFLARE_API_TOKEN` が必要で
 
 ## 主な機能
 
-- Mattermost のスレッドペイン表示中は自動的に幅を縮小または折り畳み、狭いウィンドウでもメイン表示領域を優先し、終了後に指定幅とスクロール位置へ戻る右側 Deck レイアウト
+- Mattermost の右ペイン（スレッド、検索結果、ピン留め投稿など）の実測幅分だけ Deck を縮小して開く前のメイン表示幅を維持し、残り幅が 280 px 未満なら 52 px へ折り畳み、終了後に指定幅とスクロール位置へ戻る右側 Deck レイアウト。明示的な手動リサイズでは Mattermost を最低 320 px 残す範囲まで Deck を拡大でき、設定値による自動幅では 720 px を確保します。
 - ペイン種別:
   - `mentions`
   - `channelWatch`
@@ -178,6 +178,7 @@ npm run check
 npm run check:release
 npm run check:site
 npm run test:e2e
+npm run test:soak
 npm run mm95:start
 node scripts/mm95-start.mjs --version 9.5.11
 npm run mm95:stop
@@ -186,10 +187,11 @@ npm run capture:readme
 ```
 
 `mm95:start` は既定で Mattermost 9.5.4 を起動します。9.5.11 を起動する場合は、上記のバージョン指定コマンドを使用してください。`test:e2e` とスクリーンショット更新には、到達可能な Mattermost テスト環境が必要です。
+`test:soak` は、固定seedで独立した20分間のレイアウト・メモリ耐久試験を実行します。Mattermostへ384件のテスト投稿を作成し、大量の検索結果を保持したまま右ペイン種別と画面幅を切り替え、メモリを積み増さない数万回の右ペイン内部Mutationを加えます。終了後に投稿を削除し、ヒープ、DOM、イベントリスナー、User Timing、レイアウト計測の上限付き傾向レポートを `test-results/` に出力します。実行前に `MM_DECK_SOAK_MINUTES`（10〜120）または `MM_DECK_SOAK_SEED` を設定すると、時間またはseedを変更できます。`test:soak:auto-adjust-off` では自動レイアウト監視を切り分け、`test:soak:control` では拡張機能なしの同一Mattermost負荷を実行できます。
 
 ## リリース
 
-`v1.0.2` のような `v` 形式タグを push すると GitHub Actions が動作します。パッケージ、manifest、アプリ内表示、公式サイト、CHANGELOGの版番号とタグが一致しない場合、リリースジョブは停止します。
+`v1.0.3` のような `v` 形式タグを push すると GitHub Actions が動作します。パッケージ、manifest、アプリ内表示、公式サイト、CHANGELOGの版番号とタグが一致しない場合、リリースジョブは停止します。
 
 - 型チェック、単体テスト、Docker版Mattermostを使うPlaywright E2E、`STORE_BUILD=true`を指定したChrome Web Store用ビルドを実行
 - `dist/` を `mattermost-deck-<tag>.zip` として生成
@@ -205,10 +207,10 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.0.2"
+$env:EXT_VERSION = "v1.0.3"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.2.zip -Force
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.3.zip -Force
 ```
 
 ZIP直下に `manifest.json` が配置されていることを確認してください。Web Store用ビルドではlocalhost専用の静的content scriptを意図的に除外し、E2Eテスト用の通常ビルドでは残します。

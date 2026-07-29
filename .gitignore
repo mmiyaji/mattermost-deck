@@ -2,6 +2,7 @@ dist/
 node_modules/
 playwright-report/
 test-results/
+artifacts/chaosbringer/
 .tmp-*/
 .tmp-*.cjs
 .claude/

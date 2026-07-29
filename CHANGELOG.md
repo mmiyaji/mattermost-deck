@@ -7,6 +7,33 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Keep the current mention list stable while multi-team refreshes run, show progress in the fixed column header, and let users apply new, edited, or attachment-changing results from an update-count button while read and deleted rows still clear promptly.
+
+### Fixed
+
+- Prevent partial mention results and post-shaped loading placeholders from shifting rows or looking like newly arrived posts.
+- Restore the wider manual resize range so an explicit drag can expand Deck while keeping at least 320 px of Mattermost visible; automatic responsive sizing continues to reserve 720 px.
+- Release a pending viewport-settle width as soon as a manual drag begins so Deck follows the pointer immediately after resizing the browser.
+
+## [1.0.3] - 2026-07-29
+
+### Added
+
+- Added an opt-in, fixed-seed 20-minute memory soak that exercises 384 Mattermost posts, tens of thousands of bounded right-pane mutations, native surface and viewport transitions, and renderer heap/DOM/listener/User Timing trend reporting with extension-off controls.
+
+### Changed
+
+- Adjust Deck for any open Mattermost right pane, including threads, search results, and pinned posts, by subtracting the pane's full measured width from the normal responsive Deck width.
+- Keep right-pane layout observation bounded to the Mattermost root and canonical right pane so loading posts or search results cannot grow the observer target set.
+- Allow mouse and keyboard resizing while Deck is temporarily compacted for an open Mattermost right pane; the chosen width is saved while future right panes continue to auto-adjust.
+
+### Fixed
+
+- Build against the React production runtime and replace the full-subtree React Profiler with bounded in-app render timing so User Timing entries cannot accumulate during long sessions.
+- Apply the Mattermost right-pane width and Deck offset in the same rendering frame so the main content keeps its pre-open width without staged resizing or temporary coverage.
+
 ## [1.0.2] - 2026-07-27
 
 ### Added

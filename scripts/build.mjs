@@ -5,6 +5,11 @@ import path from "node:path";
 const watch = process.argv.includes("--watch");
 const inGithubActions = process.env.GITHUB_ACTIONS === "true";
 const storeBuild = process.env.STORE_BUILD === "true";
+const reactEnvironment = (
+  process.env.REACT_ENV === "development" && !storeBuild
+)
+  ? "development"
+  : "production";
 const sourcemap = watch || (!storeBuild && !inGithubActions);
 
 const root = process.cwd();
@@ -142,6 +147,7 @@ const ctx = await esbuild.context({
   minifySyntax: storeBuild,
   define: {
     __MATTERMOST_DECK_E2E_DEBUG__: JSON.stringify(!storeBuild),
+    "process.env.NODE_ENV": JSON.stringify(reactEnvironment),
   },
   loader: {
     ".ts": "ts",
@@ -170,5 +176,31 @@ if (watch) {
   }
   if (!storeBuild && !contentBundle.includes("mattermost-deck-debug-request")) {
     throw new Error("Development build is missing the E2E debug bridge");
+  }
+
+  if (reactEnvironment === "production") {
+    const reactDevelopmentMarkers = [
+      "react.development.js",
+      "react-stack-top-frame",
+    ];
+    const javascriptBundles = (await fs.readdir(distDir))
+      .filter((name) => name.endsWith(".js"));
+    const affectedBundles = [];
+    for (const bundleName of javascriptBundles) {
+      const source = await fs.readFile(path.join(distDir, bundleName), "utf8");
+      const includedMarkers = reactDevelopmentMarkers.filter((marker) => (
+        source.includes(marker)
+      ));
+      if (includedMarkers.length > 0) {
+        affectedBundles.push(
+          `${bundleName} (${includedMarkers.join(", ")})`,
+        );
+      }
+    }
+    if (affectedBundles.length > 0) {
+      throw new Error(
+        `Production build contains React development runtime markers: ${affectedBundles.join("; ")}`,
+      );
+    }
   }
 }

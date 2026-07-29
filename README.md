@@ -32,7 +32,7 @@ Dark theme:
 
 ## Features
 
-- Resizable right-side deck that automatically narrows or collapses while Mattermost's thread pane is open, preserves the main content area on narrow windows, and restores the requested width and scroll position afterward
+- Resizable right-side deck that gives a Mattermost right pane, such as a thread, search results, or pinned posts, its full measured width by shrinking Deck by the same amount; it collapses to a 52 px rail when less than 280 px would remain, then restores the requested width and scroll position. An explicit manual resize may expand Deck while keeping at least 320 px of Mattermost visible; automatic preferred sizing reserves 720 px.
 - Pane types:
   - `mentions`
   - `channelWatch`
@@ -169,6 +169,7 @@ npm run check
 npm run check:release
 npm run check:site
 npm run test:e2e
+npm run test:soak
 npm run mm95:start
 node scripts/mm95-start.mjs --version 9.5.11
 npm run mm95:stop
@@ -177,11 +178,12 @@ npm run capture:readme
 ```
 
 `mm95:start` starts Mattermost 9.5.4 by default; use the versioned command above to start 9.5.11. `test:e2e` and screenshot capture require a reachable Mattermost test environment.
+`test:soak` runs the isolated 20-minute, fixed-seed layout memory soak. It creates and later deletes 384 Mattermost test posts, keeps a large search result set loaded while cycling native right-pane surfaces and viewport widths, applies tens of thousands of allocation-bounded RHS mutations, and writes bounded heap, DOM, listener, User Timing, and layout-measurement trends under `test-results/`. Set `MM_DECK_SOAK_MINUTES` (10–120) or `MM_DECK_SOAK_SEED` before running to override the duration or seed. Use `test:soak:auto-adjust-off` to isolate automatic layout observation or `test:soak:control` to run the same Mattermost workload without the extension.
 `open:mattermost` closes its browser when the launcher exits and limits unattended sessions to eight hours by default. Set `MM95_BROWSER_MAX_LIFETIME_MINUTES` to another non-negative minute value, or `0` to disable the lifetime limit.
 
 ## Release
 
-Push a tag in `v` format, such as `v1.0.2`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
+Push a tag in `v` format, such as `v1.0.3`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
 
 - Runs type checks, unit tests, the Docker-backed Playwright E2E suite, and a Chrome Web Store build with `STORE_BUILD=true`
 - Packages `dist/` as `mattermost-deck-<tag>.zip`
@@ -197,10 +199,10 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.0.2"
+$env:EXT_VERSION = "v1.0.3"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.2.zip -Force
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.3.zip -Force
 ```
 
 The archive must contain `manifest.json` at its root. Store builds intentionally omit the localhost-only static content script; local development builds retain it for E2E testing.

@@ -51,6 +51,49 @@ interface BrowserMemorySnapshot {
   };
 }
 
+interface MentionPresentationState {
+  progressPresent?: boolean;
+  updateButtonPresent?: boolean;
+  updateCount?: number;
+  updateButtonText?: string | null;
+  newPostsButtonPresent?: boolean;
+  newPostCount?: number;
+  listFocused?: boolean;
+  skeletonCount?: number;
+  viewportTop?: number | null;
+  viewportScrollTop?: number | null;
+  firstPostTop?: number | null;
+  firstPostHeight?: number | null;
+}
+
+interface PostCardDebugState {
+  present?: boolean;
+  clickable?: boolean;
+  role?: string | null;
+  top?: number | null;
+  height?: number | null;
+  relativeTop?: number | null;
+  viewportTop?: number | null;
+  viewportScrollTop?: number | null;
+}
+
+function expectStablePixels(
+  actual: Record<string, number | null | undefined>,
+  baseline: Record<string, number | null | undefined>,
+  keys: string[],
+): void {
+  for (const key of keys) {
+    const actualValue = actual[key];
+    const baselineValue = baseline[key];
+    expect(actualValue, `${key} should be measured`).not.toBeNull();
+    expect(baselineValue, `${key} baseline should be measured`).not.toBeNull();
+    expect(
+      Math.abs(Number(actualValue) - Number(baselineValue)),
+      `${key} should stay within one pixel`,
+    ).toBeLessThanOrEqual(1);
+  }
+}
+
 async function readState(): Promise<E2EState> {
   return JSON.parse(await fs.readFile(stateFile, "utf8")) as E2EState;
 }
@@ -174,6 +217,40 @@ async function debugRequest<T>(
   }, { action, payload });
 }
 
+async function waitForStableMentionPresentation(
+  page: import("@playwright/test").Page,
+  columnId: string,
+): Promise<MentionPresentationState> {
+  let previousSignature = "";
+  let stableReadCount = 0;
+  let latest: MentionPresentationState = {};
+
+  await expect.poll(async () => {
+    latest = await debugRequest<MentionPresentationState>(
+      page,
+      "getMentionPresentationState",
+      { id: columnId },
+    );
+    const signature = JSON.stringify([
+      latest.viewportTop,
+      latest.viewportScrollTop,
+      latest.firstPostTop,
+      latest.firstPostHeight,
+    ].map((value) =>
+      typeof value === "number" ? Math.round(value * 10) / 10 : value
+    ));
+    stableReadCount =
+      signature === previousSignature ? stableReadCount + 1 : 0;
+    previousSignature = signature;
+    return stableReadCount;
+  }, {
+    timeout: 5_000,
+    intervals: [50, 100, 150],
+  }).toBeGreaterThanOrEqual(1);
+
+  return latest;
+}
+
 async function collectBrowserMemorySnapshot(
   cdpSession: CDPSession,
   label: string,
@@ -195,19 +272,25 @@ async function collectBrowserMemorySnapshot(
   };
 }
 
-test("all-teams mentions streams partial results without changing fan-out", async ({}, testInfo) => {
+test("all-teams mention refresh keeps rows stable until updates are applied", async ({}, testInfo) => {
   test.setTimeout(180_000);
   const state = await readState();
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-mentions-fanout-"));
   const adminToken = await loginViaApi(ADMIN_USERNAME, ADMIN_PASSWORD);
+  const memberWsToken = await loginViaApi(
+    state.memberUser.username,
+    state.memberUser.password,
+  );
   const createdTeamIds: string[] = [];
   const createdStandaloneChannelIds: string[] = [];
   const createdMentions: Array<{
     teamId: string;
     channelId: string;
+    postId: string;
     marker: string;
   }> = [];
+  let readRegressionChannelId = "";
   let context: BrowserContext | null = null;
   let cdpSession: CDPSession | null = null;
   let releaseHeldSearchRequests: (() => void) | null = null;
@@ -268,19 +351,46 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
         user_id: state.memberUser.id,
       });
       const marker = `progressive-mention-${timestamp}-${suffix}`;
-      await apiPost(adminToken, "/posts", {
+      const post = await apiPost<{ id: string }>(adminToken, "/posts", {
         channel_id: channel.id,
         message: `@${state.memberUser.username} ${marker}`,
       });
       return {
         teamId,
         channelId: channel.id,
+        postId: post.id,
         marker,
       };
     };
     createdMentions.push(
       await createMention(earlyTeamId, "early"),
       await createMention(lateTeamId, "late"),
+    );
+    await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        apiPost(adminToken, "/posts", {
+          channel_id: createdMentions[0].channelId,
+          message:
+            `@${state.memberUser.username} fanout-scroll-${timestamp}-${index}`,
+        })
+      ),
+    );
+    const readRegressionChannel = await apiPost<{ id: string }>(
+      adminToken,
+      "/channels",
+      {
+        team_id: earlyTeamId,
+        name: `fanout-read-regression-${timestamp}`,
+        display_name: `Fanout Read Regression ${timestamp}`,
+        type: "O",
+      },
+    );
+    readRegressionChannelId = readRegressionChannel.id;
+    createdStandaloneChannelIds.push(readRegressionChannel.id);
+    await apiPost(
+      adminToken,
+      `/channels/${readRegressionChannel.id}/members`,
+      { user_id: state.memberUser.id },
     );
 
     for (const mention of createdMentions) {
@@ -322,19 +432,47 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
     const [existingSw] = context.serviceWorkers();
     const sw = existingSw ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
 
-    await sw.evaluate(({ serverUrl, layoutStorageKey }) => {
+    await sw.evaluate(({ serverUrl, layoutStorageKey, token }) => {
       return new Promise<void>((resolve) => {
         chrome.storage.local.set({
           "mattermostDeck.serverUrl.v1": serverUrl,
-          [layoutStorageKey]: [{ id: "mentions", type: "mentions" }],
+          "mattermostDeck.wsPat.v1": token,
+          "mattermostDeck.persistPat.v1": "true",
+          "mattermostDeck.pollingIntervalSeconds.v1": "120",
+          [layoutStorageKey]: [{
+            id: "mentions",
+            type: "mentions",
+            unreadOnly: true,
+          }],
         }, () => resolve());
       });
     }, {
       serverUrl: baseUrl,
       layoutStorageKey: LAYOUT_STORAGE_KEY,
+      token: memberWsToken,
     });
 
     const page = await context.newPage();
+    const observedWsPostIds = new Set<string>();
+    page.on("console", (message) => {
+      if (!message.text().includes("[deck-debug] app.ws.posted")) {
+        return;
+      }
+      const payloadHandle = message.args()[1];
+      if (!payloadHandle) {
+        return;
+      }
+      void payloadHandle.jsonValue().then((payload) => {
+        if (
+          payload &&
+          typeof payload === "object" &&
+          "postId" in payload &&
+          typeof payload.postId === "string"
+        ) {
+          observedWsPostIds.add(payload.postId);
+        }
+      }).catch(() => undefined);
+    });
     cdpSession = await context.newCDPSession(page);
     await cdpSession.send("HeapProfiler.enable");
     const teamSearchTimings: SearchRequestTiming[] = [];
@@ -351,6 +489,18 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
     page.on("requestfailed", markSearchFinished);
     await page.addInitScript(() => {
       window.localStorage.setItem("mattermostDeck.debugLogs", "1");
+      const debugWindow = window as typeof window & {
+        __deckWsStatuses?: string[];
+      };
+      debugWindow.__deckWsStatuses = [];
+      window.addEventListener(
+        "mattermost-deck-ws-status",
+        (event) => {
+          debugWindow.__deckWsStatuses?.push(
+            String((event as CustomEvent).detail),
+          );
+        },
+      );
     });
     await login(page, state.memberUser.username, state.memberUser.password);
 
@@ -361,6 +511,16 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
         return result?.stateStatus ?? "missing";
       }, { timeout: 30_000 })
       .toBe("ready");
+    await expect.poll(
+      () => page.evaluate(() => {
+        const debugWindow = window as typeof window & {
+          __deckWsStatuses?: string[];
+        };
+        return debugWindow.__deckWsStatuses?.includes("connected") ??
+          false;
+      }),
+      { timeout: 30_000 },
+    ).toBe(true);
 
     const stateSnapshot = await debugRequest<{ columns: Array<{ id: string; type: string }> }>(page, "getState");
     const mentionsColumn = stateSnapshot.columns.find((column) => column.type === "mentions");
@@ -373,18 +533,28 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
           mentionLoadActive?: boolean;
           mentionLoadCompletedTeams?: number;
           mentionLoadTotalTeams?: number;
+          mentionBufferedPostMessages?: string[];
           visiblePostMessages?: string[];
         } | null>(page, "getColumnState", { id: mentionsColumn!.id });
-        const messages = columnState?.visiblePostMessages ?? [];
+        const bufferedMessages =
+          columnState?.mentionBufferedPostMessages ?? [];
+        const visibleMessages =
+          columnState?.visiblePostMessages ?? [];
         observedTotalTeams = columnState?.mentionLoadTotalTeams ?? 0;
         return Boolean(
           columnState?.mentionLoadActive &&
           (columnState.mentionLoadCompletedTeams ?? 0) <
             (columnState.mentionLoadTotalTeams ?? 0) &&
-          messages.some((message) =>
+          bufferedMessages.some((message) =>
             message.includes(createdMentions[0].marker)
           ) &&
-          !messages.some((message) =>
+          !bufferedMessages.some((message) =>
+            message.includes(createdMentions[1].marker)
+          ) &&
+          !visibleMessages.some((message) =>
+            message.includes(createdMentions[0].marker)
+          ) &&
+          !visibleMessages.some((message) =>
             message.includes(createdMentions[1].marker)
           ),
         );
@@ -398,7 +568,9 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
       present?: boolean;
       spinnerPresent?: boolean;
       text?: string | null;
-    }>(page, "getMentionLoadingProgress");
+    }>(page, "getMentionLoadingProgress", {
+      id: mentionsColumn!.id,
+    });
     expect(partialLoadingState.present).toBe(true);
     expect(partialLoadingState.spinnerPresent).toBe(true);
     expect(partialLoadingState.text).toBeTruthy();
@@ -406,14 +578,27 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
       present?: boolean;
       clickable?: boolean;
       role?: string | null;
-    }>(page, "getPostCardState", { text: createdMentions[0].marker });
+    }>(page, "getPostCardState", {
+      columnId: mentionsColumn!.id,
+      text: createdMentions[0].marker,
+    });
     expect(provisionalCardState).toMatchObject({
-      present: true,
+      present: false,
       clickable: false,
       role: null,
     });
+    const initialPresentationState = await debugRequest<{
+      progressPresent?: boolean;
+      skeletonCount?: number;
+    }>(page, "getMentionPresentationState", {
+      id: mentionsColumn!.id,
+    });
+    expect(initialPresentationState).toMatchObject({
+      progressPresent: true,
+      skeletonCount: 0,
+    });
     await page.screenshot({
-      path: testInfo.outputPath("mentions-progressive-partial.png"),
+      path: testInfo.outputPath("mentions-stable-loading.png"),
       fullPage: true,
     });
 
@@ -437,12 +622,17 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
 
     const finishedLoadingState = await debugRequest<{
       present?: boolean;
-    }>(page, "getMentionLoadingProgress");
+    }>(page, "getMentionLoadingProgress", {
+      id: mentionsColumn!.id,
+    });
     expect(finishedLoadingState.present).toBe(false);
     const finalizedCardState = await debugRequest<{
       present?: boolean;
       clickable?: boolean;
-    }>(page, "getPostCardState", { text: createdMentions[0].marker });
+    }>(page, "getPostCardState", {
+      columnId: mentionsColumn!.id,
+      text: createdMentions[0].marker,
+    });
     expect(finalizedCardState).toMatchObject({
       present: true,
       clickable: true,
@@ -575,16 +765,24 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
       `cache-progressive-${timestamp}-early`;
     const additionalLateMarker =
       `cache-progressive-${timestamp}-late`;
-    await apiPost(adminToken, "/posts", {
+    const additionalEarlyPost = await apiPost<{ id: string }>(
+      adminToken,
+      "/posts",
+      {
       channel_id: createdMentions[0].channelId,
       message:
         `@${state.memberUser.username} ${additionalEarlyMarker}`,
-    });
-    await apiPost(adminToken, "/posts", {
+      },
+    );
+    const additionalLatePost = await apiPost<{ id: string }>(
+      adminToken,
+      "/posts",
+      {
       channel_id: createdMentions[1].channelId,
       message:
         `@${state.memberUser.username} ${additionalLateMarker}`,
-    });
+      },
+    );
 
     let releaseEarlyRequests = () => undefined;
     let releaseLateRequests = () => undefined;
@@ -667,12 +865,16 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
           visiblePostMessages?: string[];
           mentionLoadActive?: boolean;
           mentionNotificationsSuppressed?: boolean;
+          mentionDisplaySnapshotRunId?: number | null;
+          mentionUpdatePending?: boolean;
         } | null>(page, "getColumnState", { id: mentionsColumn!.id });
         const messages = columnState?.visiblePostMessages ?? [];
         return Boolean(
           columnState?.mentionCachePhase === "revalidating" &&
           columnState.mentionLoadActive &&
           columnState.mentionNotificationsSuppressed === true &&
+          columnState.mentionDisplaySnapshotRunId !== null &&
+          columnState.mentionUpdatePending === false &&
           (columnState.cachedPostIds?.length ?? 0) > 0 &&
           messages.some((message) =>
             message.includes(cacheOnlyMarker)
@@ -700,25 +902,70 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
       present?: boolean;
       spinnerPresent?: boolean;
       text?: string | null;
-    }>(page, "getMentionLoadingProgress");
+    }>(page, "getMentionLoadingProgress", {
+      id: mentionsColumn!.id,
+    });
     expect(cachedLoadingState).toMatchObject({
       present: true,
       spinnerPresent: true,
     });
     expect(cachedLoadingState.text).toBeTruthy();
-    await expect(page.locator(".deck-new-posts-button")).toHaveCount(0);
-    const cachedCardState = await debugRequest<{
-      present?: boolean;
-      clickable?: boolean;
-      role?: string | null;
-    }>(page, "getPostCardState", {
-      text: cacheOnlyMarker,
+    const cachedColumnBaseline = await debugRequest<{
+      visiblePostIds?: string[];
+      visiblePostMessages?: string[];
+    } | null>(page, "getColumnState", {
+      id: mentionsColumn!.id,
     });
+    const baselineVisiblePostIds =
+      cachedColumnBaseline?.visiblePostIds ?? [];
+    expect(baselineVisiblePostIds.length).toBeGreaterThan(0);
+    const cachedCardState =
+      await debugRequest<PostCardDebugState>(
+        page,
+        "getPostCardState",
+        {
+          columnId: mentionsColumn!.id,
+          text: cacheOnlyMarker,
+        },
+      );
     expect(cachedCardState).toMatchObject({
       present: true,
       clickable: false,
       role: null,
     });
+    const baselineScrollTop = await debugRequest<number>(
+      page,
+      "setMentionScrollTop",
+      {
+        id: mentionsColumn!.id,
+        value: 120,
+      },
+    );
+    expect(baselineScrollTop).toBeGreaterThan(0);
+    const cachedPresentationState =
+      await waitForStableMentionPresentation(
+        page,
+        mentionsColumn!.id,
+      );
+    expect(cachedPresentationState).toMatchObject({
+      progressPresent: true,
+      updateButtonPresent: false,
+      newPostsButtonPresent: true,
+      newPostCount: 0,
+      skeletonCount: 0,
+    });
+    expect(cachedPresentationState.viewportScrollTop).toBe(
+      baselineScrollTop,
+    );
+    const scrolledCachedCardState =
+      await debugRequest<PostCardDebugState>(
+        page,
+        "getPostCardState",
+        {
+          columnId: mentionsColumn!.id,
+          text: cacheOnlyMarker,
+        },
+      );
     await page.screenshot({
       path: testInfo.outputPath("mentions-cache-revalidating.png"),
       fullPage: true,
@@ -730,8 +977,11 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
       .poll(async () => {
         const columnState = await debugRequest<{
           mentionCachePhase?: string;
+          mentionBufferedPostIds?: string[];
+          visiblePostIds?: string[];
           visiblePostMessages?: string[];
           mentionLoadActive?: boolean;
+          mentionUpdatePending?: boolean;
         } | null>(page, "getColumnState", {
           id: mentionsColumn!.id,
         });
@@ -739,10 +989,19 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
         return Boolean(
           columnState?.mentionCachePhase === "revalidating" &&
           columnState.mentionLoadActive &&
+          columnState.mentionUpdatePending === false &&
+          columnState.mentionBufferedPostIds?.includes(
+            additionalEarlyPost.id,
+          ) &&
+          !columnState.mentionBufferedPostIds?.includes(
+            additionalLatePost.id,
+          ) &&
+          JSON.stringify(columnState.visiblePostIds ?? []) ===
+            JSON.stringify(baselineVisiblePostIds) &&
           messages.some((message) =>
             message.includes(cacheOnlyMarker)
           ) &&
-          messages.some((message) =>
+          !messages.some((message) =>
             message.includes(additionalEarlyMarker)
           ) &&
           !messages.some((message) =>
@@ -754,9 +1013,296 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
         intervals: [20, 50, 100],
       })
       .toBe(true);
+
+    const earlyCardState =
+      await debugRequest<PostCardDebugState>(
+        page,
+        "getPostCardState",
+        {
+          columnId: mentionsColumn!.id,
+          text: cacheOnlyMarker,
+        },
+      );
+    const earlyPresentationState =
+      await debugRequest<MentionPresentationState>(
+        page,
+        "getMentionPresentationState",
+        { id: mentionsColumn!.id },
+      );
+    expect(earlyPresentationState).toMatchObject({
+      progressPresent: true,
+      updateButtonPresent: false,
+      newPostsButtonPresent: true,
+      newPostCount: 0,
+      skeletonCount: 0,
+    });
+    expectStablePixels(
+      earlyPresentationState,
+      cachedPresentationState,
+      [
+        "viewportTop",
+        "viewportScrollTop",
+        "firstPostTop",
+        "firstPostHeight",
+      ],
+    );
+    expectStablePixels(
+      earlyCardState,
+      scrolledCachedCardState,
+      [
+        "top",
+        "height",
+        "relativeTop",
+        "viewportTop",
+        "viewportScrollTop",
+      ],
+    );
+
     holdLateRequests = false;
     releaseLateRequests();
     releaseHeldSearchRequests = null;
+
+    let pendingUpdateCount = 0;
+    await expect
+      .poll(async () => {
+        const columnState = await debugRequest<{
+          postStatus?: string;
+          mentionCachePhase?: string;
+          mentionLoadActive?: boolean;
+          mentionNotificationsSuppressed?: boolean;
+          mentionUpdatePending?: boolean;
+          mentionPendingUpdateCount?: number;
+          mentionRefreshPhase?: string;
+          visiblePostIds?: string[];
+          visiblePostMessages?: string[];
+        } | null>(page, "getColumnState", {
+          id: mentionsColumn!.id,
+        });
+        const messages = columnState?.visiblePostMessages ?? [];
+        pendingUpdateCount =
+          columnState?.mentionPendingUpdateCount ?? 0;
+        return Boolean(
+          columnState?.postStatus === "ready" &&
+          columnState.mentionCachePhase === "ready" &&
+          columnState.mentionLoadActive === false &&
+          columnState.mentionNotificationsSuppressed === false &&
+          columnState.mentionUpdatePending === true &&
+          pendingUpdateCount > 0 &&
+          columnState.mentionRefreshPhase === "pending" &&
+          JSON.stringify(columnState.visiblePostIds ?? []) ===
+            JSON.stringify(baselineVisiblePostIds) &&
+          messages.some((message) =>
+            message.includes(cacheOnlyMarker)
+          ) &&
+          !messages.some((message) =>
+            message.includes(additionalEarlyMarker)
+          ) &&
+          !messages.some((message) =>
+            message.includes(additionalLateMarker)
+          ),
+        );
+      }, { timeout: 30_000 })
+      .toBe(true);
+
+    const pendingCardState =
+      await debugRequest<PostCardDebugState>(
+        page,
+        "getPostCardState",
+        {
+          columnId: mentionsColumn!.id,
+          text: cacheOnlyMarker,
+        },
+      );
+    const pendingPresentationState =
+      await debugRequest<MentionPresentationState>(
+        page,
+        "getMentionPresentationState",
+        { id: mentionsColumn!.id },
+      );
+    expect(pendingPresentationState.progressPresent).toBe(false);
+    expect(pendingPresentationState.updateButtonPresent).toBe(true);
+    expect(pendingPresentationState.updateCount).toBe(
+      pendingUpdateCount,
+    );
+    expect(pendingPresentationState.updateButtonText).toContain(
+      String(pendingUpdateCount),
+    );
+    expect(pendingPresentationState.newPostsButtonPresent).toBe(true);
+    expect(pendingPresentationState.newPostCount).toBe(0);
+    expect(pendingPresentationState.skeletonCount).toBe(0);
+    expectStablePixels(
+      pendingPresentationState,
+      cachedPresentationState,
+      [
+        "viewportTop",
+        "viewportScrollTop",
+        "firstPostTop",
+        "firstPostHeight",
+      ],
+    );
+    expectStablePixels(
+      pendingCardState,
+      scrolledCachedCardState,
+      [
+        "top",
+        "height",
+        "relativeTop",
+        "viewportTop",
+        "viewportScrollTop",
+      ],
+    );
+
+    const realtimePendingMarker =
+      `pending-realtime-${timestamp}`;
+    await expect.poll(
+      () => page.evaluate(() => {
+        const debugWindow = window as typeof window & {
+          __deckWsStatuses?: string[];
+        };
+        return debugWindow.__deckWsStatuses?.includes("connected") ??
+          false;
+      }),
+      { timeout: 30_000 },
+    ).toBe(true);
+    expect(
+      await debugRequest<boolean>(
+        page,
+        "markMentionInteraction",
+        { id: mentionsColumn!.id },
+      ),
+    ).toBe(true);
+    const realtimePendingPost = await apiPost<{ id: string }>(
+      adminToken,
+      "/posts",
+      {
+        channel_id: readRegressionChannelId,
+        message:
+          `@${state.memberUser.username} ${realtimePendingMarker}`,
+      },
+    );
+    await expect
+      .poll(async () => {
+        const columnState = await debugRequest<{
+          visiblePostMessages?: string[];
+          mentionPendingUpdateCount?: number;
+          mentionUpdatePending?: boolean;
+        } | null>(page, "getColumnState", {
+          id: mentionsColumn!.id,
+        });
+        const messages = columnState?.visiblePostMessages ?? [];
+        return Boolean(
+          columnState?.mentionUpdatePending === true &&
+          columnState.mentionPendingUpdateCount ===
+            pendingUpdateCount &&
+          messages.some((message) =>
+            message.includes(realtimePendingMarker)
+          ) &&
+          messages.some((message) =>
+            message.includes(cacheOnlyMarker)
+          ) &&
+          !messages.some((message) =>
+            message.includes(additionalEarlyMarker)
+          ) &&
+          !messages.some((message) =>
+            message.includes(additionalLateMarker)
+          ),
+        );
+      }, { timeout: 15_000 })
+      .toBe(true);
+    let realtimePendingPresentation: MentionPresentationState = {};
+    await expect.poll(async () => {
+      realtimePendingPresentation =
+        await debugRequest<MentionPresentationState>(
+          page,
+          "getMentionPresentationState",
+          { id: mentionsColumn!.id },
+        );
+      return Boolean(
+        realtimePendingPresentation.updateButtonPresent &&
+        realtimePendingPresentation.updateCount ===
+          pendingUpdateCount &&
+        realtimePendingPresentation.newPostsButtonPresent &&
+        (realtimePendingPresentation.newPostCount ?? 0) > 0 &&
+        realtimePendingPresentation.skeletonCount === 0
+      );
+    }, { timeout: 30_000 }).toBe(true);
+    await expect
+      .poll(() => observedWsPostIds.has(realtimePendingPost.id), {
+        timeout: 15_000,
+      })
+      .toBe(true);
+
+    await apiPost<unknown>(
+      memberWsToken,
+      "/channels/members/me/view",
+      { channel_id: readRegressionChannelId },
+    );
+    await expect
+      .poll(async () => {
+        const columnState = await debugRequest<{
+          mentionUpdatePending?: boolean;
+          visiblePostMessages?: string[];
+        } | null>(page, "getColumnState", {
+          id: mentionsColumn!.id,
+        });
+        return Boolean(
+          columnState?.mentionUpdatePending === true &&
+          !(columnState.visiblePostMessages ?? []).some((message) =>
+            message.includes(realtimePendingMarker)
+          ),
+        );
+      }, { timeout: 15_000 })
+      .toBe(true);
+
+    const unrelatedMarker = `unrelated-${timestamp}`;
+    const unrelatedPost = await apiPost<{ id: string }>(
+      adminToken,
+      "/posts",
+      {
+        channel_id: readRegressionChannelId,
+        message: unrelatedMarker,
+      },
+    );
+    await expect
+      .poll(() => observedWsPostIds.has(unrelatedPost.id), {
+        timeout: 15_000,
+      })
+      .toBe(true);
+    await expect
+      .poll(async () => {
+        const columnState = await debugRequest<{
+          mentionUpdatePending?: boolean;
+          visiblePostMessages?: string[];
+        } | null>(page, "getColumnState", {
+          id: mentionsColumn!.id,
+        });
+        const messages = columnState?.visiblePostMessages ?? [];
+        return Boolean(
+          columnState?.mentionUpdatePending === true &&
+          !messages.some((message) =>
+            message.includes(realtimePendingMarker)
+          ) &&
+          !messages.some((message) =>
+            message.includes(unrelatedMarker)
+          ),
+        );
+      }, {
+        timeout: 5_000,
+        intervals: [100, 250, 500],
+      })
+      .toBe(true);
+    await page.screenshot({
+      path: testInfo.outputPath("mentions-updates-pending.png"),
+      fullPage: true,
+    });
+
+    expect(
+      await debugRequest<boolean>(
+        page,
+        "applyMentionUpdates",
+        { id: mentionsColumn!.id },
+      ),
+    ).toBe(true);
 
     await expect
       .poll(async () => {
@@ -765,6 +1311,8 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
           mentionCachePhase?: string;
           mentionLoadActive?: boolean;
           mentionNotificationsSuppressed?: boolean;
+          mentionUpdatePending?: boolean;
+          mentionRefreshPhase?: string;
           visiblePostMessages?: string[];
         } | null>(page, "getColumnState", { id: mentionsColumn!.id });
         const messages = columnState?.visiblePostMessages ?? [];
@@ -773,6 +1321,8 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
           columnState.mentionCachePhase === "ready" &&
           columnState.mentionLoadActive === false &&
           columnState.mentionNotificationsSuppressed === false &&
+          columnState.mentionUpdatePending === false &&
+          columnState.mentionRefreshPhase === "ready" &&
           !messages.some((message) =>
             message.includes(cacheOnlyMarker)
           ) &&
@@ -781,6 +1331,9 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
           ) &&
           messages.some((message) =>
             message.includes(additionalLateMarker)
+          ) &&
+          !messages.some((message) =>
+            message.includes(realtimePendingMarker)
           ) &&
           createdMentions.every((mention) =>
             messages.some((message) => message.includes(mention.marker))
@@ -792,15 +1345,33 @@ test("all-teams mentions streams partial results without changing fan-out", asyn
       present?: boolean;
       clickable?: boolean;
     }>(page, "getPostCardState", {
+      columnId: mentionsColumn!.id,
       text: createdMentions[0].marker,
     });
     expect(refreshedCardState).toMatchObject({
       present: true,
       clickable: true,
     });
+    const appliedPresentationState =
+      await debugRequest<MentionPresentationState>(
+        page,
+        "getMentionPresentationState",
+        { id: mentionsColumn!.id },
+      );
+    expect(appliedPresentationState).toMatchObject({
+      progressPresent: false,
+      updateButtonPresent: false,
+      newPostCount: 0,
+      listFocused: true,
+      skeletonCount: 0,
+    });
+    await page.screenshot({
+      path: testInfo.outputPath("mentions-updates-applied.png"),
+      fullPage: true,
+    });
     await expect
       .poll(() => teamSearchTimings.length, { timeout: 30_000 })
-      .toBe(observedTotalTeams * 2);
+      .toBeGreaterThanOrEqual(observedTotalTeams * 2);
     await expect
       .poll(async () => {
         return await sw.evaluate(

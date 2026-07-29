@@ -246,20 +246,30 @@ function ensureStyle(): void {
     }
 
     body.mattermost-deck-resizing #${ROOT_ID},
-    body.mattermost-deck-viewport-resizing #${ROOT_ID} {
+    body.mattermost-deck-viewport-resizing #${ROOT_ID},
+    body.mattermost-deck-right-pane-layout-sync #${ROOT_ID} {
       transition: none !important;
     }
 
     body.${BODY_CLASS} #root {
       width: calc(100vw - var(${OFFSET_WIDTH_VAR})) !important;
+      min-width: 0 !important;
       max-width: calc(100vw - var(${OFFSET_WIDTH_VAR})) !important;
       transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
                   max-width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     body.${BODY_CLASS}.mattermost-deck-resizing #root,
-    body.${BODY_CLASS}.mattermost-deck-viewport-resizing #root {
+    body.${BODY_CLASS}.mattermost-deck-viewport-resizing #root,
+    body.${BODY_CLASS}.mattermost-deck-right-pane-layout-sync #root {
       transition: none !important;
+    }
+
+    body.mattermost-deck-right-pane-viewport-sync #root #sidebar-right,
+    body.mattermost-deck-right-pane-viewport-sync #root .sidebar--right--width-holder,
+    body.mattermost-deck-right-pane-viewport-sync #root .rhs-root[role="complementary"] {
+      transition: none !important;
+      animation: none !important;
     }
 
     body.${BODY_CLASS} #root .app__content {
@@ -326,7 +336,11 @@ function cleanup(): void {
     hash: window.location.hash,
     hasAppRoot: Boolean(appRoot),
   });
-  document.body?.classList.remove(BODY_CLASS);
+  document.body?.classList.remove(
+    BODY_CLASS,
+    "mattermost-deck-right-pane-layout-sync",
+    "mattermost-deck-right-pane-viewport-sync",
+  );
   document.getElementById(ROOT_ID)?.remove();
   if (appRoot) {
     appRoot.unmount();

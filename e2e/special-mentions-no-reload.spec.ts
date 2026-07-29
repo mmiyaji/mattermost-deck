@@ -36,17 +36,6 @@ async function loginViaApi(username: string, password: string): Promise<string> 
   return token;
 }
 
-async function apiGet<T>(token: string, pathname: string): Promise<T> {
-  const response = await fetch(`${baseUrl}/api/v4${pathname}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`GET ${pathname} failed with ${response.status}: ${text}`);
-  }
-  return (await response.json()) as T;
-}
-
 async function apiPost<T>(token: string, pathname: string, body: unknown): Promise<T> {
   const response = await fetch(`${baseUrl}/api/v4${pathname}`, {
     method: "POST",
@@ -136,10 +125,6 @@ for (const specialMention of specialMentions) {
       });
     }
 
-    const channels = await apiGet<Array<{ id: string; name: string }>>(adminToken, `/teams/${state.team.id}/channels`);
-    const townSquare = channels.find((channel) => channel.name === "town-square");
-    expect(townSquare).toBeTruthy();
-
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: "chromium",
       headless: true,
@@ -205,7 +190,9 @@ for (const specialMention of specialMentions) {
 
       const marker = `special-mention-no-reload-${specialMention.replace("@", "")}-${Date.now()}`;
       const created = await apiPost<{ id: string }>(adminToken, "/posts", {
-        channel_id: townSquare!.id,
+        // An unviewed channel keeps the special mention server-counted while
+        // the active Mattermost page remains available for the remount check.
+        channel_id: createdChannelIds[0],
         message: `Deck websocket special mention ${specialMention} ${marker}`,
       });
       postId = created.id;

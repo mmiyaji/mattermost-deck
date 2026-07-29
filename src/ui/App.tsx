@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { ShadowRootContext } from "./ShadowRootContext";
 import i18n from "./i18n";
 import {
@@ -77,6 +77,8 @@ import {
   DEFAULT_COLUMN_COLORS,
   DEFAULT_SETTINGS,
   loadDeckSettings,
+  MAX_PREFERRED_RAIL_WIDTH,
+  MIN_PREFERRED_RAIL_WIDTH,
   normalisePreferredColumnWidth,
   normalisePreferredRailWidth,
   resolveTheme,
@@ -110,6 +112,8 @@ import { useElementVisibility } from "./useElementVisibility";
 import {
   calculateResponsiveRailWidth,
   calculateThreadAwareRailLayout,
+  MIN_MANUAL_MATTERMOST_WIDTH,
+  MIN_MATTERMOST_WIDTH,
   type MattermostHostLayout,
   type ResponsiveRailMode,
 } from "./railLayout";
@@ -143,6 +147,7 @@ import {
   saveMentionCache,
   type MentionCacheContext,
 } from "./mentionCache";
+import { summariseMentionPresentationChanges } from "./mentionPresentation";
 
 
 interface AppProps {
@@ -205,6 +210,12 @@ interface MentionCacheDisplayState {
   posts: MattermostPost[];
   readState: MentionReadState;
   savedAt: number | null;
+}
+
+interface MentionDisplaySnapshot {
+  runId: number;
+  posts: MattermostPost[];
+  deferredPostIds: string[];
 }
 
 type ChannelMentionLoadProgress =
@@ -341,10 +352,14 @@ const DRAWER_OPEN_STORAGE_KEY = "mattermostDeck.drawerOpen.v1";
 const RECENT_TARGETS_STORAGE_KEY = "mattermostDeck.recentTargets.v1";
 const SAVED_VIEWS_STORAGE_KEY = "mattermostDeck.savedViews.v1";
 const VIEWPORT_RESIZING_CLASS = "mattermost-deck-viewport-resizing";
+const RIGHT_PANE_LAYOUT_SYNC_CLASS = "mattermost-deck-right-pane-layout-sync";
+const RIGHT_PANE_VIEWPORT_SYNC_CLASS =
+  "mattermost-deck-right-pane-viewport-sync";
 const VIEWPORT_RESIZE_SETTLE_MS = 120;
-const MIN_RAIL_WIDTH = 360;
-const MAX_RAIL_WIDTH = 1400;
+const MIN_RAIL_WIDTH = MIN_PREFERRED_RAIL_WIDTH;
+const MAX_RAIL_WIDTH = MAX_PREFERRED_RAIL_WIDTH;
 const DEFAULT_RAIL_WIDTH = 720;
+const RAIL_RESIZE_DRAG_THRESHOLD_PX = 4;
 const COLLAPSED_DRAWER_WIDTH = 52;
 const MAX_RECENT_TARGETS = 6;
 const POSTS_PAGE_SIZE = 20;
@@ -370,6 +385,8 @@ const DEBUG_FLAG_KEY = "mattermostDeck.debugLogs";
 const MENTIONS_LAST_READ_AT_STORAGE_KEY = "mattermostDeck.mentionsLastReadAt.v1";
 const COMPACT_HEADER_BREAKPOINT_PX = 620;
 const HOST_LAYOUT_SETTLE_MS = 360;
+const HOST_LAYOUT_JITTER_TOLERANCE_PX = 2;
+const MAX_MATTERMOST_RHS_TARGETS = 4;
 const DECK_CONTENT_ID = "mattermost-deck-content";
 const SPECIAL_MENTION_MEMBER_TTL_MS = 45_000;
 const SPECIAL_MENTION_MEMBER_TTL_WS_MS = 180_000;
@@ -383,6 +400,13 @@ const ROUTE_EVENT = "mattermost-deck-route-change";
 
 function getCurrentDateLocale(): string {
   return i18n.resolvedLanguage || i18n.language || "en";
+}
+
+function getPreferredScrollBehavior(): ScrollBehavior {
+  return typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ? "auto"
+    : "smooth";
 }
 
 declare global {
@@ -406,6 +430,8 @@ declare global {
         canResizeRail: boolean;
         threadLayoutMode: ResponsiveRailMode | "override";
         hostLayout: MattermostHostLayout;
+        hostLayoutMeasurementCount: number;
+        userTimingMeasureCount: number;
         horizontalScrollLeft: number;
         columns: Array<{
           id: string;
@@ -2682,99 +2708,138 @@ function useApiHealth(
 
 const MATTERMOST_RHS_SELECTOR = [
   "#sidebar-right",
-  "#rhsContainer",
-  ".sidebar--right",
-  ".rhs-root",
+  ".rhs-root[role='complementary']",
 ].join(", ");
-const MATTERMOST_CENTER_TARGET_SELECTOR = [
+const MATTERMOST_CENTER_TARGET_SELECTORS = [
   ".app__content",
   "#channel_view",
   ".product-wrapper",
-].join(", ");
-const MATTERMOST_THREAD_TARGET_SELECTOR = [
-  ".ThreadViewer",
-  "[data-testid='thread-viewer']",
-  "#reply_textbox",
-  "[id^='rhsPost_']",
-].join(", ");
-const MATTERMOST_LAYOUT_TARGET_SELECTOR = [
-  MATTERMOST_RHS_SELECTOR,
-  MATTERMOST_CENTER_TARGET_SELECTOR,
-  MATTERMOST_THREAD_TARGET_SELECTOR,
-].join(", ");
+] as const;
 
 function getHorizontalIntersectionWidth(left: DOMRect, right: DOMRect): number {
   return Math.max(0, Math.min(left.right, right.right) - Math.max(left.left, right.left));
 }
 
-function isRenderedHostElement(element: HTMLElement): boolean {
+interface RenderedHostElement {
+  element: HTMLElement;
+  rect: DOMRect;
+}
+
+function readRenderedHostElement(element: HTMLElement): RenderedHostElement | null {
   const style = window.getComputedStyle(element);
   const rect = element.getBoundingClientRect();
-  return (
+  if (
     style.display !== "none" &&
     style.visibility !== "hidden" &&
     rect.width > 1 &&
     rect.height > 1
-  );
+  ) {
+    return { element, rect };
+  }
+  return null;
 }
 
+function findLargestRenderedHostElement(
+  candidates: readonly HTMLElement[],
+): RenderedHostElement | null {
+  let largest: RenderedHostElement | null = null;
+  for (const candidate of candidates) {
+    const rendered = readRenderedHostElement(candidate);
+    if (rendered && (!largest || rendered.rect.width > largest.rect.width)) {
+      largest = rendered;
+    }
+  }
+  return largest;
+}
+
+function findMattermostRightSidebars(root: HTMLElement): HTMLElement[] {
+  const candidates: HTMLElement[] = [];
+  for (const candidate of root.querySelectorAll<HTMLElement>(MATTERMOST_RHS_SELECTOR)) {
+    if (!candidate.classList.contains("sidebar--right--width-holder")) {
+      candidates.push(candidate);
+      if (candidates.length >= MAX_MATTERMOST_RHS_TARGETS) {
+        break;
+      }
+    }
+  }
+  return candidates;
+}
+
+function findMattermostCenterTargets(root: HTMLElement): HTMLElement[] {
+  const candidates: HTMLElement[] = [];
+  for (const selector of MATTERMOST_CENTER_TARGET_SELECTORS) {
+    const candidate = root.querySelector<HTMLElement>(selector);
+    if (candidate && !candidates.includes(candidate)) {
+      candidates.push(candidate);
+    }
+  }
+  return candidates;
+}
+
+let hostLayoutMeasurementCount = 0;
+
 function readMattermostHostLayout(): MattermostHostLayout {
+  if (__MATTERMOST_DECK_E2E_DEBUG__) {
+    hostLayoutMeasurementCount = Math.min(
+      Number.MAX_SAFE_INTEGER,
+      hostLayoutMeasurementCount + 1,
+    );
+  }
   const mattermostRoot = document.querySelector<HTMLElement>("#root");
   if (!mattermostRoot) {
     return {
       mattermostWidth: 0,
       centerWidth: 0,
       rightSidebarWidth: 0,
+      rightSidebarOpen: false,
+      rootReportsRightSidebarOpen: false,
     };
   }
 
   const mattermostRect = mattermostRoot.getBoundingClientRect();
-  const rootReportsRhsOpen =
-    mattermostRoot.classList.contains("rhs-open") ||
-    Boolean(mattermostRoot.querySelector(".channel-view.rhs-open, .channel__wrap.rhs-open"));
-  const visibleThread = Array.from(
-    mattermostRoot.querySelectorAll<HTMLElement>(MATTERMOST_THREAD_TARGET_SELECTOR),
-  ).some(isRenderedHostElement);
+  const rootReportsRhsOpen = mattermostRoot.classList.contains("rhs-open");
   let rightSidebarWidth = 0;
+  let rightSidebarOpen = rootReportsRhsOpen;
 
-  for (const candidate of mattermostRoot.querySelectorAll<HTMLElement>(MATTERMOST_RHS_SELECTOR)) {
-    if (!isRenderedHostElement(candidate)) {
+  for (const rightSidebar of findMattermostRightSidebars(mattermostRoot)) {
+    const renderedRightSidebar = readRenderedHostElement(rightSidebar);
+    if (!renderedRightSidebar) {
       continue;
     }
-
-    const rect = candidate.getBoundingClientRect();
+    const { element: candidate, rect } = renderedRightSidebar;
     const explicitlyOpen =
-      visibleThread &&
+      rootReportsRhsOpen ||
+      candidate.matches(".is-open, .move--left, [data-expanded='true']");
+    rightSidebarOpen ||= explicitlyOpen;
+    const intersectionWidth = getHorizontalIntersectionWidth(rect, mattermostRect);
+    if (
+      explicitlyOpen &&
       (
         rootReportsRhsOpen ||
-        candidate.matches(".is-open, .move--left, [data-expanded='true']") ||
-        Boolean(candidate.closest(".is-open, .move--left, .rhs-open"))
+        intersectionWidth >= 1
+      )
+    ) {
+      rightSidebarWidth = Math.max(
+        rightSidebarWidth,
+        // The RHS enters with a horizontal transform in Mattermost. Its box
+        // width is already final while only part of it intersects #root.
+        // Intersection width is therefore useful for visibility, but using it
+        // as the sizing input makes Deck chase the opening animation.
+        Math.min(rect.width, mattermostRect.width),
       );
-    const intersectionWidth = getHorizontalIntersectionWidth(rect, mattermostRect);
-    if (!explicitlyOpen || intersectionWidth < 1) {
-      continue;
     }
-
-    rightSidebarWidth = Math.max(
-      rightSidebarWidth,
-      Math.min(rect.width, mattermostRect.width),
-    );
   }
 
-  let centerWidth = 0;
-  for (const candidate of mattermostRoot.querySelectorAll<HTMLElement>(
-    MATTERMOST_CENTER_TARGET_SELECTOR,
-  )) {
-    if (!isRenderedHostElement(candidate)) {
-      continue;
-    }
-    centerWidth = Math.max(centerWidth, candidate.getBoundingClientRect().width);
-  }
+  const renderedCenter = findLargestRenderedHostElement(
+    findMattermostCenterTargets(mattermostRoot),
+  );
 
   return {
     mattermostWidth: Math.max(0, Math.round(mattermostRect.width)),
-    centerWidth: Math.max(0, Math.round(centerWidth)),
+    centerWidth: Math.max(0, Math.round(renderedCenter?.rect.width ?? 0)),
     rightSidebarWidth: Math.max(0, Math.round(rightSidebarWidth)),
+    rightSidebarOpen,
+    rootReportsRightSidebarOpen: rootReportsRhsOpen,
   };
 }
 
@@ -2782,15 +2847,114 @@ const EMPTY_MATTERMOST_HOST_LAYOUT: MattermostHostLayout = {
   mattermostWidth: 0,
   centerWidth: 0,
   rightSidebarWidth: 0,
+  rightSidebarOpen: false,
+  rootReportsRightSidebarOpen: false,
 };
 
+function hostLayoutsAreEquivalent(
+  current: MattermostHostLayout,
+  next: MattermostHostLayout,
+): boolean {
+  const currentRhsOpen = current.rightSidebarOpen ?? current.rightSidebarWidth > 0;
+  const nextRhsOpen = next.rightSidebarOpen ?? next.rightSidebarWidth > 0;
+  if (currentRhsOpen !== nextRhsOpen) {
+    return false;
+  }
+  if (!currentRhsOpen) {
+    // Mattermost navigation and channel changes may resize its internal
+    // content. None of those measurements affect Deck while the RHS is closed.
+    return true;
+  }
+  // Automatic width is derived only from the RHS natural box. Center and
+  // chrome measurements remain diagnostic values and must never feed layout
+  // reflow back into Deck sizing.
+  return Math.abs(current.rightSidebarWidth - next.rightSidebarWidth) <=
+    HOST_LAYOUT_JITTER_TOLERANCE_PX;
+}
+
 function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
-  const [layout, setLayout] = useState<MattermostHostLayout>(() => (
-    enabled ? readMattermostHostLayout() : EMPTY_MATTERMOST_HOST_LAYOUT
-  ));
+  const stableBaseChromeWidthRef = useRef<number | null>(null);
+  const stableRightSidebarWidthRef = useRef<number | null>(null);
+  const rootRhsStateSeenRef = useRef(false);
+  const stabiliseMeasurement = (
+    raw: MattermostHostLayout,
+    settled: boolean,
+  ): MattermostHostLayout => {
+    if (raw.rootReportsRightSidebarOpen === true) {
+      rootRhsStateSeenRef.current = true;
+    }
+    const rightSidebarOpen = rootRhsStateSeenRef.current
+      ? raw.rootReportsRightSidebarOpen === true
+      : raw.rightSidebarOpen ?? raw.rightSidebarWidth > 0;
+    const naturalRightSidebarWidth = rightSidebarOpen
+      ? raw.rightSidebarWidth
+      : 0;
+    if (!rightSidebarOpen) {
+      if (
+        settled &&
+        raw.mattermostWidth > 0 &&
+        raw.centerWidth > 0
+      ) {
+        stableBaseChromeWidthRef.current = Math.max(
+          0,
+          raw.mattermostWidth - raw.centerWidth,
+        );
+      }
+      if (settled) {
+        stableRightSidebarWidthRef.current = null;
+      }
+    } else {
+      if (
+        naturalRightSidebarWidth > 0 &&
+        (
+          stableRightSidebarWidthRef.current === null ||
+          settled
+        )
+      ) {
+        stableRightSidebarWidthRef.current = naturalRightSidebarWidth;
+      }
+      if (
+        settled &&
+        naturalRightSidebarWidth > 0 &&
+        raw.mattermostWidth > 0 &&
+        raw.centerWidth > 0
+      ) {
+        // A viewport breakpoint can change both Mattermost chrome and its RHS
+        // width while the pane remains open. Promote those values only after
+        // the existing settled window; normal opening still uses the closed
+        // baseline immediately and therefore never chases transitional boxes.
+        stableRightSidebarWidthRef.current = naturalRightSidebarWidth;
+        stableBaseChromeWidthRef.current = Math.max(
+          0,
+          raw.mattermostWidth -
+            raw.centerWidth -
+            naturalRightSidebarWidth,
+        );
+      }
+    }
+
+    return {
+      ...raw,
+      rightSidebarWidth: rightSidebarOpen
+        ? stableRightSidebarWidthRef.current ?? naturalRightSidebarWidth
+        : 0,
+      baseChromeWidth: stableBaseChromeWidthRef.current ?? undefined,
+      rightSidebarOpen,
+    };
+  };
+  const [layout, setLayout] = useState<MattermostHostLayout>(() => {
+    if (!enabled) {
+      return EMPTY_MATTERMOST_HOST_LAYOUT;
+    }
+    const initial = readMattermostHostLayout();
+    const initiallyOpen = initial.rightSidebarOpen ?? initial.rightSidebarWidth > 0;
+    return stabiliseMeasurement(initial, !initiallyOpen);
+  });
 
   useEffect(() => {
     if (!enabled) {
+      stableBaseChromeWidthRef.current = null;
+      stableRightSidebarWidthRef.current = null;
       setLayout((current) => (
         current.mattermostWidth === 0 &&
         current.centerWidth === 0 &&
@@ -2803,25 +2967,60 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
 
     let frame: number | null = null;
     let settleTimer: number | null = null;
-    let observedMattermostRoot: HTMLElement | null = null;
+    let frameIncludesSettledMeasurement = false;
+    let observationTargetsDirty = true;
+    let observedRootRhsOpen = (
+      document.querySelector<HTMLElement>("#root")
+        ?.classList.contains("rhs-open") ?? false
+    );
     const observedResizeTargets = new Set<HTMLElement>();
 
     const commitMeasurement = () => {
       frame = null;
-      const next = readMattermostHostLayout();
+      if (observationTargetsDirty) {
+        observationTargetsDirty = false;
+        syncObservationTargets();
+      }
+      const settled = frameIncludesSettledMeasurement;
+      frameIncludesSettledMeasurement = false;
+      const next = stabiliseMeasurement(
+        readMattermostHostLayout(),
+        settled,
+      );
       setLayout((current) => (
-        current.mattermostWidth === next.mattermostWidth &&
-        current.centerWidth === next.centerWidth &&
-        current.rightSidebarWidth === next.rightSidebarWidth
+        hostLayoutsAreEquivalent(current, next)
           ? current
           : next
       ));
     };
 
-    const requestMeasurement = () => {
+    const requestMeasurement = (settled = false) => {
+      frameIncludesSettledMeasurement ||= settled;
       if (frame === null) {
         frame = window.requestAnimationFrame(commitMeasurement);
       }
+    };
+
+    const commitRootStateMeasurement = () => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+        frame = null;
+      }
+      frameIncludesSettledMeasurement = false;
+      const next = stabiliseMeasurement(
+        readMattermostHostLayout(),
+        false,
+      );
+      // The RHS starts its transform as soon as #root.rhs-open changes.
+      // Commit Deck's matching target before that mutation is painted so
+      // Mattermost does not visibly cover the center first and resize later.
+      flushSync(() => {
+        setLayout((current) => (
+          hostLayoutsAreEquivalent(current, next)
+            ? current
+            : next
+        ));
+      });
     };
 
     const scheduleSettledMeasurement = () => {
@@ -2830,7 +3029,7 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
       }
       settleTimer = window.setTimeout(() => {
         settleTimer = null;
-        requestMeasurement();
+        requestMeasurement(true);
       }, HOST_LAYOUT_SETTLE_MS);
     };
 
@@ -2840,99 +3039,104 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
     };
 
     const resizeObserver = new ResizeObserver(scheduleSettledMeasurement);
-    const attributeObserver = new MutationObserver(() => {
-      syncResizeTargets();
+    const attributeObserver = new MutationObserver((records) => {
+      const rootClassChanged = records.some((record) => (
+        record.attributeName === "class" &&
+        record.target instanceof HTMLElement &&
+        record.target.id === "root"
+      ));
+      const nextRootRhsOpen = rootClassChanged
+        ? (
+            document.querySelector<HTMLElement>("#root")
+              ?.classList.contains("rhs-open") ?? false
+          )
+        : observedRootRhsOpen;
+      const rootRhsStateChanged = (
+        rootClassChanged &&
+        nextRootRhsOpen !== observedRootRhsOpen
+      );
+      observedRootRhsOpen = nextRootRhsOpen;
+      if (rootRhsStateChanged) {
+        commitRootStateMeasurement();
+        scheduleSettledMeasurement();
+        return;
+      }
+      scheduleMeasurement();
+    });
+    const structureObserver = new MutationObserver(() => {
+      observationTargetsDirty = true;
       scheduleMeasurement();
     });
 
-    const syncAttributeTargets = () => {
-      attributeObserver.disconnect();
+    const syncObservationTargets = () => {
       const mattermostRoot = document.querySelector<HTMLElement>("#root");
-      if (!mattermostRoot) {
-        return;
-      }
-
-      const options: MutationObserverInit = {
-        attributes: true,
-        attributeFilter: ["class", "aria-hidden", "data-expanded"],
-      };
-      attributeObserver.observe(mattermostRoot, options);
-      for (const element of mattermostRoot.querySelectorAll<HTMLElement>(
-        `${MATTERMOST_RHS_SELECTOR}, ${MATTERMOST_THREAD_TARGET_SELECTOR}`,
-      )) {
-        attributeObserver.observe(element, options);
-      }
-    };
-
-    const syncResizeTargets = () => {
-      const mattermostRoot = document.querySelector<HTMLElement>("#root");
-      const nextTargets = new Set<HTMLElement>();
+      const rightSidebars = mattermostRoot
+        ? findMattermostRightSidebars(mattermostRoot)
+        : [];
+      observedRootRhsOpen =
+        mattermostRoot?.classList.contains("rhs-open") ?? false;
+      const nextResizeTargets = new Set<HTMLElement>();
       if (mattermostRoot) {
-        nextTargets.add(mattermostRoot);
-        for (const element of mattermostRoot.querySelectorAll<HTMLElement>(
-          MATTERMOST_LAYOUT_TARGET_SELECTOR,
-        )) {
-          nextTargets.add(element);
-        }
+        nextResizeTargets.add(mattermostRoot);
+      }
+      for (const rightSidebar of rightSidebars) {
+        nextResizeTargets.add(rightSidebar);
       }
 
       for (const target of observedResizeTargets) {
-        if (!nextTargets.has(target)) {
+        if (!nextResizeTargets.has(target)) {
           resizeObserver.unobserve(target);
           observedResizeTargets.delete(target);
         }
       }
-      for (const target of nextTargets) {
+      for (const target of nextResizeTargets) {
         if (!observedResizeTargets.has(target)) {
           resizeObserver.observe(target);
           observedResizeTargets.add(target);
         }
       }
 
-      syncAttributeTargets();
-    };
-
-    const touchesLayoutTarget = (node: Node): boolean => {
-      if (!(node instanceof Element)) {
-        return false;
-      }
-      return (
-        node.id === "root" ||
-        node.matches(MATTERMOST_LAYOUT_TARGET_SELECTOR) ||
-        Boolean(node.querySelector(MATTERMOST_LAYOUT_TARGET_SELECTOR))
-      );
-    };
-
-    const structureObserver = new MutationObserver((mutations) => {
-      if (!mutations.some((mutation) => (
-        [...mutation.addedNodes, ...mutation.removedNodes].some(touchesLayoutTarget)
-      ))) {
-        return;
-      }
-      observeStructureTargets();
-      syncResizeTargets();
-      scheduleMeasurement();
-    });
-
-    const observeStructureTargets = () => {
-      const mattermostRoot = document.querySelector<HTMLElement>("#root");
-      if (mattermostRoot === observedMattermostRoot) {
-        return;
-      }
-
-      structureObserver.disconnect();
-      structureObserver.observe(document.body, { childList: true });
+      attributeObserver.disconnect();
+      const options: MutationObserverInit = {
+        attributes: true,
+        attributeFilter: ["class", "aria-hidden", "data-expanded"],
+      };
       if (mattermostRoot) {
-        structureObserver.observe(mattermostRoot, {
-          childList: true,
-          subtree: true,
-        });
+        attributeObserver.observe(mattermostRoot, options);
       }
-      observedMattermostRoot = mattermostRoot;
+      for (const rightSidebar of rightSidebars) {
+        attributeObserver.observe(rightSidebar, options);
+      }
+
+      // Watch only direct child lists along the layout boundary paths.
+      // The RHS itself is deliberately excluded, so loading search results or
+      // thread posts cannot create observer work or retained target sets.
+      const structureTargets = new Set<HTMLElement>();
+      if (document.body) {
+        structureTargets.add(document.body);
+      }
+      const addAncestorPath = (target: HTMLElement | null) => {
+        let ancestor = target?.parentElement ?? null;
+        while (ancestor) {
+          structureTargets.add(ancestor);
+          if (ancestor === document.body) {
+            break;
+          }
+          ancestor = ancestor.parentElement;
+        }
+      };
+      addAncestorPath(mattermostRoot);
+      for (const rightSidebar of rightSidebars) {
+        addAncestorPath(rightSidebar);
+      }
+      structureObserver.disconnect();
+      for (const target of structureTargets) {
+        structureObserver.observe(target, { childList: true });
+      }
     };
 
-    observeStructureTargets();
-    syncResizeTargets();
+    syncObservationTargets();
+    observationTargetsDirty = false;
     scheduleMeasurement();
     window.addEventListener("resize", scheduleMeasurement);
 
@@ -2964,28 +3168,81 @@ function useRailWidth(
   (nextWidth?: number) => void,
   ResponsiveRailMode,
   number,
+  number,
 ] {
   const normalizedPreferredRailWidth = clampRailWidth(normalisePreferredRailWidth(preferredRailWidth));
   const [requestedRailWidth, setRequestedRailWidth] = useState<number>(normalizedPreferredRailWidth);
+  const [hasManualOverride, setHasManualOverride] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const [viewportResizeOverride, setViewportResizeOverride] = useState<{
+    width: number;
+    mode: ResponsiveRailMode;
+  } | null>(null);
   const requestedRailWidthRef = useRef(normalizedPreferredRailWidth);
   const preferredRailWidthRef = useRef(normalizedPreferredRailWidth);
   const hasManualOverrideRef = useRef(false);
   const viewportResizeTimerRef = useRef<number | null>(null);
+  const rightPaneLayoutSyncFrameRef = useRef<number | null>(null);
+  const previousThreadLayoutTargetRef = useRef<{
+    width: number;
+    mode: ResponsiveRailMode;
+  }>({
+    width: Number.NaN,
+    mode: "normal",
+  });
+  const minimumMattermostWidth = hasManualOverride
+    ? MIN_MANUAL_MATTERMOST_WIDTH
+    : MIN_MATTERMOST_WIDTH;
   const threadLayout = useMemo(
-    () => calculateThreadAwareRailLayout(requestedRailWidth, viewportWidth, hostLayout),
+    () => calculateThreadAwareRailLayout(
+      requestedRailWidth,
+      viewportWidth,
+      hostLayout,
+      minimumMattermostWidth,
+    ),
     [
-      hostLayout.centerWidth,
-      hostLayout.mattermostWidth,
       hostLayout.rightSidebarWidth,
+      minimumMattermostWidth,
       requestedRailWidth,
       viewportWidth,
     ],
   );
-  const railWidth = suppressThreadAdjustment
-    ? calculateResponsiveRailWidth(requestedRailWidth, viewportWidth)
+  const calculatedRailWidth = suppressThreadAdjustment
+    ? calculateResponsiveRailWidth(
+        requestedRailWidth,
+        viewportWidth,
+        minimumMattermostWidth,
+      )
     : threadLayout.width;
-  const threadLayoutMode = suppressThreadAdjustment ? "normal" : threadLayout.mode;
+  const calculatedThreadLayoutMode = suppressThreadAdjustment
+    ? "normal"
+    : threadLayout.mode;
+  const railWidth = viewportResizeOverride?.width ?? calculatedRailWidth;
+  const threadLayoutMode =
+    viewportResizeOverride?.mode ?? calculatedThreadLayoutMode;
+  const interactiveMaximumRailWidth = calculateResponsiveRailWidth(
+    MAX_RAIL_WIDTH,
+    viewportWidth,
+    MIN_MANUAL_MATTERMOST_WIDTH,
+  );
+  const resizeInputsRef = useRef({
+    drawerOpen,
+    hostLayout,
+    minimumMattermostWidth,
+    railWidth,
+    requestedRailWidth,
+    suppressThreadAdjustment,
+    threadLayoutMode,
+  });
+  resizeInputsRef.current = {
+    drawerOpen,
+    hostLayout,
+    minimumMattermostWidth,
+    railWidth,
+    requestedRailWidth,
+    suppressThreadAdjustment,
+    threadLayoutMode,
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -2998,10 +3255,12 @@ function useRailWidth(
 
       if (stored !== null) {
         hasManualOverrideRef.current = true;
+        setHasManualOverride(true);
         const normalizedStoredWidth = clampRailWidth(stored);
         requestedRailWidthRef.current = normalizedStoredWidth;
         setRequestedRailWidth(normalizedStoredWidth);
       } else {
+        setHasManualOverride(false);
         requestedRailWidthRef.current = preferredRailWidthRef.current;
         setRequestedRailWidth(preferredRailWidthRef.current);
       }
@@ -3022,30 +3281,111 @@ function useRailWidth(
     }
   }, [normalizedPreferredRailWidth]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const previousTarget = previousThreadLayoutTargetRef.current;
+    const targetChanged = (
+      previousTarget.width !== railWidth ||
+      previousTarget.mode !== threadLayoutMode
+    );
+    const isAutomaticRightPaneTransition = (
+      targetChanged &&
+      (
+        previousTarget.mode !== "normal" ||
+        threadLayoutMode !== "normal"
+      )
+    );
+    if (isAutomaticRightPaneTransition) {
+      // Mattermost starts moving the native RHS in this frame. Disable our
+      // width animation for the matching geometry transfer so the main
+      // content is never temporarily covered while Deck yields that space.
+      document.body.classList.add(RIGHT_PANE_LAYOUT_SYNC_CLASS);
+    }
+
     document.documentElement.style.setProperty("--mattermost-deck-rail-width", `${railWidth}px`);
     document.documentElement.style.setProperty(
       "--mattermost-deck-offset-width",
       drawerOpen ? `${railWidth}px` : `${COLLAPSED_DRAWER_WIDTH}px`,
     );
-  }, [drawerOpen, railWidth]);
+    previousThreadLayoutTargetRef.current = {
+      width: railWidth,
+      mode: threadLayoutMode,
+    };
+
+    if (isAutomaticRightPaneTransition) {
+      if (rightPaneLayoutSyncFrameRef.current !== null) {
+        window.cancelAnimationFrame(rightPaneLayoutSyncFrameRef.current);
+      }
+      rightPaneLayoutSyncFrameRef.current = window.requestAnimationFrame(() => {
+        rightPaneLayoutSyncFrameRef.current = window.requestAnimationFrame(() => {
+          rightPaneLayoutSyncFrameRef.current = null;
+          document.body.classList.remove(RIGHT_PANE_LAYOUT_SYNC_CLASS);
+        });
+      });
+    }
+  }, [drawerOpen, railWidth, threadLayoutMode]);
+
+  useEffect(() => () => {
+    if (rightPaneLayoutSyncFrameRef.current !== null) {
+      window.cancelAnimationFrame(rightPaneLayoutSyncFrameRef.current);
+      rightPaneLayoutSyncFrameRef.current = null;
+    }
+    document.body.classList.remove(RIGHT_PANE_LAYOUT_SYNC_CLASS);
+  }, []);
 
   useEffect(() => {
     const handleResize = () => {
       const nextViewportWidth = window.innerWidth;
-      const nextThreadLayout = calculateThreadAwareRailLayout(
-        requestedRailWidth,
-        nextViewportWidth,
-        hostLayout,
+      const resizeInputs = resizeInputsRef.current;
+      const syncOpenRightPane = (
+        !resizeInputs.suppressThreadAdjustment &&
+        resizeInputs.hostLayout.rightSidebarWidth > 0
       );
-      const nextRailWidth = suppressThreadAdjustment
-        ? calculateResponsiveRailWidth(requestedRailWidth, nextViewportWidth)
-        : nextThreadLayout.width;
       document.body.classList.add(VIEWPORT_RESIZING_CLASS);
-      document.documentElement.style.setProperty("--mattermost-deck-rail-width", `${nextRailWidth}px`);
+      document.body.classList.toggle(
+        RIGHT_PANE_VIEWPORT_SYNC_CLASS,
+        syncOpenRightPane,
+      );
+
+      // Mattermost animates its RHS width across responsive breakpoints.
+      // RIGHT_PANE_VIEWPORT_SYNC_CLASS temporarily removes that transition;
+      // this forced read therefore returns the final breakpoint width now,
+      // allowing Deck and Mattermost to move to one shared final geometry.
+      const liveHostLayout = syncOpenRightPane
+        ? readMattermostHostLayout()
+        : resizeInputs.hostLayout;
+      const nextThreadLayout = calculateThreadAwareRailLayout(
+        resizeInputs.requestedRailWidth,
+        nextViewportWidth,
+        liveHostLayout,
+        resizeInputs.minimumMattermostWidth,
+      );
+      const nextRailWidth = resizeInputs.suppressThreadAdjustment
+        ? calculateResponsiveRailWidth(
+            resizeInputs.requestedRailWidth,
+            nextViewportWidth,
+            resizeInputs.minimumMattermostWidth,
+          )
+        : nextThreadLayout.width;
+      const nextThreadLayoutMode = resizeInputs.suppressThreadAdjustment
+        ? "normal"
+        : nextThreadLayout.mode;
+      setViewportResizeOverride(
+        syncOpenRightPane
+          ? {
+              width: nextRailWidth,
+              mode: nextThreadLayoutMode,
+            }
+          : null,
+      );
+      document.documentElement.style.setProperty(
+        "--mattermost-deck-rail-width",
+        `${nextRailWidth}px`,
+      );
       document.documentElement.style.setProperty(
         "--mattermost-deck-offset-width",
-        drawerOpen ? `${nextRailWidth}px` : `${COLLAPSED_DRAWER_WIDTH}px`,
+        resizeInputs.drawerOpen
+          ? `${nextRailWidth}px`
+          : `${COLLAPSED_DRAWER_WIDTH}px`,
       );
       setViewportWidth(nextViewportWidth);
 
@@ -3054,8 +3394,18 @@ function useRailWidth(
       }
       viewportResizeTimerRef.current = window.setTimeout(() => {
         viewportResizeTimerRef.current = null;
-        document.body.classList.remove(VIEWPORT_RESIZING_CLASS);
-      }, VIEWPORT_RESIZE_SETTLE_MS);
+        flushSync(() => {
+          setViewportResizeOverride(null);
+        });
+        window.requestAnimationFrame(() => {
+          document.body.classList.remove(
+            VIEWPORT_RESIZING_CLASS,
+            RIGHT_PANE_VIEWPORT_SYNC_CLASS,
+          );
+        });
+      }, syncOpenRightPane
+        ? HOST_LAYOUT_SETTLE_MS + VIEWPORT_RESIZE_SETTLE_MS
+        : VIEWPORT_RESIZE_SETTLE_MS);
     };
 
     window.addEventListener("resize", handleResize);
@@ -3065,26 +3415,47 @@ function useRailWidth(
         window.clearTimeout(viewportResizeTimerRef.current);
         viewportResizeTimerRef.current = null;
       }
-      document.body.classList.remove(VIEWPORT_RESIZING_CLASS);
+      document.body.classList.remove(
+        VIEWPORT_RESIZING_CLASS,
+        RIGHT_PANE_VIEWPORT_SYNC_CLASS,
+      );
     };
-  }, [drawerOpen, hostLayout, requestedRailWidth, suppressThreadAdjustment]);
+  }, []);
+
+  const clampInteractiveRailWidth = useCallback((nextWidth: number) => {
+    const normalizedWidth = clampRailWidth(nextWidth);
+    const maximumWidth = calculateResponsiveRailWidth(
+      MAX_RAIL_WIDTH,
+      window.innerWidth,
+      MIN_MANUAL_MATTERMOST_WIDTH,
+    );
+    return maximumWidth < MIN_RAIL_WIDTH
+      ? MIN_RAIL_WIDTH
+      : Math.min(normalizedWidth, maximumWidth);
+  }, []);
 
   const updateRailWidth = useCallback((nextWidth: number) => {
-    const normalizedWidth = clampRailWidth(nextWidth);
+    const normalizedWidth = clampInteractiveRailWidth(nextWidth);
     hasManualOverrideRef.current = true;
+    setHasManualOverride(true);
+    // A pointer drag is more recent than a pending viewport-settle snapshot.
+    // Release that temporary target immediately so the Deck follows the
+    // pointer instead of appearing capped until the settle timer expires.
+    setViewportResizeOverride(null);
     requestedRailWidthRef.current = normalizedWidth;
     setRequestedRailWidth(normalizedWidth);
-  }, []);
+  }, [clampInteractiveRailWidth]);
 
   const persistRailWidth = useCallback((nextWidth?: number) => {
     const normalizedWidth = nextWidth === undefined
       ? requestedRailWidthRef.current
-      : clampRailWidth(nextWidth);
+      : clampInteractiveRailWidth(nextWidth);
     hasManualOverrideRef.current = true;
+    setHasManualOverride(true);
     requestedRailWidthRef.current = normalizedWidth;
     setRequestedRailWidth(normalizedWidth);
     void saveStoredNumber(RAIL_WIDTH_STORAGE_KEY, normalizedWidth);
-  }, []);
+  }, [clampInteractiveRailWidth]);
 
   return [
     railWidth,
@@ -3092,6 +3463,7 @@ function useRailWidth(
     persistRailWidth,
     threadLayoutMode,
     requestedRailWidth,
+    interactiveMaximumRailWidth,
   ];
 }
 
@@ -3798,6 +4170,8 @@ function PostList({
   suppressEndState = false,
   suppressNewPostNotifications = false,
   deferredPostIds,
+  busy = false,
+  listId,
 }: {
   posts: MattermostPost[];
   userDirectory: Record<string, MattermostUser>;
@@ -3823,6 +4197,8 @@ function PostList({
   suppressEndState?: boolean;
   suppressNewPostNotifications?: boolean;
   deferredPostIds?: ReadonlySet<string>;
+  busy?: boolean;
+  listId?: string;
 }): React.JSX.Element {
   const text = useAppText();
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -3852,9 +4228,15 @@ function PostList({
     }
     if (reversedPostOrderRef.current) {
       const target = viewport.scrollHeight - viewport.clientHeight;
-      viewport.scrollTo({ top: target, behavior: "smooth" });
+      viewport.scrollTo({
+        top: target,
+        behavior: getPreferredScrollBehavior(),
+      });
     } else {
-      viewport.scrollTo({ top: 0, behavior: "smooth" });
+      viewport.scrollTo({
+        top: 0,
+        behavior: getPreferredScrollBehavior(),
+      });
     }
     setNewPostCount(0);
     setShowJumpToLatest(false);
@@ -3933,7 +4315,10 @@ function PostList({
       }
       if (!viewport) return;
       const target = viewport.scrollHeight - viewport.clientHeight;
-      viewport.scrollTo({ top: target, behavior: "smooth" });
+      viewport.scrollTo({
+        top: target,
+        behavior: getPreferredScrollBehavior(),
+      });
       setNewPostCount(0);
       setShowJumpToLatest(false);
     } else {
@@ -3945,7 +4330,10 @@ function PostList({
         return;
       }
       if (!viewport) return;
-      viewport.scrollTo({ top: 0, behavior: "smooth" });
+      viewport.scrollTo({
+        top: 0,
+        behavior: getPreferredScrollBehavior(),
+      });
       setNewPostCount(0);
       setShowJumpToLatest(false);
     }
@@ -4030,12 +4418,16 @@ function PostList({
   ) : null;
 
   return (
-    <div className="deck-post-list">
+    <div
+      className="deck-post-list"
+      aria-busy={busy || undefined}
+    >
       {newPostCount > 0 || showJumpToLatest ? (
         <div className="deck-list-floating-action">
           <button
             type="button"
             className="deck-new-posts-button"
+            data-new-post-count={newPostCount}
             onClick={scrollToLatest}
             title={newPostCount > 0 ? newPostsLabel(newPostCount) : jumpToLatestLabel}
             aria-label={newPostCount > 0 ? newPostsLabel(newPostCount) : jumpToLatestLabel}
@@ -4047,6 +4439,7 @@ function PostList({
       <div
         ref={viewportRef}
         className="deck-list-viewport"
+        tabIndex={listId ? -1 : undefined}
         onScroll={(event) => {
           const el = event.currentTarget;
           const nearEdge = reversedPostOrder
@@ -4064,7 +4457,12 @@ function PostList({
         onPointerDown={markInteraction}
       >
         {reversedPostOrder && footerNode}
-        <ul className={`deck-list${compactMode ? " deck-list--post-compact" : ""}`}>{displayEntries.map((entry, index) => renderEntry(entry, index))}</ul>
+        <ul
+          id={listId}
+          className={`deck-list${compactMode ? " deck-list--post-compact" : ""}`}
+        >
+          {displayEntries.map((entry, index) => renderEntry(entry, index))}
+        </ul>
         {!reversedPostOrder && footerNode}
       </div>
     </div>
@@ -4178,6 +4576,14 @@ function MentionsColumn({
   const mentionCacheSaveEntryIdRef = useRef<string | null>(null);
   const mentionCacheStoredPostIdsRef = useRef<Set<string>>(new Set());
   const postedEventsRef = useRef(postedEvents);
+  // The refresh flow hydrates the current feed. Only WebSocket events that
+  // arrive after this column mounts should be applied as realtime additions.
+  const processedMentionPostedEventsRef =
+    useRef<WeakSet<PostedEvent> | undefined>(undefined);
+  if (!processedMentionPostedEventsRef.current) {
+    processedMentionPostedEventsRef.current =
+      new WeakSet<PostedEvent>(postedEvents);
+  }
   const currentRouteRef = useRef({
     teamId: currentTeamId,
     channelId: currentChannelId,
@@ -4200,6 +4606,12 @@ function MentionsColumn({
     useState<MentionCacheDisplayState>(() =>
       createMentionCacheDisplayState(),
     );
+  const [mentionDisplaySnapshot, setMentionDisplaySnapshot] =
+    useState<MentionDisplaySnapshot | null>(null);
+  const [
+    suppressAppliedMentionNotifications,
+    setSuppressAppliedMentionNotifications,
+  ] = useState(false);
   const [mentionCacheSaveVersion, setMentionCacheSaveVersion] =
     useState(0);
   const [mentionCacheLastSavedAt, setMentionCacheLastSavedAt] =
@@ -4230,17 +4642,10 @@ function MentionsColumn({
       ),
     [mentionCacheState.readState, realtimeReadMarkers],
   );
-  const liveDisplayedPosts = useMemo(
-    () =>
-      mentionLoadProgress.active
-        ? mergePosts(
-            postState.posts,
-            mentionLoadProgress.posts,
-            MENTIONS_MAX_BUFFER,
-          )
-        : postState.posts,
-    [mentionLoadProgress.active, mentionLoadProgress.posts, postState.posts],
-  );
+  // Background scans stay in mentionLoadProgress until the complete result is
+  // ready. Feeding partial scan results into PostList makes existing rows move
+  // whenever another team's posts arrive and can look like a realtime post.
+  const liveDisplayedPosts = postState.posts;
   const displayedPosts = useMemo(
     () =>
       mentionCacheActiveForContext
@@ -4338,7 +4743,7 @@ function MentionsColumn({
     },
     [column.teamId, currentUser?.collapsed_reply_threads, postState.status, unreadPosts.length, unreads],
   );
-  const visiblePosts = useMemo(
+  const resolvedVisiblePosts = useMemo(
     () => (column.unreadOnly ? unreadPosts : activePosts),
     [activePosts, column.unreadOnly, unreadPosts],
   );
@@ -4370,10 +4775,164 @@ function MentionsColumn({
     () => new Set([...provisionalPostIds, ...cachedPostIds]),
     [cachedPostIds, provisionalPostIds],
   );
+  const snapshotPosts = useMemo(
+    () =>
+      mentionDisplaySnapshot?.posts.filter(
+        (post) => !deletedPostIdsRef.current?.has(post.id),
+      ) ?? null,
+    [deletedPostIds, deletedPostIdsRef, mentionDisplaySnapshot],
+  );
+  const visiblePosts = snapshotPosts ?? resolvedVisiblePosts;
+  const visibleDeferredMentionPostIds = useMemo(
+    () =>
+      mentionDisplaySnapshot
+        ? new Set(mentionDisplaySnapshot.deferredPostIds)
+        : deferredMentionPostIds,
+    [deferredMentionPostIds, mentionDisplaySnapshot],
+  );
+  const pendingMentionChanges = useMemo(
+    () =>
+      snapshotPosts
+        ? summariseMentionPresentationChanges(
+            snapshotPosts,
+            resolvedVisiblePosts,
+          )
+        : {
+            count: 0,
+            hasAdditionsOrUpdates: false,
+          },
+    [resolvedVisiblePosts, snapshotPosts],
+  );
+  const pendingMentionUpdateCount = pendingMentionChanges.count;
+  const pendingMentionHasAdditionsOrUpdates =
+    pendingMentionChanges.hasAdditionsOrUpdates;
+  const mentionPostListId = `mattermost-deck-mentions-${column.id}`;
 
   useEffect(() => {
     mentionPostsRef.current = postState.posts;
   }, [postState.posts]);
+
+  useEffect(() => {
+    if (
+      !mentionLoadProgress.active ||
+      mentionDisplaySnapshot ||
+      resolvedVisiblePosts.length === 0
+    ) {
+      return;
+    }
+
+    const visiblePostIds = new Set(
+      resolvedVisiblePosts.map((post) => post.id),
+    );
+    setMentionDisplaySnapshot({
+      runId: mentionLoadProgress.runId,
+      posts: resolvedVisiblePosts.slice(0, MENTIONS_MAX_BUFFER),
+      deferredPostIds: Array.from(deferredMentionPostIds).filter(
+        (postId) => visiblePostIds.has(postId),
+      ),
+    });
+  }, [
+    deferredMentionPostIds,
+    mentionDisplaySnapshot,
+    mentionLoadProgress.active,
+    mentionLoadProgress.runId,
+    resolvedVisiblePosts,
+  ]);
+
+  useEffect(() => {
+    if (
+      mentionDisplaySnapshot &&
+      !mentionLoadProgress.active &&
+      hasCompletedInitialLoad &&
+      (
+        pendingMentionUpdateCount === 0 ||
+        !pendingMentionHasAdditionsOrUpdates
+      )
+    ) {
+      setSuppressAppliedMentionNotifications(true);
+      setMentionDisplaySnapshot(null);
+    }
+  }, [
+    hasCompletedInitialLoad,
+    mentionDisplaySnapshot,
+    mentionLoadProgress.active,
+    pendingMentionHasAdditionsOrUpdates,
+    pendingMentionUpdateCount,
+  ]);
+
+  useEffect(() => {
+    setMentionDisplaySnapshot(null);
+  }, [column.unreadOnly]);
+
+  // Read markers are user-driven state, not background discoveries. Apply
+  // them to the held snapshot immediately so marking a channel or thread read
+  // still removes unread rows without also revealing buffered scan additions.
+  useEffect(() => {
+    if (!mentionDisplaySnapshot) {
+      return;
+    }
+    const activeSnapshotPosts = filterActiveMentionPosts(
+      mentionDisplaySnapshot.posts,
+      effectiveMentionReadState,
+    );
+    const posts = column.unreadOnly
+      ? filterUnreadMentionPosts(
+          activeSnapshotPosts,
+          effectiveMentionReadState,
+        )
+      : activeSnapshotPosts;
+    if (
+      posts.length === mentionDisplaySnapshot.posts.length &&
+      posts.every(
+        (post, index) =>
+          post.id === mentionDisplaySnapshot.posts[index]?.id,
+      )
+    ) {
+      return;
+    }
+    const postIds = new Set(posts.map((post) => post.id));
+    setSuppressAppliedMentionNotifications(true);
+    setMentionDisplaySnapshot({
+      ...mentionDisplaySnapshot,
+      posts,
+      deferredPostIds:
+        mentionDisplaySnapshot.deferredPostIds.filter(
+          (postId) => postIds.has(postId),
+        ),
+    });
+  }, [mentionReadState, realtimeReadMarkers]);
+
+  useEffect(() => {
+    if (!suppressAppliedMentionNotifications) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      setSuppressAppliedMentionNotifications(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [suppressAppliedMentionNotifications]);
+
+  const handleApplyMentionUpdates = useCallback(() => {
+    const focusTarget = sectionNode?.querySelector(
+      "[data-deck-mention-apply-focus='true']",
+    );
+    const fallbackFocusTarget = sectionNode?.querySelector(
+      ".deck-list-viewport",
+    );
+    setSuppressAppliedMentionNotifications(true);
+    setMentionDisplaySnapshot(null);
+    window.requestAnimationFrame(() => {
+      if (
+        focusTarget instanceof HTMLElement &&
+        focusTarget.isConnected
+      ) {
+        focusTarget.focus({ preventScroll: true });
+      } else if (fallbackFocusTarget instanceof HTMLElement) {
+        fallbackFocusTarget.focus({ preventScroll: true });
+      }
+    });
+  }, [sectionNode]);
+
   const teamOptions = useMemo<CustomSelectOption[]>(
     () => [{ value: "", label: text.allTeams }, ...teams.map((team) => ({ value: team.id, label: team.display_name || team.name }))],
     [teams, text.allTeams],
@@ -4451,8 +5010,11 @@ function MentionsColumn({
     Boolean(username) &&
     !hasCompletedInitialLoad;
   const suppressMentionNewPostNotifications =
-    (mentionLoadProgress.active || mentionCacheActiveForContext) &&
-    !hasCompletedInitialLoad;
+    (
+      (mentionLoadProgress.active || mentionCacheActiveForContext) &&
+      !hasCompletedInitialLoad
+    ) ||
+    suppressAppliedMentionNotifications;
   const isPaneVisible = useElementVisibility(sectionNode, { rootMargin: "600px 0px", defaultVisible: true });
   const specialMentionMemberTtlMs = realtimeEnabled
     ? SPECIAL_MENTION_MEMBER_TTL_WS_MS
@@ -4494,6 +5056,8 @@ function MentionsColumn({
     setMentionCacheState(
       createMentionCacheDisplayState(mentionCacheEntryId),
     );
+    setMentionDisplaySnapshot(null);
+    setSuppressAppliedMentionNotifications(false);
   }, [mentionCacheEntryId]);
 
   useEffect(() => {
@@ -5735,6 +6299,8 @@ function MentionsColumn({
         setMentionCacheState(
           createMentionCacheDisplayState(mentionCacheEntryId),
         );
+        setMentionDisplaySnapshot(null);
+        setSuppressAppliedMentionNotifications(false);
         finishRefresh();
       },
       dependencies: [
@@ -5804,7 +6370,18 @@ function MentionsColumn({
   ]);
 
   useEffect(() => {
-    const matchingEvents = postedEvents.filter(
+    const processedEvents = processedMentionPostedEventsRef.current;
+    if (!processedEvents) {
+      return;
+    }
+    const newEvents = postedEvents.filter((event) => {
+      if (processedEvents.has(event)) {
+        return false;
+      }
+      processedEvents.add(event);
+      return true;
+    });
+    const matchingEvents = newEvents.filter(
       (event) =>
         event.mentionsUser &&
         (
@@ -5818,23 +6395,65 @@ function MentionsColumn({
       return;
     }
 
-    void ensureUsers(Array.from(new Set(matchingEvents.map((event) => event.post.user_id))));
+    const activeRealtimePosts = filterActiveMentionPosts(
+      matchingEvents.map((event) => event.post),
+      effectiveMentionReadState,
+    );
+    const realtimePosts = column.unreadOnly
+      ? filterUnreadMentionPosts(
+          activeRealtimePosts,
+          effectiveMentionReadState,
+        )
+      : activeRealtimePosts;
+    if (activeRealtimePosts.length === 0) {
+      return;
+    }
+
+    void ensureUsers(Array.from(new Set(activeRealtimePosts.map((post) => post.user_id))));
     setPostState((current) => ({
       ...current,
       status: "ready",
       error: null,
       posts: mergePosts(
-        matchingEvents.map((event) => event.post),
+        activeRealtimePosts,
         current.posts,
         MENTIONS_MAX_BUFFER,
       ),
     }));
-  }, [column.teamId, ensureUsers, postedEvents]);
+    if (realtimePosts.length === 0) {
+      return;
+    }
+
+    // A genuine WebSocket mention must retain PostList's normal new-post
+    // affordance even if a read-marker update just finished in the same turn.
+    setSuppressAppliedMentionNotifications(false);
+    // Realtime events are genuine new activity, so keep them immediate even
+    // while a background scan result is waiting for explicit application.
+    setMentionDisplaySnapshot((current) =>
+      current
+        ? {
+            ...current,
+            posts: mergePosts(
+              realtimePosts,
+              current.posts,
+              MENTIONS_MAX_BUFFER,
+            ),
+          }
+        : current
+    );
+  }, [
+    column.teamId,
+    column.unreadOnly,
+    effectiveMentionReadState,
+    ensureUsers,
+    postedEvents,
+  ]);
 
   useEffect(() => {
     if (deletedPostIds.length === 0) {
       return;
     }
+    setSuppressAppliedMentionNotifications(true);
     const deletedPostIdSet = new Set(deletedPostIds);
     const invalidatesStoredCache =
       mentionCacheState.posts.some((post) =>
@@ -5864,6 +6483,24 @@ function MentionsColumn({
       return posts.length === current.posts.length
         ? current
         : { ...current, posts };
+    });
+    setMentionDisplaySnapshot((current) => {
+      if (!current) {
+        return current;
+      }
+      const posts = current.posts.filter(
+        (post) => !deletedPostIdSet.has(post.id),
+      );
+      if (posts.length === current.posts.length) {
+        return current;
+      }
+      return {
+        ...current,
+        posts,
+        deferredPostIds: current.deferredPostIds.filter(
+          (postId) => !deletedPostIdSet.has(postId),
+        ),
+      };
     });
     if (invalidatesStoredCache && mentionCacheContext) {
       mentionCacheStoredPostIdsRef.current = new Set();
@@ -6101,6 +6738,24 @@ function MentionsColumn({
       mentionLoadActive: mentionLoadProgress.active,
       mentionLoadCompletedTeams: mentionLoadProgress.completedTeams,
       mentionLoadTotalTeams: mentionLoadProgress.totalTeams,
+      mentionBufferedPostIds: mentionLoadProgress.posts.map(
+        (post) => post.id,
+      ),
+      mentionBufferedPostMessages: mentionLoadProgress.posts.map(
+        (post) => post.message,
+      ),
+      mentionUpdatePending:
+        Boolean(mentionDisplaySnapshot) &&
+        !mentionLoadProgress.active &&
+        pendingMentionUpdateCount > 0,
+      mentionPendingUpdateCount: pendingMentionUpdateCount,
+      mentionDisplaySnapshotRunId:
+        mentionDisplaySnapshot?.runId ?? null,
+      mentionRefreshPhase: mentionLoadProgress.active
+        ? "loading"
+        : mentionDisplaySnapshot && pendingMentionUpdateCount > 0
+          ? "pending"
+          : "ready",
       provisionalPostIds: Array.from(provisionalPostIds),
       cachedPostIds: Array.from(cachedPostIds),
       mentionCacheActive: mentionCacheActiveForContext,
@@ -6136,7 +6791,10 @@ function MentionsColumn({
     displayedPosts,
     mentionLoadProgress.active,
     mentionLoadProgress.completedTeams,
+    mentionLoadProgress.posts,
     mentionLoadProgress.totalTeams,
+    mentionDisplaySnapshot,
+    pendingMentionUpdateCount,
     mentionCacheLastSavedAt,
     mentionCacheActiveForContext,
     mentionCacheState.savedAt,
@@ -6152,18 +6810,84 @@ function MentionsColumn({
       ref={setSectionNode}
       className={`deck-column deck-column--mentions${isFocusedPane ? " deck-column--pane-focused" : ""}`}
       style={getColumnAccentStyle(column.type, columnColors)}
+      data-deck-column-id={column.id}
     >
       <header className="deck-column-header">
         <div className="deck-column-heading">
-          <h2 title={text.addMentions}>
+          <h2
+            title={text.addMentions}
+            tabIndex={-1}
+            data-deck-mention-apply-focus="true"
+          >
             <span className="deck-title-with-icon">
               <ColumnTypeBadge type="mentions" />
               <span>{text.addMentions}</span>
             </span>
           </h2>
-          <p title={selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.allTeams}>
-            {selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.allTeams}
-          </p>
+          {mentionLoadProgress.active ? (
+            <ColumnLoadingProgress
+              title={
+                mentionCacheActiveForContext
+                  ? text.refreshingMentions
+                  : text.loadingMentions
+              }
+              detail={
+                mentionCacheActiveForContext
+                  ? text.refreshingCachedMentionsProgress(
+                      visiblePosts.length,
+                      mentionLoadProgress.completedTeams,
+                      mentionLoadProgress.totalTeams,
+                    )
+                  : text.loadingMentionsProgress(
+                      visiblePosts.length,
+                      mentionLoadProgress.completedTeams,
+                      mentionLoadProgress.totalTeams,
+                    )
+              }
+              announcement={
+                visiblePosts.length > 0 &&
+                (!hasCompletedInitialLoad || isRefreshing)
+                  ? text.loadingMentionsTeamsProgress(
+                      mentionLoadProgress.completedTeams,
+                      mentionLoadProgress.totalTeams,
+                    )
+                  : undefined
+              }
+              completed={mentionLoadProgress.completedTeams}
+              total={mentionLoadProgress.totalTeams}
+            />
+          ) : mentionDisplaySnapshot &&
+            pendingMentionUpdateCount > 0 ? (
+            <div className="deck-mention-updates">
+              <button
+                type="button"
+                className="deck-mention-updates-button"
+                data-update-count={pendingMentionUpdateCount}
+                onClick={handleApplyMentionUpdates}
+                aria-controls={mentionPostListId}
+              >
+                <span className="deck-mention-updates-button-label">
+                  {text.showMentionUpdates(
+                    pendingMentionUpdateCount,
+                  )}
+                </span>
+              </button>
+              <span
+                className="deck-sr-only"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                {text.mentionUpdatesAvailable(
+                  pendingMentionUpdateCount,
+                )}
+              </span>
+            </div>
+          ) : (
+            <p title={selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.allTeams}>
+              {selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.allTeams}
+            </p>
+          )}
         </div>
         <div className="deck-column-actions">
           <div className="deck-badge" title={text.mentionBadge(mentionCount, Boolean(column.teamId))}>
@@ -6304,38 +7028,14 @@ function MentionsColumn({
               <p>{postState.error ?? text.unknownError}</p>
             </article>
           ) : null}
-          {mentionLoadProgress.active ? (
-            <ColumnLoadingProgress
-              title={
-                mentionCacheActiveForContext
-                  ? text.refreshingMentions
-                  : text.loadingMentions
-              }
-              detail={
-                mentionCacheActiveForContext
-                  ? text.refreshingCachedMentionsProgress(
-                      visiblePosts.length,
-                      mentionLoadProgress.completedTeams,
-                      mentionLoadProgress.totalTeams,
-                    )
-                  : text.loadingMentionsProgress(
-                      visiblePosts.length,
-                      mentionLoadProgress.completedTeams,
-                      mentionLoadProgress.totalTeams,
-                    )
-              }
-              announcement={text.loadingMentionsTeamsProgress(
-                mentionLoadProgress.completedTeams,
-                mentionLoadProgress.totalTeams,
-              )}
-            />
-          ) : null}
-          {visiblePosts.length === 0 && !mentionLoadProgress.active ? (
+          {visiblePosts.length === 0 &&
+          !mentionLoadProgress.active &&
+          !mentionDisplaySnapshot ? (
             <article className="deck-card">
               <strong>{text.noMentions}</strong>
               <p>{column.unreadOnly ? text.noUnreadMentions : text.mentionsWillAppear}</p>
             </article>
-          ) : visiblePosts.length > 0 ? (
+          ) : visiblePosts.length > 0 || mentionDisplaySnapshot ? (
             <PostList
               posts={visiblePosts}
               userDirectory={userDirectory}
@@ -6366,12 +7066,15 @@ function MentionsColumn({
               newPostsLabel={text.newPosts}
               suppressEndState={
                 mentionLoadProgress.active ||
-                mentionCacheActiveForContext
+                mentionCacheActiveForContext ||
+                Boolean(mentionDisplaySnapshot)
               }
               suppressNewPostNotifications={
                 suppressMentionNewPostNotifications
               }
-              deferredPostIds={deferredMentionPostIds}
+              deferredPostIds={visibleDeferredMentionPostIds}
+              busy={mentionLoadProgress.active}
+              listId={mentionPostListId}
             />
           ) : null}
         </>
@@ -7133,10 +7836,6 @@ function ColumnLoadingState({
       <div className="deck-loading-spinner" aria-hidden="true" />
       <strong>{title}</strong>
       <p>{detail}</p>
-      <div className="deck-loading-skeletons" aria-hidden="true">
-        <div className="deck-loading-skeleton" />
-        <div className="deck-loading-skeleton" />
-      </div>
     </article>
   );
 }
@@ -7145,26 +7844,53 @@ function ColumnLoadingProgress({
   title,
   detail,
   announcement,
+  completed,
+  total,
 }: {
   title: string;
   detail: string;
-  announcement: string;
+  announcement?: string;
+  completed: number;
+  total: number;
 }): React.JSX.Element {
+  const progress = total > 0
+    ? Math.min(100, Math.max(0, (completed / total) * 100))
+    : 0;
+
   return (
-    <div className="deck-loading-progress">
+    <div
+      className="deck-column-loading-status"
+      title={`${title} ${detail}`}
+      data-completed={completed}
+      data-total={total}
+    >
       <div className="deck-loading-spinner" aria-hidden="true" />
-      <div className="deck-loading-progress-copy">
+      <span className="deck-column-loading-copy">
         <strong>{title}</strong>
+        <span aria-hidden="true"> · </span>
         <span>{detail}</span>
-      </div>
-      <span
-        className="deck-sr-only"
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        {announcement}
       </span>
+      <span
+        className="deck-column-loading-track"
+        role="progressbar"
+        aria-label={title}
+        aria-valuemin={0}
+        aria-valuemax={Math.max(1, total)}
+        aria-valuenow={Math.min(completed, Math.max(1, total))}
+        aria-valuetext={detail}
+      >
+        <span style={{ width: `${progress}%` }} />
+      </span>
+      {announcement ? (
+        <span
+          className="deck-sr-only"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {announcement}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -8128,6 +8854,14 @@ function DiagnosticsColumn({
 }
 
 export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
+  const renderStartedAt = window.performance.now();
+  useLayoutEffect(() => {
+    // Keep diagnostics bounded without enabling React's full-subtree Profiler
+    // mode. React's development Profiler writes User Timing measures whose
+    // structured details remain retained until navigation or clearMeasures().
+    recordRenderCommit(window.performance.now() - renderStartedAt);
+  });
+
   useEffect(() => {
     debugLog("app.mount", { routeKey, path: window.location.pathname });
     return () => {
@@ -8188,6 +8922,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     persistRailWidth,
     threadLayoutMode,
     requestedRailWidth,
+    maximumInteractiveRailWidth,
   ] = useRailWidth(
     drawerOpen,
     deckSettings.preferredRailWidth,
@@ -8205,7 +8940,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     threadLayoutMode !== "normal" &&
     !threadLayoutOverride
   );
-  const canResizeRail = effectiveDrawerOpen && !threadLayoutConstrained;
+  // Keep the resize handle available while the open Deck is temporarily
+  // compacted for Mattermost's right pane. A real drag switches to a manual
+  // override; an automatically collapsed Deck remains closed until the user
+  // explicitly opens it with the drawer toggle.
+  const canResizeRail = effectiveDrawerOpen;
   const [threadLayoutAnnouncement, setThreadLayoutAnnouncement] = useState("");
   const previousThreadLayoutModeRef = useRef<ResponsiveRailMode>("normal");
   const [isResizing, setIsResizing] = useState(false);
@@ -8237,7 +8976,16 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const railAddButtonRef = useRef<HTMLButtonElement | null>(null);
   const railAddOverlayMenuRef = useRef<HTMLDivElement | null>(null);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
-  const resizeStateRef = useRef<{ pointerId: number; didMove: boolean } | null>(null);
+  const threadLayoutConstrainedRef = useRef(threadLayoutConstrained);
+  threadLayoutConstrainedRef.current = threadLayoutConstrained;
+  const resizeStateRef = useRef<{
+    pointerId: number;
+    didMove: boolean;
+    startClientX: number;
+    startRailWidth: number;
+    startedThreadConstrained: boolean;
+    overrideActivated: boolean;
+  } | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const pendingWidthRef = useRef<number | null>(null);
   const wsStatus = useWebSocketStatus();
@@ -8798,17 +9546,60 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   }, [columns, deckSettings.wsPat, effectiveRealtimeEnabled, state.sessionExpired, state.userId, state.username]);
 
   useEffect(() => {
-    if (!isResizing || !canResizeRail) {
-      return;
-    }
-
     const handlePointerMove = (event: PointerEvent) => {
-      if (!resizeStateRef.current || event.pointerId !== resizeStateRef.current.pointerId) {
+      const resizeState = resizeStateRef.current;
+      if (!resizeState || event.pointerId !== resizeState.pointerId) {
         return;
       }
 
-      resizeStateRef.current.didMove = true;
-      pendingWidthRef.current = window.innerWidth - event.clientX;
+      // Preserve the point where the user grabbed the 14px handle. Using the
+      // viewport edge directly makes a centered grab introduce a 7px jump and
+      // can briefly move in the opposite direction.
+      const nextWidth = (
+        resizeState.startRailWidth +
+        resizeState.startClientX -
+        event.clientX
+      );
+      if (
+        threadLayoutConstrainedRef.current &&
+        !resizeState.overrideActivated
+      ) {
+        if (resizeState.startedThreadConstrained) {
+          const dragDistance = Math.abs(
+            resizeState.startClientX - event.clientX,
+          );
+          const normalizedNextWidth = clampRailWidth(nextWidth);
+          const renderedDelta = normalizedNextWidth - resizeState.startRailWidth;
+          const pointerDelta = nextWidth - resizeState.startRailWidth;
+          if (
+            dragDistance < RAIL_RESIZE_DRAG_THRESHOLD_PX ||
+            renderedDelta === 0 ||
+            Math.sign(renderedDelta) !== Math.sign(pointerDelta) ||
+            (
+              resizeState.startRailWidth < MIN_RAIL_WIDTH &&
+              nextWidth < MIN_RAIL_WIDTH
+            )
+          ) {
+            return;
+          }
+        }
+
+        resizeState.overrideActivated = true;
+        resizeState.didMove = true;
+        // Apply the pointer-derived width in the same turn as the override so
+        // the rail never jumps back to the previously requested width.
+        setRailWidth(nextWidth);
+        setThreadLayoutOverride(true);
+        return;
+      }
+
+      if (!resizeState.didMove) {
+        if (event.clientX === resizeState.startClientX) {
+          return;
+        }
+        resizeState.didMove = true;
+      }
+      pendingWidthRef.current = nextWidth;
       if (resizeFrameRef.current !== null) {
         return;
       }
@@ -8857,7 +9648,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       }
       pendingWidthRef.current = null;
     };
-  }, [canResizeRail, isResizing, persistRailWidth, setRailWidth]);
+  }, [persistRailWidth, setRailWidth]);
 
   useEffect(() => {
     const root = document.getElementById(DECK_ROOT_ID);
@@ -8870,8 +9661,16 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       return;
     }
 
-    resizeStateRef.current = { pointerId: event.pointerId, didMove: false };
+    resizeStateRef.current = {
+      pointerId: event.pointerId,
+      didMove: false,
+      startClientX: event.clientX,
+      startRailWidth: railWidth,
+      startedThreadConstrained: threadLayoutConstrained,
+      overrideActivated: threadLayoutOverride,
+    };
     setIsResizing(true);
+    event.currentTarget.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
     event.preventDefault();
   };
@@ -8883,6 +9682,17 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
     const step = event.shiftKey ? 80 : 32;
     const nextWidth = railWidth + (event.key === "ArrowLeft" ? step : -step);
+    if (
+      threadLayoutConstrained &&
+      event.key === "ArrowRight" &&
+      nextWidth < MIN_RAIL_WIDTH
+    ) {
+      event.preventDefault();
+      return;
+    }
+    if (threadLayoutConstrained) {
+      setThreadLayoutOverride(true);
+    }
     persistRailWidth(nextWidth);
     event.preventDefault();
   };
@@ -9199,6 +10009,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         effectiveDrawerOpen,
         railWidth,
         requestedRailWidth,
+        focusedColumnId,
+        maximumInteractiveRailWidth,
         autoAdjustThreadLayout: deckSettings.autoAdjustThreadLayout,
         canResizeRail,
         threadLayoutMode: (
@@ -9207,6 +10019,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
             : threadLayoutMode
         ),
         hostLayout,
+        hostLayoutMeasurementCount,
+        userTimingMeasureCount:
+          window.performance.getEntriesByType("measure").length,
         horizontalScrollLeft: scrollWrapRef.current?.scrollLeft ?? 0,
         columns: (columns ?? []).map((column) => ({
           id: column.id,
@@ -9247,6 +10062,23 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         return;
       }
 
+      const getDebugColumnScope = (
+        columnId: unknown,
+      ): Element | ShadowRoot | null => {
+        if (!debugShadowRoot) {
+          return null;
+        }
+        if (typeof columnId !== "string" || !columnId) {
+          return debugShadowRoot;
+        }
+        return Array.from(
+          debugShadowRoot.querySelectorAll("[data-deck-column-id]"),
+        ).find(
+          (element) =>
+            element.getAttribute("data-deck-column-id") === columnId,
+        ) ?? null;
+      };
+
       let result: unknown = null;
       if (action === "getState") {
         result = debugApi?.getState() ?? null;
@@ -9257,6 +10089,17 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
           lastHorizontalScrollLeftRef.current = scrollWrapRef.current.scrollLeft;
           result = scrollWrapRef.current.scrollLeft;
         }
+      } else if (action === "clearColumnFocus") {
+        setFocusedColumnId(null);
+        result = true;
+      } else if (action === "ensureDrawerOpen") {
+        if (!effectiveDrawerOpen) {
+          setThreadLayoutOverride(true);
+          if (!drawerOpen) {
+            setDrawerOpen(true);
+          }
+        }
+        result = true;
       } else if (action === "getThemeState") {
         result = debugApi?.getThemeState() ?? null;
       } else if (action === "addColumn") {
@@ -9302,8 +10145,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
           text: loadingState?.querySelector("strong")?.textContent?.trim() ?? null,
         };
       } else if (action === "getMentionLoadingProgress" && debugShadowRoot) {
-        const progressState = debugShadowRoot.querySelector(
-          ".deck-loading-progress",
+        const columnScope = getDebugColumnScope(payload.id);
+        const progressState = columnScope?.querySelector(
+          ".deck-column-loading-status",
         );
         result = {
           present: Boolean(progressState),
@@ -9311,18 +10155,234 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
             progressState?.querySelector(".deck-loading-spinner"),
           ),
           text: progressState?.textContent?.replace(/\s+/g, " ").trim() ?? null,
+          completed: Number(
+            progressState?.getAttribute("data-completed") ?? 0,
+          ),
+          total: Number(
+            progressState?.getAttribute("data-total") ?? 0,
+          ),
         };
+      } else if (
+        action === "getMentionPresentationState" &&
+        debugShadowRoot
+      ) {
+        const columnScope = getDebugColumnScope(payload.id);
+        const viewport = columnScope?.querySelector(
+          ".deck-list-viewport",
+        );
+        const firstPostCard = columnScope?.querySelector(
+          ".deck-card--post",
+        );
+        const progressState = columnScope?.querySelector(
+          ".deck-column-loading-status",
+        );
+        const updateButton = columnScope?.querySelector(
+          ".deck-mention-updates-button",
+        );
+        const viewportRect =
+          viewport instanceof HTMLElement
+            ? viewport.getBoundingClientRect()
+            : null;
+        const firstPostRect =
+          firstPostCard instanceof HTMLElement
+            ? firstPostCard.getBoundingClientRect()
+            : null;
+        result = {
+          progressPresent: Boolean(progressState),
+          updateButtonPresent: Boolean(updateButton),
+          updateCount: Number(
+            updateButton?.getAttribute("data-update-count") ?? 0,
+          ),
+          updateButtonText:
+            updateButton?.textContent?.replace(/\s+/g, " ").trim() ??
+            null,
+          newPostsButtonPresent: Boolean(
+            columnScope?.querySelector(".deck-new-posts-button"),
+          ),
+          newPostCount: Number(
+            columnScope
+              ?.querySelector(".deck-new-posts-button")
+              ?.getAttribute("data-new-post-count") ?? 0,
+          ),
+          listFocused: Boolean(
+            debugShadowRoot.activeElement?.matches(
+              "[data-deck-mention-apply-focus='true']",
+            ),
+          ),
+          skeletonCount:
+            columnScope?.querySelectorAll(
+              ".deck-loading-skeleton",
+            ).length ?? 0,
+          viewportTop: viewportRect?.top ?? null,
+          viewportScrollTop:
+            viewport instanceof HTMLElement
+              ? viewport.scrollTop
+              : null,
+          firstPostTop: firstPostRect?.top ?? null,
+          firstPostHeight: firstPostRect?.height ?? null,
+        };
+      } else if (
+        action === "setMentionScrollTop" &&
+        debugShadowRoot
+      ) {
+        const columnScope = getDebugColumnScope(payload.id);
+        const viewport = columnScope?.querySelector(
+          ".deck-list-viewport",
+        );
+        if (viewport instanceof HTMLElement) {
+          const nextScrollTop = Number(payload.value);
+          viewport.scrollTop = Number.isFinite(nextScrollTop)
+            ? nextScrollTop
+            : 0;
+          viewport.dispatchEvent(new Event("scroll", {
+            bubbles: true,
+          }));
+          result = viewport.scrollTop;
+        }
+      } else if (
+        action === "markMentionInteraction" &&
+        debugShadowRoot
+      ) {
+        const columnScope = getDebugColumnScope(payload.id);
+        const viewport = columnScope?.querySelector(
+          ".deck-list-viewport",
+        );
+        if (viewport instanceof HTMLElement) {
+          viewport.dispatchEvent(new PointerEvent("pointerdown", {
+            bubbles: true,
+          }));
+          result = true;
+        } else {
+          result = false;
+        }
+      } else if (
+        action === "applyMentionUpdates" &&
+        debugShadowRoot
+      ) {
+        const columnScope = getDebugColumnScope(payload.id);
+        const updateButton = columnScope?.querySelector(
+          ".deck-mention-updates-button",
+        );
+        if (updateButton instanceof HTMLButtonElement) {
+          updateButton.click();
+          result = true;
+        } else {
+          result = false;
+        }
+      } else if (
+        action === "clickMentionControl" &&
+        debugShadowRoot
+      ) {
+        const columnScope = getDebugColumnScope(payload.id);
+        const control = String(payload.control ?? "");
+        let button: Element | null = null;
+        if (control === "expandControls") {
+          const controls = columnScope?.querySelector(
+            ".deck-stack--controls",
+          );
+          if (controls) {
+            result = true;
+          } else {
+            const headerButtons = columnScope?.querySelectorAll(
+              ".deck-column-actions > button",
+            );
+            button =
+              headerButtons?.[headerButtons.length - 1] ?? null;
+          }
+        } else if (control === "collapseControls") {
+          const controls = columnScope?.querySelector(
+            ".deck-stack--controls",
+          );
+          if (!controls) {
+            result = true;
+          } else {
+            const headerButtons = columnScope?.querySelectorAll(
+              ".deck-column-actions > button",
+            );
+            button =
+              headerButtons?.[headerButtons.length - 1] ?? null;
+          }
+        } else if (control === "toggleControls") {
+          const headerButtons = columnScope?.querySelectorAll(
+            ".deck-column-actions > button",
+          );
+          button = headerButtons?.[headerButtons.length - 1] ?? null;
+        } else if (control === "applyUpdates") {
+          button = columnScope?.querySelector(
+            ".deck-mention-updates-button",
+          ) ?? null;
+        } else if (control === "jumpLatest") {
+          button = columnScope?.querySelector(
+            ".deck-new-posts-button",
+          ) ?? null;
+        } else {
+          if (
+            control === "focus" &&
+            columnScope instanceof Element &&
+            columnScope.classList.contains("deck-column--pane-focused")
+          ) {
+            button = columnScope.querySelector(
+              ".deck-column-actions .deck-icon-button--active",
+            );
+          } else {
+            const toolbarButtons = columnScope?.querySelectorAll(
+              ".deck-stack--controls .deck-inline-actions > button",
+            );
+            const toolbarButtonIndex: Record<string, number> = {
+              moveLeft: 0,
+              moveRight: 1,
+              refresh: 2,
+              pause: 3,
+              focus: 4,
+            };
+            const index = toolbarButtonIndex[control];
+            button =
+              index === undefined
+                ? null
+                : toolbarButtons?.[index] ?? null;
+          }
+        }
+        if (
+          button instanceof HTMLButtonElement &&
+          !button.disabled
+        ) {
+          button.click();
+          result = true;
+        } else if (result !== true) {
+          result = false;
+        }
       } else if (action === "getPostCardState" && debugShadowRoot) {
         const textToFind = String(payload.text ?? "");
+        const columnScope = getDebugColumnScope(payload.columnId);
         const postCard = Array.from(
-          debugShadowRoot.querySelectorAll(".deck-card--post"),
+          columnScope?.querySelectorAll(".deck-card--post") ?? [],
         ).find((card) => card.textContent?.includes(textToFind));
+        const viewport = postCard?.closest(".deck-list-viewport");
+        const postRect =
+          postCard instanceof HTMLElement
+            ? postCard.getBoundingClientRect()
+            : null;
+        const viewportRect =
+          viewport instanceof HTMLElement
+            ? viewport.getBoundingClientRect()
+            : null;
         result = {
           present: Boolean(postCard),
           clickable: postCard?.classList.contains(
             "deck-card--clickable",
           ) ?? false,
           role: postCard?.getAttribute("role") ?? null,
+          top: postRect?.top ?? null,
+          height: postRect?.height ?? null,
+          relativeTop:
+            postRect && viewportRect
+              ? postRect.top - viewportRect.top
+              : null,
+          viewportTop: viewportRect?.top ?? null,
+          viewportScrollTop:
+            viewport instanceof HTMLElement
+              ? viewport.scrollTop
+              : null,
         };
       } else if (action === "getUnreadDebugInfo" && debugShadowRoot) {
         result = {
@@ -9376,8 +10436,10 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     effectiveDrawerOpen,
     handleAddColumn,
     hostLayout,
+    focusedColumnId,
     mattermostThemeState.initialSource,
     mattermostThemeStyle,
+    maximumInteractiveRailWidth,
     moveColumn,
     railWidth,
     removeColumn,
@@ -9397,7 +10459,6 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const isInitialLoading = state.status === "loading" || columns === null;
 
   return (
-    <React.Profiler id="mattermost-deck" onRender={(_, __, actualDuration) => recordRenderCommit(actualDuration)}>
     <ShadowRootContext.Provider value={shadowRoot}>
     <aside
       ref={shellRef}
@@ -9428,6 +10489,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         onPointerDown={handleResizeStart}
         onKeyDown={handleResizeKeyDown}
         disabled={!canResizeRail}
+        role="separator"
+        aria-orientation="vertical"
+        aria-valuemin={Math.min(MIN_RAIL_WIDTH, railWidth)}
+        aria-valuemax={Math.max(railWidth, maximumInteractiveRailWidth)}
+        aria-valuenow={railWidth}
         aria-label={text.resizeLabel}
         aria-keyshortcuts="ArrowLeft ArrowRight"
         title={text.resizeDrag}
@@ -10123,6 +11189,5 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       )}
     </aside>
     </ShadowRootContext.Provider>
-    </React.Profiler>
   );
 }

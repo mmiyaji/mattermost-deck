@@ -171,7 +171,7 @@ test("official website resources stay reachable on wide and narrow settings layo
   }
 });
 
-test("release notice banner stays aligned and wraps actions on narrow screens", async () => {
+test("1.0.3 release notice stays aligned, wraps actions, and explains the performance release", async () => {
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-release-banner-"));
   const context = await chromium.launchPersistentContext(userDataDir, {
@@ -192,8 +192,8 @@ test("release notice banner stays aligned and wraps actions on narrow screens", 
         chrome.storage.local.set({
           "mattermostDeck.language.v1": "ja",
           "mattermostDeck.releaseNotice.v1": {
-            version: "1.0.2",
-            previousVersion: "1.0.1",
+            version: "1.0.3",
+            previousVersion: "1.0.2",
             seen: false,
           },
         }, () => resolve());
@@ -206,7 +206,7 @@ test("release notice banner stays aligned and wraps actions on narrow screens", 
 
     const releaseBanner = page.locator(".options-release-banner");
     await expect(releaseBanner).toBeVisible({ timeout: 10_000 });
-    await expect(releaseBanner).toContainText("v1.0.2");
+    await expect(releaseBanner).toContainText("v1.0.3");
     await expect(releaseBanner.locator(".options-release-banner-actions .options-button")).toHaveCount(3);
 
     const narrowLayout = await page.evaluate(() => {
@@ -265,11 +265,12 @@ test("release notice banner stays aligned and wraps actions on narrow screens", 
     });
 
     await releaseBanner.getByRole("button", { name: "新機能" }).click();
-    const releaseDialog = page.getByRole("dialog", { name: "v1.0.2" });
+    const releaseDialog = page.getByRole("dialog", { name: "v1.0.3" });
     await expect(releaseDialog).toBeVisible();
     await expect(releaseDialog.locator(".options-modal-section")).toHaveCount(3);
-    await expect(releaseDialog).toContainText("チャンネル／チーム切替時");
-    await expect(releaseDialog).toContainText("非標準ポート");
+    await expect(releaseDialog).toContainText("Mattermost右ペインの実測幅");
+    await expect(releaseDialog).toContainText("User Timing蓄積");
+    await expect(releaseDialog).toContainText("20分メモリ耐久テスト");
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });
