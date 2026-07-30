@@ -19,7 +19,6 @@ import {
   getPostsByIds,
   getPostThreadSince,
   getPostThreadSinceWithMetadata,
-  getPostsSince,
   getRecentPosts,
   getTeamUnread,
   getTeamsForCurrentUser,
@@ -32,6 +31,7 @@ import {
   getMattermostUrl,
   viewChannel,
   readCurrentRoute,
+  scanPostsSincePages,
   searchPostsInTeam,
   type CurrentRoute,
   type MattermostChannel,
@@ -104,7 +104,11 @@ import {
   uniqueTerms,
 } from "./postHelpers";
 import { shouldGroupAdjacentPosts } from "./postGrouping";
-import { focusMattermostPost } from "./mattermostNavigation";
+import {
+  focusMattermostPost,
+  getDeckRoutePath,
+  resolveDeckCurrentRoute,
+} from "./mattermostNavigation";
 import { dedupeRecentTargets, type RecentChannelTarget } from "./recentTargets";
 import { mapInBatches } from "./asyncBatch";
 import { collectUnreadMentionThreads } from "./mentionThreadCollector";
@@ -135,6 +139,7 @@ import {
   mergeMentionReadMarkers,
   mergeMentionReadStates,
   postMatchesMentionCandidate,
+  postMatchesRealtimeMentionCandidate,
   postMatchesImplicitMention,
   type MattermostMentionKey,
   type MentionReadMarkers,
@@ -148,6 +153,14 @@ import {
   type MentionCacheContext,
 } from "./mentionCache";
 import { summariseMentionPresentationChanges } from "./mentionPresentation";
+import {
+  PendingPostMeta,
+  postedEventNeedsChannelMetadata,
+  postMatchesBoundedImplicitMention,
+  shouldSafeStopDeckState,
+  takeScopedMentionPostedEvents,
+  withPostedEventChannelMetadata,
+} from "./appBehavior";
 
 
 interface AppProps {
@@ -366,7 +379,6 @@ const POSTS_PAGE_SIZE = 20;
 const POSTS_MAX_BUFFER = 100;
 const MENTIONS_PAGE_SIZE = 100;
 const MENTIONS_MAX_BUFFER = 500;
-const MENTION_CHANNEL_POST_SCAN_LIMIT = 1_000;
 const MENTION_THREAD_POST_SCAN_LIMIT = 500;
 const MENTION_UNREAD_THREAD_SCAN_LIMIT = 500;
 const MENTION_FULL_THREAD_LOOKUP_LIMIT = 50;
@@ -388,6 +400,13 @@ const HOST_LAYOUT_SETTLE_MS = 360;
 const HOST_LAYOUT_JITTER_TOLERANCE_PX = 2;
 const MAX_MATTERMOST_RHS_TARGETS = 4;
 const DECK_CONTENT_ID = "mattermost-deck-content";
+const VIEWS_MENU_ID = "mattermost-deck-views-menu";
+const ADD_MENU_ID = "mattermost-deck-add-menu";
+const ACTIONS_MENU_ID = "mattermost-deck-actions-menu";
+const RAIL_ADD_MENU_ID = "mattermost-deck-rail-add-menu";
+const MENTION_RECONCILE_DEBOUNCE_MS = 800;
+const MENTION_RECONCILE_MAX_WAIT_MS = 2_500;
+const MAX_IMPLICIT_MENTION_RECONCILES_IN_FLIGHT = 8;
 const SPECIAL_MENTION_MEMBER_TTL_MS = 45_000;
 const SPECIAL_MENTION_MEMBER_TTL_WS_MS = 180_000;
 const SPECIAL_MENTION_MEMBER_CACHE_MAX_TEAMS = 12;
@@ -407,6 +426,16 @@ function getPreferredScrollBehavior(): ScrollBehavior {
     window.matchMedia("(prefers-reduced-motion: reduce)").matches
     ? "auto"
     : "smooth";
+}
+
+function readDeckCurrentRoute(): CurrentRoute {
+  return resolveDeckCurrentRoute(
+    getDeckRoutePath(
+      window.location.pathname,
+      window.location.hash,
+    ),
+    readCurrentRoute(),
+  );
 }
 
 declare global {
@@ -1758,7 +1787,49 @@ function useMattermostThemeStyle(theme: DeckTheme): {
     };
 
     apply();
-    const observer = new MutationObserver(() => scheduleApply());
+    const themeAttributeTargets = [
+      document.documentElement,
+      document.body,
+      document.getElementById("root"),
+      document.getElementById("app"),
+    ].filter((target): target is HTMLElement => target instanceof HTMLElement);
+    const observer = new MutationObserver((mutations) => {
+      const themeSourceChanged = mutations.some((mutation) => {
+        if (mutation.type === "attributes") {
+          return (
+            themeAttributeTargets.includes(mutation.target as HTMLElement) ||
+            mutation.target instanceof HTMLStyleElement ||
+            (
+              mutation.target instanceof HTMLLinkElement &&
+              mutation.target.rel === "stylesheet"
+            )
+          );
+        }
+
+        if (
+          mutation.target instanceof HTMLStyleElement ||
+          mutation.target.parentElement instanceof HTMLStyleElement
+        ) {
+          return true;
+        }
+
+        return [...mutation.addedNodes, ...mutation.removedNodes].some(
+          (node) =>
+            node instanceof HTMLStyleElement ||
+            (
+              node instanceof HTMLLinkElement &&
+              node.rel === "stylesheet"
+            ) ||
+            (
+              node instanceof Element &&
+              Boolean(node.querySelector("style, link[rel='stylesheet']"))
+            ),
+        );
+      });
+      if (themeSourceChanged) {
+        scheduleApply();
+      }
+    });
     observer.observe(document.documentElement, {
       subtree: false,
       childList: false,
@@ -1769,16 +1840,28 @@ function useMattermostThemeStyle(theme: DeckTheme): {
       observer.observe(document.head, {
         subtree: true,
         childList: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ["href", "media", "disabled"],
+      });
+    }
+    observer.observe(document.body, {
+      subtree: false,
+      childList: false,
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
+    for (const target of themeAttributeTargets) {
+      if (target === document.documentElement || target === document.body) {
+        continue;
+      }
+      observer.observe(target, {
+        subtree: false,
+        childList: false,
         attributes: true,
         attributeFilter: ["class", "style"],
       });
     }
-    observer.observe(document.body, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      attributeFilter: ["class", "style"],
-    });
 
     return () => {
       observer.disconnect();
@@ -1857,7 +1940,7 @@ async function loadAppState(): Promise<LoadedAppState> {
     ),
   };
 
-  const route = readCurrentRoute();
+  const route = readDeckCurrentRoute();
   const routeContext = await loadCurrentRouteContext(teams, route);
 
   return {
@@ -1879,12 +1962,12 @@ function getRouteIdentity(route: CurrentRoute): string {
 }
 
 function getCurrentRouteIdentity(): string {
-  return getRouteIdentity(readCurrentRoute());
+  return getRouteIdentity(readDeckCurrentRoute());
 }
 
 async function loadCurrentRouteContext(
   teams: MattermostTeam[],
-  route = readCurrentRoute(),
+  route = readDeckCurrentRoute(),
 ): Promise<CurrentRouteContext> {
   const routeTeam = route.teamName
     ? teams.find((team) => team.name === route.teamName) ?? null
@@ -3681,6 +3764,7 @@ const MIN_SCALE = 0.02;
 
 function ImageLightbox({ src, name, onClose }: { src: string; name: string; onClose: () => void }): React.JSX.Element | null {
   const text = useAppText();
+  const shadowRoot = useContext(ShadowRootContext);
   const [scale, setScale] = useState<number | null>(null);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [grabbing, setGrabbing] = useState(false);
@@ -3689,15 +3773,66 @@ function ImageLightbox({ src, name, onClose }: { src: string; name: string; onCl
   const posRef = useRef({ x: 0, y: 0 });
   const dragRef = useRef<{ mx: number; my: number; px: number; py: number } | null>(null);
   const hasDragged = useRef(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => { posRef.current = pos; }, [pos]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    const previousFocus =
+      shadowRoot?.activeElement instanceof HTMLElement
+        ? shadowRoot.activeElement
+        : document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+    previouslyFocusedRef.current = previousFocus;
+    const focusFrame = window.requestAnimationFrame(() => {
+      const firstControl = dialogRef.current?.querySelector<HTMLElement>(
+        "button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])",
+      );
+      firstControl?.focus();
+    });
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current) {
+        return;
+      }
+
+      const controls = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>(
+          "button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])",
+        ),
+      ).filter((element) => element.offsetParent !== null);
+      if (controls.length === 0) {
+        event.preventDefault();
+        dialogRef.current.focus();
+        return;
+      }
+
+      const current = shadowRoot?.activeElement ?? document.activeElement;
+      const currentIndex = controls.indexOf(current as HTMLElement);
+      const nextIndex = event.shiftKey
+        ? (currentIndex <= 0 ? controls.length - 1 : currentIndex - 1)
+        : (currentIndex < 0 || currentIndex === controls.length - 1 ? 0 : currentIndex + 1);
+      event.preventDefault();
+      controls[nextIndex]?.focus();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", onKey, true);
+      const previous = previouslyFocusedRef.current;
+      if (previous?.isConnected) {
+        previous.focus({ preventScroll: true });
+      }
+    };
+  }, [onClose, shadowRoot]);
 
   const zoomIn = useCallback(() => {
     setScale((s) => Math.min((s ?? fitScaleRef.current) * ZOOM_STEP, MAX_SCALE));
@@ -3771,20 +3906,52 @@ function ImageLightbox({ src, name, onClose }: { src: string; name: string; onCl
     document.body.removeChild(a);
   };
 
-  const shadowRoot = useContext(ShadowRootContext);
   if (!shadowRoot) return null;
 
   const currentScale = scale ?? 0.001;
   const scaleLabel = `${Math.round(currentScale * 100)}%`;
 
   return createPortal(
-    <div className="deck-lightbox-backdrop" role="dialog" aria-modal="true" aria-label={name}>
+    <div
+      ref={dialogRef}
+      className="deck-lightbox-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={name}
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        const step = event.shiftKey ? 64 : 24;
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          setPos((current) => ({ ...current, x: current.x - step }));
+        } else if (event.key === "ArrowRight") {
+          event.preventDefault();
+          setPos((current) => ({ ...current, x: current.x + step }));
+        } else if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setPos((current) => ({ ...current, y: current.y - step }));
+        } else if (event.key === "ArrowDown") {
+          event.preventDefault();
+          setPos((current) => ({ ...current, y: current.y + step }));
+        } else if (event.key === "+" || event.key === "=") {
+          event.preventDefault();
+          zoomIn();
+        } else if (event.key === "-") {
+          event.preventDefault();
+          zoomOut();
+        } else if (event.key === "0") {
+          event.preventDefault();
+          fitScreen();
+        }
+      }}
+    >
       {/* Toolbar */}
       <div className="deck-lightbox-toolbar" onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
           className="deck-lightbox-btn"
           title={text.openInNewTab}
+          aria-label={text.openInNewTab}
           onClick={(e) => {
             e.stopPropagation();
             void chrome.runtime.sendMessage({ type: "mattermost-deck:open-tab", url: src });
@@ -3792,10 +3959,10 @@ function ImageLightbox({ src, name, onClose }: { src: string; name: string; onCl
         >
           <IconExternalLink />
         </button>
-        <button type="button" className="deck-lightbox-btn" title={text.downloadImage} onClick={handleDownload}>
+        <button type="button" className="deck-lightbox-btn" title={text.downloadImage} aria-label={text.downloadImage} onClick={handleDownload}>
           <IconDownload />
         </button>
-        <button type="button" className="deck-lightbox-btn deck-lightbox-btn--close" title={text.close} onClick={onClose}>
+        <button type="button" className="deck-lightbox-btn deck-lightbox-btn--close" title={text.close} aria-label={text.close} onClick={onClose}>
           <IconClose />
         </button>
       </div>
@@ -3825,12 +3992,12 @@ function ImageLightbox({ src, name, onClose }: { src: string; name: string; onCl
       <div className="deck-lightbox-controls" onClick={(e) => e.stopPropagation()}>
         <span className="deck-lightbox-filename" title={name}>{name}</span>
         <div className="deck-lightbox-zoom-group">
-          <button type="button" className="deck-lightbox-ctrl" title={text.zoomOut} onClick={zoomOut}><IconZoomOut /></button>
-          <button type="button" className="deck-lightbox-ctrl deck-lightbox-ctrl--scale" title={text.fitToScreen} onClick={fitScreen}>
+          <button type="button" className="deck-lightbox-ctrl" title={text.zoomOut} aria-label={text.zoomOut} onClick={zoomOut}><IconZoomOut /></button>
+          <button type="button" className="deck-lightbox-ctrl deck-lightbox-ctrl--scale" title={text.fitToScreen} aria-label={`${text.fitToScreen} (${scaleLabel})`} onClick={fitScreen}>
             {scaleLabel}
           </button>
-          <button type="button" className="deck-lightbox-ctrl" title={text.zoomIn} onClick={zoomIn}><IconZoomIn /></button>
-          <button type="button" className="deck-lightbox-ctrl" title={text.fillScreen} onClick={fillScreen}><IconMaximize /></button>
+          <button type="button" className="deck-lightbox-ctrl" title={text.zoomIn} aria-label={text.zoomIn} onClick={zoomIn}><IconZoomIn /></button>
+          <button type="button" className="deck-lightbox-ctrl" title={text.fillScreen} aria-label={text.fillScreen} onClick={fillScreen}><IconMaximize /></button>
         </div>
       </div>
     </div>,
@@ -4163,10 +4330,10 @@ function PostList({
   currentUserId,
   lastViewedAt,
   onMarkRead,
-  unreadSeparatorLabel = "Unread",
-  markReadLabel = "Mark as read",
-  jumpToLatestLabel = "Latest",
-  newPostsLabel = (count: number) => `${count} new`,
+  unreadSeparatorLabel,
+  markReadLabel,
+  jumpToLatestLabel,
+  newPostsLabel,
   suppressEndState = false,
   suppressNewPostNotifications = false,
   deferredPostIds,
@@ -4201,6 +4368,12 @@ function PostList({
   listId?: string;
 }): React.JSX.Element {
   const text = useAppText();
+  const resolvedUnreadSeparatorLabel =
+    unreadSeparatorLabel ?? text.unreadSeparatorLabel;
+  const resolvedMarkReadLabel = markReadLabel ?? text.markRead;
+  const resolvedJumpToLatestLabel =
+    jumpToLatestLabel ?? text.jumpToLatest;
+  const resolvedNewPostsLabel = newPostsLabel ?? text.newPosts;
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [newPostCount, setNewPostCount] = useState(0);
@@ -4359,18 +4532,18 @@ function PostList({
                 event.stopPropagation();
                 onMarkRead();
               }}
-              aria-label={markReadLabel}
-              title={markReadLabel}
+              aria-label={resolvedMarkReadLabel}
+              title={resolvedMarkReadLabel}
             >
               <span className="deck-unread-mark-read-toggle-label deck-unread-mark-read-toggle-label--idle">
-                {unreadSeparatorLabel}
+                {resolvedUnreadSeparatorLabel}
               </span>
               <span className="deck-unread-mark-read-toggle-label deck-unread-mark-read-toggle-label--action">
-                {markReadLabel}
+                {resolvedMarkReadLabel}
               </span>
             </button>
           ) : (
-            <span>{unreadSeparatorLabel}</span>
+            <span>{resolvedUnreadSeparatorLabel}</span>
           )}
         </li>
       );
@@ -4429,8 +4602,8 @@ function PostList({
             className="deck-new-posts-button"
             data-new-post-count={newPostCount}
             onClick={scrollToLatest}
-            title={newPostCount > 0 ? newPostsLabel(newPostCount) : jumpToLatestLabel}
-            aria-label={newPostCount > 0 ? newPostsLabel(newPostCount) : jumpToLatestLabel}
+            title={newPostCount > 0 ? resolvedNewPostsLabel(newPostCount) : resolvedJumpToLatestLabel}
+            aria-label={newPostCount > 0 ? resolvedNewPostsLabel(newPostCount) : resolvedJumpToLatestLabel}
           >
             <JumpToLatestIcon reversed={reversedPostOrder} />
           </button>
@@ -4487,6 +4660,8 @@ function MentionsColumn({
   deletedPostIds,
   deletedPostIdsRef,
   reconnectNonce,
+  mentionReconcileNonce,
+  mentionMetadataNonce,
   readRefreshNonce,
   realtimeReadMarkers,
   pollingIntervalSeconds,
@@ -4523,6 +4698,8 @@ function MentionsColumn({
   deletedPostIds: string[];
   deletedPostIdsRef: React.RefObject<Set<string>>;
   reconnectNonce: number;
+  mentionReconcileNonce: number;
+  mentionMetadataNonce: number;
   readRefreshNonce: number;
   realtimeReadMarkers: MentionReadMarkers;
   pollingIntervalSeconds: number;
@@ -4575,6 +4752,7 @@ function MentionsColumn({
   const mentionCacheHydratedEntryIdRef = useRef<string | null>(null);
   const mentionCacheSaveEntryIdRef = useRef<string | null>(null);
   const mentionCacheStoredPostIdsRef = useRef<Set<string>>(new Set());
+  const processedMentionDeletionKeyRef = useRef("");
   const postedEventsRef = useRef(postedEvents);
   // The refresh flow hydrates the current feed. Only WebSocket events that
   // arrive after this column mounts should be applied as realtime additions.
@@ -5062,7 +5240,12 @@ function MentionsColumn({
 
   useEffect(() => {
     specialMentionMembersCacheRef.current = {};
-  }, [currentUserId, reconnectNonce, refreshNonce]);
+  }, [
+    currentUserId,
+    mentionMetadataNonce,
+    reconnectNonce,
+    refreshNonce,
+  ]);
 
   useEffect(() => {
     if (isFocusedPane) {
@@ -5205,48 +5388,25 @@ function MentionsColumn({
             const isCurrentChannel =
               activeTeamId === teamId &&
               activeChannelId === member.channel_id;
-            const [postsSinceReadMarker, recentPosts] = await Promise.all([
-              getPostsSince(
-                member.channel_id,
-                member.last_viewed_at ?? 0,
-                MENTION_CHANNEL_POST_SCAN_LIMIT,
-              ),
-              isCurrentChannel
-                ? getRecentPosts(member.channel_id, 0, POSTS_PAGE_SIZE)
-                : Promise.resolve([] as MattermostPost[]),
-            ]);
+            const recentPosts = isCurrentChannel
+              ? await getRecentPosts(
+                  member.channel_id,
+                  0,
+                  POSTS_PAGE_SIZE,
+                )
+              : [];
             if (shouldCancel()) {
               return;
             }
             const readMarker = member.last_viewed_at ?? 0;
-            const unreadPosts = postsSinceReadMarker.filter(
-              (post) => post.create_at > readMarker,
-            );
-            const candidatePosts = mergePosts(
-              unreadPosts,
-              recentPosts,
-              MENTIONS_MAX_BUFFER,
-            );
-            const channelType =
-              candidateChannelDirectory.get(member.channel_id)?.type;
+            const candidateChannel =
+              candidateChannelDirectory.get(
+                member.channel_id,
+              );
+            const channelType = candidateChannel?.type;
             const serverCountedChannel = serverCountedChannelIds.has(
               member.channel_id,
             );
-            const contextById = new Map(
-              postsSinceReadMarker.map((post) => [post.id, post]),
-            );
-            const threadContextByRoot = new Map<string, MattermostPost[]>();
-            for (const contextPost of postsSinceReadMarker) {
-              if (!contextPost.root_id) {
-                continue;
-              }
-              const current = threadContextByRoot.get(contextPost.root_id);
-              if (current) {
-                current.push(contextPost);
-              } else {
-                threadContextByRoot.set(contextPost.root_id, [contextPost]);
-              }
-            }
             const fullThreadParticipationCache = new Map<
               string,
               Promise<{
@@ -5254,159 +5414,257 @@ function MentionsColumn({
                 truncated: boolean;
               }>
             >();
-            const filteredPosts: MattermostPost[] = [];
+            let memberPosts: MattermostPost[] = [];
+            const filterAndPublishBatch = async (
+              batchContextPosts: MattermostPost[],
+              batchOrderedPosts: MattermostPost[],
+              extraPosts: MattermostPost[] = [],
+            ) => {
+              const contextById = new Map(
+                batchContextPosts.map(
+                  (post) => [post.id, post],
+                ),
+              );
+              const threadContextByRoot =
+                new Map<string, MattermostPost[]>();
+              for (const contextPost of batchContextPosts) {
+                if (!contextPost.root_id) {
+                  continue;
+                }
+                const current =
+                  threadContextByRoot.get(
+                    contextPost.root_id,
+                  );
+                if (current) {
+                  current.push(contextPost);
+                } else {
+                  threadContextByRoot.set(
+                    contextPost.root_id,
+                    [contextPost],
+                  );
+                }
+              }
+              // Filter before applying the 500-row display bound. Capping raw
+              // channel posts first could hide a mention behind ordinary
+              // traffic even within the initial 1,000-post scan.
+              const candidatePosts = mergePosts(
+                batchOrderedPosts.filter(
+                  (post) => post.create_at > readMarker,
+                ),
+                extraPosts,
+                batchOrderedPosts.length +
+                  extraPosts.length,
+              );
+              const filteredPosts: MattermostPost[] = [];
 
-            for (const post of candidatePosts) {
-              if (shouldCancel()) {
-                break;
-              }
-              const isUnread = post.create_at > readMarker;
-              if (postMatchesMentionCandidate(
-                post,
-                channelType,
-                currentUserId,
-                mentionKeys,
-                {
-                  channelMetadataAvailable: activeChannels !== null,
-                  serverCountedChannel:
-                    serverCountedChannel && isUnread,
-                },
-              )) {
-                filteredPosts.push(post);
-                continue;
-              }
-              if (!isUnread) {
-                continue;
-              }
+              for (const post of candidatePosts) {
+                if (shouldCancel()) {
+                  break;
+                }
+                const isUnread =
+                  post.create_at > readMarker;
+                if (
+                  postMatchesMentionCandidate(
+                    post,
+                    channelType,
+                    currentUserId,
+                    mentionKeys,
+                    {
+                      channelMetadataAvailable:
+                        activeChannels !== null,
+                      serverCountedChannel:
+                        serverCountedChannel &&
+                        isUnread,
+                    },
+                  )
+                ) {
+                  filteredPosts.push(post);
+                  continue;
+                }
+                if (!isUnread) {
+                  continue;
+                }
 
-              const rootPost = post.root_id
-                ? contextById.get(post.root_id)
-                : undefined;
-              const threadContext = post.root_id
-                ? threadContextByRoot.get(post.root_id) ?? []
-                : [];
-              const implicitSettings = {
-                currentUserId,
-                collapsedReplyThreads,
-                commentsNotify,
-              };
-              if (postMatchesImplicitMention(
-                post,
-                rootPost,
-                threadContext,
-                implicitSettings,
-              )) {
-                filteredPosts.push(post);
-                continue;
+                const rootPost = post.root_id
+                  ? contextById.get(post.root_id)
+                  : undefined;
+                const threadContext = post.root_id
+                  ? threadContextByRoot.get(
+                      post.root_id,
+                    ) ?? []
+                  : [];
+                const implicitSettings = {
+                  currentUserId,
+                  collapsedReplyThreads,
+                  commentsNotify,
+                };
+                if (
+                  postMatchesImplicitMention(
+                    post,
+                    rootPost,
+                    threadContext,
+                    implicitSettings,
+                  )
+                ) {
+                  filteredPosts.push(post);
+                  continue;
+                }
+
+                if (
+                  !collapsedReplyThreads &&
+                  post.root_id &&
+                  commentsNotify === "root" &&
+                  !rootPost &&
+                  serverCountedChannel &&
+                  post.user_id !== currentUserId
+                ) {
+                  filteredPosts.push(post);
+                  continue;
+                }
+
+                const mayNeedFullThread =
+                  !collapsedReplyThreads &&
+                  Boolean(post.root_id) &&
+                  commentsNotify === "any";
+                if (
+                  !mayNeedFullThread ||
+                  !post.root_id
+                ) {
+                  continue;
+                }
+
+                try {
+                  let participation =
+                    fullThreadParticipationCache.get(
+                      post.root_id,
+                    );
+                  if (!participation) {
+                    if (
+                      fullThreadParticipationCache.size >=
+                      MENTION_FULL_THREAD_LOOKUP_LIMIT
+                    ) {
+                      if (
+                        serverCountedChannel &&
+                        post.user_id !== currentUserId
+                      ) {
+                        filteredPosts.push(post);
+                      }
+                      continue;
+                    }
+                    participation =
+                      getPostThreadSinceWithMetadata(
+                        post.root_id,
+                        0,
+                        200,
+                        MENTION_THREAD_POST_SCAN_LIMIT,
+                      ).then(
+                        ({
+                          posts: threadPosts,
+                          truncated,
+                        }) => {
+                          let firstCurrentUserPostAt:
+                            | number
+                            | null = null;
+                          for (const threadPost of threadPosts) {
+                            if (
+                              threadPost.user_id !==
+                              currentUserId
+                            ) {
+                              continue;
+                            }
+                            firstCurrentUserPostAt =
+                              firstCurrentUserPostAt ===
+                              null
+                                ? threadPost.create_at
+                                : Math.min(
+                                    firstCurrentUserPostAt,
+                                    threadPost.create_at,
+                                  );
+                          }
+                          return {
+                            firstCurrentUserPostAt,
+                            truncated,
+                          };
+                        },
+                      );
+                    fullThreadParticipationCache.set(
+                      post.root_id,
+                      participation,
+                    );
+                  }
+                  const {
+                    firstCurrentUserPostAt,
+                    truncated,
+                  } = await participation;
+                  if (
+                    firstCurrentUserPostAt !== null &&
+                    firstCurrentUserPostAt <
+                      post.create_at
+                  ) {
+                    filteredPosts.push(post);
+                  } else if (
+                    (truncated || !rootPost) &&
+                    serverCountedChannel &&
+                    post.user_id !== currentUserId
+                  ) {
+                    filteredPosts.push(post);
+                  }
+                } catch {
+                  if (
+                    serverCountedChannel &&
+                    post.user_id !== currentUserId
+                  ) {
+                    filteredPosts.push(post);
+                  }
+                }
               }
 
               if (
-                !collapsedReplyThreads &&
-                post.root_id &&
-                commentsNotify === "root" &&
-                !rootPost &&
-                serverCountedChannel &&
-                post.user_id !== currentUserId
+                shouldCancel() ||
+                filteredPosts.length === 0
               ) {
-                // The channel-since response can omit an older root. A
-                // server-counted non-self reply is the conservative fallback
-                // when root ownership cannot be established locally.
-                filteredPosts.push(post);
-                continue;
+                return;
               }
-
-              const mayNeedFullThread =
-                !collapsedReplyThreads &&
-                Boolean(post.root_id) &&
-                commentsNotify === "any";
-              if (!mayNeedFullThread || !post.root_id) {
-                continue;
-              }
-
-              try {
-                let participation =
-                  fullThreadParticipationCache.get(post.root_id);
-                if (!participation) {
-                  if (
-                    fullThreadParticipationCache.size >=
-                    MENTION_FULL_THREAD_LOOKUP_LIMIT
-                  ) {
-                    if (
-                      serverCountedChannel &&
-                      post.user_id !== currentUserId
-                    ) {
-                      filteredPosts.push(post);
-                    }
-                    continue;
-                  }
-                  participation =
-                    getPostThreadSinceWithMetadata(
-                      post.root_id,
-                      0,
-                      200,
-                      MENTION_THREAD_POST_SCAN_LIMIT,
-                    ).then(({ posts: threadPosts, truncated }) => {
-                      let firstCurrentUserPostAt: number | null = null;
-                      for (const threadPost of threadPosts) {
-                        if (threadPost.user_id !== currentUserId) {
-                          continue;
-                        }
-                        firstCurrentUserPostAt =
-                          firstCurrentUserPostAt === null
-                            ? threadPost.create_at
-                            : Math.min(
-                                firstCurrentUserPostAt,
-                                threadPost.create_at,
-                              );
-                      }
-                      return {
-                        firstCurrentUserPostAt,
-                        truncated,
-                      };
-                    });
-                  fullThreadParticipationCache.set(
-                    post.root_id,
-                    participation,
-                  );
-                }
-                const {
-                  firstCurrentUserPostAt,
-                  truncated,
-                } = await participation;
-                if (
-                  firstCurrentUserPostAt !== null &&
-                  firstCurrentUserPostAt < post.create_at
-                ) {
-                  filteredPosts.push(post);
-                } else if (
-                  (truncated || !rootPost) &&
-                  serverCountedChannel &&
-                  post.user_id !== currentUserId
-                ) {
-                  // A bounded response cannot disprove older participation.
-                  // The endpoint also omits the root, so retain a
-                  // server-counted non-self reply when either context is
-                  // incomplete.
-                  filteredPosts.push(post);
-                }
-              } catch {
-                if (
-                  serverCountedChannel &&
-                  post.user_id !== currentUserId
-                ) {
-                  filteredPosts.push(post);
-                }
-              }
-            }
-
-            if (!shouldCancel()) {
+              memberPosts = mergePosts(
+                filteredPosts,
+                memberPosts,
+                MENTIONS_MAX_BUFFER,
+              );
               posts = mergePosts(
                 filteredPosts,
                 posts,
                 MENTIONS_MAX_BUFFER,
               );
               onProgress?.({ type: "posts", posts: filteredPosts });
-            }
+            };
+
+            let isFirstPage = true;
+            // Scan ordinary posts in bounded 200-post pages until the read
+            // marker. Filtering and publishing each page before fetching the
+            // next keeps memory flat, while continuing past 1,000 posts when
+            // CRT/Threads APIs are unavailable.
+            await scanPostsSincePages(
+              member.channel_id,
+              readMarker,
+              0,
+              async ({
+                posts: pageContextPosts,
+                orderedPosts: pageOrderedPosts,
+              }) => {
+                const pageExtraPosts =
+                  isFirstPage ? recentPosts : [];
+                isFirstPage = false;
+                await filterAndPublishBatch(
+                  pageContextPosts,
+                  pageOrderedPosts,
+                  pageExtraPosts,
+                );
+              },
+              () =>
+                shouldCancel() ||
+                memberPosts.length >=
+                  MENTIONS_MAX_BUFFER,
+            );
           } catch {
             // One inaccessible or archived channel must not discard the other
             // channels in the mentions feed.
@@ -6317,6 +6575,7 @@ function MentionsColumn({
         paused,
         readRefreshNonce,
         reconnectNonce,
+        mentionReconcileNonce,
         refreshNonce,
         teamIds,
         username,
@@ -6374,27 +6633,37 @@ function MentionsColumn({
     if (!processedEvents) {
       return;
     }
-    const newEvents = postedEvents.filter((event) => {
-      if (processedEvents.has(event)) {
-        return false;
-      }
-      processedEvents.add(event);
-      return true;
-    });
-    const matchingEvents = newEvents.filter(
-      (event) =>
-        event.mentionsUser &&
-        (
-          !column.teamId ||
-          event.teamId === column.teamId ||
-          event.channelType === "D" ||
-          event.channelType === "G"
-        ),
+    const knownPostIds = new Set([
+      ...mentionPostsRef.current.map((post) => post.id),
+      ...mentionCacheState.posts.map((post) => post.id),
+      ...(mentionDisplaySnapshot?.posts.map((post) => post.id) ?? []),
+    ]);
+    const scopedEvents = takeScopedMentionPostedEvents(
+      postedEvents,
+      processedEvents,
+      {
+        columnTeamId: column.teamId,
+        channelDirectory,
+        knownPostIds,
+      },
     );
-    if (matchingEvents.length === 0) {
+    if (scopedEvents.length === 0) {
       return;
     }
 
+    const matchingEvents = scopedEvents.filter((event) => event.mentionsUser);
+    const editedPostIds = new Set(
+      scopedEvents
+        .filter(
+          (event) =>
+            event.eventType === "post_edited" &&
+            (event.mentionsUser || knownPostIds.has(event.post.id)),
+        )
+        .map((event) => event.post.id),
+    );
+    if (matchingEvents.length === 0 && editedPostIds.size === 0) {
+      return;
+    }
     const activeRealtimePosts = filterActiveMentionPosts(
       matchingEvents.map((event) => event.post),
       effectiveMentionReadState,
@@ -6405,21 +6674,49 @@ function MentionsColumn({
           effectiveMentionReadState,
         )
       : activeRealtimePosts;
-    if (activeRealtimePosts.length === 0) {
-      return;
+    if (activeRealtimePosts.length > 0) {
+      void ensureUsers(Array.from(new Set(activeRealtimePosts.map((post) => post.user_id))));
     }
-
-    void ensureUsers(Array.from(new Set(activeRealtimePosts.map((post) => post.user_id))));
+    if (editedPostIds.size > 0) {
+      // Apply only edits that already belong to this feed or now match it.
+      // Ambiguous thread replies are reconciled separately with bounded
+      // thread context.
+      setSuppressAppliedMentionNotifications(true);
+    }
+    const mergeRealtimePosts = (
+      currentPosts: MattermostPost[],
+      incomingPosts: MattermostPost[],
+    ) =>
+      mergePosts(
+        incomingPosts,
+        currentPosts.filter((post) => !editedPostIds.has(post.id)),
+        MENTIONS_MAX_BUFFER,
+      );
     setPostState((current) => ({
       ...current,
       status: "ready",
       error: null,
-      posts: mergePosts(
-        activeRealtimePosts,
-        current.posts,
-        MENTIONS_MAX_BUFFER,
-      ),
+      posts: mergeRealtimePosts(current.posts, activeRealtimePosts),
     }));
+    setMentionCacheState((current) => ({
+      ...current,
+      posts: mergeRealtimePosts(current.posts, activeRealtimePosts),
+    }));
+    setMentionLoadProgress((current) => ({
+      ...current,
+      posts: mergeRealtimePosts(current.posts, activeRealtimePosts),
+    }));
+    setMentionDisplaySnapshot((current) =>
+      current
+        ? {
+            ...current,
+            posts: mergeRealtimePosts(current.posts, realtimePosts),
+            deferredPostIds: current.deferredPostIds.filter(
+              (postId) => !editedPostIds.has(postId),
+            ),
+          }
+        : current
+    );
     if (realtimePosts.length === 0) {
       return;
     }
@@ -6429,23 +6726,14 @@ function MentionsColumn({
     setSuppressAppliedMentionNotifications(false);
     // Realtime events are genuine new activity, so keep them immediate even
     // while a background scan result is waiting for explicit application.
-    setMentionDisplaySnapshot((current) =>
-      current
-        ? {
-            ...current,
-            posts: mergePosts(
-              realtimePosts,
-              current.posts,
-              MENTIONS_MAX_BUFFER,
-            ),
-          }
-        : current
-    );
   }, [
+    channelDirectory,
     column.teamId,
     column.unreadOnly,
     effectiveMentionReadState,
     ensureUsers,
+    mentionCacheState.posts,
+    mentionDisplaySnapshot?.posts,
     postedEvents,
   ]);
 
@@ -6453,8 +6741,25 @@ function MentionsColumn({
     if (deletedPostIds.length === 0) {
       return;
     }
-    setSuppressAppliedMentionNotifications(true);
+    const deletionKey = `${mentionCacheEntryId ?? ""}:${deletedPostIds.join(",")}`;
+    if (processedMentionDeletionKeyRef.current === deletionKey) {
+      return;
+    }
+    processedMentionDeletionKeyRef.current = deletionKey;
     const deletedPostIdSet = new Set(deletedPostIds);
+    const removesInMemoryPost =
+      mentionPostsRef.current.some((post) => deletedPostIdSet.has(post.id)) ||
+      mentionLoadProgress.posts.some((post) =>
+        deletedPostIdSet.has(post.id)
+      ) ||
+      mentionCacheState.posts.some((post) =>
+        deletedPostIdSet.has(post.id)
+      ) ||
+      Boolean(
+        mentionDisplaySnapshot?.posts.some((post) =>
+          deletedPostIdSet.has(post.id)
+        ),
+      );
     const invalidatesStoredCache =
       mentionCacheState.posts.some((post) =>
         deletedPostIdSet.has(post.id)
@@ -6462,54 +6767,59 @@ function MentionsColumn({
       [...mentionCacheStoredPostIdsRef.current].some((postId) =>
         deletedPostIdSet.has(postId)
       );
-    setPostState((current) => {
-      const posts = current.posts.filter((post) => !deletedPostIdSet.has(post.id));
-      return posts.length === current.posts.length
-        ? current
-        : { ...current, posts };
-    });
-    setMentionLoadProgress((current) => {
-      const posts = current.posts.filter(
-        (post) => !deletedPostIdSet.has(post.id),
-      );
-      return posts.length === current.posts.length
-        ? current
-        : { ...current, posts };
-    });
-    setMentionCacheState((current) => {
-      const posts = current.posts.filter(
-        (post) => !deletedPostIdSet.has(post.id),
-      );
-      return posts.length === current.posts.length
-        ? current
-        : { ...current, posts };
-    });
-    setMentionDisplaySnapshot((current) => {
-      if (!current) {
-        return current;
-      }
-      const posts = current.posts.filter(
-        (post) => !deletedPostIdSet.has(post.id),
-      );
-      if (posts.length === current.posts.length) {
-        return current;
-      }
-      return {
-        ...current,
-        posts,
-        deferredPostIds: current.deferredPostIds.filter(
-          (postId) => !deletedPostIdSet.has(postId),
-        ),
-      };
-    });
+    if (removesInMemoryPost) {
+      setSuppressAppliedMentionNotifications(true);
+      setPostState((current) => {
+        const posts = current.posts.filter((post) =>
+          !deletedPostIdSet.has(post.id)
+        );
+        return posts.length === current.posts.length
+          ? current
+          : { ...current, posts };
+      });
+      setMentionLoadProgress((current) => {
+        const posts = current.posts.filter(
+          (post) => !deletedPostIdSet.has(post.id),
+        );
+        return posts.length === current.posts.length
+          ? current
+          : { ...current, posts };
+      });
+      setMentionCacheState((current) => {
+        const posts = current.posts.filter(
+          (post) => !deletedPostIdSet.has(post.id),
+        );
+        return posts.length === current.posts.length
+          ? current
+          : { ...current, posts };
+      });
+      setMentionDisplaySnapshot((current) => {
+        if (!current) {
+          return current;
+        }
+        const posts = current.posts.filter(
+          (post) => !deletedPostIdSet.has(post.id),
+        );
+        if (posts.length === current.posts.length) {
+          return current;
+        }
+        return {
+          ...current,
+          posts,
+          deferredPostIds: current.deferredPostIds.filter(
+            (postId) => !deletedPostIdSet.has(postId),
+          ),
+        };
+      });
+    }
     if (invalidatesStoredCache && mentionCacheContext) {
       mentionCacheStoredPostIdsRef.current = new Set();
       void removeMentionCache(mentionCacheContext);
     }
   }, [
     deletedPostIds,
+    mentionCacheEntryId,
     mentionCacheContext,
-    mentionCacheState.posts,
   ]);
 
   useEffect(() => {
@@ -6646,7 +6956,10 @@ function MentionsColumn({
     (post: MattermostPost) => {
       const channel = channelDirectory[post.channel_id];
       if (!channel) {
-        return null;
+        // Keep the metadata line box stable while channel details are loading.
+        // Otherwise the late label changes every card's height and moves the
+        // scroll anchor during mention-cache revalidation.
+        return <PendingPostMeta />;
       }
 
       const channelLabel = getChannelLabel(channel, userDirectory, memberDirectory, null);
@@ -7004,10 +7317,15 @@ function MentionsColumn({
       {postState.status === "error" &&
       !mentionLoadProgress.active &&
       visiblePosts.length === 0 ? (
-        <article className="deck-card">
-          <strong>{text.failedToLoadMentions}</strong>
-          <p>{postState.error ?? text.unknownError}</p>
-        </article>
+        <PaneErrorState
+          title={text.failedToLoadMentions}
+          error={postState.error ?? text.unknownError}
+          onRetry={() => {
+            setPaused(false);
+            startRefresh();
+            setRefreshNonce((current) => current + 1);
+          }}
+        />
       ) : shouldShowLoadingState ? (
         <ColumnLoadingState
           title={text.loadingMentions}
@@ -7022,11 +7340,17 @@ function MentionsColumn({
           {postState.status === "error" &&
           !mentionLoadProgress.active &&
           visiblePosts.length > 0 ? (
-            <article className="deck-card deck-card--muted">
-              <strong>{text.failedToLoadMentions}</strong>
-              <p>{text.showingCachedMentions}</p>
-              <p>{postState.error ?? text.unknownError}</p>
-            </article>
+            <PaneErrorState
+              title={text.failedToLoadMentions}
+              detail={text.showingCachedMentions}
+              error={postState.error ?? text.unknownError}
+              muted
+              onRetry={() => {
+                setPaused(false);
+                startRefresh();
+                setRefreshNonce((current) => current + 1);
+              }}
+            />
           ) : null}
           {visiblePosts.length === 0 &&
           !mentionLoadProgress.active &&
@@ -7333,7 +7657,17 @@ function ChannelWatchColumn({
     return () => {
       cancelled = true;
     };
-  }, [column.channelId, column.id, column.teamId, ensureUsers, finishRefresh, mode, onUpdate]);
+  }, [
+    column.channelId,
+    column.id,
+    column.teamId,
+    ensureUsers,
+    finishRefresh,
+    mode,
+    onUpdate,
+    reconnectNonce,
+    refreshNonce,
+  ]);
 
   // Fetch lastViewedAt for the channel
   useEffect(() => {
@@ -7685,10 +8019,19 @@ function ChannelWatchColumn({
               <strong>{text.selectATeam}</strong>
               <p>{text.selectATeamDesc}</p>
             </article>
+          ) : !column.channelId && channelState.status === "error" ? (
+            <PaneErrorState
+              title={text.failedToLoadChannels}
+              error={channelState.error ?? text.unknownError}
+              onRetry={() => {
+                startRefresh();
+                setRefreshNonce((current) => current + 1);
+              }}
+            />
           ) : !column.channelId ? (
             <article className="deck-card">
               <strong>{mode === "dm" ? text.selectADm : text.selectAChannel}</strong>
-              <p>{channelState.error ?? (mode === "dm" ? text.selectDmDesc : text.selectChannelDesc)}</p>
+              <p>{mode === "dm" ? text.selectDmDesc : text.selectChannelDesc}</p>
             </article>
           ) : mode === "dm" ? (
             <article className="deck-card deck-card--muted">
@@ -7754,10 +8097,15 @@ function ChannelWatchColumn({
           </div>
         </article>
       ) : postState.status === "error" ? (
-        <article className="deck-card">
-          <strong>{text.failedToLoadPosts}</strong>
-          <p>{postState.error ?? text.unknownError}</p>
-        </article>
+        <PaneErrorState
+          title={text.failedToLoadPosts}
+          error={postState.error ?? text.unknownError}
+          onRetry={() => {
+            setPaused(false);
+            startRefresh();
+            setRefreshNonce((current) => current + 1);
+          }}
+        />
       ) : shouldShowLoadingState ? (
         <ColumnLoadingState
           title={mode === "dm" ? text.loadingDirectMessages : text.loadingChannelPosts}
@@ -7836,6 +8184,42 @@ function ColumnLoadingState({
       <div className="deck-loading-spinner" aria-hidden="true" />
       <strong>{title}</strong>
       <p>{detail}</p>
+    </article>
+  );
+}
+
+function PaneErrorState({
+  title,
+  error,
+  detail,
+  muted = false,
+  onRetry,
+}: {
+  title: string;
+  error: string;
+  detail?: string;
+  muted?: boolean;
+  onRetry: () => void;
+}): React.JSX.Element {
+  return (
+    <article
+      className={`deck-card${muted ? " deck-card--muted" : ""}`}
+      role={muted ? "status" : "alert"}
+      aria-live={muted ? "polite" : "assertive"}
+      aria-atomic="true"
+    >
+      <strong>{title}</strong>
+      {detail ? <p>{detail}</p> : null}
+      <p>{error}</p>
+      <div className="deck-inline-actions">
+        <button
+          type="button"
+          className="deck-add-item deck-add-item--secondary"
+          onClick={onRetry}
+        >
+          {i18n.t("deck.retry")}
+        </button>
+      </div>
     </article>
   );
 }
@@ -7994,7 +8378,7 @@ function SearchLikeColumn({
     (postState.status === "idle" || postState.status === "loading") &&
     !hasCompletedInitialLoad;
   const isPaneVisible = useElementVisibility(sectionNode, { rootMargin: "600px 0px", defaultVisible: true });
-  const title = query || "Search";
+  const title = query || text.addSearch;
 
   useEffect(() => {
     setHasCompletedInitialLoad(false);
@@ -8337,10 +8721,15 @@ function SearchLikeColumn({
           <p>{text.setSearchDesc}</p>
         </article>
       ) : postState.status === "error" ? (
-        <article className="deck-card">
-          <strong>{text.failedToLoadResults}</strong>
-          <p>{postState.error ?? text.unknownError}</p>
-        </article>
+        <PaneErrorState
+          title={text.failedToLoadResults}
+          error={postState.error ?? text.unknownError}
+          onRetry={() => {
+            setPaused(false);
+            startRefresh();
+            setRefreshNonce((current) => current + 1);
+          }}
+        />
       ) : shouldShowLoadingState ? (
         <ColumnLoadingState
           title={column.type === "keywordWatch" ? text.loadingKeywordMatches : text.loadingSearchResults}
@@ -8588,13 +8977,32 @@ function SavedPostsColumn({
               <FocusIcon active />
             </button>
           ) : null}
-          <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => setShowControls((current) => !current)}>
+          <button
+            type="button"
+            className="deck-icon-button deck-icon-button--ghost"
+            onClick={() => setShowControls((current) => !current)}
+            title={
+              showControls
+                ? text.collapseControls(text.addSaved)
+                : text.expandControls(text.addSaved)
+            }
+            aria-label={
+              showControls
+                ? text.collapseControls(text.addSaved)
+                : text.expandControls(text.addSaved)
+            }
+            aria-expanded={showControls}
+            aria-controls={`mattermost-deck-saved-controls-${column.id}`}
+          >
             <ChevronIcon expanded={showControls} />
           </button>
         </div>
       </header>
       {showControls ? (
-        <div className="deck-stack deck-stack--controls">
+        <div
+          id={`mattermost-deck-saved-controls-${column.id}`}
+          className="deck-stack deck-stack--controls"
+        >
           <div className="deck-inline-actions">
             <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.moveLeft} onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
@@ -8639,10 +9047,15 @@ function SavedPostsColumn({
         </div>
       ) : null}
       {postState.status === "error" ? (
-        <article className="deck-card">
-          <strong>{text.failedToLoadSavedPosts}</strong>
-          <p>{postState.error ?? text.unknownError}</p>
-        </article>
+        <PaneErrorState
+          title={text.failedToLoadSavedPosts}
+          error={postState.error ?? text.unknownError}
+          onRetry={() => {
+            setPaused(false);
+            startRefresh();
+            setRefreshNonce((current) => current + 1);
+          }}
+        />
       ) : shouldShowLoadingState ? (
         <ColumnLoadingState
           title={text.loadingSavedPosts}
@@ -8762,13 +9175,32 @@ function DiagnosticsColumn({
               <FocusIcon active />
             </button>
           ) : null}
-          <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => setShowControls((current) => !current)}>
+          <button
+            type="button"
+            className="deck-icon-button deck-icon-button--ghost"
+            onClick={() => setShowControls((current) => !current)}
+            title={
+              showControls
+                ? text.collapseControls(text.diagnosticsTitle)
+                : text.expandControls(text.diagnosticsTitle)
+            }
+            aria-label={
+              showControls
+                ? text.collapseControls(text.diagnosticsTitle)
+                : text.expandControls(text.diagnosticsTitle)
+            }
+            aria-expanded={showControls}
+            aria-controls={`mattermost-deck-diagnostics-controls-${column.id}`}
+          >
             <ChevronIcon expanded={showControls} />
           </button>
         </div>
       </header>
       {showControls ? (
-        <div className="deck-stack deck-stack--controls">
+        <div
+          id={`mattermost-deck-diagnostics-controls-${column.id}`}
+          className="deck-stack deck-stack--controls"
+        >
           <div className="deck-inline-actions">
             <button type="button" className="deck-icon-button deck-icon-button--ghost" title={text.moveLeft} onClick={() => onMove(column.id, "left")} disabled={!canMoveLeft}>
               <ArrowIcon direction="left" />
@@ -8878,7 +9310,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     debugLog("app.currentRouteKey", { routeKey: currentRouteKey, path: window.location.pathname });
   }, [currentRouteKey]);
 
-  const currentRoute = useMemo(() => readCurrentRoute(), [currentRouteKey]);
+  const currentRoute = useMemo(() => readDeckCurrentRoute(), [currentRouteKey]);
   const [reconnectNonce, setReconnectNonce] = useState(0);
   const [mentionReadRefreshNonce, setMentionReadRefreshNonce] = useState(0);
   const [realtimeReadMarkers, setRealtimeReadMarkers] = useState<MentionReadMarkers>({
@@ -8886,10 +9318,24 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     threadLastViewedAt: {},
   });
   const [stateRefreshNonce, setStateRefreshNonce] = useState(0);
+  const [mentionReconcileNonce, setMentionReconcileNonce] = useState(0);
+  const [mentionMetadataNonce, setMentionMetadataNonce] = useState(0);
   const [postedEvents, setPostedEvents] = useState<PostedEvent[]>([]);
   const [deletedPostIds, setDeletedPostIds] = useState<string[]>([]);
   const deletedPostIdsRef = useRef<Set<string>>(new Set());
+  const implicitMentionReconcilePostIdsRef = useRef<Set<string>>(new Set());
+  const realtimeMentionScopeRef = useRef<{
+    hasAllMentionsColumn: boolean;
+    hasAnyMentionsColumn: boolean;
+    teamIds: Set<string>;
+  }>({
+    hasAllMentionsColumn: false,
+    hasAnyMentionsColumn: false,
+    teamIds: new Set(),
+  });
   const [realtimeAuthError, setRealtimeAuthError] = useState<string | null>(null);
+  const mentionReconcileTimerRef = useRef<number | null>(null);
+  const mentionReconcileStartedAtRef = useRef<number | null>(null);
   const [userDirectory, setUserDirectory] = useState<Record<string, MattermostUser>>({});
   const userDirectoryRef = useRef<Record<string, MattermostUser>>({});
   const [drawerOpen, setDrawerOpen] = useStoredBoolean(DRAWER_OPEN_STORAGE_KEY, true);
@@ -8908,6 +9354,19 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   }, [state.userId]);
   const [mentionsLastReadAt, setMentionsLastReadAt] = useMentionsLastReadAt();
   const [columns, addColumn, removeColumn, updateColumn, moveColumn, replaceColumns] = useDeckLayout();
+  realtimeMentionScopeRef.current = {
+    hasAllMentionsColumn: (columns ?? []).some(
+      (column) => column.type === "mentions" && !column.teamId,
+    ),
+    hasAnyMentionsColumn: (columns ?? []).some(
+      (column) => column.type === "mentions",
+    ),
+    teamIds: new Set(
+      (columns ?? [])
+        .filter((column) => column.type === "mentions" && column.teamId)
+        .map((column) => column.teamId as string),
+    ),
+  };
   const [recentTargets, rememberRecentTarget] = useRecentTargets();
   const [savedViews, saveView, removeView, getView] = useSavedViews();
   const automaticThreadLayoutEnabled = (
@@ -9010,6 +9469,37 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   useEffect(() => {
     userDirectoryRef.current = userDirectory;
   }, [userDirectory]);
+
+  const scheduleMentionReconcile = useCallback((reason: string) => {
+    const now = Date.now();
+    const startedAt = mentionReconcileStartedAtRef.current ?? now;
+    mentionReconcileStartedAtRef.current = startedAt;
+    const remainingMs = Math.max(
+      0,
+      MENTION_RECONCILE_MAX_WAIT_MS - (now - startedAt),
+    );
+    const delayMs = Math.min(MENTION_RECONCILE_DEBOUNCE_MS, remainingMs);
+    if (mentionReconcileTimerRef.current !== null) {
+      window.clearTimeout(mentionReconcileTimerRef.current);
+    }
+    mentionReconcileTimerRef.current = window.setTimeout(() => {
+      mentionReconcileTimerRef.current = null;
+      mentionReconcileStartedAtRef.current = null;
+      debugLog("app.ws.mention-reconcile", { reason });
+      setMentionReconcileNonce((current) => current + 1);
+    }, delayMs);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (mentionReconcileTimerRef.current !== null) {
+        window.clearTimeout(mentionReconcileTimerRef.current);
+      }
+      mentionReconcileTimerRef.current = null;
+      mentionReconcileStartedAtRef.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (hostLayout.rightSidebarWidth <= 0) {
@@ -9174,7 +9664,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const healthStatusLabel = getApiHealthLabel(apiHealthStatus);
   const connectionModeLabel = realtimeAuthError ? text.pollingRealtimeAuthFailed : effectiveRealtimeEnabled ? text.realtime : text.polling;
   const syncStatusLabel = `${healthStatusLabel} / ${connectionModeLabel}`;
-  const shouldSafeStop = state.sessionExpired;
+  const shouldSafeStop = shouldSafeStopDeckState(state);
   const handleOpenPost = useCallback(
     (post: MattermostPost, target?: OpenPostTarget) => {
       const targetTeam = target?.teamName ?? currentRoute.teamName;
@@ -9204,7 +9694,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         if (!teamName || !postId) {
           return;
         }
-        openMattermostThread(teamName, { postId, rootId }, channelName ?? readCurrentRoute().channelName);
+        openMattermostThread(teamName, { postId, rootId }, channelName ?? readDeckCurrentRoute().channelName);
       };
       window.addEventListener("mattermost-deck-debug-open-thread", handleDebugOpenThread as EventListener);
       return () => {
@@ -9283,6 +9773,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     const previousOrder = previousColumnOrderRef.current;
     const nextRects: Record<string, DOMRect> = {};
     const animated: HTMLDivElement[] = [];
+    const reduceMotion = getPreferredScrollBehavior() === "auto";
 
     for (const column of currentColumns) {
       const element = columnRefs.current[column.id];
@@ -9293,7 +9784,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       const nextRect = element.getBoundingClientRect();
       nextRects[column.id] = nextRect;
       const previousRect = previousColumnRectsRef.current[column.id];
-      if (!previousRect) {
+      if (!previousRect || reduceMotion) {
         continue;
       }
 
@@ -9342,20 +9833,171 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     };
   }, [columns]);
 
-  useEffect(() => {
-    const hasAllMentionsColumn = (columns ?? []).some((column) => column.type === "mentions" && !column.teamId);
-    const hasAnyMentionsColumn = (columns ?? []).some((column) => column.type === "mentions");
-    const mentionTeamIds = new Set(
-      (columns ?? [])
-        .filter((column) => column.type === "mentions" && column.teamId)
-        .map((column) => column.teamId as string),
-    );
+  const realtimeMentionKeySignature = state.currentUser
+    ? JSON.stringify({
+        username: state.currentUser.username,
+        firstName: state.currentUser.first_name ?? "",
+        notifyProps: state.currentUser.notify_props ?? {},
+        groupNames: state.currentUser.mention_group_names ?? [],
+        collapsedReplyThreads:
+          state.currentUser.collapsed_reply_threads === true,
+      })
+    : "";
+  const realtimeMentionKeys = useMemo(
+    () =>
+      state.currentUser
+        ? getMattermostMentionKeys(state.currentUser)
+        : [],
+    [realtimeMentionKeySignature],
+  );
 
-    if (!state.username || columns === null) {
+  useEffect(() => {
+    if (!state.username) {
       return;
     }
 
     let websocketEffectActive = true;
+    let postedEventMetadataSequence = 0;
+    const pendingPostedEventMetadata = new Map<string, number>();
+
+    const publishPostedEvent = (event: PostedEvent) => {
+      if (
+        !websocketEffectActive ||
+        deletedPostIdsRef.current.has(event.post.id)
+      ) {
+        return;
+      }
+
+      const channelWideMentionsEnabled =
+        state.currentUser?.notify_props?.channel === "true";
+      const mentionsCurrentUser = state.userId
+        ? postMatchesRealtimeMentionCandidate(
+            event.post,
+            event.channelType,
+            state.userId,
+            realtimeMentionKeys,
+            event.mentionsUser,
+            channelWideMentionsEnabled,
+          )
+        : false;
+      const localEvent: PostedEvent = {
+        ...event,
+        // Recompute this from the current user's notification keys. The
+        // generic WebSocket parser recognizes @channel/@all/@here, but it
+        // does not know whether this user disabled channel-wide mentions.
+        mentionsUser: mentionsCurrentUser,
+      };
+      debugLog("app.ws.posted", {
+        eventType: localEvent.eventType,
+        channelId: localEvent.channelId,
+        channelType: localEvent.channelType ?? null,
+        teamId: localEvent.teamId ?? null,
+        mentionsUser: localEvent.mentionsUser,
+        postId: localEvent.post.id,
+      });
+      setPostedEvents((current) =>
+        appendPostedEvent(current, localEvent, POSTED_EVENT_BUFFER_SIZE),
+      );
+      if (localEvent.eventType === "post_edited") {
+        invalidatePostByIdCache(localEvent.post.id);
+      }
+
+      const mentionScope = realtimeMentionScopeRef.current;
+      const affectsMentionScope =
+        mentionScope.hasAllMentionsColumn ||
+        (
+          localEvent.teamId &&
+          mentionScope.teamIds.has(localEvent.teamId)
+        ) ||
+        localEvent.channelType === "D" ||
+        localEvent.channelType === "G";
+      const commentsNotify =
+        state.currentUser?.notify_props?.comments;
+      const needsImplicitMentionContext =
+        mentionScope.hasAnyMentionsColumn &&
+        affectsMentionScope &&
+        !localEvent.mentionsUser &&
+        Boolean(localEvent.post.root_id) &&
+        localEvent.post.user_id !== state.userId &&
+        state.currentUser?.collapsed_reply_threads !== true &&
+        (commentsNotify === "root" || commentsNotify === "any");
+      const rootId = localEvent.post.root_id;
+      if (
+        needsImplicitMentionContext &&
+        rootId &&
+        implicitMentionReconcilePostIdsRef.current.size <
+          MAX_IMPLICIT_MENTION_RECONCILES_IN_FLIGHT &&
+        !implicitMentionReconcilePostIdsRef.current.has(localEvent.post.id)
+      ) {
+        implicitMentionReconcilePostIdsRef.current.add(localEvent.post.id);
+        debugLog("app.ws.mention-context-reconcile", {
+          teamId: localEvent.teamId ?? null,
+          channelId: localEvent.channelId,
+          postId: localEvent.post.id,
+          rootId,
+        });
+        const threadContext =
+          commentsNotify === "any"
+            ? getPostThreadSinceWithMetadata(rootId, 0, 200, 200)
+            : Promise.resolve({
+                posts: [] as MattermostPost[],
+                truncated: false,
+              });
+        void Promise.all([
+          getPostsByIds([rootId]),
+          threadContext,
+        ])
+          .then(([rootPosts, { posts: threadPosts, truncated }]) => {
+            if (
+              !websocketEffectActive ||
+              deletedPostIdsRef.current.has(localEvent.post.id)
+            ) {
+              return;
+            }
+            const reconciledThreadPosts = [
+              ...threadPosts.filter(
+                (post) => post.id !== localEvent.post.id
+              ),
+              localEvent.post,
+            ];
+            if (
+              !postMatchesBoundedImplicitMention(
+                localEvent.post,
+                rootPosts[0],
+                reconciledThreadPosts,
+                {
+                  currentUserId: state.userId ?? "",
+                  collapsedReplyThreads: false,
+                  commentsNotify,
+                },
+                truncated,
+              )
+            ) {
+              return;
+            }
+            setPostedEvents((current) =>
+              appendPostedEvent(
+                current,
+                { ...localEvent, mentionsUser: true },
+                POSTED_EVENT_BUFFER_SIZE,
+              )
+            );
+          })
+          .catch((error: unknown) => {
+            debugLog("app.ws.mention-context-reconcile-failed", {
+              postId: localEvent.post.id,
+              message:
+                error instanceof Error ? error.message : String(error),
+            });
+          })
+          .finally(() => {
+            implicitMentionReconcilePostIdsRef.current.delete(
+              localEvent.post.id,
+            );
+          });
+      }
+    };
+
     const disconnect = connectMattermostWebSocket({
       userId: state.userId,
       username: state.username,
@@ -9367,44 +10009,58 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         setReconnectNonce((current) => current + 1);
       },
       onPosted: (event) => {
-        debugLog("app.ws.posted", {
-          eventType: event.eventType,
-          channelId: event.channelId,
-          teamId: event.teamId ?? null,
-          mentionsUser: event.mentionsUser,
-          postId: event.post.id,
-        });
-        setPostedEvents((current) =>
-          appendPostedEvent(current, event, POSTED_EVENT_BUFFER_SIZE),
-        );
-        if (event.eventType === "post_edited") {
-          invalidatePostByIdCache(event.post.id);
+        pendingPostedEventMetadata.delete(event.post.id);
+        publishPostedEvent(event);
+        if (!postedEventNeedsChannelMetadata(event)) {
+          return;
         }
-        const affectsMentionScope =
-          hasAllMentionsColumn ||
-          (event.teamId && mentionTeamIds.has(event.teamId)) ||
-          event.channelType === "D" ||
-          event.channelType === "G";
-        if (
-          (
-            event.eventType === "post_edited"
-              ? hasAnyMentionsColumn
-              : affectsMentionScope
-          ) &&
-          (event.eventType === "post_edited" || event.mentionsUser)
-        ) {
-          debugLog("app.ws.mention-refresh", {
-            scope: event.eventType === "post_edited" ? "edited-post" : "state-only",
-            teamId: event.teamId ?? null,
-            channelId: event.channelId,
-            postId: event.post.id,
+
+        const metadataSequence = ++postedEventMetadataSequence;
+        pendingPostedEventMetadata.set(event.post.id, metadataSequence);
+        void getChannelsByIds([event.channelId])
+          .then(([channel]) => {
+            if (
+              !websocketEffectActive ||
+              !channel ||
+              pendingPostedEventMetadata.get(event.post.id) !==
+                metadataSequence ||
+              deletedPostIdsRef.current.has(event.post.id)
+            ) {
+              return;
+            }
+            publishPostedEvent(
+              withPostedEventChannelMetadata(event, channel),
+            );
+          })
+          .catch((error: unknown) => {
+            if (
+              websocketEffectActive &&
+              pendingPostedEventMetadata.get(event.post.id) ===
+                metadataSequence
+            ) {
+              debugLog("app.ws.posted-channel-metadata-failed", {
+                channelId: event.channelId,
+                postId: event.post.id,
+                message:
+                  error instanceof Error ? error.message : String(error),
+              });
+              // A bounded mentions refresh is the fallback if the targeted
+              // lookup is temporarily unavailable.
+              scheduleMentionReconcile("posted-channel-metadata-failed");
+            }
+          })
+          .finally(() => {
+            if (
+              pendingPostedEventMetadata.get(event.post.id) ===
+              metadataSequence
+            ) {
+              pendingPostedEventMetadata.delete(event.post.id);
+            }
           });
-          setStateRefreshNonce((current) => current + 1);
-          setReconnectNonce((current) => current + 1);
-        }
       },
       onPostDeleted: (postId) => {
         debugLog("app.ws.post-deleted", { postId });
+        pendingPostedEventMetadata.delete(postId);
         invalidatePostByIdCache(postId);
         setPostedEvents((current) =>
           current.filter((event) => event.post.id !== postId),
@@ -9417,16 +10073,15 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         ].slice(-POSTED_EVENT_BUFFER_SIZE);
         deletedPostIdsRef.current = new Set(nextDeletedPostIds);
         setDeletedPostIds(nextDeletedPostIds);
-        setStateRefreshNonce((current) => current + 1);
-        setReconnectNonce((current) => current + 1);
       },
       onMentionMetadataChanged: () => {
         debugLog("app.ws.mention-metadata-refresh", {
           reason: "mention-definition-changed",
         });
         invalidateMentionMetadataCaches();
+        setMentionMetadataNonce((current) => current + 1);
         setStateRefreshNonce((current) => current + 1);
-        setReconnectNonce((current) => current + 1);
+        scheduleMentionReconcile("mention-definition-changed");
       },
       onUnreadChanged: (change) => {
         const hasChannelMarkers =
@@ -9541,9 +10196,18 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     });
     return () => {
       websocketEffectActive = false;
+      pendingPostedEventMetadata.clear();
       disconnect();
     };
-  }, [columns, deckSettings.wsPat, effectiveRealtimeEnabled, state.sessionExpired, state.userId, state.username]);
+  }, [
+    deckSettings.wsPat,
+    effectiveRealtimeEnabled,
+    realtimeMentionKeys,
+    scheduleMentionReconcile,
+    state.sessionExpired,
+    state.userId,
+    state.username,
+  ]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -9757,7 +10421,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     }
 
     const frame = window.requestAnimationFrame(() => {
-      element.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "end" });
+      element.scrollIntoView({
+        behavior: getPreferredScrollBehavior(),
+        block: "nearest",
+        inline: "end",
+      });
       setPendingScrollColumnId(null);
     });
 
@@ -9779,6 +10447,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       setShowAddMenu(false);
       setShowViewsMenu(false);
       setShowActionsMenu(false);
+      setShowRailAddMenu(false);
     };
 
     document.addEventListener("keydown", handleKeyDown, true);
@@ -10456,7 +11125,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     wsStatus,
   ]);
 
-  const isInitialLoading = state.status === "loading" || columns === null;
+  const isInitialLoading =
+    state.status === "loading" ||
+    (columns === null && state.status !== "error");
 
   return (
     <ShadowRootContext.Provider value={shadowRoot}>
@@ -10464,6 +11135,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       ref={shellRef}
       className={`deck-shell${effectiveDrawerOpen ? "" : " deck-shell--collapsed"}`}
       aria-label="Mattermost Deck"
+      lang={deckSettings.language}
       data-theme={deckSettings.theme === "mattermost" ? "mattermost" : resolveTheme(deckSettings.theme)}
       data-column-color-enabled={deckSettings.columnColorEnabled ? "true" : "false"}
       data-thread-layout-mode={
@@ -10587,12 +11259,14 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                     });
                   }}
                   disabled={columns === null || state.status === "loading"}
+                  aria-expanded={showViewsMenu}
+                  aria-controls={VIEWS_MENU_ID}
                 >
                   <ViewsIcon />
                   <span className="deck-button-label">{text.viewsLabel}</span>
                 </button>
                 {showViewsMenu ? (
-                  <div className="deck-add-menu deck-add-menu--views">
+                  <div id={VIEWS_MENU_ID} className="deck-add-menu deck-add-menu--views">
                     <div className="deck-add-menu-title">{text.viewsLabel}</div>
                     <div className="deck-menu-row deck-menu-row--toolbar">
                       {!viewReorderMode ? (
@@ -10689,12 +11363,14 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                     });
                   }}
                   disabled={columns === null || state.status === "loading"}
+                  aria-expanded={showAddMenu}
+                  aria-controls={ADD_MENU_ID}
                 >
                   <PlusIcon />
                   <span className="deck-button-label">{text.addLabel}</span>
                 </button>
                 {showAddMenu ? (
-                  <div className="deck-add-menu">
+                  <div id={ADD_MENU_ID} className="deck-add-menu">
                     <div className="deck-add-menu-title">{text.choosePane}</div>
                     <button type="button" className="deck-add-item" onClick={() => handleAddColumn("mentions")}>
                       <ColumnMenuLabel type="mentions" label={text.addMentions} />
@@ -10761,11 +11437,13 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                   }}
                   aria-label={text.moreActionsLabel}
                   disabled={columns === null || state.status === "loading"}
+                  aria-expanded={showActionsMenu}
+                  aria-controls={ACTIONS_MENU_ID}
                 >
                   <HamburgerIcon />
                 </button>
                 {showActionsMenu ? (
-                  <div className="deck-add-menu deck-add-menu--compact">
+                  <div id={ACTIONS_MENU_ID} className="deck-add-menu deck-add-menu--compact">
                     <div className="deck-add-menu-title">{statusText}</div>
                     {isCompactHeader ? (
                       <>
@@ -10888,7 +11566,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
               }
             }}
           >
-            <main
+            <div
               className={`deck-columns${focusedColumnId ? " deck-columns--focus" : ""}`}
               style={{
                 minWidth: focusedColumnId
@@ -10903,12 +11581,38 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
               ) : shouldSafeStop ? (
                 <div className="deck-column-motion">
                   <section className="deck-column">
-                    <article className="deck-card">
-                      <strong>{text.sessionExpired}</strong>
-                      <p>{state.error ?? text.sessionExpiredDesc}</p>
+                    <article
+                      className="deck-card"
+                      role="alert"
+                      aria-live="assertive"
+                      aria-atomic="true"
+                    >
+                      <strong>
+                        {state.sessionExpired
+                          ? text.sessionExpired
+                          : text.failedToLoad}
+                      </strong>
+                      <p>
+                        {state.error ??
+                          (state.sessionExpired
+                            ? text.sessionExpiredDesc
+                            : text.failedToLoad)}
+                      </p>
                       <div className="deck-inline-actions">
-                        <button type="button" className="deck-add-item deck-add-item--secondary" onClick={() => window.location.reload()}>
-                          {text.reloadMattermost}
+                        <button
+                          type="button"
+                          className="deck-add-item deck-add-item--secondary"
+                          onClick={() => {
+                            if (state.sessionExpired) {
+                              window.location.reload();
+                            } else {
+                              setStateRefreshNonce((current) => current + 1);
+                            }
+                          }}
+                        >
+                          {state.sessionExpired
+                            ? text.reloadMattermost
+                            : i18n.t("deck.retry")}
                         </button>
                         <button type="button" className="deck-add-item deck-add-item--secondary" onClick={handleOpenSettings}>
                           {text.settingsButton}
@@ -10946,6 +11650,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           deletedPostIds={deletedPostIds}
                           deletedPostIdsRef={deletedPostIdsRef}
                           reconnectNonce={reconnectNonce}
+                          mentionReconcileNonce={mentionReconcileNonce}
+                          mentionMetadataNonce={mentionMetadataNonce}
                           readRefreshNonce={mentionReadRefreshNonce}
                           realtimeReadMarkers={realtimeReadMarkers}
                           pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
@@ -11147,15 +11853,18 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                   }}
                   aria-label={text.addLabel}
                   title={text.addLabel}
+                  aria-expanded={showRailAddMenu}
+                  aria-controls={RAIL_ADD_MENU_ID}
                 >
                   <PlusIcon />
                 </button>
               </div>
-            </main>
+            </div>
           </div>
           {showRailAddMenu && railAddMenuPosition ? (
             <div
               ref={railAddOverlayMenuRef}
+              id={RAIL_ADD_MENU_ID}
               className="deck-add-menu deck-add-menu--tail"
               style={{ top: `${railAddMenuPosition.top}px`, right: `${railAddMenuPosition.right}px` }}
             >

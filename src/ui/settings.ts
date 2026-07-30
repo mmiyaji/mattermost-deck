@@ -52,6 +52,7 @@ export const SETTINGS_KEYS = {
   persistPat: "mattermostDeck.persistPat.v1",
   pollingIntervalSeconds: "mattermostDeck.pollingIntervalSeconds.v1",
   allowedRouteKinds: "mattermostDeck.allowedRouteKinds.v1",
+  allowedRouteKindsThreadsMigration: "mattermostDeck.allowedRouteKindsThreadsMigration.v1",
   healthCheckPath: "mattermostDeck.healthCheckPath.v1",
   theme: "mattermostDeck.theme.v1",
   language: "mattermostDeck.language.v1",
@@ -86,7 +87,7 @@ export const DEFAULT_SETTINGS: DeckSettings = {
   wsPat: "",
   persistPat: false,
   pollingIntervalSeconds: 45,
-  allowedRouteKinds: "channels,messages,pl",
+  allowedRouteKinds: "channels,messages,pl,threads",
   healthCheckPath: "/api/v4/users/me",
   theme: "mattermost",
   language: "ja",
@@ -111,11 +112,12 @@ export const MIN_PREFERRED_RAIL_WIDTH = 360;
 export const MAX_PREFERRED_RAIL_WIDTH = 1400;
 export const MIN_PREFERRED_COLUMN_WIDTH = 260;
 export const MAX_PREFERRED_COLUMN_WIDTH = 480;
+const LEGACY_DEFAULT_ALLOWED_ROUTE_KINDS = "channels,messages,pl";
 
 function isMattermostUiRoute(pathname: string): boolean {
   const segments = pathname.split("/").filter(Boolean);
   return segments.some((segment, index) => {
-    if (index === 0 || index >= segments.length - 1) {
+    if (index === 0) {
       return false;
     }
 
@@ -123,7 +125,15 @@ function isMattermostUiRoute(pathname: string): boolean {
     // slug and the deployment base path cannot be distinguished reliably from
     // the URL alone, so reject the screen URL instead of silently treating it
     // as the Site URL and generating invalid /api/v4 paths beneath it.
-    return segment === "channels" || segment === "messages" || segment === "pl" || segment === "threads";
+    if (index >= segments.length - 1) {
+      return false;
+    }
+    return (
+      segment === "channels" ||
+      segment === "messages" ||
+      segment === "pl" ||
+      segment === "threads"
+    );
   });
 }
 
@@ -214,9 +224,19 @@ export function normaliseAllowedRouteKinds(value: string | null): string {
   const allowed = raw
     .split(",")
     .map((part) => part.trim().toLowerCase())
-    .filter((part) => part === "channels" || part === "messages" || part === "pl");
+    .filter(
+      (part) =>
+        part === "channels" ||
+        part === "messages" ||
+        part === "pl" ||
+        part === "threads",
+    );
 
-  return allowed.length > 0 ? [...new Set(allowed)].join(",") : DEFAULT_SETTINGS.allowedRouteKinds;
+  if (allowed.length === 0) {
+    return DEFAULT_SETTINGS.allowedRouteKinds;
+  }
+
+  return [...new Set(allowed)].join(",");
 }
 
 export function normaliseHealthCheckPath(value: string | null): string {
@@ -340,6 +360,37 @@ async function loadScopedStoredEncryptedString(baseKey: string, area: "local" | 
   return await loadStoredEncryptedString(baseKey, area);
 }
 
+async function loadAllowedRouteKinds(origin?: string): Promise<string> {
+  const profile = await loadCurrentDeckProfile(origin);
+  const allowedRouteKindsKey = getProfileStorageKey(profile.id, SETTINGS_KEYS.allowedRouteKinds);
+  const migrationMarkerKey = getProfileStorageKey(
+    profile.id,
+    SETTINGS_KEYS.allowedRouteKindsThreadsMigration,
+  );
+  const hasScopedValue = await hasStoredValue(allowedRouteKindsKey, "local");
+  const storedAllowedRouteKinds = await loadStoredString(
+    hasScopedValue ? allowedRouteKindsKey : SETTINGS_KEYS.allowedRouteKinds,
+    "local",
+  );
+  const normalized = normaliseAllowedRouteKinds(storedAllowedRouteKinds);
+  const migrationCompleted = await loadStoredString(migrationMarkerKey, "local");
+
+  if (
+    migrationCompleted !== "true" &&
+    storedAllowedRouteKinds !== null &&
+    normalized === LEGACY_DEFAULT_ALLOWED_ROUTE_KINDS
+  ) {
+    const migrated = `${LEGACY_DEFAULT_ALLOWED_ROUTE_KINDS},threads`;
+    await saveStoredStrings({
+      [allowedRouteKindsKey]: migrated,
+      [migrationMarkerKey]: "true",
+    });
+    return migrated;
+  }
+
+  return normalized;
+}
+
 export async function loadDeckSettings(origin?: string): Promise<DeckSettings> {
   const [
     serverUrl,
@@ -372,7 +423,7 @@ export async function loadDeckSettings(origin?: string): Promise<DeckSettings> {
     loadScopedStoredEncryptedString(SETTINGS_KEYS.wsPat, "session", origin),
     loadScopedStoredString(SETTINGS_KEYS.persistPat, "local", origin),
     loadScopedStoredString(SETTINGS_KEYS.pollingIntervalSeconds, "local", origin),
-    loadScopedStoredString(SETTINGS_KEYS.allowedRouteKinds, "local", origin),
+    loadAllowedRouteKinds(origin),
     loadScopedStoredString(SETTINGS_KEYS.healthCheckPath, "local", origin),
     loadScopedStoredString(SETTINGS_KEYS.theme, "local", origin),
     loadScopedStoredString(SETTINGS_KEYS.language, "local", origin),
@@ -397,7 +448,7 @@ export async function loadDeckSettings(origin?: string): Promise<DeckSettings> {
     wsPat: (normalisePersistPat(persistPat) ? wsPatPersistent : wsPatSession) ?? DEFAULT_SETTINGS.wsPat,
     persistPat: normalisePersistPat(persistPat),
     pollingIntervalSeconds: normalisePollingIntervalSeconds(pollingIntervalSeconds),
-    allowedRouteKinds: normaliseAllowedRouteKinds(allowedRouteKinds),
+    allowedRouteKinds,
     healthCheckPath: normaliseHealthCheckPath(healthCheckPath),
     theme: normaliseTheme(theme),
     language: normaliseLanguage(language),
@@ -439,6 +490,7 @@ export async function saveDeckSettings(settings: DeckSettings, origin?: string):
       [profileKey(SETTINGS_KEYS.wsPat)]: localPat,
       [profileKey(SETTINGS_KEYS.pollingIntervalSeconds)]: String(normalisePollingIntervalSeconds(settings.pollingIntervalSeconds)),
       [profileKey(SETTINGS_KEYS.allowedRouteKinds)]: normaliseAllowedRouteKinds(settings.allowedRouteKinds),
+      [profileKey(SETTINGS_KEYS.allowedRouteKindsThreadsMigration)]: "true",
       [profileKey(SETTINGS_KEYS.healthCheckPath)]: normaliseHealthCheckPath(settings.healthCheckPath),
       [profileKey(SETTINGS_KEYS.theme)]: settings.theme,
       [profileKey(SETTINGS_KEYS.language)]: settings.language,

@@ -112,7 +112,9 @@ describe("getUsersByIds", () => {
 
       vi.setSystemTime(initialTime + 60_000);
       const refetched = getUsersByIds(["expired"]);
-      await vi.advanceTimersByTimeAsync(3 * 60_000 + 120);
+      // The request scheduler uses a monotonic clock, so a wall-clock
+      // correction must not create a multi-minute artificial queue delay.
+      await vi.advanceTimersByTimeAsync(120);
 
       await expect(refetched).resolves.toEqual([
         mockUser("expired", { username: "refetched" }),

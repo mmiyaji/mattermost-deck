@@ -300,6 +300,35 @@ test("switching channels keeps Deck panes mounted and avoids a full refetch", as
       "getColumnState",
       { id: "mentions-route-stability" },
     ))?.postStatus).toBe("ready");
+
+    // Mattermost's team Threads screen ends at /<team>/threads rather than
+    // /<team>/<kind>/<item>. A direct load must still inject Deck and retain
+    // the team without mistaking a trailing sub-route for a channel name.
+    capture = false;
+    await page.goto(`${baseUrl}/${state.teamName}/threads`);
+    await page.waitForURL(
+      new RegExp(`/${state.teamName}/threads(?:[/?#]|$)`),
+      { timeout: 30_000 },
+    );
+    await expect(page.locator("#mattermost-deck-root")).toBeAttached({
+      timeout: 20_000,
+    });
+    await expect.poll(async () => {
+      const snapshot = await debugRequest<{
+        stateStatus?: string;
+        currentTeamId?: string;
+        currentChannelId?: string;
+      }>(page, "getState");
+      return {
+        stateStatus: snapshot.stateStatus,
+        currentTeamId: snapshot.currentTeamId,
+        currentChannelId: snapshot.currentChannelId ?? null,
+      };
+    }, { timeout: 30_000 }).toEqual({
+      stateStatus: "ready",
+      currentTeamId: team!.id,
+      currentChannelId: null,
+    });
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });

@@ -171,7 +171,7 @@ test("official website resources stay reachable on wide and narrow settings layo
   }
 });
 
-test("1.0.3 release notice stays aligned, wraps actions, and explains the performance release", async () => {
+test("1.0.4 release notice stays aligned, wraps actions, and explains the reliability release", async () => {
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-release-banner-"));
   const context = await chromium.launchPersistentContext(userDataDir, {
@@ -192,8 +192,8 @@ test("1.0.3 release notice stays aligned, wraps actions, and explains the perfor
         chrome.storage.local.set({
           "mattermostDeck.language.v1": "ja",
           "mattermostDeck.releaseNotice.v1": {
-            version: "1.0.3",
-            previousVersion: "1.0.2",
+            version: "1.0.4",
+            previousVersion: "1.0.3",
             seen: false,
           },
         }, () => resolve());
@@ -206,7 +206,7 @@ test("1.0.3 release notice stays aligned, wraps actions, and explains the perfor
 
     const releaseBanner = page.locator(".options-release-banner");
     await expect(releaseBanner).toBeVisible({ timeout: 10_000 });
-    await expect(releaseBanner).toContainText("v1.0.3");
+    await expect(releaseBanner).toContainText("v1.0.4");
     await expect(releaseBanner.locator(".options-release-banner-actions .options-button")).toHaveCount(3);
 
     const narrowLayout = await page.evaluate(() => {
@@ -265,12 +265,14 @@ test("1.0.3 release notice stays aligned, wraps actions, and explains the perfor
     });
 
     await releaseBanner.getByRole("button", { name: "新機能" }).click();
-    const releaseDialog = page.getByRole("dialog", { name: "v1.0.3" });
+    const releaseDialog = page.getByRole("dialog", { name: "v1.0.4" });
     await expect(releaseDialog).toBeVisible();
     await expect(releaseDialog.locator(".options-modal-section")).toHaveCount(3);
-    await expect(releaseDialog).toContainText("Mattermost右ペインの実測幅");
-    await expect(releaseDialog).toContainText("User Timing蓄積");
-    await expect(releaseDialog).toContainText("20分メモリ耐久テスト");
+    await expect(releaseDialog).toContainText("200件×最大5ページ");
+    await expect(releaseDialog).toContainText("旧runtime");
+    for (const supportedVersion of ["9.5.11", "10.11.22", "11.8.2"]) {
+      await expect(releaseDialog).toContainText(supportedVersion);
+    }
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });

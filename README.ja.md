@@ -88,9 +88,10 @@ Server URL を保存すると、その Mattermost origin に対する Chrome 権
 ## 対応環境
 
 - Google Chrome 120 以降
-- Docker E2E により Mattermost 9.5.4 と 9.5.11 を検証済み（CI の既定は 9.5.4）
+- Docker E2E の全テストを Mattermost 9.5.4 で実行
+- Pull Request とリリースごとに、Mattermost 9.5.11、10.11.22、11.8.2でも経路変更、チーム切り替え、スレッドレイアウト、レスポンシブ動作の主要テストを実行
 
-より新しい Mattermost も動作対象ですが、すべてのサーバーバージョンを CI で検証しているわけではありません。その他のChromiumベースブラウザーはリリースゲートの対象外です。業務上重要な環境へ導入する前に、ステージング環境で確認してください。
+上記以外のMattermostパッチ版とその他のChromiumベースブラウザーはリリースゲートの対象外です。業務上重要な環境へ導入する前に、ステージング環境で確認してください。
 
 ## 設定画面
 
@@ -151,9 +152,9 @@ Server URL を保存すると、その Mattermost origin に対する Chrome 権
   - queue wait
 - JSONL エクスポート
 - Diagnostics には日常確認向けの短い同期ログを表示し、詳細なリクエスト表は Performance に寄せる
-- 自動保持ポリシー:
+- 動作時に適用される保持ポリシー:
   - トレース記録を OFF にすると保存ログはクリア
-  - 24 時間を超えたログは自動削除
+  - 24 時間を超えたログは、次に拡張機能が動作、記録、または診断画面を開いたときに削除
 
 ## セキュリティ
 
@@ -180,22 +181,23 @@ npm run check:site
 npm run test:e2e
 npm run test:soak
 npm run mm95:start
-node scripts/mm95-start.mjs --version 9.5.11
+node scripts/mm95-start.mjs --version 11.8.2
 npm run mm95:stop
 npm run open:mattermost
 npm run capture:readme
 ```
 
-`mm95:start` は既定で Mattermost 9.5.4 を起動します。9.5.11 を起動する場合は、上記のバージョン指定コマンドを使用してください。`test:e2e` とスクリーンショット更新には、到達可能な Mattermost テスト環境が必要です。
+`mm95:start` は既定で Mattermost 9.5.4 を起動します。別の対応メジャー版を確認する場合は、上記のバージョン指定コマンドを使用してください。`test:e2e` とスクリーンショット更新には、到達可能な Mattermost テスト環境が必要です。
 `test:soak` は、固定seedで独立した20分間のレイアウト・メモリ耐久試験を実行します。Mattermostへ384件のテスト投稿を作成し、大量の検索結果を保持したまま右ペイン種別と画面幅を切り替え、メモリを積み増さない数万回の右ペイン内部Mutationを加えます。終了後に投稿を削除し、ヒープ、DOM、イベントリスナー、User Timing、レイアウト計測の上限付き傾向レポートを `test-results/` に出力します。実行前に `MM_DECK_SOAK_MINUTES`（10〜120）または `MM_DECK_SOAK_SEED` を設定すると、時間またはseedを変更できます。`test:soak:auto-adjust-off` では自動レイアウト監視を切り分け、`test:soak:control` では拡張機能なしの同一Mattermost負荷を実行できます。
 
 ## リリース
 
-`v1.0.3` のような `v` 形式タグを push すると GitHub Actions が動作します。パッケージ、manifest、アプリ内表示、公式サイト、CHANGELOGの版番号とタグが一致しない場合、リリースジョブは停止します。
+`v1.0.4` のような `v` 形式タグを push すると GitHub Actions が動作します。パッケージ、manifest、アプリ内表示、公式サイト、CHANGELOGの版番号とタグが一致しない場合、リリースジョブは停止します。
 
-- 型チェック、単体テスト、Docker版Mattermostを使うPlaywright E2E、`STORE_BUILD=true`を指定したChrome Web Store用ビルドを実行
+- 型チェック、単体テスト、Mattermost 9.5.4でのPlaywright全テスト、9.5.11・10.11.22・11.8.2でのリリース互換性テストを実行
+- `STORE_BUILD=true`でChrome Web Store用ZIPを生成し、そのZIPを展開した実物から未許可の初回状態と、Chrome標準の権限確認を自動承認できない場合の安全な拒否処理をスモークテスト
 - `dist/` を `mattermost-deck-<tag>.zip` として生成
-- GitHub Release を作成し、zip を asset として添付
+- SHA-256チェックサムを生成し、ZIPとチェックサムをGitHub Releaseへ添付
 
 PowerShellでローカルのリリースパッケージを作成する場合:
 
@@ -207,15 +209,15 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.0.3"
+$env:EXT_VERSION = "v1.0.4"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.3.zip -Force
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.4.zip -Force
 ```
 
 ZIP直下に `manifest.json` が配置されていることを確認してください。Web Store用ビルドではlocalhost専用の静的content scriptを意図的に除外し、E2Eテスト用の通常ビルドでは残します。
 
-Chrome Web Storeへアップロードする前に、`dist/` をChromeへ「パッケージ化されていない拡張機能」として読み込み、テスト用Mattermost URLを保存し、Chrome標準のホスト権限確認を承認して、設定したoriginだけでDeckが表示されることを確認してください。このブラウザ標準ダイアログは実ユーザーの判断を必要とするため手動リリースチェックとし、CIでは未許可状態で安全に起動すること、通常ビルドのE2Eでは注入後のUI動作を検証します。
+Chrome Web Storeへアップロードする前に、リリースZIPを展開した内容をChromeへ「パッケージ化されていない拡張機能」として読み込み、テスト用Mattermost URLを保存し、Chrome標準のホスト権限確認を承認して、設定したoriginだけでDeckが表示されることを確認してください。ヘッドレスのリリーススモークテストは、配布ZIP実物が未許可で開始し、権限を自動承認できない場合にも保存や注入を行わず安全に拒否することを確認します。Chrome標準ダイアログの承認と、その後のDeck注入は目視による必須の最終確認とし、許可済み注入の挙動は通常の開発用E2Eでも別途検証します。
 
 Chrome Web Storeの「プライバシーへの取り組み」に入力する単一用途と権限の説明は、[Chrome Web Store申請文](./docs/chrome-web-store-submission.ja.md)を参照してください。
 

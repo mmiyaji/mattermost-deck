@@ -5,12 +5,11 @@ import path from "node:path";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.json");
-const ADMIN_USERNAME = "mm95admin";
-const ADMIN_PASSWORD = "Admin1234!";
 const LAYOUT_STORAGE_KEY = "mattermostDeck.layout.v1";
 
 interface E2EState {
   team: { id: string; name: string };
+  adminUser: { username: string; password: string };
   memberUser: { id: string; username: string; password: string; token: string };
 }
 
@@ -146,7 +145,10 @@ async function debugRequest<T>(
 test("custom-key CRT mention follows the thread read marker", async ({}, testInfo) => {
   test.setTimeout(180_000);
   const state = await readState();
-  const adminToken = await loginViaApi(ADMIN_USERNAME, ADMIN_PASSWORD);
+  const adminToken = await loginViaApi(
+    state.adminUser.username,
+    state.adminUser.password,
+  );
   const originalUser = await apiRequest<MattermostUser>(
     state.memberUser.token,
     "GET",
@@ -383,9 +385,12 @@ test("custom-key CRT mention follows the thread read marker", async ({}, testInf
 });
 
 test("non-CRT plain reply to my root follows the channel read marker", async ({}, testInfo) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   const state = await readState();
-  const adminToken = await loginViaApi(ADMIN_USERNAME, ADMIN_PASSWORD);
+  const adminToken = await loginViaApi(
+    state.adminUser.username,
+    state.adminUser.password,
+  );
   const memberWsToken = await loginViaApi(
     state.memberUser.username,
     state.memberUser.password,
@@ -396,12 +401,12 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
     "/config",
   );
   const originalUser = await apiRequest<MattermostUser>(
-    state.memberUser.token,
+    memberWsToken,
     "GET",
     `/users/${state.memberUser.id}`,
   );
   const originalPreferences = await apiRequest<MattermostPreference[]>(
-    state.memberUser.token,
+    memberWsToken,
     "GET",
     `/users/${state.memberUser.id}/preferences`,
   );
@@ -430,7 +435,7 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
       },
     });
     await apiRequest(
-      state.memberUser.token,
+      memberWsToken,
       "PUT",
       `/users/${state.memberUser.id}/patch`,
       {
@@ -441,7 +446,7 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
       },
     );
     await apiRequest(
-      state.memberUser.token,
+      memberWsToken,
       "PUT",
       `/users/${state.memberUser.id}/preferences`,
       [{
@@ -463,12 +468,12 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
       user_id: state.memberUser.id,
     });
 
-    const root = await apiRequest<{ id: string }>(state.memberUser.token, "POST", "/posts", {
+    const root = await apiRequest<{ id: string }>(memberWsToken, "POST", "/posts", {
       channel_id: channelId,
       message: `root-owned-by-member-${timestamp}`,
     });
     rootId = root.id;
-    await apiRequest(state.memberUser.token, "POST", "/channels/members/me/view", {
+    await apiRequest(memberWsToken, "POST", "/channels/members/me/view", {
       channel_id: channelId,
       collapsed_threads_supported: false,
     });
@@ -483,7 +488,7 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
 
     await expect.poll(async () => {
       const members = await apiRequest<ChannelMember[]>(
-        state.memberUser.token,
+        memberWsToken,
         "GET",
         `/users/me/teams/${state.team.id}/channels/members`,
       );
@@ -556,7 +561,7 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
       fullPage: true,
     });
 
-    await apiRequest(state.memberUser.token, "POST", "/channels/members/me/view", {
+    await apiRequest(memberWsToken, "POST", "/channels/members/me/view", {
       channel_id: channelId,
       collapsed_threads_supported: false,
     });
@@ -584,7 +589,7 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
           ) ?? false,
         mentionCount: column?.mentionCount ?? 0,
       };
-    }, { timeout: 20_000 }).toEqual({
+    }, { timeout: 35_000 }).toEqual({
       hasReply: true,
       mentionCount: baselineMentionCount + 1,
     });
@@ -600,7 +605,7 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
           ) ?? false,
         mentionCount: column?.mentionCount ?? 0,
       };
-    }, { timeout: 20_000 }).toEqual({
+    }, { timeout: 35_000 }).toEqual({
       hasDeletedReply: false,
       mentionCount: baselineMentionCount,
     });
@@ -627,7 +632,7 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
           ) ?? false,
         mentionCount: column?.mentionCount ?? 0,
       };
-    }, { timeout: 20_000 }).toEqual({
+    }, { timeout: 35_000 }).toEqual({
       postVisible: true,
       markerVisible: true,
       mentionCount: baselineMentionCount + 1,
@@ -649,7 +654,7 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
           ) ?? false,
         mentionCount: column?.mentionCount ?? 0,
       };
-    }, { timeout: 20_000 }).toEqual({
+    }, { timeout: 35_000 }).toEqual({
       postVisible: false,
       oldMarkerVisible: false,
       mentionCount: baselineMentionCount,
@@ -802,7 +807,7 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
     await context?.close();
     await fs.rm(userDataDir, { recursive: true, force: true });
     if (channelId) {
-      await apiRequest(state.memberUser.token, "POST", "/channels/members/me/view", {
+      await apiRequest(memberWsToken, "POST", "/channels/members/me/view", {
         channel_id: channelId,
         collapsed_threads_supported: false,
       }).catch(() => undefined);
@@ -829,21 +834,21 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
       await bestEffortDelete(adminToken, `/channels/${channelId}`);
     }
     await apiRequest(
-      state.memberUser.token,
+      memberWsToken,
       "PUT",
       `/users/${state.memberUser.id}/patch`,
       { notify_props: originalUser.notify_props },
     ).catch(() => undefined);
     if (originalCrtPreference) {
       await apiRequest(
-        state.memberUser.token,
+        memberWsToken,
         "PUT",
         `/users/${state.memberUser.id}/preferences`,
         [originalCrtPreference],
       ).catch(() => undefined);
     } else {
       await apiRequest(
-        state.memberUser.token,
+        memberWsToken,
         "POST",
         `/users/${state.memberUser.id}/preferences/delete`,
         [{

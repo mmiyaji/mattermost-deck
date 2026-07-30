@@ -88,9 +88,10 @@ Remote servers must use HTTPS; HTTP remains available only for localhost and loo
 ## Compatibility
 
 - Google Chrome version 120 or later
-- Docker-backed E2E tests verified against Mattermost 9.5.4 and 9.5.11; CI uses 9.5.4 by default
+- The full Docker-backed E2E suite runs on Mattermost 9.5.4
+- Every pull request and release also gates core route, team-switch, thread-layout, and responsive behavior on Mattermost 9.5.11, 10.11.22, and 11.8.2
 
-Newer Mattermost versions are expected to work, but every newer server release is not exercised by CI. Other Chromium-based browsers are not part of the release-gated support matrix. Validate the extension in a staging environment before deploying it to a business-critical Mattermost instance.
+Other Mattermost patch releases and Chromium-based browsers are not part of the release-gated support matrix. Validate the extension in a staging environment before deploying it to a business-critical Mattermost instance.
 
 ## Options Overview
 
@@ -142,9 +143,9 @@ Newer Mattermost versions are expected to work, but every newer server release i
 - Recent trace log table with full request URL, status, duration, and queue wait
 - JSONL export for offline analysis
 - Diagnostics keeps a shortened recent sync log for day-to-day use; the detailed request table remains in Performance
-- Automatic retention policy:
+- Activity-based retention policy:
   - turning trace capture off clears stored logs
-  - logs older than 24 hours are removed automatically
+  - entries older than 24 hours are pruned the next time the extension runs, writes a trace, or opens diagnostics
 
 ## Security Notes
 
@@ -171,23 +172,24 @@ npm run check:site
 npm run test:e2e
 npm run test:soak
 npm run mm95:start
-node scripts/mm95-start.mjs --version 9.5.11
+node scripts/mm95-start.mjs --version 11.8.2
 npm run mm95:stop
 npm run open:mattermost
 npm run capture:readme
 ```
 
-`mm95:start` starts Mattermost 9.5.4 by default; use the versioned command above to start 9.5.11. `test:e2e` and screenshot capture require a reachable Mattermost test environment.
+`mm95:start` starts Mattermost 9.5.4 by default; use the versioned command above to exercise another supported major version. `test:e2e` and screenshot capture require a reachable Mattermost test environment.
 `test:soak` runs the isolated 20-minute, fixed-seed layout memory soak. It creates and later deletes 384 Mattermost test posts, keeps a large search result set loaded while cycling native right-pane surfaces and viewport widths, applies tens of thousands of allocation-bounded RHS mutations, and writes bounded heap, DOM, listener, User Timing, and layout-measurement trends under `test-results/`. Set `MM_DECK_SOAK_MINUTES` (10–120) or `MM_DECK_SOAK_SEED` before running to override the duration or seed. Use `test:soak:auto-adjust-off` to isolate automatic layout observation or `test:soak:control` to run the same Mattermost workload without the extension.
 `open:mattermost` closes its browser when the launcher exits and limits unattended sessions to eight hours by default. Set `MM95_BROWSER_MAX_LIFETIME_MINUTES` to another non-negative minute value, or `0` to disable the lifetime limit.
 
 ## Release
 
-Push a tag in `v` format, such as `v1.0.3`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
+Push a tag in `v` format, such as `v1.0.4`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
 
-- Runs type checks, unit tests, the Docker-backed Playwright E2E suite, and a Chrome Web Store build with `STORE_BUILD=true`
+- Runs type checks, unit tests, the full Mattermost 9.5.4 Playwright suite, and the release compatibility matrix for 9.5.11, 10.11.22, and 11.8.2
+- Builds the Chrome Web Store archive with `STORE_BUILD=true`, extracts that exact archive, and smoke-tests its ungranted first-run state and safe handling when Chrome cannot approve the native permission prompt
 - Packages `dist/` as `mattermost-deck-<tag>.zip`
-- Creates a GitHub Release and uploads the zip as an asset
+- Creates a SHA-256 checksum and uploads both the zip and checksum to the GitHub Release
 
 For a local release build on PowerShell:
 
@@ -199,15 +201,15 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.0.3"
+$env:EXT_VERSION = "v1.0.4"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.3.zip -Force
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.4.zip -Force
 ```
 
 The archive must contain `manifest.json` at its root. Store builds intentionally omit the localhost-only static content script; local development builds retain it for E2E testing.
 
-Before uploading to Chrome Web Store, load `dist/` as an unpacked extension in Chrome, save the test Mattermost URL, approve Chrome's native host-permission prompt, and confirm that Deck appears only on that configured origin. The native browser prompt requires a real user decision and is therefore a manual release check; CI verifies the ungranted startup state and the development build covers the injected UI end to end.
+Before uploading to Chrome Web Store, load the extracted release archive as an unpacked extension in Chrome, save the test Mattermost URL, approve Chrome's native host-permission prompt, and confirm that Deck appears only on that configured origin. The headless release smoke test verifies the exact archive's initially ungranted state and safe denial path without falsely pre-granting permission. Approval of Chrome's native prompt and the resulting Deck injection remain a required visible manual release check; the normal development E2E suite separately covers permitted injection behavior.
 
 Use [Chrome Web Store submission copy](./docs/chrome-web-store-submission.md) when maintaining the listing, privacy declarations, and permission justifications.
 

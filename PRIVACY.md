@@ -2,7 +2,7 @@
 
 Mattermost Deck processes user data only as needed to provide its single purpose: adding a multi-pane workspace to Mattermost Web.
 
-Last updated: 2026-07-25
+Last updated: 2026-07-30
 
 The canonical public version of this policy is available at:
 https://mattermost-deck.ruhenheim.org/privacy/
@@ -13,8 +13,11 @@ The extension stores configuration and UI state in the browser, including:
 - optional team slug
 - theme, language, polling interval, layout, saved views, and other display settings
 - optional preference for PAT persistence
+- optional diagnostic trace logs when trace capture is enabled; these logs are bounded, and entries older than 24 hours are pruned the next time the extension runs, writes a trace, or opens diagnostics
 
 If the user chooses to persist a Mattermost Personal Access Token (PAT), the token is stored locally in the browser with client-side encryption. Session-only storage is the default. Persistent storage is optional. This encryption helps avoid plain-text storage, but it is not a complete security boundary because the same client can decrypt it.
+
+Diagnostic trace logs contain request purpose, path, status, duration, queue wait time, and extension lifecycle events used to troubleshoot performance. They do not contain message bodies or authentication tokens.
 
 ## What data the extension processes
 To display mentions, watched channels, DMs, search results, saved items, and related Mattermost content, the extension processes data made available from the configured Mattermost server, such as Mattermost user identifiers, usernames, display names, avatars, team and channel information, message lists, search queries entered by the user, custom mention keys, user and group membership, thread notification preferences, and unread or mention state. Edited, deleted, inaccessible, and retention-deleted post state may also be processed to reconcile the visible mention feed.
@@ -34,6 +37,8 @@ Mattermost Deck's use of user data complies with the [Chrome Web Store User Data
 
 ## Data retention and user control
 Locally stored settings remain in the browser until the user changes them, clears browser extension storage, or removes the extension. Session-stored PAT data is removed when the browser session ends. Persisted PAT data can be removed by changing the extension settings, clearing extension storage, or uninstalling the extension.
+
+Turning trace capture off clears stored diagnostic logs. When trace capture remains enabled, entries older than 24 hours are pruned the next time the extension runs, writes a trace, or opens diagnostics. If Chrome remains inactive, expired entries may remain in extension storage until that next activity.
 
 ## Security
 The extension is designed to keep authentication information local to the browser and to limit network access to the user-configured Mattermost server. Users are responsible for choosing appropriately scoped Mattermost tokens and for using a securely configured Mattermost server.

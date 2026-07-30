@@ -5,14 +5,13 @@ import path from "node:path";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.json");
-const ADMIN_USERNAME = "mm95admin";
-const ADMIN_PASSWORD = "Admin1234!";
 const TRACE_CAPTURE_STORAGE_KEY = "mattermostDeck.traceCapture.v1";
 const TRACE_LOG_STORAGE_KEY = "mattermostDeck.traceEntries.v1";
 const LAYOUT_STORAGE_KEY = "mattermostDeck.layout.v1";
 
 interface E2EState {
   team: { id: string; name: string };
+  adminUser: { username: string; password: string };
   memberUser: { id: string; username: string; password: string; token: string };
 }
 
@@ -107,7 +106,10 @@ for (const specialMention of specialMentions) {
     const state = await readState();
     const extensionPath = path.resolve("./dist");
     const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-special-mentions-reload-"));
-    const adminToken = await loginViaApi(ADMIN_USERNAME, ADMIN_PASSWORD);
+    const adminToken = await loginViaApi(
+      state.adminUser.username,
+      state.adminUser.password,
+    );
     const createdChannelIds: string[] = [];
     let postId = "";
 

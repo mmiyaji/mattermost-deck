@@ -45,6 +45,7 @@ describe("UI locale coverage", () => {
     const translated = flattenLocale(resource);
     for (const key of [
       "deck.startWithChannel",
+      "deck.retry",
       "deck.failedToLoadPosts",
       "deck.loadingMentions",
       "deck.refreshingMentions",
@@ -59,7 +60,14 @@ describe("UI locale coverage", () => {
       "deck.diagnosticsTitle",
       "options.autoAdjustThreadLayoutHint",
       "options.performanceTitle",
+      "options.saveFailed",
       "options.releaseNotesOpen",
+      "options.releaseNote104Compatibility",
+      "options.releaseNote104StoreGate",
+      "options.releaseNote104BoundedMentions",
+      "options.releaseNote104Realtime",
+      "options.releaseNote104Runtime",
+      "options.releaseNote104Accessibility",
       "options.releaseNote103RhsSizing",
       "options.releaseNote103ManualResize",
       "options.releaseNote103Observation",

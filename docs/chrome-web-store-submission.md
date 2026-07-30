@@ -16,13 +16,14 @@ Mattermost Deck adds a multi-pane viewing and search workspace to Mattermost Web
 
 Mattermost Deck adds monitoring-oriented panes to the right side of Mattermost Web. Users can arrange mentions, channels, direct messages, search results with keyword highlighting, and saved posts side by side. Mattermost remains the primary interface for login, posting, editing, team navigation, and thread views.
 
-## v1.0.3 release notes
+## v1.0.4 release notes
 
-- Improved automatic sizing for threads, search results, and pinned posts by subtracting the right pane's full measured width from Deck in the same frame, preserving the pre-open main-content width without staged resizing
-- Kept mouse and keyboard resizing available while Deck is temporarily compacted, and preserves the user-selected width as a manual override
-- Bounded layout observation to Mattermost's root and canonical right pane so loading large result sets does not grow observer work or retained targets
-- Switched release builds to the React production runtime and replaced full-tree profiling with bounded render diagnostics to prevent User Timing data from accumulating during long sessions
-- Added a 20-minute fixed-seed memory soak with 384 Mattermost posts and tens of thousands of right-pane mutations; Mattermost 9.5.11 completed without a renderer crash or OOM signal
+- Bounded each channel mention scan to five 200-post pages, added network and queue timeouts, and cancelled requests when the configured server changes so a stalled or very large server cannot grow work without limit
+- Reconciles bursts of realtime mention events with one bounded refresh, applies edits and deletions immediately, and honors each user's channel-wide mention preference
+- Hands off cleanly from the previous content runtime after an extension update, removing old listeners, observers, timers, and React roots before the new bundle starts
+- Improved keyboard and screen-reader behavior for Deck dialogs, menus, retry states, Settings comboboxes, sortable performance tables, and validation errors in all supported languages
+- Added release gates for Mattermost 9.5.11, 10.11.22, and 11.8.2, exact-archive ungranted and safe-denial smoke coverage, SHA-256 release checksums, and scheduled fixed-seed monkey and memory-soak testing
+- Clarified that optional diagnostic traces are bounded and entries older than 24 hours are pruned on the extension's next activity
 
 ## Permission justifications
 

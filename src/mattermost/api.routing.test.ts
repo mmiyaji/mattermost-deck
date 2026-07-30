@@ -86,7 +86,7 @@ describe("Mattermost base path", () => {
     ]);
   });
 
-  it("loads every post since the channel-specific read marker", async () => {
+  it("loads matching posts and reply context from a bounded channel page", async () => {
     const api = await loadApi();
     vi.mocked(fetch).mockResolvedValue(response({
       order: ["reply"],
@@ -122,7 +122,7 @@ describe("Mattermost base path", () => {
       { id: "root" },
     ]);
     expect(vi.mocked(fetch)).toHaveBeenCalledWith(
-      "/company/mattermost/api/v4/channels/channel-id/posts?since=123&skipFetchThreads=false",
+      "/company/mattermost/api/v4/channels/channel-id/posts?page=0&per_page=200&skipFetchThreads=true",
       expect.any(Object),
     );
   });
@@ -161,6 +161,40 @@ describe("Mattermost base path", () => {
       { id: "middle" },
     ]);
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/company/mattermost/api/v4/channels/channel-id/posts?page=0&per_page=2&skipFetchThreads=true",
+      expect.any(Object),
+    );
+  });
+
+  it("keeps a reply and its root inside a bounded paged response", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch).mockResolvedValue(response({
+      order: ["reply"],
+      posts: {
+        root: {
+          id: "root",
+          user_id: "root-author",
+          channel_id: "channel-id",
+          create_at: 100,
+          message: "root context",
+        },
+        reply: {
+          id: "reply",
+          user_id: "reply-author",
+          channel_id: "channel-id",
+          create_at: 200,
+          message: "@alice",
+          root_id: "root",
+        },
+      },
+    }));
+
+    await expect(api.getPostsSince("channel-id", 123, 2)).resolves.toMatchObject([
+      { id: "reply", root_id: "root" },
+      { id: "root" },
+    ]);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
   });
 
   it("does not request channel posts when the maximum is zero", async () => {
@@ -168,6 +202,187 @@ describe("Mattermost base path", () => {
 
     await expect(api.getPostsSince("channel-id", 123, 0)).resolves.toEqual([]);
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("stops paging as soon as a full channel page crosses the read marker", async () => {
+    const api = await loadApi();
+    const pagePosts = Object.fromEntries(
+      Array.from({ length: 200 }, (_, index) => {
+        const id = `post-${index}`;
+        return [id, {
+          id,
+          user_id: "author",
+          channel_id: "channel-id",
+          create_at: 300 - index,
+          message: `post ${index}`,
+        }];
+      }),
+    );
+    vi.mocked(fetch).mockResolvedValue(response({
+      order: Object.keys(pagePosts),
+      posts: pagePosts,
+    }));
+
+    const result =
+      await api.getPostsSinceWithMetadata(
+        "channel-id",
+        150,
+      );
+
+    expect(result.posts).toHaveLength(150);
+    expect(result.truncated).toBe(false);
+    expect(result.nextPage).toBeNull();
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks a five-page scan for mention-only catch-up when the read marker is still older", async () => {
+    const api = await loadApi();
+    for (let page = 0; page < 5; page += 1) {
+      const pagePosts = Object.fromEntries(
+        Array.from({ length: 200 }, (_, index) => {
+          const id = `page-${page}-post-${index}`;
+          return [id, {
+            id,
+            user_id: "author",
+            channel_id: "channel-id",
+            create_at: 10_000 - (page * 200 + index),
+            message: `post ${page}/${index}`,
+          }];
+        }),
+      );
+      vi.mocked(fetch).mockResolvedValueOnce(response({
+        order: Object.keys(pagePosts),
+        posts: pagePosts,
+      }));
+    }
+
+    const result =
+      await api.getPostsSinceWithMetadata(
+        "channel-id",
+        123,
+      );
+    expect(result.posts).toHaveLength(1_000);
+    expect(result.truncated).toBe(true);
+    expect(result.nextPage).toBe(5);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(5);
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual(
+      Array.from({ length: 5 }, (_, page) =>
+        `/company/mattermost/api/v4/channels/channel-id/posts?page=${page}&per_page=200&skipFetchThreads=true`,
+      ),
+    );
+  });
+
+  it.each([
+    { maxPosts: 201, expectedPages: 2 },
+    { maxPosts: 500, expectedPages: 3 },
+  ])(
+    "keeps a constant page size without overlap for a $maxPosts-post limit",
+    async ({ maxPosts, expectedPages }) => {
+      const api = await loadApi();
+      for (let page = 0; page < expectedPages; page += 1) {
+        const pagePosts = Object.fromEntries(
+          Array.from({ length: 200 }, (_, index) => {
+            const id = `page-${page}-post-${index}`;
+            return [id, {
+              id,
+              user_id: "author",
+              channel_id: "channel-id",
+              create_at: 10_000 - (page * 200 + index),
+              message: `post ${page}/${index}`,
+            }];
+          }),
+        );
+        vi.mocked(fetch).mockResolvedValueOnce(response({
+          order: Object.keys(pagePosts),
+          posts: pagePosts,
+        }));
+      }
+
+      const posts = await api.getPostsSince("channel-id", 0, maxPosts);
+
+      expect(posts).toHaveLength(maxPosts);
+      expect(new Set(posts.map((post) => post.id)).size).toBe(maxPosts);
+      expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual(
+        Array.from({ length: expectedPages }, (_, page) =>
+          `/company/mattermost/api/v4/channels/channel-id/posts?page=${page}&per_page=200&skipFetchThreads=true`,
+        ),
+      );
+    },
+  );
+
+  it("streams continuation pages with root context until the read marker", async () => {
+    const api = await loadApi();
+    const fullPage = Object.fromEntries(
+      Array.from({ length: 200 }, (_, index) => {
+        const id = `page-5-${index}`;
+        return [id, {
+          id,
+          user_id: "author",
+          channel_id: "channel-id",
+          create_at: 500 - index,
+          message: `post ${index}`,
+        }];
+      }),
+    );
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(response({
+        order: Object.keys(fullPage),
+        posts: fullPage,
+      }))
+      .mockResolvedValueOnce(response({
+        order: ["reply"],
+        posts: {
+          root: {
+            id: "root",
+            user_id: "me",
+            channel_id: "channel-id",
+            create_at: 50,
+            message: "my root",
+          },
+          reply: {
+            id: "reply",
+            user_id: "author",
+            channel_id: "channel-id",
+            create_at: 200,
+            root_id: "root",
+            message: "implicit reply",
+          },
+        },
+      }));
+    const streamed: Array<{
+      page: number;
+      ids: string[];
+      orderedIds: string[];
+    }> = [];
+
+    await api.scanPostsSincePages(
+      "channel-id",
+      150,
+      5,
+      ({ page, posts, orderedPosts }) => {
+        streamed.push({
+          page,
+          ids: posts.map((post) => post.id),
+          orderedIds: orderedPosts.map(
+            (post) => post.id,
+          ),
+        });
+      },
+    );
+
+    expect(streamed).toHaveLength(2);
+    expect(streamed[0]).toMatchObject({
+      page: 5,
+    });
+    expect(streamed[1]).toEqual({
+      page: 6,
+      ids: ["root", "reply"],
+      orderedIds: ["reply"],
+    });
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([
+      "/company/mattermost/api/v4/channels/channel-id/posts?page=5&per_page=200&skipFetchThreads=true",
+      "/company/mattermost/api/v4/channels/channel-id/posts?page=6&per_page=200&skipFetchThreads=true",
+    ]);
   });
 
   it("reconciles retained mention posts in one bounded request", async () => {

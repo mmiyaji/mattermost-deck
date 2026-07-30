@@ -266,6 +266,7 @@ function useOptionsText() {
     save: t("options.save"),
     saving: t("options.saving"),
     saved: t("options.saved"),
+    saveFailed: t("options.saveFailed", { defaultValue: "Unable to save settings. Check the browser permissions, then try again." }),
     invalidServerUrl: t("options.invalidServerUrl"),
     permissionDenied: t("options.permissionDenied"),
     privacyPolicy: t("options.privacyPolicy"),
@@ -452,7 +453,9 @@ function MiniBarChart({ values, ariaLabel }: { values: number[]; ariaLabel: stri
   const barWidth = width / Math.max(values.length, 1);
 
   return (
-    <svg className="options-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
+    <svg className="options-chart" viewBox={`0 0 ${width} ${height}`} role="img">
+      <title>{ariaLabel}</title>
+      <desc>{values.map((value) => Math.round(value)).join(", ")}</desc>
       {values.map((value, index) => {
         const normalized = value / maxValue;
         const barHeight = Math.max(2, normalized * (height - 12));
@@ -585,11 +588,19 @@ const pageCss = `
   .options-status {
     font-size: 12px;
     color: #8facd5;
-    white-space: nowrap;
+    line-height: 1.45;
+  }
+
+  .options-status--error {
+    color: #ffb0b0;
   }
 
   body[data-theme="light"] .options-status {
     color: #496583;
+  }
+
+  body[data-theme="light"] .options-status--error {
+    color: #a52828;
   }
 
   /* Body */
@@ -750,6 +761,10 @@ const pageCss = `
 
   body[data-theme="light"] .options-sidebar-copyright {
     color: rgba(73, 101, 131, 0.5);
+  }
+
+  .options-mobile-links {
+    display: none;
   }
 
   /* Content */
@@ -1512,6 +1527,7 @@ const pageCss = `
 
   .options-table {
     width: 100%;
+    min-width: 720px;
     border-collapse: collapse;
     font-size: 12px;
   }
@@ -1540,6 +1556,11 @@ const pageCss = `
     font: inherit;
     font-weight: 600;
     cursor: pointer;
+  }
+
+  .options-table-heading {
+    color: #8facd5;
+    font-weight: 600;
   }
 
   .options-table-sort.is-active,
@@ -1600,6 +1621,10 @@ const pageCss = `
   }
 
   body[data-theme="light"] .options-table-sort {
+    color: #496583;
+  }
+
+  body[data-theme="light"] .options-table-heading {
     color: #496583;
   }
 
@@ -1753,6 +1778,7 @@ const pageCss = `
   }
 
   .options-content .mm-custom-select-option:hover,
+  .options-content .mm-custom-select-option--focused,
   .options-content .mm-custom-select-option--selected {
     background: rgba(123, 178, 255, 0.12);
   }
@@ -1789,6 +1815,32 @@ const pageCss = `
     .options-nav-item span:last-child { display: none; }
     .options-nav-icon { margin: 0 auto; }
     .options-sidebar-footer { display: none; }
+    .options-mobile-links {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 14px;
+      margin: 0 16px 16px;
+      padding: 14px;
+      border: 1px solid rgba(123, 178, 255, 0.12);
+      border-radius: 10px;
+      background: rgba(123, 178, 255, 0.05);
+      font-size: 12px;
+    }
+    .options-mobile-links a {
+      color: #7bb2ff;
+    }
+    .options-mobile-links .options-sidebar-open-btn {
+      flex: 1 0 100%;
+      margin-bottom: 2px;
+    }
+    body[data-theme="light"] .options-mobile-links {
+      border-color: rgba(84, 120, 168, 0.18);
+      background: rgba(255, 255, 255, 0.5);
+    }
+    body[data-theme="light"] .options-mobile-links a {
+      color: #075fae;
+    }
     .options-grid, .options-grid--target { grid-template-columns: 1fr; }
     .options-banner-stack { padding: 16px 16px 0; }
     .options-release-banner { grid-template-columns: minmax(0, 1fr); }
@@ -1798,6 +1850,17 @@ const pageCss = `
     .options-panel { padding: 16px; }
     .options-save-footer { padding: 12px 16px; }
     .options-save-footer-inner { max-width: 100%; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .options-app *,
+    .options-app *::before,
+    .options-app *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 `;
 
@@ -1875,7 +1938,8 @@ function OptionsApp(): React.JSX.Element {
 
   useEffect(() => {
     if (showInstallBanner) {
-      installBannerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+      installBannerRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "nearest" });
     }
   }, [showInstallBanner]);
 
@@ -2144,7 +2208,10 @@ function OptionsApp(): React.JSX.Element {
       })
       .slice(0, 40);
   }, [apiTraceLogEntries, recentTraceSort]);
-  const serverUrlMissing = settings.serverUrl.trim().length === 0;
+  const serverUrlMissing = loaded && settings.serverUrl.trim().length === 0;
+  const serverUrlFieldError = saveError === text.invalidServerUrl
+    ? text.invalidServerUrl
+    : (serverUrlMissing ? t("options.serverUrlRequiredHint") : null);
 
   const handleSave = async () => {
     const normalizedServerUrl = normaliseServerUrl(settings.serverUrl);
@@ -2185,6 +2252,9 @@ function OptionsApp(): React.JSX.Element {
       setSavedNotice(true);
       if (isFirstSave) setShowInstallBanner(true);
       window.setTimeout(() => setSavedNotice(false), 2500);
+    } catch (error) {
+      console.error("[Mattermost Deck] Failed to save settings", error);
+      setSaveError(text.saveFailed);
     } finally {
       setSaving(false);
     }
@@ -2371,6 +2441,23 @@ function OptionsApp(): React.JSX.Element {
   };
   const currentReleaseNotes = useMemo(() => {
     if (!releaseNotice) return null;
+    if (releaseNotice.version === "1.0.4") {
+      return {
+        title: "v1.0.4",
+        added: [
+          t("options.releaseNote104Compatibility"),
+          t("options.releaseNote104StoreGate"),
+        ],
+        changed: [
+          t("options.releaseNote104BoundedMentions"),
+          t("options.releaseNote104Realtime"),
+        ],
+        fixed: [
+          t("options.releaseNote104Runtime"),
+          t("options.releaseNote104Accessibility"),
+        ],
+      } satisfies ReleaseNotes;
+    }
     if (releaseNotice.version === "1.0.3") {
       return {
         title: "v1.0.3",
@@ -2793,17 +2880,25 @@ function OptionsApp(): React.JSX.Element {
                     </span>
                   </span>
                   <input
-                    className={`options-input${serverUrlMissing ? " options-input--required-missing" : ""}`}
+                    id="mattermost-server-url"
+                    className={`options-input${serverUrlFieldError ? " options-input--required-missing" : ""}`}
                     type="url"
                     placeholder={text.serverUrlPlaceholder}
                     value={settings.serverUrl}
-                    onChange={(e) => setSettings((s) => ({ ...s, serverUrl: e.target.value }))}
+                    aria-invalid={Boolean(serverUrlFieldError)}
+                    aria-describedby={serverUrlFieldError ? "mattermost-server-url-error" : undefined}
+                    onChange={(e) => {
+                      setSettings((s) => ({ ...s, serverUrl: e.target.value }));
+                      if (saveError) {
+                        setSaveError(null);
+                      }
+                    }}
                     autoComplete="off"
                     spellCheck={false}
                   />
-                  {serverUrlMissing && (
-                    <span className="options-required-hint">
-                      {t("options.serverUrlRequiredHint")}
+                  {serverUrlFieldError && (
+                    <span id="mattermost-server-url-error" className="options-required-hint">
+                      {serverUrlFieldError}
                     </span>
                   )}
                 </label>
@@ -2891,29 +2986,33 @@ function OptionsApp(): React.JSX.Element {
               <div className="options-subsection">
                 <span className="options-subsection-label">{text.profilesSectionLabel}</span>
                 <div className="options-grid">
-                  <label className="options-field">
-                    <span className="options-label">{text.currentProfileLabel}</span>
+                  <div className="options-field">
+                    <span id="current-profile-label" className="options-label">{text.currentProfileLabel}</span>
                     <CustomSelect
                       options={profileOptions}
                       value={activeProfileId}
                       placeholder={text.currentProfilePlaceholder}
                       allowClear={false}
+                      ariaLabelledBy="current-profile-label"
+                      ariaDescribedBy="current-profile-hint"
                       onChange={(value) => void handleSwitchProfile(value)}
                       disabled={profiles.length === 0}
                     />
-                    <span className="options-hint">
+                    <span id="current-profile-hint" className="options-hint">
                       {targetProfileOrigin
                         ? t("options.profilesForOrigin", { origin: targetProfileOrigin })
                         : text.profilesNeedsConnection}
                     </span>
-                  </label>
-                  <label className="options-field">
-                    <span className="options-label">{text.createProfileLabel}</span>
+                  </div>
+                  <div className="options-field">
+                    <span id="create-profile-label" className="options-label">{text.createProfileLabel}</span>
                     <div className="options-inline">
                       <input
                         className="options-input"
                         type="text"
                         value={newProfileName}
+                        aria-labelledby="create-profile-label"
+                        aria-describedby="create-profile-hint"
                         onChange={(e) => setNewProfileName(e.target.value)}
                         placeholder={text.createProfilePlaceholder}
                         autoComplete="off"
@@ -2928,15 +3027,17 @@ function OptionsApp(): React.JSX.Element {
                         {text.createProfileButton}
                       </button>
                     </div>
-                    <span className="options-hint">{text.createProfileHint}</span>
-                  </label>
-                  <label className="options-field">
-                    <span className="options-label">{text.manageCurrentProfileLabel}</span>
+                    <span id="create-profile-hint" className="options-hint">{text.createProfileHint}</span>
+                  </div>
+                  <div className="options-field">
+                    <span id="manage-profile-label" className="options-label">{text.manageCurrentProfileLabel}</span>
                     <div className="options-inline">
                       <input
                         className="options-input"
                         type="text"
                         value={renameProfileName}
+                        aria-labelledby="manage-profile-label"
+                        aria-describedby="manage-profile-hint"
                         onChange={(e) => setRenameProfileName(e.target.value)}
                         placeholder={text.renameCurrentProfilePlaceholder}
                         autoComplete="off"
@@ -2970,8 +3071,8 @@ function OptionsApp(): React.JSX.Element {
                         {text.deleteProfileButton}
                       </button>
                     </div>
-                    <span className="options-hint">{text.deleteProfileHint}</span>
-                  </label>
+                    <span id="manage-profile-hint" className="options-hint">{text.deleteProfileHint}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -3011,14 +3112,16 @@ function OptionsApp(): React.JSX.Element {
               </div>
 
               <div className="options-grid">
-                <label className="options-field">
-                  <span className="options-label">{text.patLabel}</span>
+                <div className="options-field">
+                  <span id="pat-label" className="options-label">{text.patLabel}</span>
                   <div className="options-inline">
                     <input
                       className="options-input"
                       type={showPat ? "text" : "password"}
                       placeholder={text.patPlaceholder}
                       value={settings.wsPat}
+                      aria-labelledby="pat-label"
+                      aria-describedby="pat-storage-hint"
                       onChange={(e) => setSettings((s) => ({ ...s, wsPat: e.target.value }))}
                       autoComplete="off"
                       spellCheck={false}
@@ -3031,7 +3134,7 @@ function OptionsApp(): React.JSX.Element {
                       {showPat ? text.hide : text.show}
                     </button>
                   </div>
-                  <div className="options-choice-row" role="radiogroup" aria-label={text.patStorageLabel}>
+                  <div className="options-choice-row" role="radiogroup" aria-label={text.patStorageLabel} aria-describedby="pat-storage-hint">
                     <label className="options-choice">
                       <input
                         type="radio"
@@ -3051,8 +3154,8 @@ function OptionsApp(): React.JSX.Element {
                       <span>{patStoragePersistentLabel}</span>
                     </label>
                   </div>
-                  <span className="options-hint">{patStorageHint}</span>
-                </label>
+                  <span id="pat-storage-hint" className="options-hint">{patStorageHint}</span>
+                </div>
                 <label className="options-field">
                   <span className="options-label">{text.pollingLabel}</span>
                   <input
@@ -3089,26 +3192,28 @@ function OptionsApp(): React.JSX.Element {
               </div>
 
               <div className="options-grid">
-                <label className="options-field">
-                  <span className="options-label">{text.themeLabel}</span>
+                <div className="options-field">
+                  <span id="theme-label" className="options-label">{text.themeLabel}</span>
                   <CustomSelect
                     options={themeOptions}
                     value={settings.theme}
                     placeholder={text.themeSystem}
                     allowClear={false}
+                    ariaLabelledBy="theme-label"
                     onChange={(v) => setSettings((s) => ({ ...s, theme: v as DeckTheme }))}
                   />
-                </label>
-                <label className="options-field">
-                  <span className="options-label">{text.languageLabel}</span>
+                </div>
+                <div className="options-field">
+                  <span id="language-label" className="options-label">{text.languageLabel}</span>
                   <CustomSelect
                     options={languageOptions}
                     value={settings.language}
                     placeholder={text.languageJa}
                     allowClear={false}
+                    ariaLabelledBy="language-label"
                     onChange={(v) => setSettings((s) => ({ ...s, language: v as DeckLanguage }))}
                   />
-                </label>
+                </div>
                 <label className="options-field">
                   <span className="options-label">{text.fontScaleLabel}</span>
                   <input
@@ -3184,28 +3289,32 @@ function OptionsApp(): React.JSX.Element {
                   />
                   <span className="options-hint">{text.columnWidthHint}</span>
                 </label>
-                <label className="options-field">
-                  <span className="options-label">{text.compactModeLabel}</span>
+                <div className="options-field">
+                  <span id="compact-mode-label" className="options-label">{text.compactModeLabel}</span>
                   <label className="options-choice">
                     <input
                       type="checkbox"
                       checked={settings.compactMode}
+                      aria-labelledby="compact-mode-label"
+                      aria-describedby="compact-mode-hint"
                       onChange={(e) => setSettings((s) => ({ ...s, compactMode: e.target.checked }))}
                     />
-                    <span>{text.compactModeHint}</span>
+                    <span id="compact-mode-hint">{text.compactModeHint}</span>
                   </label>
-                </label>
-                <label className="options-field">
-                  <span className="options-label">{text.showImagePreviewsLabel}</span>
+                </div>
+                <div className="options-field">
+                  <span id="image-previews-label" className="options-label">{text.showImagePreviewsLabel}</span>
                   <label className="options-choice">
                     <input
                       type="checkbox"
                       checked={settings.showImagePreviews}
+                      aria-labelledby="image-previews-label"
+                      aria-describedby="image-previews-hint"
                       onChange={(e) => setSettings((s) => ({ ...s, showImagePreviews: e.target.checked }))}
                     />
-                    <span>{text.showImagePreviewsHint}</span>
+                    <span id="image-previews-hint">{text.showImagePreviewsHint}</span>
                   </label>
-                </label>
+                </div>
               </div>
 
               <div className="options-divider" />
@@ -3251,17 +3360,19 @@ function OptionsApp(): React.JSX.Element {
               </div>
 
               <div className="options-grid">
-                <label className="options-field">
-                  <span className="options-label">{text.postClickActionLabel}</span>
+                <div className="options-field">
+                  <span id="post-click-action-label" className="options-label">{text.postClickActionLabel}</span>
                   <CustomSelect
                     options={postClickActionOptions}
                     value={settings.postClickAction}
                     placeholder={t("options.postClickNavigate")}
                     allowClear={false}
+                    ariaLabelledBy="post-click-action-label"
+                    ariaDescribedBy="post-click-action-hint"
                     onChange={(v) => setSettings((s) => ({ ...s, postClickAction: v as PostClickAction }))}
                   />
-                  <span className="options-hint">{text.postClickActionHint}</span>
-                </label>
+                  <span id="post-click-action-hint" className="options-hint">{text.postClickActionHint}</span>
+                </div>
                 <label className="options-field">
                   <span className="options-label">{text.highlightKeywordsLabel}</span>
                   <input
@@ -3275,28 +3386,32 @@ function OptionsApp(): React.JSX.Element {
                   />
                   <span className="options-hint">{text.highlightKeywordsHint}</span>
                 </label>
-                <label className="options-field">
-                  <span className="options-label">{text.highZIndexLabel}</span>
+                <div className="options-field">
+                  <span id="high-z-index-label" className="options-label">{text.highZIndexLabel}</span>
                   <label className="options-choice">
                     <input
                       type="checkbox"
                       checked={settings.highZIndex}
+                      aria-labelledby="high-z-index-label"
+                      aria-describedby="high-z-index-hint"
                       onChange={(e) => setSettings((s) => ({ ...s, highZIndex: e.target.checked }))}
                     />
-                    <span>{text.highZIndexHint}</span>
+                    <span id="high-z-index-hint">{text.highZIndexHint}</span>
                   </label>
-                </label>
-                <label className="options-field">
-                  <span className="options-label">{text.reversedPostOrderLabel}</span>
+                </div>
+                <div className="options-field">
+                  <span id="reversed-post-order-label" className="options-label">{text.reversedPostOrderLabel}</span>
                   <label className="options-choice">
                     <input
                       type="checkbox"
                       checked={settings.reversedPostOrder}
+                      aria-labelledby="reversed-post-order-label"
+                      aria-describedby="reversed-post-order-hint"
                       onChange={(e) => setSettings((s) => ({ ...s, reversedPostOrder: e.target.checked }))}
                     />
-                    <span>{text.reversedPostOrderHint}</span>
+                    <span id="reversed-post-order-hint">{text.reversedPostOrderHint}</span>
                   </label>
-                </label>
+                </div>
               </div>
 
             </div>
@@ -3440,7 +3555,7 @@ function OptionsApp(): React.JSX.Element {
                       <table className="options-table">
                         <thead>
                           <tr>
-                            <th>
+                            <th aria-sort={endpointSummarySort.key === "purpose" ? (endpointSummarySort.direction === "asc" ? "ascending" : "descending") : "none"}>
                               <SortableHeader
                                 active={endpointSummarySort.key === "purpose"}
                                 direction={endpointSummarySort.direction}
@@ -3452,9 +3567,9 @@ function OptionsApp(): React.JSX.Element {
                               />
                             </th>
                             <th>
-                              <span className="options-table-sort is-active">{text.performanceEndpoint}</span>
+                              <span className="options-table-heading">{text.performanceEndpoint}</span>
                             </th>
-                            <th>
+                            <th aria-sort={endpointSummarySort.key === "count" ? (endpointSummarySort.direction === "asc" ? "ascending" : "descending") : "none"}>
                               <SortableHeader
                                 active={endpointSummarySort.key === "count"}
                                 direction={endpointSummarySort.direction}
@@ -3465,7 +3580,7 @@ function OptionsApp(): React.JSX.Element {
                                 }))}
                               />
                             </th>
-                            <th>
+                            <th aria-sort={endpointSummarySort.key === "avgLatencyMs" ? (endpointSummarySort.direction === "asc" ? "ascending" : "descending") : "none"}>
                               <SortableHeader
                                 active={endpointSummarySort.key === "avgLatencyMs"}
                                 direction={endpointSummarySort.direction}
@@ -3476,7 +3591,7 @@ function OptionsApp(): React.JSX.Element {
                                 }))}
                               />
                             </th>
-                            <th>
+                            <th aria-sort={endpointSummarySort.key === "p95LatencyMs" ? (endpointSummarySort.direction === "asc" ? "ascending" : "descending") : "none"}>
                               <SortableHeader
                                 active={endpointSummarySort.key === "p95LatencyMs"}
                                 direction={endpointSummarySort.direction}
@@ -3487,7 +3602,7 @@ function OptionsApp(): React.JSX.Element {
                                 }))}
                               />
                             </th>
-                            <th>
+                            <th aria-sort={endpointSummarySort.key === "errorRate" ? (endpointSummarySort.direction === "asc" ? "ascending" : "descending") : "none"}>
                               <SortableHeader
                                 active={endpointSummarySort.key === "errorRate"}
                                 direction={endpointSummarySort.direction}
@@ -3504,10 +3619,10 @@ function OptionsApp(): React.JSX.Element {
                           {endpointSummaryRows.map(({ path, count, purpose, avgLatencyMs, p95LatencyMs, errorCount }) => (
                             <tr key={path}>
                               <td>
-                                <div className="options-table-url">{path}</div>
+                                <div className="options-table-main" title={`${purpose}\n${path}`}>{purpose}</div>
                               </td>
                               <td>
-                                <div className="options-table-main" title={`${purpose}\n${path}`}>{purpose}</div>
+                                <div className="options-table-url">{path}</div>
                               </td>
                               <td>{count}</td>
                               <td>{formatMs(avgLatencyMs)}</td>
@@ -3532,7 +3647,7 @@ function OptionsApp(): React.JSX.Element {
                       <table className="options-table">
                         <thead>
                           <tr>
-                            <th>
+                            <th aria-sort={recentTraceSort.key === "timestamp" ? (recentTraceSort.direction === "asc" ? "ascending" : "descending") : "none"}>
                               <SortableHeader
                                 active={recentTraceSort.key === "timestamp"}
                                 direction={recentTraceSort.direction}
@@ -3543,7 +3658,7 @@ function OptionsApp(): React.JSX.Element {
                                 }))}
                               />
                             </th>
-                            <th>
+                            <th aria-sort={recentTraceSort.key === "purpose" ? (recentTraceSort.direction === "asc" ? "ascending" : "descending") : "none"}>
                               <SortableHeader
                                 active={recentTraceSort.key === "purpose"}
                                 direction={recentTraceSort.direction}
@@ -3555,9 +3670,9 @@ function OptionsApp(): React.JSX.Element {
                               />
                             </th>
                             <th>
-                              <span className="options-table-sort is-active">{text.performanceEndpointUrl}</span>
+                              <span className="options-table-heading">{text.performanceEndpointUrl}</span>
                             </th>
-                            <th>
+                            <th aria-sort={recentTraceSort.key === "status" ? (recentTraceSort.direction === "asc" ? "ascending" : "descending") : "none"}>
                               <SortableHeader
                                 active={recentTraceSort.key === "status"}
                                 direction={recentTraceSort.direction}
@@ -3568,7 +3683,7 @@ function OptionsApp(): React.JSX.Element {
                                 }))}
                               />
                             </th>
-                            <th>
+                            <th aria-sort={recentTraceSort.key === "durationMs" ? (recentTraceSort.direction === "asc" ? "ascending" : "descending") : "none"}>
                               <SortableHeader
                                 active={recentTraceSort.key === "durationMs"}
                                 direction={recentTraceSort.direction}
@@ -3580,10 +3695,10 @@ function OptionsApp(): React.JSX.Element {
                               />
                             </th>
                             <th>
-                              <span className="options-table-sort is-active">{text.performanceMethod}</span>
+                              <span className="options-table-heading">{text.performanceMethod}</span>
                             </th>
                             <th>
-                              <span className="options-table-sort is-active">{text.performanceQueue}</span>
+                              <span className="options-table-heading">{text.performanceQueue}</span>
                             </th>
                           </tr>
                         </thead>
@@ -3626,12 +3741,51 @@ function OptionsApp(): React.JSX.Element {
             </div>
           )}
 
+          <nav className="options-mobile-links" aria-label={text.officialWebsite}>
+            <button
+              type="button"
+              className="options-sidebar-open-btn"
+              disabled={!settings.serverUrl}
+              onClick={() => {
+                if (settings.serverUrl) {
+                  void chrome.tabs.create({ url: settings.serverUrl });
+                }
+              }}
+            >
+              {text.openMattermost}
+            </button>
+            {STORE_URL && (
+              <a href={STORE_URL} target="_blank" rel="noreferrer">{text.storeLink}</a>
+            )}
+            <a href={PRODUCT_SITE_URL} target="_blank" rel="noopener noreferrer">{text.officialWebsite}</a>
+            <a href={PRIVACY_URL} target="_blank" rel="noreferrer">{text.privacyPolicy}</a>
+            <a href={TERMS_URL} target="_blank" rel="noreferrer">{text.termsOfUse}</a>
+            <a href={REPO_URL} target="_blank" rel="noreferrer">{text.github}</a>
+          </nav>
+
           </div>{/* options-panel-scroll */}
 
           {/* Save footer */}
           <footer className="options-save-footer">
             <div className="options-save-footer-inner">
-              <span className="options-status">
+              <span
+                id="options-save-status"
+                className={`options-status${saveError ? " options-status--error" : ""}`}
+                role={saveError ? "alert" : "status"}
+                aria-live={saveError ? "assertive" : "polite"}
+                aria-atomic="true"
+                data-status-code={
+                  saveError === text.permissionDenied
+                    ? "permission-denied"
+                    : saveError === text.invalidServerUrl
+                      ? "invalid-server-url"
+                      : saveError
+                        ? "save-failed"
+                        : savedNotice
+                          ? "saved"
+                          : undefined
+                }
+              >
                 {loaded ? saveError ?? (savedNotice ? text.saved : "") : text.saving}
               </span>
               <button
@@ -3639,6 +3793,7 @@ function OptionsApp(): React.JSX.Element {
                 className="options-button"
                 onClick={() => void handleSave()}
                 disabled={!loaded || saving}
+                aria-describedby="options-save-status"
               >
                 {saving ? text.saving : text.save}
               </button>

@@ -20,9 +20,9 @@ export const railCssText = `
     --deck-topbar-text-soft: var(--deck-text-soft);
     --deck-font-scale: 1;
     --deck-column-width: 320px;
-    --deck-accent: #1c58d9;
-    --deck-accent-strong: #166de0;
-    --deck-accent-soft: rgba(28, 88, 217, 0.18);
+    --deck-accent: #8ab4ff;
+    --deck-accent-strong: #b8d0ff;
+    --deck-accent-soft: rgba(138, 180, 255, 0.18);
     --deck-accent-text: #ffffff;
     --deck-button-bg: #1c58d9;
     --deck-button-text: #ffffff;
@@ -82,7 +82,7 @@ export const railCssText = `
     --deck-border-strong: rgba(63, 91, 129, 0.18);
     --deck-text: #1f2d3d;
     --deck-text-soft: #51657d;
-    --deck-text-faint: #6b7f98;
+    --deck-text-faint: #5f728a;
     --deck-accent: #1c58d9;
     --deck-accent-strong: #166de0;
     --deck-accent-soft: rgba(28, 88, 217, 0.1);
@@ -2423,6 +2423,13 @@ export const railCssText = `
   }
 
   @media (prefers-reduced-motion: reduce) {
+    * {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+
     .deck-loading-spinner,
     .deck-refresh-icon--spinning,
     .deck-loading-skeleton {

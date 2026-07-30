@@ -97,6 +97,26 @@ interface MattermostPostList {
   has_next?: boolean;
 }
 
+export interface MattermostPostsSinceResult {
+  posts: MattermostPost[];
+  /**
+   * True when the bounded page scan filled its budget before reaching the
+   * channel read marker. Callers can then use a mention-only search catch-up
+   * without retaining every intervening channel post.
+  */
+  truncated: boolean;
+  /** First unscanned ordinary channel page when truncated, otherwise null. */
+  nextPage: number | null;
+}
+
+export interface MattermostPostsSincePage {
+  page: number;
+  /** The page's ordinary ordered posts plus bounded root context. */
+  posts: MattermostPost[];
+  /** Only posts present in the server's page order, newest first. */
+  orderedPosts: MattermostPost[];
+}
+
 export interface TeamUnread {
   team_id: string;
   msg_count: number;
@@ -155,6 +175,8 @@ type ApiLogLevel = "info" | "warn" | "error";
 const GET_BURST_GUARD_TTL_MS = 1_000;
 const RECENT_GET_RESPONSE_MAX_ENTRIES = 200;
 const API_REQUEST_MIN_GAP_MS = 120;
+const API_REQUEST_TIMEOUT_MS = 20_000;
+const API_QUEUE_WAIT_TIMEOUT_MS = 30_000;
 const API_METRICS_RETENTION_MS = 60_000;
 const API_METRICS_TPS_BUCKET_MS = 3_000;
 const API_METRICS_TPS_BUCKETS = 20;
@@ -171,9 +193,12 @@ const CHANNEL_LOOKUP_CACHE_TTL_MS = 5 * 60 * 1_000;
 const MENTION_METADATA_CACHE_TTL_MS = 30 * 1_000;
 const POST_BY_ID_CACHE_RETENTION_MS = 5 * 60 * 1_000;
 const POST_BY_ID_CACHE_MAX_ENTRIES = 2_000;
+const POSTS_SINCE_MAX = 1_000;
+const POSTS_PAGE_LIMIT = 200;
 let configuredMattermostServerUrl = "";
 let configuredMattermostBasePath = "";
 let apiServerGeneration = 0;
+let apiServerConfigurationGeneration = 0;
 
 export function configureMattermostBaseUrl(serverUrl: string): void {
   let nextServerUrl = "";
@@ -200,6 +225,7 @@ export function configureMattermostBaseUrl(serverUrl: string): void {
   configuredMattermostServerUrl = nextServerUrl;
   configuredMattermostBasePath = nextBasePath;
   apiServerGeneration += 1;
+  apiServerConfigurationGeneration += 1;
   clearMattermostApiCaches();
 }
 
@@ -302,6 +328,7 @@ const clientConfigCache = new Map<string, { expiresAt: number; config: Mattermos
 const postByIdCache = new Map<string, { fetchedAt: number; post: MattermostPost | null }>();
 const inflightPostByIdLookups = new Map<string, Promise<MattermostPost | null>>();
 const postByIdLookupTokens = new Map<string, symbol>();
+const activeRequestControllers = new Set<AbortController>();
 const globalRateBucket: ApiRateBucket = createRateBucket(API_GLOBAL_RATE_LIMIT_BURST, API_GLOBAL_RATE_LIMIT_PER_MINUTE);
 const methodRateBuckets: Record<"GET" | "POST", ApiRateBucket> = {
   GET: createRateBucket(API_GET_RATE_LIMIT_BURST, API_GET_RATE_LIMIT_PER_MINUTE),
@@ -339,9 +366,13 @@ function clearMattermostResponseCaches(includePostLookups = true): void {
 }
 
 function clearMattermostApiCaches(): void {
+  for (const controller of activeRequestControllers) {
+    controller.abort();
+  }
   clearMattermostResponseCaches();
-  requestQueue = Promise.resolve();
-  nextRequestAt = 0;
+  // Keep the scheduler chain intact while aborted requests unwind. Replacing
+  // it here would let a request for the new server run concurrently with an
+  // older request that has not reached its finally block yet.
 }
 
 export function invalidateMentionMetadataCaches(): void {
@@ -443,11 +474,84 @@ function refillRateBucket(bucket: ApiRateBucket, now: number): void {
   bucket.lastRefillAt = now;
 }
 
-async function waitForRateLimit(method: "GET" | "POST"): Promise<number> {
+class ApiRequestTimeoutError extends Error {
+  constructor(stage: "queue" | "network", timeoutMs: number) {
+    super(`mattermost_api_timeout:${stage}:${timeoutMs}`);
+    this.name = "ApiRequestTimeoutError";
+  }
+}
+
+class ApiServerChangedError extends Error {
+  constructor() {
+    super("mattermost_api_server_changed");
+    this.name = "ApiServerChangedError";
+  }
+}
+
+function assertApiServerConfiguration(
+  generation: number,
+): void {
+  if (generation !== apiServerConfigurationGeneration) {
+    throw new ApiServerChangedError();
+  }
+}
+
+function schedulerNow(): number {
+  return typeof globalThis.performance?.now === "function"
+    ? globalThis.performance.now()
+    : Date.now();
+}
+
+async function waitForDurationWithinDeadline(
+  durationMs: number,
+  deadline: number,
+): Promise<void> {
+  const remainingMs = deadline - schedulerNow();
+  if (remainingMs <= 0 || durationMs > remainingMs) {
+    throw new ApiRequestTimeoutError("queue", API_QUEUE_WAIT_TIMEOUT_MS);
+  }
+  await new Promise((resolve) => window.setTimeout(resolve, durationMs));
+}
+
+async function waitForPromiseWithinDeadline(
+  promise: Promise<void>,
+  deadline: number,
+): Promise<void> {
+  const remainingMs = deadline - schedulerNow();
+  if (remainingMs <= 0) {
+    throw new ApiRequestTimeoutError("queue", API_QUEUE_WAIT_TIMEOUT_MS);
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      promise,
+      new Promise<void>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new ApiRequestTimeoutError("queue", API_QUEUE_WAIT_TIMEOUT_MS)),
+          remainingMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+async function waitForRateLimit(
+  method: "GET" | "POST",
+  deadline: number,
+  serverConfigurationGeneration: number,
+): Promise<number> {
   const buckets = [globalRateBucket, methodRateBuckets[method]];
   let waitedMs = 0;
 
   while (true) {
+    assertApiServerConfiguration(
+      serverConfigurationGeneration,
+    );
     const now = Date.now();
     buckets.forEach((bucket) => refillRateBucket(bucket, now));
     const blockingBucket = buckets.find((bucket) => bucket.tokens < 1);
@@ -461,7 +565,36 @@ async function waitForRateLimit(method: "GET" | "POST"): Promise<number> {
 
     const waitMs = Math.max(50, Math.ceil((1 - blockingBucket.tokens) / blockingBucket.refillPerMs));
     waitedMs += waitMs;
-    await new Promise((resolve) => window.setTimeout(resolve, waitMs));
+    await waitForDurationWithinDeadline(waitMs, deadline);
+  }
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+): Promise<Response> {
+  const controller = new AbortController();
+  activeRequestControllers.add(controller);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      fetch(input, {
+        ...init,
+        signal: controller.signal,
+      }),
+      new Promise<Response>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new ApiRequestTimeoutError("network", API_REQUEST_TIMEOUT_MS));
+        }, API_REQUEST_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+    activeRequestControllers.delete(controller);
   }
 }
 
@@ -469,6 +602,8 @@ async function performMeasuredFetch(
   method: "GET" | "POST",
   pathname: string,
   request: () => Promise<Response>,
+  serverConfigurationGeneration:
+    number = apiServerConfigurationGeneration,
 ): Promise<Response> {
   totalRequests += 1;
   if (method === "GET") {
@@ -484,10 +619,14 @@ async function performMeasuredFetch(
 
   try {
     const queueEnteredAt = Date.now();
-    const response = await scheduleApiRequest(method, async () => {
-      queueWaitMs = Date.now() - queueEnteredAt;
-      return await request();
-    });
+    const response = await scheduleApiRequest(
+      method,
+      async () => {
+        queueWaitMs = Date.now() - queueEnteredAt;
+        return await request();
+      },
+      serverConfigurationGeneration,
+    );
     const finishedAt = Date.now();
     const durationMs = finishedAt - startedAt;
     failed = !response.ok;
@@ -551,38 +690,69 @@ async function performMeasuredFetch(
   }
 }
 
-async function scheduleApiRequest<T>(method: "GET" | "POST", task: () => Promise<T>): Promise<T> {
+async function scheduleApiRequest<T>(
+  method: "GET" | "POST",
+  task: () => Promise<T>,
+  serverConfigurationGeneration: number,
+): Promise<T> {
+  const deadline = schedulerNow() + API_QUEUE_WAIT_TIMEOUT_MS;
   let release!: () => void;
   const waitTurn = new Promise<void>((resolve) => {
     release = () => resolve();
   });
   const previous = requestQueue;
   requestQueue = previous.then(() => waitTurn);
-  await previous;
-
-  const rateLimitWaitMs = await waitForRateLimit(method);
-  if (rateLimitWaitMs > 0) {
-    addTraceEntry({
-      source: "api",
-      level: "warn",
-      event: "request.rate_limit_wait",
-      payload: {
-        method,
-        waitMs: Math.round(rateLimitWaitMs),
-      },
-    });
-    emitApiLog("warn", `${method} rate-limit ${Math.round(rateLimitWaitMs)}ms`);
-  }
-
-  const delay = Math.max(0, nextRequestAt - Date.now());
-  if (delay > 0) {
-    await new Promise((resolve) => window.setTimeout(resolve, delay));
-  }
+  let requestSlotUsed = false;
 
   try {
+    await waitForPromiseWithinDeadline(previous, deadline);
+    // Drop requests queued for a previous profile before they consume rate
+    // tokens or the inter-request gap. This lets the first request for the
+    // newly configured server run as soon as the active request unwinds.
+    assertApiServerConfiguration(
+      serverConfigurationGeneration,
+    );
+
+    const rateLimitWaitMs = await waitForRateLimit(
+      method,
+      deadline,
+      serverConfigurationGeneration,
+    );
+    assertApiServerConfiguration(
+      serverConfigurationGeneration,
+    );
+    if (rateLimitWaitMs > 0) {
+      addTraceEntry({
+        source: "api",
+        level: "warn",
+        event: "request.rate_limit_wait",
+        payload: {
+          method,
+          waitMs: Math.round(rateLimitWaitMs),
+        },
+      });
+      emitApiLog("warn", `${method} rate-limit ${Math.round(rateLimitWaitMs)}ms`);
+    }
+
+    // nextRequestAt uses wall time so a normal forward clock adjustment does
+    // not stall the queue. Clamp a backwards adjustment to one normal gap.
+    const delay = Math.min(
+      API_REQUEST_MIN_GAP_MS,
+      Math.max(0, nextRequestAt - Date.now()),
+    );
+    if (delay > 0) {
+      await waitForDurationWithinDeadline(delay, deadline);
+    }
+    assertApiServerConfiguration(
+      serverConfigurationGeneration,
+    );
+
+    requestSlotUsed = true;
     return await task();
   } finally {
-    nextRequestAt = Date.now() + API_REQUEST_MIN_GAP_MS;
+    if (requestSlotUsed) {
+      nextRequestAt = Date.now() + API_REQUEST_MIN_GAP_MS;
+    }
     release();
   }
 }
@@ -592,6 +762,8 @@ async function apiGet<T>(
   { fresh = false }: { fresh?: boolean } = {},
 ): Promise<T> {
   const generation = apiServerGeneration;
+  const serverConfigurationGeneration =
+    apiServerConfigurationGeneration;
   const cacheKey = getGenerationCacheKey(pathname, generation);
   const requestPath = getApiPath(pathname);
   const now = Date.now();
@@ -618,15 +790,23 @@ async function apiGet<T>(
     ?.slice("MMCSRF=".length);
 
   const request = (async () => {
-    const response = await performMeasuredFetch("GET", pathname, async () =>
-      await fetch(requestPath, {
-        credentials: "include",
-        headers: {
-          Accept: "application/json",
-          "X-Requested-With": "XMLHttpRequest",
-          ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
-        },
-      }),
+    const response = await performMeasuredFetch(
+      "GET",
+      pathname,
+      async () => {
+        assertApiServerConfiguration(
+          serverConfigurationGeneration,
+        );
+        return await fetchWithTimeout(requestPath, {
+          credentials: "include",
+          headers: {
+            Accept: "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
+          },
+        });
+      },
+      serverConfigurationGeneration,
     );
 
     if (!response.ok) {
@@ -657,42 +837,62 @@ async function apiGet<T>(
 }
 
 async function apiGetAbsolute(pathname: string): Promise<Response> {
+  const serverConfigurationGeneration =
+    apiServerConfigurationGeneration;
   const csrfToken = document.cookie
     .split("; ")
     .find((entry) => entry.startsWith("MMCSRF="))
     ?.slice("MMCSRF=".length);
 
-  return await performMeasuredFetch("GET", pathname, async () =>
-    await fetch(pathname, {
-      credentials: "include",
-      headers: {
-        Accept: "application/json",
-        "X-Requested-With": "XMLHttpRequest",
-        ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
-      },
-    }),
+  return await performMeasuredFetch(
+    "GET",
+    pathname,
+    async () => {
+      assertApiServerConfiguration(
+        serverConfigurationGeneration,
+      );
+      return await fetchWithTimeout(pathname, {
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+          ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
+        },
+      });
+    },
+    serverConfigurationGeneration,
   );
 }
 
 async function apiPost<T>(pathname: string, body: unknown): Promise<T> {
+  const serverConfigurationGeneration =
+    apiServerConfigurationGeneration;
   const requestPath = getApiPath(pathname);
   const csrfToken = document.cookie
     .split("; ")
     .find((entry) => entry.startsWith("MMCSRF="))
     ?.slice("MMCSRF=".length);
 
-  const response = await performMeasuredFetch("POST", pathname, async () =>
-    await fetch(requestPath, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        "X-Requested-With": "XMLHttpRequest",
-        ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
-      },
-      body: JSON.stringify(body),
-    }),
+  const response = await performMeasuredFetch(
+    "POST",
+    pathname,
+    async () => {
+      assertApiServerConfiguration(
+        serverConfigurationGeneration,
+      );
+      return await fetchWithTimeout(requestPath, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+          ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+    },
+    serverConfigurationGeneration,
   );
 
   if (!response.ok) {
@@ -965,27 +1165,191 @@ export async function getPostsSince(
   since: number,
   maxPosts?: number,
 ): Promise<MattermostPost[]> {
-  const safeMaxPosts =
-    maxPosts === undefined || !Number.isFinite(maxPosts)
-      ? null
-      : Math.max(0, Math.floor(maxPosts));
-  if (safeMaxPosts === 0) {
-    return [];
-  }
-  const payload = await apiGet<MattermostPostList>(
-    `/channels/${encodeURIComponent(channelId)}/posts?since=${Math.max(0, Math.floor(since))}&skipFetchThreads=false`,
-  );
-
-  // Mattermost includes older root posts in `posts` as context for newly
-  // updated replies, but does not add those roots to `order`. Preserve that
-  // context so implicit root/participant notifications can be evaluated.
-  const posts = Object.values(payload.posts)
-    .filter(
-      (post): post is MattermostPost =>
-        Boolean(post) && (post.delete_at ?? 0) === 0,
+  return (
+    await getPostsSinceWithMetadata(
+      channelId,
+      since,
+      maxPosts,
     )
-    .sort((left, right) => right.create_at - left.create_at);
-  return safeMaxPosts === null ? posts : posts.slice(0, safeMaxPosts);
+  ).posts;
+}
+
+export async function getPostsSinceWithMetadata(
+  channelId: string,
+  since: number,
+  maxPosts?: number,
+): Promise<MattermostPostsSinceResult> {
+  const safeMaxPosts = Math.min(
+    POSTS_SINCE_MAX,
+    maxPosts === undefined || !Number.isFinite(maxPosts)
+      ? POSTS_SINCE_MAX
+      : Math.max(0, Math.floor(maxPosts)),
+  );
+  if (safeMaxPosts === 0) {
+    return {
+      posts: [],
+      truncated: false,
+      nextPage: null,
+    };
+  }
+  const safeSince = Math.max(0, Math.floor(since));
+  const encodedChannelId = encodeURIComponent(channelId);
+  const primaryPosts: MattermostPost[] = [];
+  const contextById = new Map<string, MattermostPost>();
+
+  // Mattermost does not allow page/per_page to be combined with `since`, so
+  // the since form cannot make a smaller maxPosts reduce the response body.
+  // Read ordinary pages instead: every response is limited to 200 ordered
+  // posts. Stop as soon as a page crosses the read marker; only a channel
+  // with more than maxPosts newer posts consumes the full scan budget.
+  // skipFetchThreads=true still returns each selected reply's root but avoids
+  // expanding every sibling reply in a large thread into the same JSON body.
+  let scannedPosts = 0;
+  let page = 0;
+  let reachedSinceBoundary = false;
+  let reachedChannelEnd = false;
+  const pageSize = Math.min(POSTS_PAGE_LIMIT, safeMaxPosts);
+  const maxPages = Math.ceil(safeMaxPosts / pageSize);
+  while (scannedPosts < safeMaxPosts && page < maxPages) {
+    const payload = await apiGet<MattermostPostList>(
+      `/channels/${encodedChannelId}/posts?page=${page}&per_page=${pageSize}&skipFetchThreads=true`,
+    );
+    for (const post of Object.values(payload.posts)) {
+      if (post && (post.delete_at ?? 0) === 0) {
+        contextById.set(post.id, post);
+      }
+    }
+
+    const orderedPosts = payload.order
+      .map((postId) => contextById.get(postId))
+      .filter((post): post is MattermostPost => Boolean(post))
+      .sort((left, right) => right.create_at - left.create_at);
+    const boundedOrderedPosts = orderedPosts.slice(
+      0,
+      safeMaxPosts - scannedPosts,
+    );
+    scannedPosts += boundedOrderedPosts.length;
+    primaryPosts.push(
+      ...boundedOrderedPosts.filter(
+        (post) =>
+          Math.max(
+            post.create_at,
+            post.update_at ?? 0,
+            post.edit_at ?? 0,
+          ) > safeSince,
+      ),
+    );
+
+    reachedSinceBoundary = orderedPosts.some(
+      (post) => post.create_at <= safeSince,
+    );
+    if (orderedPosts.length < pageSize) {
+      reachedChannelEnd = true;
+      break;
+    }
+    if (reachedSinceBoundary) {
+      break;
+    }
+    page += 1;
+  }
+
+  primaryPosts.sort((left, right) => right.create_at - left.create_at);
+
+  // Context roots are present in `posts` but normally absent from `order`.
+  // Count them inside the caller's limit and only accept a reply when its root
+  // can fit too, so every returned reply remains evaluable without allowing
+  // the result to grow beyond maxPosts.
+  const selected = new Map<string, MattermostPost>();
+  for (const post of primaryPosts) {
+    const root = post.root_id ? contextById.get(post.root_id) : undefined;
+    const additions = [post, root]
+      .filter((candidate): candidate is MattermostPost => Boolean(candidate))
+      .filter((candidate) => !selected.has(candidate.id));
+    if (selected.size + additions.length > safeMaxPosts) {
+      continue;
+    }
+    for (const addition of additions) {
+      selected.set(addition.id, addition);
+    }
+    if (selected.size >= safeMaxPosts) {
+      break;
+    }
+  }
+
+  const truncated =
+    !reachedSinceBoundary &&
+    !reachedChannelEnd &&
+    scannedPosts >= safeMaxPosts;
+  return {
+    posts: Array.from(selected.values()).sort(
+      (left, right) => right.create_at - left.create_at,
+    ),
+    truncated,
+    nextPage: truncated ? page : null,
+  };
+}
+
+export async function scanPostsSincePages(
+  channelId: string,
+  since: number,
+  startPage: number,
+  onPage: (
+    page: MattermostPostsSincePage,
+  ) => Promise<void> | void,
+  shouldStop?: () => boolean,
+): Promise<void> {
+  const safeSince = Math.max(0, Math.floor(since));
+  const encodedChannelId = encodeURIComponent(channelId);
+  let page = Math.max(0, Math.floor(startPage));
+
+  while (!shouldStop?.()) {
+    const payload = await apiGet<MattermostPostList>(
+      `/channels/${encodedChannelId}/posts?page=${page}&per_page=${POSTS_PAGE_LIMIT}&skipFetchThreads=true`,
+    );
+    if (shouldStop?.()) {
+      return;
+    }
+
+    const contextPosts = Object.values(payload.posts)
+      .filter(
+        (post): post is MattermostPost =>
+          Boolean(post) &&
+          (post.delete_at ?? 0) === 0,
+      );
+    const contextById = new Map(
+      contextPosts.map((post) => [post.id, post]),
+    );
+    const orderedPosts = payload.order
+      .map((postId) => contextById.get(postId))
+      .filter(
+        (post): post is MattermostPost =>
+          Boolean(post),
+      )
+      .sort(
+        (left, right) =>
+          right.create_at - left.create_at,
+      );
+
+    await onPage({
+      page,
+      posts: contextPosts,
+      orderedPosts,
+    });
+    if (shouldStop?.()) {
+      return;
+    }
+
+    const reachedSinceBoundary = orderedPosts.some(
+      (post) => post.create_at <= safeSince,
+    );
+    if (
+      orderedPosts.length < POSTS_PAGE_LIMIT ||
+      reachedSinceBoundary
+    ) {
+      return;
+    }
+    page += 1;
+  }
 }
 
 function prunePostByIdCache(now = Date.now()): void {

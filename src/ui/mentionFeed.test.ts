@@ -24,6 +24,7 @@ import {
   messageMatchesMentionKeys,
   postMatchesMentionCandidate,
   postMatchesImplicitMention,
+  postMatchesRealtimeMentionCandidate,
   postMatchesServerMention,
 } from "./mentionFeed";
 
@@ -106,6 +107,22 @@ describe("mention feed", () => {
     expect(messageMatchesMentionKeys("hello @deck-other", keys)).toBe(false);
   });
 
+  it("omits @channel, @all, and @here when channel-wide notifications are disabled", () => {
+    const keys = getMattermostMentionKeys({
+      id: "me",
+      username: "deck",
+      notify_props: {
+        mention_keys: "",
+        channel: "false",
+      },
+    });
+
+    expect(messageMatchesMentionKeys("@channel release", keys)).toBe(false);
+    expect(messageMatchesMentionKeys("@all release", keys)).toBe(false);
+    expect(messageMatchesMentionKeys("@here release", keys)).toBe(false);
+    expect(messageMatchesMentionKeys("@deck release", keys)).toBe(true);
+  });
+
   it("includes the user's mentionable group handles", () => {
     const user: MattermostUser = {
       id: "me",
@@ -142,11 +159,63 @@ describe("mention feed", () => {
       { channelMetadataAvailable: false, serverCountedChannel: true },
     )).toBe(true);
     expect(postMatchesMentionCandidate(
+      {
+        ...ordinaryPost,
+        id: "edited-plain-message",
+        message: "edited plain DM/GM message",
+        update_at: 300,
+      },
+      undefined,
+      "me",
+      [],
+      { channelMetadataAvailable: false, serverCountedChannel: true },
+    )).toBe(true);
+    expect(postMatchesMentionCandidate(
       ordinaryPost,
       undefined,
       "me",
       [],
       { channelMetadataAvailable: false, serverCountedChannel: false },
+    )).toBe(false);
+  });
+
+  it("preserves posted and edited DM/GM mentions when channel_type is absent", () => {
+    const plainDmPost = {
+      ...post("plain-dm-posted", "dm-channel", 200),
+      message: "plain direct message",
+    };
+    const plainDmEdit = {
+      ...plainDmPost,
+      id: "plain-dm-edited",
+      message: "edited plain direct message",
+      update_at: 300,
+    };
+
+    for (const realtimePost of [plainDmPost, plainDmEdit]) {
+      expect(postMatchesRealtimeMentionCandidate(
+        realtimePost,
+        undefined,
+        "me",
+        [],
+        true,
+        false,
+      )).toBe(true);
+    }
+    expect(postMatchesRealtimeMentionCandidate(
+      { ...plainDmPost, id: "known-gm" },
+      "G",
+      "me",
+      [],
+      false,
+      false,
+    )).toBe(true);
+    expect(postMatchesRealtimeMentionCandidate(
+      { ...plainDmPost, id: "disabled-special", message: "@channel" },
+      undefined,
+      "me",
+      [],
+      true,
+      false,
     )).toBe(false);
   });
 

@@ -1,3 +1,72 @@
+import type { CurrentRoute } from "../mattermost/api.js";
+
+const MATTERMOST_CHANNEL_ROUTE_KINDS = new Set([
+  "channels",
+  "messages",
+  "pl",
+]);
+const MATTERMOST_ROUTE_KINDS = new Set([
+  ...MATTERMOST_CHANNEL_ROUTE_KINDS,
+  "threads",
+]);
+
+export function getDeckRoutePath(pathname: string, hash: string): string {
+  return hash.startsWith("#/") ? hash.slice(1) : pathname;
+}
+
+export function resolveDeckCurrentRoute(
+  pathname: string,
+  genericRoute: CurrentRoute,
+): CurrentRoute {
+  const segments = pathname.split("/").filter(Boolean);
+  const genericTeamName = genericRoute.teamName;
+  if (genericTeamName) {
+    let genericTeamThreadsIndex = -1;
+    segments.forEach((segment, index) => {
+      if (
+        segment === genericTeamName &&
+        segments[index + 1] === "threads"
+      ) {
+        genericTeamThreadsIndex = index;
+      }
+    });
+    if (genericTeamThreadsIndex >= 0) {
+      return {
+        teamName: genericTeamName,
+        channelName: null,
+      };
+    }
+  }
+
+  // readCurrentRoute() cannot identify hash routes or the terminal
+  // /<team>/threads form. Resolve the final canonical route-kind position,
+  // excluding a route-like channel name such as /team/channels/threads.
+  let canonicalRouteIndex = -1;
+  segments.forEach((segment, index) => {
+    const previousSegment = segments[index - 1];
+    if (
+      index > 0 &&
+      MATTERMOST_ROUTE_KINDS.has(segment) &&
+      previousSegment &&
+      !MATTERMOST_ROUTE_KINDS.has(previousSegment)
+    ) {
+      canonicalRouteIndex = index;
+    }
+  });
+  if (canonicalRouteIndex > 0) {
+    const routeKind = segments[canonicalRouteIndex];
+    return {
+      teamName: segments[canonicalRouteIndex - 1] ?? null,
+      channelName:
+        routeKind === "channels" || routeKind === "messages"
+          ? segments[canonicalRouteIndex + 1] ?? null
+          : null,
+    };
+  }
+
+  return genericRoute;
+}
+
 export function getMattermostPostSelectors(postId: string): string[] {
   const safeId = typeof CSS !== "undefined" && typeof CSS.escape === "function"
     ? CSS.escape(postId)

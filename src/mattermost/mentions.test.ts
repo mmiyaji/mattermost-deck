@@ -21,4 +21,17 @@ describe("hasMattermostMention", () => {
   it("still recognizes special mentions when no username is available", () => {
     expect(hasMattermostMention("hello @channel", null)).toBe(true);
   });
+
+  it("respects a user's disabled channel-wide notification preference", () => {
+    expect(
+      hasMattermostMention("hello @channel", "alice", {
+        specialMentionsEnabled: false,
+      }),
+    ).toBe(false);
+    expect(
+      hasMattermostMention("@channel hello @alice", "alice", {
+        specialMentionsEnabled: false,
+      }),
+    ).toBe(true);
+  });
 });

@@ -5,6 +5,7 @@ import type {
   MattermostUserThread,
   TeamUnread,
 } from "../mattermost/api";
+import { hasSpecialMattermostMention } from "../mattermost/mentions";
 
 export interface MattermostMentionKey {
   key: string;
@@ -171,6 +172,35 @@ export function postMatchesMentionCandidate(
     channelType,
     currentUserId,
     mentionKeys,
+  );
+}
+
+export function postMatchesRealtimeMentionCandidate(
+  post: MattermostPost,
+  channelType: string | undefined,
+  currentUserId: string,
+  mentionKeys: MattermostMentionKey[],
+  serverMentionsUser: boolean,
+  channelWideMentionsEnabled: boolean,
+): boolean {
+  const isDisabledChannelWideMention =
+    !channelWideMentionsEnabled &&
+    hasSpecialMattermostMention(post.message);
+  const usableServerMention =
+    serverMentionsUser && !isDisabledChannelWideMention;
+
+  return (
+    postMatchesMentionCandidate(
+      post,
+      channelType,
+      currentUserId,
+      mentionKeys,
+      {
+        channelMetadataAvailable: Boolean(channelType),
+        serverCountedChannel: usableServerMention,
+      },
+    ) ||
+    usableServerMention
   );
 }
 

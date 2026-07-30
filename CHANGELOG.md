@@ -7,15 +7,33 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-07-30
+
+### Added
+
+- Added pull-request and release compatibility gates for Mattermost 9.5.11, 10.11.22, and 11.8.2, plus scheduled fixed-seed UI monkey and extension/control memory-soak workflows.
+- Added an exact-archive Chrome Web Store smoke test covering the ungranted startup state and safe native-permission denial without persisting settings or injecting Deck; native prompt approval and resulting injection remain an explicit headed release check.
+- Added SHA-256 checksums to release artifacts and structural accessibility E2E coverage for Settings controls, validation, performance tables, narrow layouts, and reduced motion.
+
 ### Changed
 
 - Keep the current mention list stable while multi-team refreshes run, show progress in the fixed column header, and let users apply new, edited, or attachment-changing results from an update-count button while read and deleted rows still clear promptly.
+- Bound channel mention history to five 200-post pages without expanding complete reply threads, while retaining selected reply roots and update/edit markers inside the caller's result limit.
+- Add 20-second network and 30-second queue-wait timeouts, abort requests when the configured server changes, and debounce realtime mention bursts into one bounded reconciliation.
+- Cleanly dispose the previous content runtime, including its React root, subscriptions, observers, timers, route listeners, request, and history wrappers, before an updated bundle is injected; older builds fall back to a one-time tab reload.
+- Honor each user's channel-wide mention notification preference in realtime matching, preserve direct and group messages, and reconcile edits and deletions without globally reloading Deck.
+- Improve keyboard and screen-reader semantics for Deck menus, lightbox controls, retry states, Settings comboboxes, sortable tables, validation errors, charts, and narrow-layout legal/product links in every supported language.
+- Document the optional bounded diagnostic trace contents, clearing behavior, and activity-based pruning of entries older than 24 hours in both public privacy-policy versions.
 
 ### Fixed
 
 - Prevent partial mention results and post-shaped loading placeholders from shifting rows or looking like newly arrived posts.
 - Restore the wider manual resize range so an explicit drag can expand Deck while keeping at least 320 px of Mattermost visible; automatic responsive sizing continues to reserve 720 px.
 - Release a pending viewport-settle width as soon as a manual drag begins so Deck follows the pointer immediately after resizing the browser.
+- Prevent duplicated content runtimes and retained event/observer chains after extension updates.
+- Preserve the active team when Mattermost's two-segment Threads route is opened or restored directly.
+- Show actionable localized errors and retry controls instead of leaving Deck or Settings in an indefinite loading or silent failure state.
+- Correct the Purpose and Endpoint values in the performance table, eliminate nested form labels, and prevent required-field errors from flashing before stored Settings finish loading.
 
 ## [1.0.3] - 2026-07-29
 
@@ -208,7 +226,7 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Improved unread mark-read hover contrast under Mattermost-driven light palettes
-- Prevented long request investigations from retaining trace logs indefinitely by clearing on disable and pruning after 24 hours
+- Prevented long request investigations from retaining trace logs indefinitely by clearing on disable and pruning entries older than 24 hours during extension activity
 
 ## [0.1.8] - 2026-04-09
 

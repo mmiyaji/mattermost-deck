@@ -1,0 +1,87 @@
+name: Performance and resilience
+
+on:
+  schedule:
+    - cron: "30 18 * * *"
+  workflow_dispatch:
+    inputs:
+      mattermost_version:
+        description: Mattermost preview image version
+        required: false
+        default: "9.5.11"
+      soak_minutes:
+        description: Minutes per soak mode
+        required: false
+        default: "20"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  performance:
+    name: ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: monkey
+            label: Fixed-seed UI monkey
+            command: npm run test:monkey
+          - id: soak-deck
+            label: Deck memory soak
+            command: npm run test:soak
+          - id: soak-control
+            label: Extension-off memory control
+            command: npm run test:soak:control
+    env:
+      MATTERMOST_VERSION: ${{ inputs.mattermost_version || '9.5.11' }}
+      MM_DECK_SOAK_MINUTES: ${{ inputs.soak_minutes || '20' }}
+      MM_DECK_SOAK_SEED: "42"
+      MM_DECK_MONKEY_SEED: "20260730"
+      MM_DECK_MONKEY_ACTIONS: "60"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Start Mattermost
+        run: node scripts/mm95-start.mjs --version "${MATTERMOST_VERSION}"
+
+      - name: Run ${{ matrix.label }}
+        run: ${{ matrix.command }}
+
+      - name: Upload performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-${{ matrix.id }}-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Stop Mattermost test server
+        if: always()
+        run: npm run mm95:stop

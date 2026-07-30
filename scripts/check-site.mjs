@@ -129,6 +129,46 @@ for (const legalFile of ["privacy/index.html", "terms/index.html"]) {
   }
 }
 
+const privacyHtml = read("privacy/index.html");
+const privacyMarkdown = fs.readFileSync(
+  path.resolve("PRIVACY.md"),
+  "utf8",
+);
+for (const [label, source, requiredPhrases] of [
+  [
+    "privacy/index.html",
+    privacyHtml,
+    [
+      "24時間",
+      "次に拡張機能が動作",
+      "24 hours",
+      "the next time the extension runs",
+      "投稿本文や認証トークンは記録しません",
+      "They do not contain message bodies or authentication tokens",
+    ],
+  ],
+  [
+    "PRIVACY.md",
+    privacyMarkdown,
+    [
+      "diagnostic trace logs",
+      "24 hours",
+      "message bodies",
+      "authentication tokens",
+      "configured Mattermost server",
+    ],
+  ],
+]) {
+  const normalizedSource = source.replace(/\s+/g, " ");
+  for (const requiredPhrase of requiredPhrases) {
+    if (!normalizedSource.includes(requiredPhrase)) {
+      reportError(
+        `${label}: required privacy disclosure is missing "${requiredPhrase}"`,
+      );
+    }
+  }
+}
+
 const headers = read("_headers");
 if (headers.includes("'unsafe-inline'") || !headers.includes("Content-Security-Policy:")) {
   reportError("_headers: strict Content-Security-Policy is required");

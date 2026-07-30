@@ -43,6 +43,43 @@ const headed = process.env.MM_DECK_MONKEY_HEADED === "1";
 const layoutStorageKey = "mattermostDeck.layout.v1";
 const maximumMentionBuffer = 500;
 const mebibyte = 1024 * 1024;
+const expectedHttpNoiseRules = [
+  {
+    name: "unsupported-groups-endpoint",
+    method: "GET",
+    status: 501,
+    path: /^\/api\/v4\/users\/[^/]+\/groups$/,
+    maximum: 8,
+  },
+  {
+    name: "playbooks-settings-unauthorized",
+    method: "GET",
+    status: 401,
+    path: /^\/plugins\/playbooks\/api\/v0\/settings$/,
+    maximum: 4,
+  },
+  {
+    name: "cloud-products-unavailable",
+    method: "GET",
+    status: 400,
+    path: /^\/api\/v4\/cloud\/products\/selfhosted$/,
+    maximum: 4,
+  },
+  {
+    name: "trial-license-forbidden",
+    method: "GET",
+    status: 403,
+    path: /^\/api\/v4\/trial-license\/prev$/,
+    maximum: 4,
+  },
+  {
+    name: "apps-bindings-missing",
+    method: "GET",
+    status: 404,
+    path: /^\/plugins\/com\.mattermost\.apps\/api\/v1\/bindings$/,
+    maximum: 4,
+  },
+] as const;
 
 test.describe.configure({ mode: "serial" });
 
@@ -919,6 +956,21 @@ test(
     const actionLogs: MonkeyActionLog[] = [];
     const memorySamples: MemorySample[] = [];
     const responseFailures: string[] = [];
+    const ignoredExpectedResponseFailures: string[] = [];
+    const expectedHttpNoiseCounts = new Map(
+      expectedHttpNoiseRules.map((rule) => [rule.name, 0]),
+    );
+    const expectedHttpNoiseViolations = () =>
+      expectedHttpNoiseRules
+        .filter(
+          (rule) =>
+            (expectedHttpNoiseCounts.get(rule.name) ?? 0) >
+            rule.maximum,
+        )
+        .map(
+          (rule) =>
+            `${rule.name}: expected at most ${rule.maximum}, received ${expectedHttpNoiseCounts.get(rule.name) ?? 0}`,
+        );
     const requestFailures: string[] = [];
     const ignoredRequestAborts: string[] = [];
     const runtimeFailures: string[] = [];
@@ -1216,17 +1268,32 @@ test(
         contextClosedUnexpectedly = true;
       });
       page.on("response", (response) => {
+        if (!response.url().startsWith(baseUrl)) {
+          return;
+        }
         const responsePath = new URL(response.url()).pathname;
-        const isUnsupportedGroupsEndpoint =
-          response.status() === 501 &&
-          /^\/api\/v4\/users\/[^/]+\/groups$/.test(responsePath);
-        if (
-          response.url().startsWith(baseUrl) &&
-          response.status() >= 500 &&
-          !isUnsupportedGroupsEndpoint
-        ) {
+        const matchingExpectedNoise =
+          expectedHttpNoiseRules.find(
+            (rule) =>
+              response.request().method() === rule.method &&
+              response.status() === rule.status &&
+              rule.path.test(responsePath),
+          );
+        if (matchingExpectedNoise) {
+          expectedHttpNoiseCounts.set(
+            matchingExpectedNoise.name,
+            (expectedHttpNoiseCounts.get(
+              matchingExpectedNoise.name,
+            ) ?? 0) + 1,
+          );
+          ignoredExpectedResponseFailures.push(
+            `${response.request().method()} ${response.status()} ${response.url()}`,
+          );
+          return;
+        }
+        if (response.status() >= 400) {
           responseFailures.push(
-            `${response.status()} ${response.url()}`,
+            `${response.request().method()} ${response.status()} ${response.url()}`,
           );
         }
       });
@@ -2124,9 +2191,22 @@ test(
             ...COMMON_IGNORE_PATTERNS,
             "ResizeObserver loop",
             "pdat\\.matterlytics\\.com",
-            `^${escapedBaseUrl}/`,
+            // Chromium's console message for a failed resource omits the
+            // resource URL, so ChaosCrawler cannot match these by endpoint.
+            // The response/request listeners above still validate the exact
+            // method, status, path, and bounded count before the test passes.
+            "Failed to load resource: the server responded with a status of (?:400|401|403|404|501)",
+            // Navigation deliberately aborts in-flight Mattermost requests.
+            // Non-abort request failures remain fatal in requestFailures.
+            "net::ERR_ABORTED",
+            `${escapedBaseUrl}/api/v4/users/[^/]+/groups`,
+            `${escapedBaseUrl}/api/v4/cloud/products/selfhosted`,
+            `${escapedBaseUrl}/api/v4/trial-license/prev`,
+            `${escapedBaseUrl}/plugins/playbooks/api/v0/settings`,
+            `${escapedBaseUrl}/plugins/com\\.mattermost\\.apps/api/v1/bindings`,
+            `${escapedBaseUrl}/static/plugins/playbooks/`,
+            `${escapedBaseUrl}/static/plugins/mattermost-ai/`,
             "Unable to find an existing account matching your username for this team",
-            "Failed to load resource: the server responded with a status of (?:400|403|404|501)",
           ],
           spaPatterns: [
             `${escapedBaseUrl}/[^/?#]+/(?:channels|messages)/[^/?#]+(?:[?#].*)?$`,
@@ -2142,13 +2222,20 @@ test(
                   .join("\n"),
             },
             {
-              name: "mattermost-api-has-no-5xx",
+              name: "mattermost-api-has-no-unexpected-http-errors",
               when: "afterActions",
               check: () =>
                 responseFailures.length === 0 ||
                 responseFailures
                   .slice(0, 5)
                   .join("\n"),
+            },
+            {
+              name: "known-mattermost-http-noise-stays-bounded",
+              when: "afterActions",
+              check: () =>
+                expectedHttpNoiseViolations().length === 0 ||
+                expectedHttpNoiseViolations().join("\n"),
             },
             {
               name: "mattermost-network-requests-succeed",
@@ -2234,6 +2321,49 @@ test(
               },
             }
           : null;
+      const ignoredChaosErrors = chaosResult.errors.filter(
+        (error) =>
+          error.type === "network" &&
+          / - net::ERR_ABORTED$/i.test(error.message) &&
+          ignoredRequestAborts.includes(error.message),
+      );
+      const unexpectedChaosErrors =
+        chaosResult.errors.filter(
+          (error) =>
+            !ignoredChaosErrors.includes(error),
+        );
+      const memoryLimitViolations = memoryAnalysis
+        ? [
+            memoryAnalysis.heapGrowthBytes >
+            memoryAnalysis.thresholds.heapGrowthBytes
+              ? `heap growth ${memoryAnalysis.heapGrowthBytes} exceeds ${memoryAnalysis.thresholds.heapGrowthBytes}`
+              : null,
+            memoryAnalysis.nodeGrowth >
+            memoryAnalysis.thresholds.nodeGrowth
+              ? `node growth ${memoryAnalysis.nodeGrowth} exceeds ${memoryAnalysis.thresholds.nodeGrowth}`
+              : null,
+            memoryAnalysis.documentGrowth >
+            memoryAnalysis.thresholds.documentGrowth
+              ? `document growth ${memoryAnalysis.documentGrowth} exceeds ${memoryAnalysis.thresholds.documentGrowth}`
+              : null,
+            memoryAnalysis.eventListenerGrowth >
+            memoryAnalysis.thresholds.eventListenerGrowth
+              ? `event-listener growth ${memoryAnalysis.eventListenerGrowth} exceeds ${memoryAnalysis.thresholds.eventListenerGrowth}`
+              : null,
+          ].filter((message): message is string =>
+            Boolean(message),
+          )
+        : [];
+      const hasReportFailure =
+        unexpectedChaosErrors.length > 0 ||
+        actionFailures.length > 0 ||
+        responseFailures.length > 0 ||
+        expectedHttpNoiseViolations().length > 0 ||
+        requestFailures.length > 0 ||
+        runtimeFailures.length > 0 ||
+        crashed ||
+        contextClosedUnexpectedly ||
+        memoryLimitViolations.length > 0;
 
       const reportPath = testInfo.outputPath(
         "ui-monkey-report.json",
@@ -2242,15 +2372,9 @@ test(
         reportPath,
         JSON.stringify(
           {
-            outcome:
-              chaosResult.hasErrors ||
-              actionFailures.length > 0 ||
-              responseFailures.length > 0 ||
-              requestFailures.length > 0 ||
-              runtimeFailures.length > 0 ||
-              crashed
-                ? "failed"
-                : "passed",
+            outcome: hasReportFailure
+              ? "failed"
+              : "passed",
             mattermostVersion:
               state.mattermostVersion ?? null,
             seed: monkeySeed,
@@ -2260,8 +2384,14 @@ test(
               actionLogs.length,
             headed,
             chaosResult,
+            ignoredChaosErrors,
+            unexpectedChaosErrors,
             actionFailures,
             responseFailures,
+            ignoredExpectedResponseFailures,
+            expectedHttpNoiseCounts: Object.fromEntries(
+              expectedHttpNoiseCounts,
+            ),
             requestFailures,
             ignoredRequestAborts,
             runtimeFailures,
@@ -2271,6 +2401,7 @@ test(
             contextClosedUnexpectedly,
             memorySamples,
             memoryAnalysis,
+            memoryLimitViolations,
             actions: actionLogs,
           },
           null,
@@ -2295,10 +2426,11 @@ test(
       );
       expect(actionFailures).toEqual([]);
       expect(responseFailures).toEqual([]);
+      expect(expectedHttpNoiseViolations()).toEqual([]);
       expect(requestFailures).toEqual([]);
       expect(runtimeFailures).toEqual([]);
       expect(chaosResult.status).toBe("success");
-      expect(chaosResult.errors).toEqual([]);
+      expect(unexpectedChaosErrors).toEqual([]);
       if (memoryAnalysis) {
         expect(
           memoryAnalysis.heapGrowthBytes,
