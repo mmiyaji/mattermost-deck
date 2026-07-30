@@ -63,6 +63,9 @@ if (manifest.minimum_chrome_version !== "120") {
 if (manifest.homepage_url !== "https://mattermost-deck.ruhenheim.org/") {
   report("dist/manifest.json homepage_url is not the canonical public website");
 }
+if (manifest.default_locale !== "en") {
+  report('dist/manifest.json default_locale must be "en"');
+}
 
 const expectedPermissions = ["alarms", "scripting", "storage", "tabs"];
 const actualPermissions = [...(manifest.permissions ?? [])].sort();
@@ -76,6 +79,70 @@ if ("host_permissions" in manifest) {
 }
 if ("content_scripts" in manifest) {
   report("dist/manifest.json must not contain development-only static content_scripts");
+}
+
+const expectedOptionalHostPermissions = [
+  "http://*.localhost/*",
+  "http://127.0.0.1/*",
+  "http://[::1]/*",
+  "http://localhost/*",
+  "https://*/*",
+];
+const actualOptionalHostPermissions = [
+  ...(manifest.optional_host_permissions ?? []),
+].sort();
+if (
+  JSON.stringify(actualOptionalHostPermissions) !==
+  JSON.stringify(expectedOptionalHostPermissions)
+) {
+  report(
+    `dist/manifest.json optional_host_permissions must exactly match the reviewed allowlist; found ${actualOptionalHostPermissions.join(", ")}`,
+  );
+}
+
+const expectedIcons = {
+  16: "assets/icons/icon-16.png",
+  32: "assets/icons/icon-32.png",
+  48: "assets/icons/icon-48.png",
+  128: "assets/icons/icon-128.png",
+};
+if (JSON.stringify(manifest.icons ?? {}) !== JSON.stringify(expectedIcons)) {
+  report("dist/manifest.json icons do not match the reviewed icon set");
+}
+
+const expectedLocales = ["de", "en", "fr", "ja", "zh_CN"];
+const actualLocales = fs
+  .readdirSync(path.join(distDir, "_locales"), { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name)
+  .sort();
+if (JSON.stringify(actualLocales) !== JSON.stringify(expectedLocales)) {
+  report(
+    `dist/_locales must contain exactly ${expectedLocales.join(", ")}; found ${actualLocales.join(", ")}`,
+  );
+}
+for (const locale of expectedLocales) {
+  const messagesPath = path.join(
+    distDir,
+    "_locales",
+    locale,
+    "messages.json",
+  );
+  if (!fs.existsSync(messagesPath)) {
+    report(`dist/_locales/${locale}/messages.json is missing`);
+    continue;
+  }
+  const messages = readJson(messagesPath);
+  for (const key of ["appName", "appDescription"]) {
+    if (
+      typeof messages[key]?.message !== "string" ||
+      messages[key].message.trim().length === 0
+    ) {
+      report(
+        `dist/_locales/${locale}/messages.json ${key}.message is missing`,
+      );
+    }
+  }
 }
 
 const sourceMaps = normalizedFiles.filter((file) => file.endsWith(".map"));

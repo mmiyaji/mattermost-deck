@@ -124,7 +124,7 @@ function syncDeckContentScript(): Promise<void> {
   return sync;
 }
 
-async function refreshExistingDeckTabs(): Promise<void> {
+export async function refreshExistingDeckTabs(): Promise<void> {
   const serverUrl = await getConfiguredServerUrl();
   const originPattern = originToPermissionPattern(serverUrl);
   if (!originPattern) {
@@ -144,17 +144,48 @@ async function refreshExistingDeckTabs(): Promise<void> {
       }
 
       try {
-        await chrome.scripting.executeScript({
+        const cleanupResults = await chrome.scripting.executeScript({
           target: { tabId: tab.id },
           func: () => {
+            const runtime = (
+              globalThis as typeof globalThis & {
+                __mattermostDeckContentRuntimeV1?: {
+                  dispose?: () => void;
+                };
+              }
+            ).__mattermostDeckContentRuntimeV1;
+            let disposed = false;
+            if (typeof runtime?.dispose === "function") {
+              try {
+                runtime.dispose();
+                disposed = true;
+              } catch {
+                disposed = false;
+              }
+            } else {
+              // Transitional builds may understand the event without exposing
+              // the registry. A reload is still used below because it is the
+              // only way to remove history wrappers from older releases.
+              window.dispatchEvent(
+                new CustomEvent("mattermost-deck:dispose-content-runtime"),
+              );
+            }
             document.body?.classList.remove("mattermost-deck-body-offset");
             document.getElementById("mattermost-deck-root")?.remove();
+            return disposed;
           },
         });
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ["content.js"],
-        });
+        if (cleanupResults[0]?.result === true) {
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ["content.js"],
+          });
+        } else {
+          // Releases before the runtime registry cannot restore patched
+          // history methods or detach observers. Reload once on extension
+          // update so the old isolated-world state is fully discarded.
+          await chrome.tabs.reload(tab.id);
+        }
       } catch {
         // Ignore tabs that navigated, are discarded, or otherwise cannot accept injection.
       }

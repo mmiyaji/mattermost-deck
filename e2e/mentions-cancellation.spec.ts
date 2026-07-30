@@ -15,8 +15,6 @@ const baseUrl =
   process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 const stateFile =
   process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.json");
-const ADMIN_USERNAME = "mm95admin";
-const ADMIN_PASSWORD = "Admin1234!";
 const LAYOUT_STORAGE_KEY = "mattermostDeck.layout.v1";
 const SERVER_URL_STORAGE_KEY = "mattermostDeck.serverUrl.v1";
 const DEBUG_FLAG_KEY = "mattermostDeck.debugLogs";
@@ -26,6 +24,10 @@ type MentionPipeline = "search" | "channel" | "thread";
 
 interface E2EState {
   teamName: string;
+  adminUser: {
+    username: string;
+    password: string;
+  };
   memberUser: {
     id: string;
     username: string;
@@ -452,7 +454,10 @@ test("a superseded mentions run does not issue another batch", async () => {
   let adminToken = "";
 
   try {
-    adminToken = await loginViaApi(ADMIN_USERNAME, ADMIN_PASSWORD);
+    adminToken = await loginViaApi(
+      state.adminUser.username,
+      state.adminUser.password,
+    );
     let teams = await apiGet<MattermostTeam[]>(
       state.memberUser.token,
       "/users/me/teams",

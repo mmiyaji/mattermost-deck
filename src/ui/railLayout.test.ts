@@ -4,7 +4,7 @@ import {
   COLLAPSED_RESPONSIVE_RAIL_WIDTH,
   calculateResponsiveRailWidth,
   MAX_RESPONSIVE_RAIL_SHARE,
-  MIN_MATTERMOST_CENTER_WIDTH,
+  MIN_MANUAL_MATTERMOST_WIDTH,
   MIN_MATTERMOST_WIDTH,
   MIN_RESPONSIVE_RAIL_WIDTH,
 } from "./railLayout";
@@ -35,6 +35,28 @@ describe("calculateResponsiveRailWidth", () => {
 
   it("does not enlarge a narrower user-selected Deck width", () => {
     expect(calculateResponsiveRailWidth(360, 1_920)).toBe(360);
+  });
+
+  it("allows an explicit manual width to use the legacy 320px Mattermost safety area", () => {
+    const railWidth = calculateResponsiveRailWidth(
+      900,
+      1_440,
+      MIN_MANUAL_MATTERMOST_WIDTH,
+    );
+
+    expect(railWidth).toBe(900);
+    expect(1_440 - railWidth).toBe(540);
+  });
+
+  it("still keeps 320px of Mattermost visible at the manual width boundary", () => {
+    const railWidth = calculateResponsiveRailWidth(
+      1_400,
+      1_000,
+      MIN_MANUAL_MATTERMOST_WIDTH,
+    );
+
+    expect(railWidth).toBe(680);
+    expect(1_000 - railWidth).toBe(MIN_MANUAL_MATTERMOST_WIDTH);
   });
 
   it("restores the requested width after any number of responsive reductions", () => {
@@ -74,58 +96,238 @@ describe("calculateThreadAwareRailLayout", () => {
     });
   });
 
-  it("temporarily compacts Deck to preserve the Mattermost center beside a thread", () => {
-    const layout = calculateThreadAwareRailLayout(560, 1_800, {
-      mattermostWidth: 1_240,
-      centerWidth: 451,
-      rightSidebarWidth: 500,
+  it("subtracts the full right-pane width so the pre-open center is preserved", () => {
+    const viewportWidth = 2_400;
+    const requestedWidth = 900;
+    const baseChromeWidth = 289;
+    const rightSidebarWidth = 500;
+    const layout = calculateThreadAwareRailLayout(requestedWidth, viewportWidth, {
+      mattermostWidth: viewportWidth - requestedWidth,
+      centerWidth: viewportWidth - requestedWidth - baseChromeWidth,
+      baseChromeWidth,
+      rightSidebarWidth,
     });
 
     expect(layout).toEqual({
-      width: 360,
+      width: 400,
       mode: "compact",
     });
-    expect(1_800 - layout.width - (1_240 - 451)).toBeGreaterThanOrEqual(
-      MIN_MATTERMOST_CENTER_WIDTH,
+    const centerBeforePane = viewportWidth - requestedWidth - baseChromeWidth;
+    const centerAfterPane = (
+      viewportWidth -
+      layout.width -
+      baseChromeWidth -
+      rightSidebarWidth
     );
+    expect(centerAfterPane).toBe(centerBeforePane);
   });
 
-  it("uses the collapsed rail when a useful one-pane Deck cannot fit", () => {
-    expect(calculateThreadAwareRailLayout(560, 1_280, {
-      mattermostWidth: 720,
-      centerWidth: 385,
-      rightSidebarWidth: 400,
+  it("uses 280px at the exact usable compact boundary", () => {
+    expect(calculateThreadAwareRailLayout(780, 2_200, {
+      mattermostWidth: 1_420,
+      centerWidth: 631,
+      rightSidebarWidth: 500,
+      baseChromeWidth: 289,
+    })).toEqual({
+      width: MIN_RESPONSIVE_RAIL_WIDTH,
+      mode: "compact",
+    });
+  });
+
+  it("collapses instead of leaving a partial Deck below the usable boundary", () => {
+    expect(calculateThreadAwareRailLayout(779, 2_200, {
+      mattermostWidth: 1_421,
+      centerWidth: 632,
+      rightSidebarWidth: 500,
+      baseChromeWidth: 289,
     })).toEqual({
       width: COLLAPSED_RESPONSIVE_RAIL_WIDTH,
       mode: "collapsed",
     });
   });
 
-  it("falls back to the measured RHS width when center measurements are unavailable", () => {
+  it("collapses at 1800px instead of reducing the original Mattermost center", () => {
+    const layout = calculateThreadAwareRailLayout(560, 1_800, {
+      mattermostWidth: 1_240,
+      centerWidth: 951,
+      rightSidebarWidth: 500,
+      baseChromeWidth: 289,
+    });
+
+    expect(layout).toEqual({
+      width: COLLAPSED_RESPONSIVE_RAIL_WIDTH,
+      mode: "collapsed",
+    });
+    expect(1_800 - layout.width - 289 - 500).toBeGreaterThanOrEqual(951);
+  });
+
+  it("keeps one target while the opening pane reflows Mattermost internals", () => {
+    const transientLayouts = [
+      {
+        mattermostWidth: 1_240,
+        centerWidth: 951,
+        rightSidebarWidth: 500,
+        baseChromeWidth: 289,
+      },
+      {
+        mattermostWidth: 1_400,
+        centerWidth: 711,
+        rightSidebarWidth: 500,
+        baseChromeWidth: 289,
+      },
+      {
+        mattermostWidth: 1_748,
+        centerWidth: 959,
+        rightSidebarWidth: 500,
+        baseChromeWidth: 289,
+      },
+    ];
+
+    expect(transientLayouts.map((hostLayout) => (
+      calculateThreadAwareRailLayout(560, 1_800, hostLayout)
+    ))).toEqual([
+      { width: 52, mode: "collapsed" },
+      { width: 52, mode: "collapsed" },
+      { width: 52, mode: "collapsed" },
+    ]);
+  });
+
+  it.each([
+    { viewportWidth: 1_280, expectedWidth: 52 },
+    { viewportWidth: 1_500, expectedWidth: 52 },
+    { viewportWidth: 1_800, expectedWidth: 52 },
+    { viewportWidth: 2_200, expectedWidth: 52 },
+  ])(
+    "keeps the center-preserving target $expectedWidth at a $viewportWidth viewport",
+    ({ viewportWidth, expectedWidth }) => {
+      const widths = [951, 711, 560].map((centerWidth) => (
+        calculateThreadAwareRailLayout(720, viewportWidth, {
+          mattermostWidth: Math.max(720, viewportWidth - 720),
+          centerWidth,
+          rightSidebarWidth: 500,
+          baseChromeWidth: 289,
+        }).width
+      ));
+
+      expect(widths).toEqual([
+        expectedWidth,
+        expectedWidth,
+        expectedWidth,
+      ]);
+    },
+  );
+
+  it("subtracts a narrower 400px pane without collapsing a 720px Deck", () => {
     expect(calculateThreadAwareRailLayout(720, 1_600, {
-      mattermostWidth: 0,
-      centerWidth: 0,
+      mattermostWidth: 880,
+      centerWidth: 591,
       rightSidebarWidth: 400,
+      baseChromeWidth: 289,
     })).toEqual({
-      width: 360,
+      width: 320,
       mode: "compact",
     });
   });
 
-  it("restores the exact normal width after the thread closes", () => {
+  it("uses the measured pane width when center measurements are unavailable", () => {
+    expect(calculateThreadAwareRailLayout(900, 1_600, {
+      mattermostWidth: 0,
+      centerWidth: 0,
+      rightSidebarWidth: 400,
+    })).toEqual({
+      width: 480,
+      mode: "compact",
+    });
+  });
+
+  it("uses the normal responsive width as the subtraction baseline", () => {
+    expect(calculateThreadAwareRailLayout(900, 1_600, {
+      mattermostWidth: 720,
+      centerWidth: 431,
+      rightSidebarWidth: 400,
+      baseChromeWidth: 289,
+    })).toEqual({
+      width: 480,
+      mode: "compact",
+    });
+  });
+
+  it("subtracts the pane from the wider manual responsive baseline", () => {
+    expect(calculateThreadAwareRailLayout(
+      900,
+      1_440,
+      {
+        mattermostWidth: 540,
+        centerWidth: 140,
+        rightSidebarWidth: 400,
+      },
+      MIN_MANUAL_MATTERMOST_WIDTH,
+    )).toEqual({
+      width: 500,
+      mode: "compact",
+    });
+  });
+
+  it("never grows when the visible right pane becomes wider", () => {
+    const widths = [100, 300, 500, 700].map((rightSidebarWidth) => (
+      calculateThreadAwareRailLayout(900, 2_400, {
+        mattermostWidth: 1_500,
+        centerWidth: 1_500 - 289 - rightSidebarWidth,
+        rightSidebarWidth,
+      }).width
+    ));
+
+    expect(widths).toEqual([800, 600, 400, 52]);
+    expect(widths).toEqual([...widths].sort((left, right) => right - left));
+  });
+
+  it("never returns a partial Deck between the collapsed and usable widths", () => {
+    for (const requestedWidth of [360, 480, 560, 720, 900, 1_400]) {
+      for (const viewportWidth of [1_200, 1_600, 1_800, 2_200, 2_400]) {
+        for (const rightSidebarWidth of [320, 400, 500, 600]) {
+          const layout = calculateThreadAwareRailLayout(
+            requestedWidth,
+            viewportWidth,
+            {
+              mattermostWidth: Math.max(0, viewportWidth - requestedWidth),
+              centerWidth: 0,
+              rightSidebarWidth,
+            },
+          );
+          const normalWidth = calculateResponsiveRailWidth(
+            requestedWidth,
+            viewportWidth,
+          );
+
+          expect(layout.width).toBeLessThanOrEqual(normalWidth);
+          if (layout.mode === "collapsed") {
+            expect(layout.width).toBe(
+              Math.min(normalWidth, COLLAPSED_RESPONSIVE_RAIL_WIDTH),
+            );
+          } else {
+            expect(layout.width).toBeGreaterThanOrEqual(
+              MIN_RESPONSIVE_RAIL_WIDTH,
+            );
+          }
+        }
+      }
+    }
+  });
+
+  it("restores the exact normal width after the pane closes", () => {
     const requestedWidth = 560;
     const open = calculateThreadAwareRailLayout(requestedWidth, 1_800, {
       mattermostWidth: 1_240,
-      centerWidth: 451,
+      centerWidth: 951,
       rightSidebarWidth: 500,
     });
     const closed = calculateThreadAwareRailLayout(requestedWidth, 1_800, {
-      mattermostWidth: 1_349,
-      centerWidth: 1_060,
+      mattermostWidth: 1_240,
+      centerWidth: 951,
       rightSidebarWidth: 0,
     });
 
-    expect(open.mode).toBe("compact");
+    expect(open.mode).toBe("collapsed");
     expect(closed).toEqual({ width: requestedWidth, mode: "normal" });
   });
 });

@@ -19,6 +19,13 @@ let captureEnabled = false;
 let entries: TraceLogEntry[] = [];
 let initPromise: Promise<void> | null = null;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let storageChangeListener:
+  | ((
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string,
+    ) => void)
+  | null = null;
+let runtimeDisposed = false;
 const listeners = new Set<() => void>();
 
 function notify(): void {
@@ -73,12 +80,16 @@ async function writeStorage<T>(key: string, value: T): Promise<void> {
 }
 
 function ensureBoundStorageListener(): void {
-  if (!hasChromeStorage()) {
+  if (
+    runtimeDisposed ||
+    !hasChromeStorage() ||
+    storageChangeListener
+  ) {
     return;
   }
 
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "local") {
+  storageChangeListener = (changes, areaName) => {
+    if (runtimeDisposed || areaName !== "local") {
       return;
     }
 
@@ -93,19 +104,36 @@ function ensureBoundStorageListener(): void {
         : [];
       notify();
     }
-  });
+  };
+  chrome.storage.onChanged.addListener(storageChangeListener);
 }
 
 async function initTraceLog(): Promise<void> {
-  captureEnabled = await readStorage<boolean>(TRACE_CAPTURE_STORAGE_KEY, false);
-  entries = applyEntryRetention(await readStorage<TraceLogEntry[]>(TRACE_LOG_STORAGE_KEY, []));
+  const nextCaptureEnabled = await readStorage<boolean>(
+    TRACE_CAPTURE_STORAGE_KEY,
+    false,
+  );
+  const nextEntries = applyEntryRetention(
+    await readStorage<TraceLogEntry[]>(
+      TRACE_LOG_STORAGE_KEY,
+      [],
+    ),
+  );
+  if (runtimeDisposed) {
+    return;
+  }
+  captureEnabled = nextCaptureEnabled;
+  entries = nextEntries;
   await writeStorage(TRACE_LOG_STORAGE_KEY, entries);
+  if (runtimeDisposed) {
+    return;
+  }
   ensureBoundStorageListener();
   notify();
 }
 
 function ensureInitialised(): void {
-  if (initPromise) {
+  if (runtimeDisposed || initPromise) {
     return;
   }
   initPromise = initTraceLog().catch(() => undefined);
@@ -113,11 +141,14 @@ function ensureInitialised(): void {
 
 async function flushEntries(): Promise<void> {
   flushTimer = null;
+  if (runtimeDisposed) {
+    return;
+  }
   await writeStorage(TRACE_LOG_STORAGE_KEY, entries);
 }
 
 function scheduleFlush(): void {
-  if (flushTimer !== null) {
+  if (runtimeDisposed || flushTimer !== null) {
     return;
   }
 
@@ -127,11 +158,17 @@ function scheduleFlush(): void {
 }
 
 export function isTraceCaptureEnabled(): boolean {
+  if (runtimeDisposed) {
+    return false;
+  }
   ensureInitialised();
   return captureEnabled;
 }
 
 export function setTraceCaptureEnabled(enabled: boolean): void {
+  if (runtimeDisposed) {
+    return;
+  }
   ensureInitialised();
   captureEnabled = enabled;
   if (!enabled) {
@@ -149,6 +186,9 @@ export function setTraceCaptureEnabled(enabled: boolean): void {
 }
 
 export function clearTraceEntries(): void {
+  if (runtimeDisposed) {
+    return;
+  }
   ensureInitialised();
   entries = [];
   notify();
@@ -160,6 +200,9 @@ export function clearTraceEntries(): void {
 }
 
 export function addTraceEntry(entry: Omit<TraceLogEntry, "timestamp"> & { timestamp?: number }): void {
+  if (runtimeDisposed) {
+    return;
+  }
   ensureInitialised();
   if (!captureEnabled) {
     return;
@@ -180,6 +223,9 @@ export function addTraceEntry(entry: Omit<TraceLogEntry, "timestamp"> & { timest
 }
 
 export function getTraceEntries(): TraceLogEntry[] {
+  if (runtimeDisposed) {
+    return [];
+  }
   ensureInitialised();
   const nextEntries = applyEntryRetention(entries);
   if (nextEntries.length !== entries.length) {
@@ -191,11 +237,34 @@ export function getTraceEntries(): TraceLogEntry[] {
 }
 
 export function subscribeTraceEntries(listener: () => void): () => void {
+  if (runtimeDisposed) {
+    return () => undefined;
+  }
   ensureInitialised();
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
   };
+}
+
+export function disposeTraceLogRuntime(): void {
+  if (runtimeDisposed) {
+    return;
+  }
+  runtimeDisposed = true;
+  if (flushTimer !== null) {
+    globalThis.clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  if (storageChangeListener && hasChromeStorage()) {
+    chrome.storage.onChanged.removeListener(
+      storageChangeListener,
+    );
+  }
+  storageChangeListener = null;
+  listeners.clear();
+  entries = [];
+  captureEnabled = false;
 }
 
 ensureInitialised();

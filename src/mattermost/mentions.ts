@@ -16,7 +16,19 @@ export function hasSpecialMattermostMention(message: string): boolean {
   return SPECIAL_MENTION_PATTERN.test(message);
 }
 
-export function hasMattermostMention(message: string, username: string | null): boolean {
+export interface MattermostMentionOptions {
+  specialMentionsEnabled?: boolean;
+}
+
+export function hasMattermostMention(
+  message: string,
+  username: string | null,
+  options: MattermostMentionOptions = {},
+): boolean {
   const userMentionPattern = createUserMentionPattern(username);
-  return (userMentionPattern?.test(message) ?? false) || hasSpecialMattermostMention(message);
+  const specialMentionsEnabled = options.specialMentionsEnabled ?? true;
+  return (
+    (userMentionPattern?.test(message) ?? false) ||
+    (specialMentionsEnabled && hasSpecialMattermostMention(message))
+  );
 }

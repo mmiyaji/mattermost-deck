@@ -48,6 +48,54 @@ async function login(page: Page, username: string, password: string): Promise<vo
   await page.waitForURL(/channels|messages/, { timeout: 30_000 });
 }
 
+async function dismissFirstRunOverlays(page: Page): Promise<void> {
+  const dismissOnboardingOverlay = async () => {
+    const visibleOverlays = page.locator(
+      '[data-cy="onboarding-task-list-overlay"]:visible',
+    );
+    if (await visibleOverlays.count() > 0) {
+      await visibleOverlays.last().click({
+        position: { x: 10, y: 10 },
+        timeout: 5_000,
+      }).catch(async (error: unknown) => {
+        if (await visibleOverlays.count() > 0) {
+          throw error;
+        }
+      });
+    }
+    await expect(visibleOverlays).toHaveCount(0, { timeout: 5_000 });
+  };
+
+  await dismissOnboardingOverlay();
+  for (const locator of [
+    page.locator('[data-testid="close_tutorial_tip"]'),
+    page.getByRole("button", { name: /got it/i }),
+  ]) {
+    if (await locator.isVisible().catch(() => false)) {
+      await locator.click({ force: true });
+    }
+  }
+  await dismissOnboardingOverlay();
+}
+
+async function dismissOfflineStatusModal(page: Page): Promise<void> {
+  const modal = page.locator("#confirmModal:visible");
+  if (await modal.count() === 0) {
+    return;
+  }
+  const title = (
+    await modal
+      .locator("#confirmModalLabel, #genericModalLabel")
+      .first()
+      .textContent() ?? ""
+  ).trim();
+  if (!/status is (?:set to )?["“]?offline["”]?/i.test(title)) {
+    throw new Error(`Unexpected Mattermost confirmation modal: ${title}`);
+  }
+  await modal.locator("#cancelModalButton").click({ force: true });
+  await expect(modal).toHaveCount(0, { timeout: 5_000 });
+}
+
 async function getLayoutWidths(page: Page): Promise<LayoutWidths> {
   return await page.evaluate(() => {
     const mattermost = document.querySelector<HTMLElement>("#root");
@@ -130,15 +178,22 @@ test("preserves the Mattermost area and restores the requested Deck width after 
     const state = await readState();
     const [existingSw] = context.serviceWorkers();
     const sw = existingSw ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
-    await sw.evaluate(({ serverUrl, railKey, drawerKey }) => {
+    await sw.evaluate(({ serverUrl, railKey, drawerKey, preferredKey }) => {
       return new Promise<void>((resolve) => {
-        chrome.storage.local.set({
-          "mattermostDeck.serverUrl.v1": serverUrl,
-          [railKey]: 900,
-          [drawerKey]: 1,
-        }, () => resolve());
+        chrome.storage.local.remove(railKey, () => {
+          chrome.storage.local.set({
+            "mattermostDeck.serverUrl.v1": serverUrl,
+            [preferredKey]: "900",
+            [drawerKey]: 1,
+          }, () => resolve());
+        });
       });
-    }, { serverUrl: baseUrl, railKey: RAIL_WIDTH_STORAGE_KEY, drawerKey: DRAWER_OPEN_STORAGE_KEY });
+    }, {
+      serverUrl: baseUrl,
+      railKey: RAIL_WIDTH_STORAGE_KEY,
+      drawerKey: DRAWER_OPEN_STORAGE_KEY,
+      preferredKey: PREFERRED_RAIL_WIDTH_STORAGE_KEY,
+    });
 
     const page = await context.newPage();
     await login(page, state.memberUser.username, state.memberUser.password);
@@ -185,7 +240,7 @@ test("preserves the Mattermost area and restores the requested Deck width after 
       const stored = await chrome.storage.local.get(railKey);
       return stored[railKey];
     }, RAIL_WIDTH_STORAGE_KEY);
-    expect(storedRailWidth).toBe(900);
+    expect(storedRailWidth).toBeUndefined();
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });
@@ -229,6 +284,8 @@ test("applies preferred width changes until the user creates a manual override",
     const page = await context.newPage();
     await login(page, state.memberUser.username, state.memberUser.password);
     await expect(page.locator("#mattermost-deck-root")).toBeAttached({ timeout: 20_000 });
+    await dismissOfflineStatusModal(page);
+    await dismissFirstRunOverlays(page);
     await expect.poll(() => getLayoutWidths(page), { timeout: 20_000 }).toEqual({
       viewport: 1_800,
       mattermost: 960,
@@ -252,30 +309,84 @@ test("applies preferred width changes until the user creates a manual override",
     }, RAIL_WIDTH_STORAGE_KEY);
     expect(storedRailWidth).toBeUndefined();
 
+    await dismissFirstRunOverlays(page);
     const deckBox = await page.locator("#mattermost-deck-root").boundingBox();
     expect(deckBox).not.toBeNull();
-    await page.mouse.move((deckBox?.x ?? 0) + 7, 450);
+    const targetRailWidth = 740;
+    const resizeHandleX = (deckBox?.x ?? 0) + 7;
+    const resizeTargetX = resizeHandleX - (targetRailWidth - (deckBox?.width ?? 0));
+    await page.mouse.move(resizeHandleX, 450);
     await page.mouse.down();
-    await page.mouse.move(1_060, 450, { steps: 6 });
+    await page.mouse.move(resizeTargetX, 450, { steps: 6 });
     await page.mouse.up();
     await expect.poll(() => getLayoutWidths(page), { timeout: 10_000 }).toEqual({
       viewport: 1_800,
-      mattermost: 1_060,
-      deck: 740,
+      mattermost: 1_800 - targetRailWidth,
+      deck: targetRailWidth,
       overlap: 0,
     });
     await expect.poll(async () => await sw.evaluate(async (railKey) => {
       const stored = await chrome.storage.local.get(railKey);
       return stored[railKey];
-    }, RAIL_WIDTH_STORAGE_KEY), { timeout: 10_000 }).toBe(740);
+    }, RAIL_WIDTH_STORAGE_KEY), { timeout: 10_000 }).toBe(targetRailWidth);
 
     await sw.evaluate((preferredKey) => new Promise<void>((resolve) => {
       chrome.storage.local.set({ [preferredKey]: "560" }, () => resolve());
     }), PREFERRED_RAIL_WIDTH_STORAGE_KEY);
     await expect.poll(() => getLayoutWidths(page), { timeout: 10_000 }).toEqual({
       viewport: 1_800,
-      mattermost: 1_060,
-      deck: 740,
+      mattermost: 1_800 - targetRailWidth,
+      deck: targetRailWidth,
+      overlap: 0,
+    });
+
+    // A manual override is an explicit choice and must retain the legacy
+    // 320px Mattermost safety area rather than the automatic 720px work-area
+    // target. Otherwise a 1440px window silently caps every drag at 720px.
+    await page.setViewportSize({ width: 1_440, height: 900 });
+    await expect.poll(() => getLayoutWidths(page), { timeout: 10_000 }).toEqual({
+      viewport: 1_440,
+      mattermost: 1_440 - targetRailWidth,
+      deck: targetRailWidth,
+      overlap: 0,
+    });
+
+    const expandedTargetRailWidth = 900;
+    const resizedDeckBox = await page.locator("#mattermost-deck-root").boundingBox();
+    expect(resizedDeckBox).not.toBeNull();
+    const expandedHandleX = (resizedDeckBox?.x ?? 0) + 7;
+    const expandedTargetX = (
+      expandedHandleX -
+      (expandedTargetRailWidth - (resizedDeckBox?.width ?? 0))
+    );
+    await page.mouse.move(expandedHandleX, 450);
+    await page.mouse.down();
+    await page.mouse.move(expandedTargetX, 450, { steps: 6 });
+    await page.mouse.up();
+    await expect.poll(() => getLayoutWidths(page), { timeout: 10_000 }).toEqual({
+      viewport: 1_440,
+      mattermost: 1_440 - expandedTargetRailWidth,
+      deck: expandedTargetRailWidth,
+      overlap: 0,
+    });
+    await expect.poll(async () => await sw.evaluate(async (railKey) => {
+      const stored = await chrome.storage.local.get(railKey);
+      return stored[railKey];
+    }, RAIL_WIDTH_STORAGE_KEY), { timeout: 10_000 }).toBe(expandedTargetRailWidth);
+
+    await page.setViewportSize({ width: 1_000, height: 900 });
+    await expect.poll(() => getLayoutWidths(page), { timeout: 10_000 }).toEqual({
+      viewport: 1_000,
+      mattermost: 320,
+      deck: 680,
+      overlap: 0,
+    });
+
+    await page.setViewportSize({ width: 1_440, height: 900 });
+    await expect.poll(() => getLayoutWidths(page), { timeout: 10_000 }).toEqual({
+      viewport: 1_440,
+      mattermost: 1_440 - expandedTargetRailWidth,
+      deck: expandedTargetRailWidth,
       overlap: 0,
     });
   } finally {

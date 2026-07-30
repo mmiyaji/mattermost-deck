@@ -5,12 +5,11 @@ import path from "node:path";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.json");
-const ADMIN_USERNAME = "mm95admin";
-const ADMIN_PASSWORD = "Admin1234!";
 const LAYOUT_STORAGE_KEY = "mattermostDeck.layout.v1";
 
 interface E2EState {
   team: { id: string; name: string };
+  adminUser: { username: string; password: string };
   memberUser: { id: string; username: string; password: string; token: string };
 }
 
@@ -137,7 +136,10 @@ async function debugRequest<T>(
 test("unread-only mentions keeps an older unread thread reply from another channel", async ({}, testInfo) => {
   test.setTimeout(180_000);
   const state = await readState();
-  const adminToken = await loginViaApi(ADMIN_USERNAME, ADMIN_PASSWORD);
+  const adminToken = await loginViaApi(
+    state.adminUser.username,
+    state.adminUser.password,
+  );
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-multichannel-mentions-"));
   const createdChannelIds: string[] = [];
@@ -293,7 +295,10 @@ test("unread-only mentions keeps an older unread thread reply from another chann
 test("realtime mention queue keeps rapid posts from two channels", async ({}, testInfo) => {
   test.setTimeout(180_000);
   const state = await readState();
-  const adminToken = await loginViaApi(ADMIN_USERNAME, ADMIN_PASSWORD);
+  const adminToken = await loginViaApi(
+    state.adminUser.username,
+    state.adminUser.password,
+  );
   const memberWsToken = await loginViaApi(state.memberUser.username, state.memberUser.password);
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-realtime-mentions-"));
@@ -420,7 +425,10 @@ test("realtime mention queue keeps rapid posts from two channels", async ({}, te
 test("polling includes a plain direct message and clears it at the channel read marker", async ({}, testInfo) => {
   test.setTimeout(180_000);
   const state = await readState();
-  const adminToken = await loginViaApi(ADMIN_USERNAME, ADMIN_PASSWORD);
+  const adminToken = await loginViaApi(
+    state.adminUser.username,
+    state.adminUser.password,
+  );
   const adminUser = await apiGet<{ id: string }>(adminToken, "/users/me");
   const directChannel = await apiPost<{ id: string }>(adminToken, "/channels/direct", [
     adminUser.id,

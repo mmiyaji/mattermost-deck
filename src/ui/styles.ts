@@ -20,9 +20,9 @@ export const railCssText = `
     --deck-topbar-text-soft: var(--deck-text-soft);
     --deck-font-scale: 1;
     --deck-column-width: 320px;
-    --deck-accent: #1c58d9;
-    --deck-accent-strong: #166de0;
-    --deck-accent-soft: rgba(28, 88, 217, 0.18);
+    --deck-accent: #8ab4ff;
+    --deck-accent-strong: #b8d0ff;
+    --deck-accent-soft: rgba(138, 180, 255, 0.18);
     --deck-accent-text: #ffffff;
     --deck-button-bg: #1c58d9;
     --deck-button-text: #ffffff;
@@ -82,7 +82,7 @@ export const railCssText = `
     --deck-border-strong: rgba(63, 91, 129, 0.18);
     --deck-text: #1f2d3d;
     --deck-text-soft: #51657d;
-    --deck-text-faint: #6b7f98;
+    --deck-text-faint: #5f728a;
     --deck-accent: #1c58d9;
     --deck-accent-strong: #166de0;
     --deck-accent-soft: rgba(28, 88, 217, 0.1);
@@ -1024,6 +1024,13 @@ export const railCssText = `
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .deck-column-heading h2:focus {
+    outline: 2px solid
+      color-mix(in srgb, var(--deck-column-accent, #2f6fed) 72%, transparent);
+    outline-offset: 2px;
+    border-radius: 3px;
   }
 
   .deck-title-with-icon {
@@ -2263,43 +2270,106 @@ export const railCssText = `
     margin: 0;
   }
 
-  .deck-loading-progress {
+  .deck-column-loading-status {
+    position: relative;
     display: flex;
-    flex: 0 0 auto;
     align-items: center;
-    gap: 10px;
+    gap: 6px;
     min-width: 0;
-    padding: 9px 10px;
-    border: 1px solid var(--deck-border);
-    border-radius: 10px;
-    background: var(--deck-bg-soft);
-    color: var(--deck-text);
-  }
-
-  .deck-loading-progress .deck-loading-spinner {
-    width: 14px;
-    height: 14px;
-    flex: none;
-  }
-
-  .deck-loading-progress-copy {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .deck-loading-progress strong {
-    font-size: calc(12px * var(--deck-font-scale));
-    line-height: 1.25;
-  }
-
-  .deck-loading-progress-copy > span {
-    overflow: hidden;
+    height: calc(18px * var(--deck-font-scale));
+    margin-top: 2px;
+    padding-bottom: 3px;
     color: var(--deck-text-faint);
+  }
+
+  .deck-column-loading-status .deck-loading-spinner {
+    width: 11px;
+    height: 11px;
+    flex: none;
+    border-width: 1.5px;
+  }
+
+  .deck-column-loading-copy {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
     font-size: calc(11px * var(--deck-font-scale));
-    line-height: 1.35;
+    line-height: 1.2;
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .deck-column-loading-copy strong {
+    color: var(--deck-text);
+    font-weight: 600;
+  }
+
+  .deck-column-loading-track {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--deck-accent) 15%, transparent);
+  }
+
+  .deck-column-loading-track > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--deck-accent);
+    transition: width 140ms ease-out;
+  }
+
+  .deck-mention-updates {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    height: calc(18px * var(--deck-font-scale));
+    margin-top: 2px;
+  }
+
+  .deck-mention-updates-button {
+    position: relative;
+    min-width: 0;
+    max-width: 100%;
+    padding: 0;
+    overflow: visible;
+    border: 0;
+    background: transparent;
+    color: var(--deck-accent);
+    cursor: pointer;
+    font: inherit;
+    font-size: calc(11px * var(--deck-font-scale));
+    font-weight: 600;
+    line-height: 1.2;
+    text-align: left;
+  }
+
+  .deck-mention-updates-button-label {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .deck-mention-updates-button::before {
+    position: absolute;
+    inset: -4px -6px;
+    content: "";
+  }
+
+  .deck-mention-updates-button:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .deck-mention-updates-button:focus-visible {
+    border-radius: 3px;
+    outline: 2px solid var(--deck-accent);
+    outline-offset: 2px;
   }
 
   .deck-loading-state p {
@@ -2353,10 +2423,21 @@ export const railCssText = `
   }
 
   @media (prefers-reduced-motion: reduce) {
+    * {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+
     .deck-loading-spinner,
     .deck-refresh-icon--spinning,
     .deck-loading-skeleton {
       animation: none;
+    }
+
+    .deck-column-loading-track > span {
+      transition: none;
     }
   }
 `;

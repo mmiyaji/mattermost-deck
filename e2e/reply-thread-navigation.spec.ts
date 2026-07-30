@@ -5,18 +5,25 @@ import path from "node:path";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.json");
-const ADMIN_EMAIL = "admin@mm95test.local";
-const ADMIN_USERNAME = "mm95admin";
-const ADMIN_PASSWORD = "Admin1234!";
 const DEFAULT_TEAM_NAME = "testteam";
-const MEMBER_USERNAME = "mm95user";
-const MEMBER_PASSWORD = "User1234!";
-const MEMBER_EMAIL = "user@mm95test.local";
 
 interface E2EState {
   baseUrl: string;
   teamName: string;
-  memberUser: { id?: string; username: string; password: string; token: string };
+  adminUser: {
+    id?: string;
+    email?: string;
+    username: string;
+    password: string;
+    token?: string;
+  };
+  memberUser: {
+    id?: string;
+    email?: string;
+    username: string;
+    password: string;
+    token: string;
+  };
 }
 
 async function readState(): Promise<E2EState> {
@@ -96,15 +103,23 @@ async function ensureMm95State(state: E2EState): Promise<E2EState> {
 
   let adminToken: string;
   try {
-    adminToken = await loginApi(ADMIN_USERNAME, ADMIN_PASSWORD);
+    adminToken = await loginApi(
+      state.adminUser.username,
+      state.adminUser.password,
+    );
   } catch {
     await apiCall("POST", "/users", {
-      email: ADMIN_EMAIL,
-      username: ADMIN_USERNAME,
-      password: ADMIN_PASSWORD,
+      email:
+        state.adminUser.email ??
+        `${state.adminUser.username}@mattermost-deck.invalid`,
+      username: state.adminUser.username,
+      password: state.adminUser.password,
       allow_marketing: false,
     });
-    adminToken = await loginApi(ADMIN_USERNAME, ADMIN_PASSWORD);
+    adminToken = await loginApi(
+      state.adminUser.username,
+      state.adminUser.password,
+    );
   }
 
   await apiCall("PUT", "/config/patch", {
@@ -123,13 +138,15 @@ async function ensureMm95State(state: E2EState): Promise<E2EState> {
 
   let memberId = state.memberUser.id;
   try {
-    const member = await apiCall<{ id: string }>("GET", `/users/username/${state.memberUser.username || MEMBER_USERNAME}`, undefined, adminToken);
+    const member = await apiCall<{ id: string }>("GET", `/users/username/${state.memberUser.username}`, undefined, adminToken);
     memberId = member.id;
   } catch {
     const member = await apiCall<{ id: string }>("POST", "/users", {
-      email: MEMBER_EMAIL,
-      username: state.memberUser.username || MEMBER_USERNAME,
-      password: state.memberUser.password || MEMBER_PASSWORD,
+      email:
+        state.memberUser.email ??
+        `${state.memberUser.username}@mattermost-deck.invalid`,
+      username: state.memberUser.username,
+      password: state.memberUser.password,
       allow_marketing: false,
     }, adminToken);
     memberId = member.id;
@@ -140,13 +157,21 @@ async function ensureMm95State(state: E2EState): Promise<E2EState> {
     user_id: memberId,
   }, adminToken).catch(() => undefined);
 
-  const memberToken = await loginApi(state.memberUser.username || MEMBER_USERNAME, state.memberUser.password || MEMBER_PASSWORD);
+  const memberToken = await loginApi(
+    state.memberUser.username,
+    state.memberUser.password,
+  );
   const nextState: E2EState = {
+    ...state,
     baseUrl,
     teamName: team.name,
+    adminUser: {
+      ...state.adminUser,
+      token: adminToken,
+    },
     memberUser: {
-      username: state.memberUser.username || MEMBER_USERNAME,
-      password: state.memberUser.password || MEMBER_PASSWORD,
+      ...state.memberUser,
+      id: memberId,
       token: memberToken,
     },
   };

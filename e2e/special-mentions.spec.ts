@@ -16,7 +16,21 @@ interface E2EState {
 }
 
 async function readState(): Promise<E2EState> {
-  return JSON.parse(await fs.readFile(stateFile, "utf8")) as E2EState;
+  const state = JSON.parse(await fs.readFile(stateFile, "utf8")) as {
+    team: E2EState["team"];
+    adminUser?: E2EState["adminUser"];
+    bridgeUser?: E2EState["adminUser"];
+    memberUser: E2EState["memberUser"];
+  };
+  const adminUser = state.adminUser ?? state.bridgeUser;
+  if (!adminUser) {
+    throw new Error("E2E state is missing adminUser or bridgeUser");
+  }
+  return {
+    team: state.team,
+    adminUser,
+    memberUser: state.memberUser,
+  };
 }
 
 async function apiGet<T>(token: string, pathname: string): Promise<T> {
@@ -113,6 +127,7 @@ test("mentions column includes @here posts on initial load", async () => {
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-special-mentions-"));
   const presenceUserDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-special-presence-"));
   let postId = "";
+  let channelId = "";
   let context: import("@playwright/test").BrowserContext | null = null;
   let presenceContext: import("@playwright/test").BrowserContext | null = null;
   const previousStatus = await apiGet<{ status: string }>(
@@ -120,13 +135,24 @@ test("mentions column includes @here posts on initial load", async () => {
     `/users/${state.memberUser.id}/status`,
   );
 
-  const channels = await apiGet<Array<{ id: string; name: string }>>(state.memberUser.token, `/users/me/teams/${state.team.id}/channels`);
-  const townSquare = channels.find((channel) => channel.name === "town-square");
-  expect(townSquare).toBeTruthy();
-
   const marker = `special-mention-${Date.now()}`;
 
   try {
+    const targetChannel = await apiPost<{ id: string }>(
+      state.adminUser.token,
+      "/channels",
+      {
+        team_id: state.team.id,
+        name: `special-mention-${Date.now()}`,
+        display_name: `Special mention ${Date.now()}`,
+        type: "O",
+      },
+    );
+    channelId = targetChannel.id;
+    await apiPost(state.adminUser.token, `/channels/${channelId}/members`, {
+      user_id: state.memberUser.id,
+    });
+
     presenceContext = await chromium.launchPersistentContext(presenceUserDataDir, {
       channel: "chromium",
       headless: true,
@@ -148,7 +174,9 @@ test("mentions column includes @here posts on initial load", async () => {
     ).toBe("online");
 
     const created = await apiPost<{ id: string }>(state.adminUser.token, "/posts", {
-      channel_id: townSquare!.id,
+      // Keep the presence browser on another channel. Posting into its active
+      // channel marks the message viewed before Deck can exercise bootstrap.
+      channel_id: channelId,
       message: `Deck mentions bootstrap check @here ${marker}`,
     });
     postId = created.id;
@@ -204,6 +232,9 @@ test("mentions column includes @here posts on initial load", async () => {
     await fs.rm(presenceUserDataDir, { recursive: true, force: true });
     if (postId) {
       await apiDelete(state.adminUser.token, `/posts/${postId}`);
+    }
+    if (channelId) {
+      await apiDelete(state.adminUser.token, `/channels/${channelId}`);
     }
     await apiPut(state.memberUser.token, `/users/${state.memberUser.id}/status`, {
       user_id: state.memberUser.id,

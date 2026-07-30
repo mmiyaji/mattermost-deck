@@ -16,15 +16,14 @@ Mattermost Deck adds a multi-pane viewing and search workspace to Mattermost Web
 
 Mattermost Deck adds monitoring-oriented panes to the right side of Mattermost Web. Users can arrange mentions, channels, direct messages, search results with keyword highlighting, and saved posts side by side. Mattermost remains the primary interface for login, posting, editing, team navigation, and thread views.
 
-## v1.0.2 release notes
+## v1.0.4 release notes
 
-- Added optional thread-aware sizing that narrows or collapses Deck while Mattermost's thread pane is open, then restores the requested width
-- Kept Deck panes mounted across channel and team navigation so pane state is preserved without a broad refetch
-- Synchronized WebSocket channel and thread read markers locally without reloading unrelated Deck data
-- Clarified that leaving Team Slug blank keeps the same Deck state available across all teams on the configured server
-- Verified Docker-backed E2E compatibility with Mattermost 9.5.11 while retaining 9.5.4 coverage
-- Fixed Chrome host-permission matching for Mattermost servers that use non-default ports
-- Published as 1.0.2 because 1.0.1 was used for a rollback distribution
+- Bounded each channel mention scan to five 200-post pages, added network and queue timeouts, and cancelled requests when the configured server changes so a stalled or very large server cannot grow work without limit
+- Reconciles bursts of realtime mention events with one bounded refresh, applies edits and deletions immediately, and honors each user's channel-wide mention preference
+- Hands off cleanly from the previous content runtime after an extension update, removing old listeners, observers, timers, and React roots before the new bundle starts
+- Improved keyboard and screen-reader behavior for Deck dialogs, menus, retry states, Settings comboboxes, sortable performance tables, and validation errors in all supported languages
+- Added release gates for Mattermost 9.5.11, 10.11.22, and 11.8.2, exact-archive ungranted and safe-denial smoke coverage, SHA-256 release checksums, and scheduled fixed-seed monkey and memory-soak testing
+- Clarified that optional diagnostic traces are bounded and entries older than 24 hours are pruned on the extension's next activity
 
 ## Permission justifications
 

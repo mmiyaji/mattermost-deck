@@ -3,7 +3,10 @@ import { createRoot } from "react-dom/client";
 import { App } from "../ui/App";
 import { DEFAULT_SETTINGS, loadDeckSettings, subscribeDeckSettings, type DeckSettings } from "../ui/settings";
 import { railCssText } from "../ui/styles";
-import { addTraceEntry } from "../traceLog";
+import {
+  addTraceEntry,
+  disposeTraceLogRuntime,
+} from "../traceLog";
 import { configureMattermostBaseUrl } from "../mattermost/api";
 
 const ROOT_ID = "mattermost-deck-root";
@@ -18,32 +21,72 @@ const INITIAL_RENDER_DELAY_MS = 100;
 const MATTERMOST_GUARD_SUCCESS_TTL_MS = 30_000;
 const MATTERMOST_GUARD_FAILURE_TTL_MS = 10_000;
 const MATTERMOST_SESSION_HEARTBEAT_MS = 60_000;
+const MATTERMOST_GUARD_REQUEST_TIMEOUT_MS = 10_000;
 const ROUTE_SETTLE_DELAY_MS = 180;
 const ROUTE_MISMATCH_GRACE_MS = 500;
 const ROUTE_FALLBACK_POLL_MS = 5_000;
 const DIALOG_MUTATION_SETTLE_MS = 250;
+const CONTENT_RUNTIME_KEY = "__mattermostDeckContentRuntimeV1";
+const CONTENT_DISPOSE_EVENT = "mattermost-deck:dispose-content-runtime";
+
+type ContentRuntimeRegistration = {
+  version: string;
+  dispose: () => void;
+};
+
+type ContentRuntimeHost = typeof globalThis & {
+  [CONTENT_RUNTIME_KEY]?: ContentRuntimeRegistration;
+};
+
+const contentRuntimeHost = globalThis as ContentRuntimeHost;
+const previousRuntime = contentRuntimeHost[CONTENT_RUNTIME_KEY];
+if (previousRuntime && typeof previousRuntime.dispose === "function") {
+  try {
+    previousRuntime.dispose();
+  } catch {
+    // A broken older runtime must not prevent the updated content script from
+    // starting. The background worker reloads the tab when no clean hand-off
+    // is available, while these DOM fallbacks keep duplicate rails hidden.
+    document.body?.classList.remove(BODY_CLASS);
+    document.getElementById(ROOT_ID)?.remove();
+  }
+}
 
 let appRoot: ReturnType<typeof createRoot> | null = null;
 let routePoller: number | null = null;
 let routeNotifyTimer: number | null = null;
+let routeAnimationFrame: number | null = null;
 let dialogMutationTimer: number | null = null;
 let dialogObserver: MutationObserver | null = null;
 let cleanupTimer: number | null = null;
 let sessionHeartbeatTimer: number | null = null;
+let settingsUnsubscribe: (() => void) | null = null;
+let domContentLoadedListener: (() => void) | null = null;
+let routeNotifyHandler: (() => void) | null = null;
+let originalPushState: History["pushState"] | null = null;
+let originalReplaceState: History["replaceState"] | null = null;
+let patchedPushState: History["pushState"] | null = null;
+let patchedReplaceState: History["replaceState"] | null = null;
+let guardAbortController: AbortController | null = null;
+let guardTimeoutTimer: number | null = null;
+const initialRenderTimers = new Map<number, () => void>();
 let lastRenderKey = "";
 let renderVersion = 0;
+let runtimeDisposed = false;
 let currentSettings: DeckSettings = DEFAULT_SETTINGS;
 let settingsLoaded = false;
 let deckShadowRoot: ShadowRoot | null = null;
 let guardCache:
   | {
-      origin: string;
+      healthCheckUrl: string;
       expiresAt: number;
       ok: boolean;
     }
   | null = null;
 let guardInflight: Promise<boolean> | null = null;
+let guardInflightUrl: string | null = null;
 let guardLastStatus: number | null = null;
+let guardGeneration = 0;
 const DEBUG_FLAG_KEY = "mattermostDeck.debugLogs";
 
 function getConfiguredLocation(): { origin: string; basePath: string } | null {
@@ -104,6 +147,26 @@ function debugLog(event: string, payload?: Record<string, unknown>): void {
   addTraceEntry({ source: "content", level: "info", event });
 }
 
+export function routeMatchesAllowedKinds(
+  route: string,
+  allowedKinds: readonly string[],
+): boolean {
+  const hashRouteIndex = route.indexOf("#/");
+  const routePathname =
+    hashRouteIndex >= 0
+      ? route.slice(hashRouteIndex + 1).split(/[?#]/, 1)[0] ?? ""
+      : route.split(/[?#]/, 1)[0] ?? "";
+  const routeSegments = routePathname.split("/").filter(Boolean);
+  // getConfiguredRoute strips the configured deployment base path, leaving
+  // /<team>/<route-kind>/... (or the terminal /<team>/threads route).
+  // Check the route-kind position rather than any segment so a channel named
+  // "threads" cannot enable a route kind the user disabled.
+  return Boolean(
+    routeSegments[1] &&
+    allowedKinds.includes(routeSegments[1]),
+  );
+}
+
 function matchesConfiguredRoute(): boolean {
   if (!settingsLoaded) {
     return false;
@@ -115,8 +178,7 @@ function matchesConfiguredRoute(): boolean {
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean);
-  const routePattern = new RegExp(`/(?:${allowedKinds.join("|")})/`);
-  if (!routePattern.test(route)) {
+  if (!routeMatchesAllowedKinds(route, allowedKinds)) {
     return false;
   }
 
@@ -148,73 +210,133 @@ function hasBlockingDialog(): boolean {
   });
 }
 
+function invalidateMattermostSessionGuard(): void {
+  guardGeneration += 1;
+  guardAbortController?.abort();
+  guardAbortController = null;
+  if (guardTimeoutTimer !== null) {
+    window.clearTimeout(guardTimeoutTimer);
+    guardTimeoutTimer = null;
+  }
+  guardInflight = null;
+  guardInflightUrl = null;
+  guardCache = null;
+  guardLastStatus = null;
+}
+
 async function verifyMattermostSession(): Promise<boolean> {
+  if (runtimeDisposed) {
+    return false;
+  }
   const healthCheckUrl = getConfiguredHealthCheckUrl();
   if (!healthCheckUrl || !getConfiguredRoute()) {
     return false;
   }
 
   const now = Date.now();
-  if (guardCache && guardCache.origin === window.location.origin && guardCache.expiresAt > now) {
+  if (
+    guardCache &&
+    guardCache.healthCheckUrl === healthCheckUrl &&
+    guardCache.expiresAt > now
+  ) {
     return guardCache.ok;
   }
 
-  if (guardInflight) {
+  if (guardInflight && guardInflightUrl === healthCheckUrl) {
     return await guardInflight;
   }
+  if (guardInflight) {
+    invalidateMattermostSessionGuard();
+  }
 
-  guardInflight = (async () => {
+  const requestGeneration = ++guardGeneration;
+  const controller = new AbortController();
+  guardAbortController = controller;
+  guardInflightUrl = healthCheckUrl;
+  const request = (async () => {
     const csrfToken = document.cookie
       .split("; ")
       .find((entry) => entry.startsWith("MMCSRF="))
       ?.slice("MMCSRF=".length);
 
     try {
-      const response = await fetch(healthCheckUrl, {
-        credentials: "include",
-        headers: {
-          Accept: "application/json",
-          "X-Requested-With": "XMLHttpRequest",
-          ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
-        },
-      });
+      const response = await Promise.race([
+        fetch(healthCheckUrl, {
+          credentials: "include",
+          signal: controller.signal,
+          headers: {
+            Accept: "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
+          },
+        }),
+        new Promise<Response>((_, reject) => {
+          guardTimeoutTimer = window.setTimeout(() => {
+            controller.abort();
+            reject(new Error("mattermost_guard_timeout"));
+          }, MATTERMOST_GUARD_REQUEST_TIMEOUT_MS);
+        }),
+      ]);
 
       const ok = response.ok;
+      if (
+        runtimeDisposed ||
+        requestGeneration !== guardGeneration
+      ) {
+        return false;
+      }
       guardLastStatus = response.status;
       guardCache = {
-        origin: window.location.origin,
+        healthCheckUrl,
         expiresAt: Date.now() + (ok ? MATTERMOST_GUARD_SUCCESS_TTL_MS : MATTERMOST_GUARD_FAILURE_TTL_MS),
         ok,
       };
       return ok;
     } catch {
+      if (
+        runtimeDisposed ||
+        requestGeneration !== guardGeneration
+      ) {
+        return false;
+      }
       guardLastStatus = null;
       guardCache = {
-        origin: window.location.origin,
+        healthCheckUrl,
         expiresAt: Date.now() + MATTERMOST_GUARD_FAILURE_TTL_MS,
         ok: false,
       };
       return false;
     } finally {
-      guardInflight = null;
+      if (requestGeneration === guardGeneration) {
+        if (guardTimeoutTimer !== null) {
+          window.clearTimeout(guardTimeoutTimer);
+          guardTimeoutTimer = null;
+        }
+        if (guardAbortController === controller) {
+          guardAbortController = null;
+        }
+        guardInflight = null;
+        guardInflightUrl = null;
+      }
     }
   })();
+  guardInflight = request;
 
-  return await guardInflight;
+  return await request;
 }
 
 function ensureSessionHeartbeat(): void {
-  if (sessionHeartbeatTimer !== null) {
+  if (runtimeDisposed || sessionHeartbeatTimer !== null) {
     return;
   }
 
   sessionHeartbeatTimer = window.setInterval(() => {
-    if (!appRoot || !matchesConfiguredRoute()) {
+    if (runtimeDisposed || !appRoot || !matchesConfiguredRoute()) {
       return;
     }
 
     void verifyMattermostSession().then((ok) => {
-      if (!ok && guardLastStatus === 401 && appRoot) {
+      if (!runtimeDisposed && !ok && guardLastStatus === 401 && appRoot) {
         debugLog("content.session.expired", {
           path: window.location.pathname,
         });
@@ -246,20 +368,30 @@ function ensureStyle(): void {
     }
 
     body.mattermost-deck-resizing #${ROOT_ID},
-    body.mattermost-deck-viewport-resizing #${ROOT_ID} {
+    body.mattermost-deck-viewport-resizing #${ROOT_ID},
+    body.mattermost-deck-right-pane-layout-sync #${ROOT_ID} {
       transition: none !important;
     }
 
     body.${BODY_CLASS} #root {
       width: calc(100vw - var(${OFFSET_WIDTH_VAR})) !important;
+      min-width: 0 !important;
       max-width: calc(100vw - var(${OFFSET_WIDTH_VAR})) !important;
       transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
                   max-width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     body.${BODY_CLASS}.mattermost-deck-resizing #root,
-    body.${BODY_CLASS}.mattermost-deck-viewport-resizing #root {
+    body.${BODY_CLASS}.mattermost-deck-viewport-resizing #root,
+    body.${BODY_CLASS}.mattermost-deck-right-pane-layout-sync #root {
       transition: none !important;
+    }
+
+    body.mattermost-deck-right-pane-viewport-sync #root #sidebar-right,
+    body.mattermost-deck-right-pane-viewport-sync #root .sidebar--right--width-holder,
+    body.mattermost-deck-right-pane-viewport-sync #root .rhs-root[role="complementary"] {
+      transition: none !important;
+      animation: none !important;
     }
 
     body.${BODY_CLASS} #root .app__content {
@@ -326,17 +458,95 @@ function cleanup(): void {
     hash: window.location.hash,
     hasAppRoot: Boolean(appRoot),
   });
-  document.body?.classList.remove(BODY_CLASS);
-  document.getElementById(ROOT_ID)?.remove();
+  document.body?.classList.remove(
+    BODY_CLASS,
+    "mattermost-deck-right-pane-layout-sync",
+    "mattermost-deck-right-pane-viewport-sync",
+  );
   if (appRoot) {
     appRoot.unmount();
     appRoot = null;
   }
+  document.getElementById(ROOT_ID)?.remove();
   if (sessionHeartbeatTimer !== null) {
     window.clearInterval(sessionHeartbeatTimer);
     sessionHeartbeatTimer = null;
   }
   deckShadowRoot = null;
+}
+
+function disposeContentRuntime(): void {
+  if (runtimeDisposed) {
+    return;
+  }
+  runtimeDisposed = true;
+  renderVersion += 1;
+
+  settingsUnsubscribe?.();
+  settingsUnsubscribe = null;
+  if (domContentLoadedListener) {
+    document.removeEventListener("DOMContentLoaded", domContentLoadedListener);
+    domContentLoadedListener = null;
+  }
+  if (routeNotifyHandler) {
+    window.removeEventListener("popstate", routeNotifyHandler);
+    window.removeEventListener("hashchange", routeNotifyHandler);
+    routeNotifyHandler = null;
+  }
+  if (
+    originalPushState &&
+    patchedPushState &&
+    window.history.pushState === patchedPushState
+  ) {
+    window.history.pushState = originalPushState;
+  }
+  if (
+    originalReplaceState &&
+    patchedReplaceState &&
+    window.history.replaceState === patchedReplaceState
+  ) {
+    window.history.replaceState = originalReplaceState;
+  }
+  originalPushState = null;
+  originalReplaceState = null;
+  patchedPushState = null;
+  patchedReplaceState = null;
+
+  dialogObserver?.disconnect();
+  dialogObserver = null;
+  if (routePoller !== null) {
+    window.clearInterval(routePoller);
+    routePoller = null;
+  }
+  if (routeNotifyTimer !== null) {
+    window.clearTimeout(routeNotifyTimer);
+    routeNotifyTimer = null;
+  }
+  if (routeAnimationFrame !== null) {
+    window.cancelAnimationFrame(routeAnimationFrame);
+    routeAnimationFrame = null;
+  }
+  if (dialogMutationTimer !== null) {
+    window.clearTimeout(dialogMutationTimer);
+    dialogMutationTimer = null;
+  }
+  if (cleanupTimer !== null) {
+    window.clearTimeout(cleanupTimer);
+    cleanupTimer = null;
+  }
+  for (const [timer, resolve] of initialRenderTimers) {
+    window.clearTimeout(timer);
+    resolve();
+  }
+  initialRenderTimers.clear();
+  invalidateMattermostSessionGuard();
+  cleanup();
+  disposeTraceLogRuntime();
+  document.getElementById(STYLE_ID)?.remove();
+  window.removeEventListener(CONTENT_DISPOSE_EVENT, disposeContentRuntime);
+  if (contentRuntimeHost[CONTENT_RUNTIME_KEY]?.dispose === disposeContentRuntime) {
+    delete contentRuntimeHost[CONTENT_RUNTIME_KEY];
+  }
 }
 
 function clearPendingCleanup(): void {
@@ -347,6 +557,9 @@ function clearPendingCleanup(): void {
 }
 
 function scheduleCleanup(reason: string, routeKey: string): void {
+  if (runtimeDisposed) {
+    return;
+  }
   if (!appRoot) {
     cleanup();
     return;
@@ -377,7 +590,7 @@ function notifyAppRouteChange(routeKey: string): void {
 }
 
 async function render(): Promise<void> {
-  if (!(document.body instanceof HTMLBodyElement)) {
+  if (runtimeDisposed || !(document.body instanceof HTMLBodyElement)) {
     return;
   }
 
@@ -418,14 +631,17 @@ async function render(): Promise<void> {
     cleanup();
   }
 
-  if (!(await verifyMattermostSession())) {
-    debugLog("content.render.skip.session", { routeKey });
-    cleanup();
+  const sessionValid = await verifyMattermostSession();
+  if (runtimeDisposed || currentRenderVersion !== renderVersion) {
+    debugLog("content.render.abort.superseded", { routeKey });
     return;
   }
-
-  if (currentRenderVersion !== renderVersion) {
-    debugLog("content.render.abort.superseded", { routeKey });
+  if (!sessionValid) {
+    debugLog("content.render.skip.session", { routeKey });
+    // Keep the fallback poll eligible to retry after a transient guard
+    // failure instead of treating the failed attempt as a completed render.
+    lastRenderKey = "";
+    cleanup();
     return;
   }
 
@@ -437,10 +653,14 @@ async function render(): Promise<void> {
   const isInitialMount = !document.getElementById(ROOT_ID);
   if (isInitialMount) {
     await new Promise<void>((resolve) => {
-      window.setTimeout(resolve, INITIAL_RENDER_DELAY_MS);
+      const timer = window.setTimeout(() => {
+        initialRenderTimers.delete(timer);
+        resolve();
+      }, INITIAL_RENDER_DELAY_MS);
+      initialRenderTimers.set(timer, resolve);
     });
 
-    if (currentRenderVersion !== renderVersion) {
+    if (runtimeDisposed || currentRenderVersion !== renderVersion) {
       debugLog("content.render.abort.superseded-after-delay", { routeKey });
       return;
     }
@@ -485,12 +705,17 @@ async function render(): Promise<void> {
 }
 
 function installRouteWatcher(): void {
-  if (routePoller !== null) {
+  if (runtimeDisposed || routePoller !== null) {
     return;
   }
 
   const { pushState, replaceState } = window.history;
+  originalPushState = pushState;
+  originalReplaceState = replaceState;
   const notify = (): void => {
+    if (runtimeDisposed) {
+      return;
+    }
     const routeKey = `${window.location.pathname}${window.location.hash}`;
     const renderKey = `${routeKey}|dialog:${hasBlockingDialog() ? "open" : "closed"}`;
     if (renderKey === lastRenderKey) {
@@ -504,24 +729,37 @@ function installRouteWatcher(): void {
 
     routeNotifyTimer = window.setTimeout(() => {
       routeNotifyTimer = null;
-      window.requestAnimationFrame(() => {
+      routeAnimationFrame = window.requestAnimationFrame(() => {
+        routeAnimationFrame = null;
+        if (runtimeDisposed) {
+          return;
+        }
         void render();
       });
     }, ROUTE_SETTLE_DELAY_MS);
   };
+  routeNotifyHandler = notify;
 
-  window.history.pushState = function pushStatePatched(...args) {
+  patchedPushState = function pushStatePatched(
+    this: History,
+    ...args: Parameters<History["pushState"]>
+  ) {
     pushState.apply(this, args);
     notify();
   };
+  window.history.pushState = patchedPushState;
 
-  window.history.replaceState = function replaceStatePatched(...args) {
+  patchedReplaceState = function replaceStatePatched(
+    this: History,
+    ...args: Parameters<History["replaceState"]>
+  ) {
     replaceState.apply(this, args);
     notify();
   };
+  window.history.replaceState = patchedReplaceState;
 
   const scheduleDialogNotify = (): void => {
-    if (dialogMutationTimer !== null) {
+    if (runtimeDisposed || dialogMutationTimer !== null) {
       return;
     }
     dialogMutationTimer = window.setTimeout(() => {
@@ -542,40 +780,50 @@ function installRouteWatcher(): void {
   routePoller = window.setInterval(notify, ROUTE_FALLBACK_POLL_MS);
 }
 
-if (document.readyState === "loading") {
-  document.addEventListener(
-    "DOMContentLoaded",
-    () => {
-      void loadDeckSettings().then((settings) => {
-        currentSettings = settings;
-        configureMattermostBaseUrl(settings.serverUrl);
-        settingsLoaded = true;
-        void render();
-      });
-      subscribeDeckSettings((settings) => {
-        currentSettings = settings;
-        configureMattermostBaseUrl(settings.serverUrl);
-        settingsLoaded = true;
-        guardCache = null;
-        void render();
-      });
-      installRouteWatcher();
-    },
-    { once: true },
-  );
-} else {
-  void loadDeckSettings().then((settings) => {
+function startContentRuntime(): void {
+  if (runtimeDisposed) {
+    return;
+  }
+
+  void loadDeckSettings()
+    .then((settings) => {
+      if (runtimeDisposed) {
+        return;
+      }
+      currentSettings = settings;
+      configureMattermostBaseUrl(settings.serverUrl);
+      invalidateMattermostSessionGuard();
+      settingsLoaded = true;
+      void render();
+    })
+    .catch(() => undefined);
+  settingsUnsubscribe = subscribeDeckSettings((settings) => {
+    if (runtimeDisposed) {
+      return;
+    }
     currentSettings = settings;
     configureMattermostBaseUrl(settings.serverUrl);
+    invalidateMattermostSessionGuard();
     settingsLoaded = true;
-    void render();
-  });
-  subscribeDeckSettings((settings) => {
-    currentSettings = settings;
-    configureMattermostBaseUrl(settings.serverUrl);
-    settingsLoaded = true;
-    guardCache = null;
     void render();
   });
   installRouteWatcher();
+}
+
+contentRuntimeHost[CONTENT_RUNTIME_KEY] = {
+  version: chrome.runtime.getManifest().version,
+  dispose: disposeContentRuntime,
+};
+window.addEventListener(CONTENT_DISPOSE_EVENT, disposeContentRuntime);
+
+if (document.readyState === "loading") {
+  domContentLoadedListener = () => {
+    domContentLoadedListener = null;
+    startContentRuntime();
+  };
+  document.addEventListener("DOMContentLoaded", domContentLoadedListener, {
+    once: true,
+  });
+} else {
+  startContentRuntime();
 }

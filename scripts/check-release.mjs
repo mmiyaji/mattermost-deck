@@ -61,6 +61,29 @@ if (requestedTag) {
   if (requestedVersion !== version) {
     report(`release tag/version "${requestedTag}" does not match source version "${version}"`);
   }
+
+  const changelog = read("CHANGELOG.md");
+  const unreleasedMatch = changelog.match(
+    /## \[Unreleased\]([\s\S]*?)(?=\n## \[[^\]]+\])/,
+  );
+  const unreleasedContent = unreleasedMatch?.[1]
+    .replace(/^### .+$/gm, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .trim();
+  if (unreleasedContent) {
+    report(
+      "CHANGELOG.md: [Unreleased] must not contain shipped changes when creating a release tag",
+    );
+  }
+
+  const firstReleasedVersion = changelog.match(
+    /## \[(?!Unreleased\])([^\]]+)\]/,
+  )?.[1];
+  if (firstReleasedVersion !== version) {
+    report(
+      `CHANGELOG.md: the first released section must be [${version}], found [${String(firstReleasedVersion)}]`,
+    );
+  }
 }
 
 for (const [relativePath, requiredText] of [

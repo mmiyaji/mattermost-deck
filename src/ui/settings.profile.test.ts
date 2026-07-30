@@ -1,6 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS, SETTINGS_KEYS, loadDeckSettings, normaliseServerUrl, originToPermissionPattern, saveDeckSettings } from "./settings";
-import { createDeckProfile, loadDeckProfiles, switchDeckProfile } from "./profiles";
+import {
+  DEFAULT_SETTINGS,
+  SETTINGS_KEYS,
+  loadDeckSettings,
+  normaliseAllowedRouteKinds,
+  normaliseServerUrl,
+  originToPermissionPattern,
+  saveDeckSettings,
+} from "./settings";
+import {
+  createDeckProfile,
+  getProfileStorageKey,
+  loadDeckProfiles,
+  switchDeckProfile,
+} from "./profiles";
 
 let localValues: Map<string, unknown>;
 let sessionValues: Map<string, unknown>;
@@ -56,6 +69,10 @@ describe("server URL normalization", () => {
       .toBe("");
     expect(normaliseServerUrl("https://example.test/company/mattermost/team/pl/post-id"))
       .toBe("");
+    expect(normaliseServerUrl("https://example.test/company/threads"))
+      .toBe("https://example.test/company/threads");
+    expect(normaliseServerUrl("https://example.test/company/mattermost/team/threads/thread-id"))
+      .toBe("");
     expect(normaliseServerUrl("https://example.test/#/team/messages/@alice"))
       .toBe("");
   });
@@ -63,6 +80,16 @@ describe("server URL normalization", () => {
   it("does not strip arbitrary supported deployment subpaths", () => {
     expect(normaliseServerUrl("https://example.test/company/mattermost/tenant-a"))
       .toBe("https://example.test/company/mattermost/tenant-a");
+  });
+});
+
+describe("allowed Mattermost routes", () => {
+  it("keeps the team Threads screen enabled by default without changing explicit route choices", () => {
+    expect(DEFAULT_SETTINGS.allowedRouteKinds).toContain("threads");
+    expect(normaliseAllowedRouteKinds("channels,threads,unknown"))
+      .toBe("channels,threads");
+    expect(normaliseAllowedRouteKinds("channels,messages,pl"))
+      .toBe("channels,messages,pl");
   });
 });
 
@@ -115,6 +142,54 @@ describe("profile-aware settings", () => {
     expect(stored[scopedKey!]).toBe("false");
     await expect(loadDeckSettings()).resolves.toMatchObject({
       autoAdjustThreadLayout: false,
+    });
+  });
+
+  it("migrates the former default routes once for the active profile", async () => {
+    const { activeProfileId } = await loadDeckProfiles();
+    const allowedRouteKindsKey = getProfileStorageKey(
+      activeProfileId,
+      SETTINGS_KEYS.allowedRouteKinds,
+    );
+    const migrationMarkerKey = getProfileStorageKey(
+      activeProfileId,
+      SETTINGS_KEYS.allowedRouteKindsThreadsMigration,
+    );
+    localValues.set(allowedRouteKindsKey, "channels,messages,pl");
+
+    await expect(loadDeckSettings()).resolves.toMatchObject({
+      allowedRouteKinds: "channels,messages,pl,threads",
+    });
+    expect(localValues.get(allowedRouteKindsKey)).toBe("channels,messages,pl,threads");
+    expect(localValues.get(migrationMarkerKey)).toBe("true");
+
+    localValues.set(allowedRouteKindsKey, "channels,messages,pl");
+    await expect(loadDeckSettings()).resolves.toMatchObject({
+      allowedRouteKinds: "channels,messages,pl",
+    });
+  });
+
+  it("marks an explicit three-route save as migrated and keeps Threads disabled", async () => {
+    const serverUrl = "https://mattermost.example.test/company/mattermost";
+    await saveDeckSettings({
+      ...DEFAULT_SETTINGS,
+      serverUrl,
+      allowedRouteKinds: "channels,messages,pl",
+    }, serverUrl);
+
+    const { activeProfileId } = await loadDeckProfiles(serverUrl);
+    const allowedRouteKindsKey = getProfileStorageKey(
+      activeProfileId,
+      SETTINGS_KEYS.allowedRouteKinds,
+    );
+    const migrationMarkerKey = getProfileStorageKey(
+      activeProfileId,
+      SETTINGS_KEYS.allowedRouteKindsThreadsMigration,
+    );
+    expect(localValues.get(allowedRouteKindsKey)).toBe("channels,messages,pl");
+    expect(localValues.get(migrationMarkerKey)).toBe("true");
+    await expect(loadDeckSettings(serverUrl)).resolves.toMatchObject({
+      allowedRouteKinds: "channels,messages,pl",
     });
   });
 

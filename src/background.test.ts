@@ -45,6 +45,12 @@ async function loadBackground(localValues: Map<string, unknown>) {
   const session = createStorageArea(sessionValues);
   const registerContentScripts = vi.fn(async () => undefined);
   const unregisterContentScripts = vi.fn(async () => undefined);
+  const executeScript = vi.fn(
+    async (_injection: unknown) =>
+      [] as chrome.scripting.InjectionResult[],
+  );
+  const tabsQuery = vi.fn(async () => [] as chrome.tabs.Tab[]);
+  const tabsReload = vi.fn(async () => undefined);
   const tabsCreate = vi.fn(async () => ({ id: 42 }));
 
   vi.stubGlobal("chrome", {
@@ -54,7 +60,7 @@ async function loadBackground(localValues: Map<string, unknown>) {
       onChanged: { addListener },
     },
     runtime: {
-      getManifest: () => ({ version: "1.0.2" }),
+      getManifest: () => ({ version: "1.0.4" }),
       openOptionsPage: vi.fn(async () => undefined),
       onInstalled: { addListener },
       onStartup: { addListener },
@@ -63,12 +69,13 @@ async function loadBackground(localValues: Map<string, unknown>) {
     scripting: {
       unregisterContentScripts,
       registerContentScripts,
-      executeScript: vi.fn(async () => undefined),
+      executeScript,
     },
     permissions: { contains: vi.fn(async () => true) },
     tabs: {
-      query: vi.fn(async () => []),
+      query: tabsQuery,
       create: tabsCreate,
+      reload: tabsReload,
       onUpdated: { addListener: vi.fn((listener) => tabUpdatedListeners.push(listener)) },
       onRemoved: { addListener },
     },
@@ -86,6 +93,9 @@ async function loadBackground(localValues: Map<string, unknown>) {
     messageListeners,
     registerContentScripts,
     unregisterContentScripts,
+    executeScript,
+    tabsQuery,
+    tabsReload,
     tabsCreate,
     tabUpdatedListeners,
   };
@@ -215,5 +225,47 @@ describe("background active profile settings", () => {
     expect(unregisterContentScripts).toHaveBeenCalledTimes(cleanupCallCount + 1);
     await expect(send({ type: "mattermost-deck:install-pwa-ready" }, 43)).resolves.toEqual({ success: false });
     expect(unregisterContentScripts).toHaveBeenCalledTimes(cleanupCallCount + 1);
+  });
+
+  it("disposes a registered content runtime before reinjecting the updated bundle", async () => {
+    const serverUrl = "https://mattermost.example.test";
+    const {
+      background,
+      executeScript,
+      tabsQuery,
+      tabsReload,
+    } = await loadBackground(new Map([[SETTINGS_KEYS.serverUrl, serverUrl]]));
+    tabsQuery.mockResolvedValue([{ id: 7 }] as chrome.tabs.Tab[]);
+    executeScript
+      .mockResolvedValueOnce([{ result: true }] as chrome.scripting.InjectionResult[])
+      .mockResolvedValueOnce([{ result: undefined }] as chrome.scripting.InjectionResult[]);
+
+    await background.refreshExistingDeckTabs();
+
+    expect(executeScript).toHaveBeenCalledTimes(2);
+    expect(executeScript.mock.calls[1]?.[0]).toEqual({
+      target: { tabId: 7 },
+      files: ["content.js"],
+    });
+    expect(tabsReload).not.toHaveBeenCalled();
+  });
+
+  it("reloads a tab when an older content runtime cannot dispose itself", async () => {
+    const serverUrl = "https://mattermost.example.test";
+    const {
+      background,
+      executeScript,
+      tabsQuery,
+      tabsReload,
+    } = await loadBackground(new Map([[SETTINGS_KEYS.serverUrl, serverUrl]]));
+    tabsQuery.mockResolvedValue([{ id: 9 }] as chrome.tabs.Tab[]);
+    executeScript.mockResolvedValueOnce([
+      { result: false },
+    ] as chrome.scripting.InjectionResult[]);
+
+    await background.refreshExistingDeckTabs();
+
+    expect(executeScript).toHaveBeenCalledTimes(1);
+    expect(tabsReload).toHaveBeenCalledWith(9);
   });
 });

@@ -5,14 +5,13 @@ import path from "node:path";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.json");
-const ADMIN_USERNAME = "mm95admin";
-const ADMIN_PASSWORD = "Admin1234!";
 const TRACE_CAPTURE_STORAGE_KEY = "mattermostDeck.traceCapture.v1";
 const TRACE_LOG_STORAGE_KEY = "mattermostDeck.traceEntries.v1";
 const LAYOUT_STORAGE_KEY = "mattermostDeck.layout.v1";
 
 interface E2EState {
   team: { id: string; name: string };
+  adminUser: { username: string; password: string };
   memberUser: { id: string; username: string; password: string; token: string };
 }
 
@@ -34,17 +33,6 @@ async function loginViaApi(username: string, password: string): Promise<string> 
     throw new Error("missing token header");
   }
   return token;
-}
-
-async function apiGet<T>(token: string, pathname: string): Promise<T> {
-  const response = await fetch(`${baseUrl}/api/v4${pathname}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`GET ${pathname} failed with ${response.status}: ${text}`);
-  }
-  return (await response.json()) as T;
 }
 
 async function apiPost<T>(token: string, pathname: string, body: unknown): Promise<T> {
@@ -118,7 +106,10 @@ for (const specialMention of specialMentions) {
     const state = await readState();
     const extensionPath = path.resolve("./dist");
     const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-special-mentions-reload-"));
-    const adminToken = await loginViaApi(ADMIN_USERNAME, ADMIN_PASSWORD);
+    const adminToken = await loginViaApi(
+      state.adminUser.username,
+      state.adminUser.password,
+    );
     const createdChannelIds: string[] = [];
     let postId = "";
 
@@ -135,10 +126,6 @@ for (const specialMention of specialMentions) {
         user_id: state.memberUser.id,
       });
     }
-
-    const channels = await apiGet<Array<{ id: string; name: string }>>(adminToken, `/teams/${state.team.id}/channels`);
-    const townSquare = channels.find((channel) => channel.name === "town-square");
-    expect(townSquare).toBeTruthy();
 
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: "chromium",
@@ -205,7 +192,9 @@ for (const specialMention of specialMentions) {
 
       const marker = `special-mention-no-reload-${specialMention.replace("@", "")}-${Date.now()}`;
       const created = await apiPost<{ id: string }>(adminToken, "/posts", {
-        channel_id: townSquare!.id,
+        // An unviewed channel keeps the special mention server-counted while
+        // the active Mattermost page remains available for the remount check.
+        channel_id: createdChannelIds[0],
         message: `Deck websocket special mention ${specialMention} ${marker}`,
       });
       postId = created.id;

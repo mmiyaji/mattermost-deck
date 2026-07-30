@@ -28,7 +28,7 @@
       data-i18n-content-en="Privacy Policy - Mattermost Deck"
     >
     <meta property="og:image" content="https://mattermost-deck.ruhenheim.org/assets/webstore/marquee-promo-tile-1400x560.png">
-    <link rel="stylesheet" href="../assets/styles.css?v=1.0.2">
+    <link rel="stylesheet" href="../assets/styles.css?v=1.0.4">
     <script src="../assets/site.js" defer></script>
   </head>
   <body>
@@ -88,7 +88,7 @@
           </div>
           <div class="legal-meta-row">
             <span data-i18n-ja="最終更新" data-i18n-en="Last updated">最終更新</span>
-            <strong>2026-07-25</strong>
+            <strong>2026-07-30</strong>
           </div>
           <div class="legal-meta-row">
             <span data-i18n-ja="分析・広告" data-i18n-en="Analytics & ads">分析・広告</span>
@@ -138,12 +138,17 @@
                 <li>MattermostサーバーURLと任意のTeam Slug</li>
                 <li>テーマ、言語、ポーリング間隔、レイアウト、保存済みViews、プロファイルなどの表示・動作設定</li>
                 <li>PATを永続保存するかどうかの任意設定</li>
+                <li>トレース記録を有効にした場合の件数制限付き診断ログ。24時間を超えた項目は、次に拡張機能が動作、記録、または診断画面を開いたときに削除します。</li>
               </ul>
               <p>
                 Mattermost Personal Access Token（PAT）はセッションのみの保存が既定です。
                 ユーザーが永続保存を選択した場合、PATはクライアント側で暗号化してブラウザ内に保存されます。
                 同じクライアントが復号できるため、この暗号化は平文保存を避けるための補助であり、
                 完全なセキュリティ境界ではありません。
+              </p>
+              <p>
+                診断ログには、要求目的、パス、ステータス、所要時間、キュー待機時間、拡張機能のライフサイクルイベントが含まれます。
+                投稿本文や認証トークンは記録しません。
               </p>
             </section>
 
@@ -199,7 +204,7 @@
               <ul>
                 <li>セッション保存のPATは、ブラウザセッション終了時に削除されます。</li>
                 <li>永続保存したPATは、設定変更、拡張機能ストレージの消去、アンインストールで削除できます。</li>
-                <li>トレース記録をオフにすると保存ログを消去し、24時間を超えたログは自動的に削除します。</li>
+                <li>トレース記録をオフにすると保存ログを消去します。24時間を超えたログは、次に拡張機能が動作、記録、または診断画面を開いたときに削除します。Chromeが動作していない間は、その次の動作までストレージに残る場合があります。</li>
               </ul>
             </section>
 
@@ -262,6 +267,7 @@
                 <li>Mattermost server URL and optional Team Slug</li>
                 <li>Theme, language, polling interval, layout, saved Views, profiles, and other display or behavior settings</li>
                 <li>The optional preference for persistent PAT storage</li>
+                <li>Bounded diagnostic trace logs; entries older than 24 hours are pruned the next time the extension runs, writes a trace, or opens diagnostics</li>
               </ul>
               <p>
                 Session-only storage is the default for a Mattermost Personal
@@ -269,6 +275,11 @@
                 PAT is stored locally with client-side encryption. Because the
                 same client can decrypt it, this helps avoid plain-text storage
                 but is not a complete security boundary.
+              </p>
+              <p>
+                Diagnostic logs contain request purpose, path, status, duration,
+                queue wait time, and extension lifecycle events. They do not
+                contain message bodies or authentication tokens.
               </p>
             </section>
 
@@ -330,7 +341,7 @@
               <ul>
                 <li>Session-stored PAT data is removed when the browser session ends.</li>
                 <li>Persisted PAT data can be removed through settings, by clearing extension storage, or by uninstalling the extension.</li>
-                <li>Turning trace capture off clears stored logs, and logs older than 24 hours are removed automatically.</li>
+                <li>Turning trace capture off clears stored logs. Entries older than 24 hours are pruned the next time the extension runs, writes a trace, or opens diagnostics. If Chrome remains inactive, expired entries may remain in extension storage until that next activity.</li>
               </ul>
             </section>
 

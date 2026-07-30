@@ -8,16 +8,29 @@ const stateFile =
   process.env.MM95_STATE_FILE ??
   process.env.CAB_MATTERMOST_E2E_STATE_FILE ??
   path.resolve("e2e/mm95-state.json");
-const ADMIN_USERNAME = "mm95admin";
-const ADMIN_PASSWORD = "Admin1234!";
 
 interface E2EState {
   team: { id: string; name: string };
+  adminUser: { username: string; password: string };
   memberUser: { id: string; username: string; password: string; token: string };
 }
 
 async function readState(): Promise<E2EState> {
-  return JSON.parse(await fs.readFile(stateFile, "utf8")) as E2EState;
+  const state = JSON.parse(await fs.readFile(stateFile, "utf8")) as {
+    team: E2EState["team"];
+    adminUser?: E2EState["adminUser"];
+    bridgeUser?: E2EState["adminUser"];
+    memberUser: E2EState["memberUser"];
+  };
+  const adminUser = state.adminUser ?? state.bridgeUser;
+  if (!adminUser) {
+    throw new Error("E2E state is missing adminUser or bridgeUser");
+  }
+  return {
+    team: state.team,
+    adminUser,
+    memberUser: state.memberUser,
+  };
 }
 
 async function apiGet<T>(token: string, pathname: string): Promise<T> {
@@ -127,7 +140,10 @@ test("mark read hover style stays legible with Mattermost theme", async () => {
   const state = await readState();
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-mark-read-style-"));
-  const adminToken = await loginViaApi(ADMIN_USERNAME, ADMIN_PASSWORD);
+  const adminToken = await loginViaApi(
+    state.adminUser.username,
+    state.adminUser.password,
+  );
   const createdPostIds: string[] = [];
   let channelId = "";
 
