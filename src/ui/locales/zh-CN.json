@@ -411,7 +411,7 @@
     "releaseNotesBody": "调整设置前，请查看最新更改。",
     "releaseNote104Compatibility": "新增 Mattermost 9.5.11、10.11.22 和 11.8.2 核心流程的发布门禁检查",
     "releaseNote104StoreGate": "自动使用实际商店 ZIP 验证未授权启动和安全拒绝权限的路径，确保不会保存设置或注入 Deck；原生权限批准及后续注入仍需手动验证，并发布 SHA-256 校验和",
-    "releaseNote104BoundedMentions": "将每个频道扫描限制为每页 200 条、最多 5 页，并增加网络与队列超时以及切换服务器时的取消处理",
+    "releaseNote104BoundedMentions": "以每页 200 条逐步扫描频道历史，直到已读标记、历史末尾、取消或命中 500 条帖子，并增加网络与队列超时以及切换服务器时的取消处理",
     "releaseNote104Realtime": "合并实时事件高峰，即时应用编辑和删除，并在不重新加载其他 Deck 窗格的情况下遵循频道范围提及设置",
     "releaseNote104Runtime": "注入更新前，完整移除旧运行时的 React root、observer、listener、timer 和 history 包装",
     "releaseNote104Accessibility": "改进本地化重试状态、键盘焦点、设置验证、combobox、可排序表格、减少动态效果和窄屏布局",

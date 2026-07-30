@@ -268,7 +268,7 @@ test("1.0.4 release notice stays aligned, wraps actions, and explains the reliab
     const releaseDialog = page.getByRole("dialog", { name: "v1.0.4" });
     await expect(releaseDialog).toBeVisible();
     await expect(releaseDialog.locator(".options-modal-section")).toHaveCount(3);
-    await expect(releaseDialog).toContainText("200件×最大5ページ");
+    await expect(releaseDialog).toContainText("既読位置・履歴終端・中断・一致投稿500件");
     await expect(releaseDialog).toContainText("旧runtime");
     for (const supportedVersion of ["9.5.11", "10.11.22", "11.8.2"]) {
       await expect(releaseDialog).toContainText(supportedVersion);

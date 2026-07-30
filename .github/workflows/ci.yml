@@ -74,7 +74,7 @@ jobs:
     name: Mattermost ${{ matrix.mattermost }} compatibility
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -111,6 +111,9 @@ jobs:
           e2e/thread-aware-layout.spec.ts
           e2e/route-change-no-reload.spec.ts
           e2e/team-switch-no-reload.spec.ts
+          e2e/mentions-fanout.spec.ts
+          e2e/mentions-crt-custom-key.spec.ts
+          e2e/mentions-cancellation.spec.ts
           --workers=1
 
       - name: Stop Mattermost test server

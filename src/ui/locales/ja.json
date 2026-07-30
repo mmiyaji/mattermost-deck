@@ -411,7 +411,7 @@
     "releaseNotesBody": "\u8a2d\u5b9a\u3092\u5909\u66f4\u3059\u308b\u524d\u306b\u6700\u65b0\u306e\u5909\u66f4\u70b9\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
     "releaseNote104Compatibility": "Mattermost 9.5.11、10.11.22、11.8.2の主要動作をリリースゲートへ追加",
     "releaseNote104StoreGate": "配布ZIP実物で、未許可の開始状態と、安全に権限を拒否して設定保存やDeck注入を行わない経路を自動テスト。Chromeのネイティブ許可と許可後の注入は手動で確認し、SHA-256チェックサムも公開",
-    "releaseNote104BoundedMentions": "チャンネル走査を200件×最大5ページに制限し、通信・キュー待機のタイムアウトとサーバー変更時の中断を追加",
+    "releaseNote104BoundedMentions": "チャンネル履歴を200件ずつ、既読位置・履歴終端・中断・一致投稿500件のいずれかまで段階走査し、通信・キュー待機のタイムアウトとサーバー変更時の中断を追加",
     "releaseNote104Realtime": "リアルタイム通知の集中をまとめ、編集・削除を即時反映し、無関係なDeckペインを再読込せずチャンネル全体メンション設定を尊重",
     "releaseNote104Runtime": "更新版の注入前に旧runtimeのReact root、observer、listener、timer、history置換を破棄",
     "releaseNote104Accessibility": "多言語の再試行表示、キーボードフォーカス、設定の検証・combobox・ソート表、動きを減らす設定、狭幅表示を改善",

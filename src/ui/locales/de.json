@@ -411,7 +411,7 @@
     "releaseNotesBody": "Prüfen Sie die neuesten Änderungen, bevor Sie Einstellungen anpassen.",
     "releaseNote104Compatibility": "Release-Prüfungen für die wichtigsten Abläufe unter Mattermost 9.5.11, 10.11.22 und 11.8.2 hinzugefügt",
     "releaseNote104StoreGate": "Das tatsächliche Store-ZIP wird beim Start ohne Berechtigung und bei sicherer Ablehnung automatisch getestet, ohne Einstellungen zu speichern oder Deck einzubinden; die native Freigabe und anschließende Einbindung werden manuell geprüft, außerdem wird eine SHA-256-Prüfsumme veröffentlicht",
-    "releaseNote104BoundedMentions": "Kanalscans auf 200 Beiträge pro Seite und fünf Seiten begrenzt sowie Netzwerk- und Warteschlangen-Timeouts und Abbruch beim Serverwechsel ergänzt",
+    "releaseNote104BoundedMentions": "Kanalverläufe werden schrittweise in Seiten mit je 200 Beiträgen bis zur Lesemarke, zum Verlaufsende, zum Abbruch oder zu 500 Treffern verarbeitet; ergänzt wurden Netzwerk- und Warteschlangen-Timeouts sowie der Abbruch bei Serverwechsel",
     "releaseNote104Realtime": "Echtzeit-Ereignisspitzen gebündelt, Bearbeitungen und Löschungen sofort übernommen und kanalweite Erwähnungseinstellungen ohne Neuladen anderer Deck-Bereiche beachtet",
     "releaseNote104Runtime": "React-Root, Observer, Listener, Timer und History-Wrapper der alten Laufzeit werden vor dem Einbinden eines Updates vollständig entfernt",
     "releaseNote104Accessibility": "Lokalisierte Wiederholungszustände, Tastaturfokus, Einstellungsvalidierung, Comboboxen, sortierbare Tabellen, reduzierte Bewegung und schmale Layouts verbessert",

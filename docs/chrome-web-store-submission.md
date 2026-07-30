@@ -18,7 +18,7 @@ Mattermost Deck adds monitoring-oriented panes to the right side of Mattermost W
 
 ## v1.0.4 release notes
 
-- Bounded each channel mention scan to five 200-post pages, added network and queue timeouts, and cancelled requests when the configured server changes so a stalled or very large server cannot grow work without limit
+- Scans channel mention history incrementally in 200-post pages until the read marker, channel-history end, cancellation, or 500 matched posts; network and queue timeouts plus server-change cancellation stop stalled work while keeping retained results bounded
 - Reconciles bursts of realtime mention events with one bounded refresh, applies edits and deletions immediately, and honors each user's channel-wide mention preference
 - Hands off cleanly from the previous content runtime after an extension update, removing old listeners, observers, timers, and React roots before the new bundle starts
 - Improved keyboard and screen-reader behavior for Deck dialogs, menus, retry states, Settings comboboxes, sortable performance tables, and validation errors in all supported languages

@@ -411,7 +411,7 @@
     "releaseNotesBody": "Consultez les dernières modifications avant d’ajuster vos paramètres.",
     "releaseNote104Compatibility": "Ajout de contrôles bloquants des parcours essentiels sous Mattermost 9.5.11, 10.11.22 et 11.8.2 avant chaque publication",
     "releaseNote104StoreGate": "Test automatique du ZIP exact destiné au Store au démarrage sans autorisation et lors d’un refus sûr, sans enregistrer les réglages ni injecter Deck ; l’approbation native et l’injection qui suit restent vérifiées manuellement, avec publication d’une somme SHA-256",
-    "releaseNote104BoundedMentions": "Limitation de chaque analyse de canal à 200 messages par page et cinq pages, avec délais d’attente réseau et de file ainsi qu’annulation lors d’un changement de serveur",
+    "releaseNote104BoundedMentions": "Analyse progressive de l’historique par pages de 200 messages jusqu’au repère de lecture, à la fin de l’historique, à l’annulation ou à 500 résultats, avec délais d’attente réseau et de file ainsi qu’annulation lors d’un changement de serveur",
     "releaseNote104Realtime": "Regroupement des rafales en temps réel, application immédiate des modifications et suppressions, et respect des préférences de mentions globales sans recharger les autres volets Deck",
     "releaseNote104Runtime": "Suppression du root React, des observers, listeners, timers et wrappers d’historique de l’ancien runtime avant l’injection d’une mise à jour",
     "releaseNote104Accessibility": "Amélioration des reprises localisées, du focus clavier, de la validation des réglages, des combobox, des tableaux triables, des mouvements réduits et des vues étroites",

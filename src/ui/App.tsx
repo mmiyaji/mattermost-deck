@@ -5446,7 +5446,7 @@ function MentionsColumn({
               }
               // Filter before applying the 500-row display bound. Capping raw
               // channel posts first could hide a mention behind ordinary
-              // traffic even within the initial 1,000-post scan.
+              // traffic when the read marker is more than 1,000 posts back.
               const candidatePosts = mergePosts(
                 batchOrderedPosts.filter(
                   (post) => post.create_at > readMarker,

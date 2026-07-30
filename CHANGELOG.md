@@ -18,7 +18,7 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Keep the current mention list stable while multi-team refreshes run, show progress in the fixed column header, and let users apply new, edited, or attachment-changing results from an update-count button while read and deleted rows still clear promptly.
-- Bound channel mention history to five 200-post pages without expanding complete reply threads, while retaining selected reply roots and update/edit markers inside the caller's result limit.
+- Scan channel mention history incrementally in 200-post pages until the read marker, channel-history end, cancellation, or 500 matched posts, without expanding complete reply threads, while retaining selected reply roots and update/edit markers inside the caller's result limit.
 - Add 20-second network and 30-second queue-wait timeouts, abort requests when the configured server changes, and debounce realtime mention bursts into one bounded reconciliation.
 - Cleanly dispose the previous content runtime, including its React root, subscriptions, observers, timers, route listeners, request, and history wrappers, before an updated bundle is injected; older builds fall back to a one-time tab reload.
 - Honor each user's channel-wide mention notification preference in realtime matching, preserve direct and group messages, and reconcile edits and deletions without globally reloading Deck.
