@@ -73,6 +73,12 @@ jobs:
       - name: Run ${{ matrix.label }}
         run: ${{ matrix.command }}
 
+      - name: Capture Mattermost logs
+        if: failure()
+        run: |
+          mkdir -p test-results/mattermost
+          docker logs mm95-theme-test > test-results/mattermost/container.log 2>&1 || true
+
       - name: Upload performance evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -549,10 +549,19 @@ async function login(page: Page, username: string, password: string): Promise<vo
 }
 
 async function dismissFirstRunOverlays(page: Page): Promise<void> {
-  const dismissOnboardingOverlay = async () => {
+  const noThanks = page.getByText(
+    /No thanks, I.*figure it out myself/i,
+  ).last();
+  const dismissOnboardingOverlay = async (): Promise<boolean> => {
     const visibleOverlays = page.locator(
       '[data-cy="onboarding-task-list-overlay"]:visible',
     );
+    if (await visibleOverlays.count() === 0) {
+      return false;
+    }
+    if (await noThanks.isVisible().catch(() => false)) {
+      await noThanks.click({ force: true, timeout: 5_000 }).catch(() => undefined);
+    }
     if (await visibleOverlays.count() > 0) {
       await visibleOverlays.last().click({
         position: { x: 10, y: 10 },
@@ -563,19 +572,27 @@ async function dismissFirstRunOverlays(page: Page): Promise<void> {
         }
       });
     }
-    await expect(visibleOverlays).toHaveCount(0, { timeout: 5_000 });
+    return true;
   };
 
-  await dismissOnboardingOverlay();
-  for (const locator of [
-    page.locator('[data-testid="close_tutorial_tip"]'),
-    page.getByRole("button", { name: /got it/i }),
-  ]) {
-    if (await locator.isVisible().catch(() => false)) {
-      await locator.click({ force: true });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const overlayWasVisible = await dismissOnboardingOverlay();
+    for (const locator of [
+      page.locator('[data-testid="close_tutorial_tip"]'),
+      page.getByRole("button", { name: /got it/i }),
+    ]) {
+      if (await locator.isVisible().catch(() => false)) {
+        await locator.click({ force: true });
+      }
     }
+    if (!overlayWasVisible) {
+      break;
+    }
+    await page.waitForTimeout(150);
   }
-  await dismissOnboardingOverlay();
+  await expect(page.locator(
+    '[data-cy="onboarding-task-list-overlay"]:visible',
+  )).toHaveCount(0, { timeout: 5_000 });
 }
 
 async function dismissOfflineStatusModal(page: Page): Promise<void> {
@@ -630,8 +647,8 @@ async function dismissOfflineStatusModal(page: Page): Promise<void> {
   );
 }
 
-async function debugRequest<T>(page: Page, action: string): Promise<T> {
-  return await page.evaluate((debugAction) => new Promise<T>((resolve, reject) => {
+async function debugRequest<T>(page: Page, action: string, timeoutMs = 10_000): Promise<T> {
+  return await page.evaluate(({ debugAction, requestTimeoutMs }) => new Promise<T>((resolve, reject) => {
     const id = `deck-soak-${Math.random().toString(36).slice(2)}`;
     const handleResponse = (event: Event) => {
       const detail = (event as CustomEvent<{ id?: string; result?: T }>).detail;
@@ -651,7 +668,7 @@ async function debugRequest<T>(page: Page, action: string): Promise<T> {
         handleResponse as EventListener,
       );
       reject(new Error(`Deck debug request timed out: ${debugAction}`));
-    }, 10_000);
+    }, requestTimeoutMs);
 
     window.addEventListener(
       "mattermost-deck-debug-response",
@@ -660,7 +677,19 @@ async function debugRequest<T>(page: Page, action: string): Promise<T> {
     window.dispatchEvent(new CustomEvent("mattermost-deck-debug-request", {
       detail: { id, action: debugAction, payload: {} },
     }));
-  }), action);
+  }), { debugAction: action, requestTimeoutMs: timeoutMs });
+}
+
+async function waitForDeckDebugBridge(page: Page): Promise<void> {
+  await expect.poll(
+    async () => debugRequest<DeckDebugState>(page, "getState", 3_000)
+      .then((state) => state.stateStatus)
+      .catch(() => "unavailable"),
+    {
+      timeout: 30_000,
+      intervals: [100, 250, 500],
+    },
+  ).toBe("ready");
 }
 
 function metricValue(metrics: Map<string, number>, name: string): number {
@@ -766,6 +795,7 @@ async function stabilizeForMemorySample(
     )
   );
   if (!canonicalSearchAlreadyOpen) {
+    await dismissFirstRunOverlays(page);
     if (await page.locator("#root.rhs-open").count() > 0) {
       await page.keyboard.press("Control+.");
       await expect(page.locator("#root")).not.toHaveClass(/rhs-open/, {
@@ -806,6 +836,7 @@ async function runWorkloadStep(
   // the unrealistic native-search cache growth caused by submitting a query
   // every 1.5 seconds for the entire soak.
   if (step > 0 && step % 80 === 79) {
+    await dismissFirstRunOverlays(page);
     if (await page.locator("#root.rhs-open").count() > 0) {
       await page.keyboard.press("Control+.");
       await expect(page.locator("#root")).not.toHaveClass(/rhs-open/, {
@@ -825,6 +856,7 @@ async function runWorkloadStep(
   }
 
   if (step > 0 && step % 40 === 39) {
+    await dismissFirstRunOverlays(page);
     if (await page.locator("#root.rhs-open").count() > 0) {
       await page.keyboard.press("Control+.");
       await expect(page.locator("#root")).not.toHaveClass(/rhs-open/, {
@@ -1099,10 +1131,7 @@ test("large Mattermost data and RHS churn remain memory-bounded", async ({}, tes
       await expect(page.locator("#mattermost-deck-root")).toBeAttached({
         timeout: 20_000,
       });
-      await expect.poll(
-        async () => (await debugRequest<DeckDebugState>(page, "getState")).stateStatus,
-        { timeout: 30_000 },
-      ).toBe("ready");
+      await waitForDeckDebugBridge(page);
 
       rootMarker = `layout-memory-soak-${runId}`;
       await page.evaluate((marker) => {
