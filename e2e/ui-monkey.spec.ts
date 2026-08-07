@@ -79,6 +79,13 @@ const expectedHttpNoiseRules = [
     path: /^\/plugins\/com\.mattermost\.apps\/api\/v1\/bindings$/,
     maximum: 4,
   },
+  {
+    name: "nps-connected-server-error",
+    method: "POST",
+    status: 500,
+    path: /^\/plugins\/com\.mattermost\.nps\/api\/v1\/connected$/,
+    maximum: 4,
+  },
 ] as const;
 
 test.describe.configure({ mode: "serial" });
@@ -2195,7 +2202,7 @@ test(
             // resource URL, so ChaosCrawler cannot match these by endpoint.
             // The response/request listeners above still validate the exact
             // method, status, path, and bounded count before the test passes.
-            "Failed to load resource: the server responded with a status of (?:400|401|403|404|501)",
+            "Failed to load resource: the server responded with a status of (?:400|401|403|404|500|501)",
             // Navigation deliberately aborts in-flight Mattermost requests.
             // Non-abort request failures remain fatal in requestFailures.
             "net::ERR_ABORTED",
