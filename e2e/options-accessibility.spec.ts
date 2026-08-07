@@ -36,7 +36,7 @@ async function openOptions(): Promise<OptionsFixture> {
             method: "GET",
             path: "/users/me/teams",
             fullPath: "/api/v4/users/me/teams",
-            purpose: "Load teams",
+            purpose: "Joined teams",
             status: 200,
             durationMs: 42,
             queueWaitMs: 3,
@@ -147,7 +147,7 @@ test("performance tables retain their meaning and important links at narrow widt
     await page.getByTestId("options-nav-performance").click();
     const endpointTable = page.locator(".options-table").first();
     await expect(endpointTable).toBeVisible();
-    await expect(endpointTable.locator("tbody tr").first().locator("td").nth(0)).toHaveText("Load teams");
+    await expect(endpointTable.locator("tbody tr").first().locator("td").nth(0)).toHaveText("Joined teams");
     await expect(endpointTable.locator("tbody tr").first().locator("td").nth(1)).toContainText("/users/me/teams");
     await expect(endpointTable.locator('th[aria-sort="descending"]')).toContainText("Requests");
 
@@ -168,6 +168,25 @@ test("performance tables retain their meaning and important links at narrow widt
       (element) => getComputedStyle(element).transitionDuration,
     );
     expect(Number.parseFloat(transitionDuration)).toBeLessThanOrEqual(0.00001);
+  } finally {
+    await closeOptions(fixture);
+  }
+});
+
+test("performance purposes and the settings title follow the selected language", async () => {
+  const fixture = await openOptions();
+  const { page } = fixture;
+
+  try {
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      chrome.storage.local.set({ "mattermostDeck.language.v1": "ja" }, () => resolve());
+    }));
+    await page.reload();
+    await expect(page).toHaveTitle("Mattermost Deck 設定");
+    await page.getByTestId("options-nav-performance").click();
+    const endpointTable = page.locator(".options-table").first();
+    await expect(endpointTable.locator("tbody tr").first().locator("td").nth(0)).toHaveText("参加中のチーム");
+    await expect(page.locator(".options-metric-grid").first()).toContainText("API リクエスト");
   } finally {
     await closeOptions(fixture);
   }

@@ -27,7 +27,11 @@ function createStorageArea(values: Map<string, unknown>) {
   };
 }
 
-async function loadBackground(localValues: Map<string, unknown>) {
+async function loadBackground(
+  localValues: Map<string, unknown>,
+  uiLanguage = "en-US",
+  navigatorLanguages: readonly string[] = ["fr-FR"],
+) {
   vi.resetModules();
   const messageListeners: Array<(
     message: unknown,
@@ -53,7 +57,12 @@ async function loadBackground(localValues: Map<string, unknown>) {
   const tabsReload = vi.fn(async () => undefined);
   const tabsCreate = vi.fn(async () => ({ id: 42 }));
 
+  vi.stubGlobal("navigator", {
+    language: navigatorLanguages[0] ?? "",
+    languages: navigatorLanguages,
+  });
   vi.stubGlobal("chrome", {
+    i18n: { getUILanguage: () => uiLanguage },
     storage: {
       local,
       session,
@@ -129,6 +138,12 @@ describe("background active profile settings", () => {
     const { background } = await loadBackground(localValues);
 
     await expect(background.getConfiguredServerUrl()).resolves.toBe(legacyServerUrl);
+  });
+
+  it("uses the Chrome UI language for empty storage before navigator language", async () => {
+    const { background } = await loadBackground(new Map(), "de-DE", ["fr-FR"]);
+
+    await expect(background.getConfiguredLanguage()).resolves.toBe("de");
   });
 
   it("registers both the isolated configuration bridge and main install guide", async () => {

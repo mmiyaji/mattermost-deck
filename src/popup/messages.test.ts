@@ -13,7 +13,11 @@ describe("popup messages", () => {
   });
 
   it("prefers the configured language over the browser language", () => {
-    expect(resolvePopupLocale("fr", ["ja-JP"])).toBe("fr");
+    expect(resolvePopupLocale("fr", ["ja-JP"], "de-DE")).toBe("fr");
+  });
+
+  it("uses the Chrome UI language before navigator when no language is configured", () => {
+    expect(resolvePopupLocale(undefined, ["fr-FR"], "de-DE")).toBe("de");
   });
 
   it("falls back to English for unsupported languages", () => {

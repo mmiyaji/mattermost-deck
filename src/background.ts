@@ -1,5 +1,6 @@
 import { SETTINGS_KEYS, normaliseServerUrl, originToPermissionPattern } from "./ui/settings";
 import { getProfileStorageKey, PROFILES_STORAGE_KEY } from "./ui/profiles";
+import { resolveDeckLanguage } from "./ui/language";
 
 const CONTENT_SCRIPT_ID = "mattermost-deck-content";
 const INSTALL_CONFIG_SCRIPT_ID = "mattermost-deck-pwa-install-config";
@@ -43,7 +44,7 @@ export async function getConfiguredServerUrl(): Promise<string> {
   );
 }
 
-async function getConfiguredLanguage(): Promise<string> {
+export async function getConfiguredLanguage(): Promise<string> {
   const payload = await chrome.storage.local.get([SETTINGS_KEYS.language, PROFILES_STORAGE_KEY]);
   const registry = payload[PROFILES_STORAGE_KEY] as { lastActiveProfileId?: unknown } | undefined;
   const profileId = typeof registry?.lastActiveProfileId === "string" ? registry.lastActiveProfileId : "";
@@ -51,11 +52,13 @@ async function getConfiguredLanguage(): Promise<string> {
     const profileKey = getProfileStorageKey(profileId, SETTINGS_KEYS.language);
     const profilePayload = await chrome.storage.local.get(profileKey);
     const profileValue = profilePayload[profileKey];
-    if (typeof profileValue === "string" && profileValue) return profileValue;
+    if (typeof profileValue === "string" && profileValue) {
+      return resolveDeckLanguage(profileValue);
+    }
   }
 
   const value = payload[SETTINGS_KEYS.language];
-  return typeof value === "string" && value ? value : "en";
+  return resolveDeckLanguage(value);
 }
 
 async function unregisterDeckContentScript(): Promise<void> {

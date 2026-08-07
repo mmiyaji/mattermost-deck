@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useTranslation } from "react-i18next";
 import { CustomSelect, type CustomSelectOption } from "../ui/CustomSelect";
@@ -39,6 +39,7 @@ import {
   type DeckProfileSummary,
 } from "../ui/profiles";
 import { clearTraceEntries, getTraceEntries, isTraceCaptureEnabled, setTraceCaptureEnabled, subscribeTraceEntries, type TraceLogEntry } from "../traceLog";
+import { localizePerformancePurpose } from "./performancePurpose";
 
 const PRODUCT_SITE_URL = "https://mattermost-deck.ruhenheim.org/";
 const REPO_URL = "https://github.com/mmiyaji/mattermost-deck";
@@ -133,6 +134,7 @@ function useOptionsText() {
     profilesHowItWorksBody1: t("options.profilesHowItWorksBody1", { defaultValue: "Profiles are grouped by server origin. Each profile stores a different settings set for the same Mattermost server." }),
     profilesHowItWorksBody2: t("options.profilesHowItWorksBody2", { defaultValue: "They are optional. If you only use one server setup, you can ignore this page and keep using the default profile." }),
     profilesSectionLabel: t("options.profilesSectionLabel", { defaultValue: "Profiles" }),
+    profilesDefaultName: t("options.profilesDefaultName", { defaultValue: "Default" }),
     currentProfileLabel: t("options.currentProfileLabel", { defaultValue: "Current Profile" }),
     currentProfilePlaceholder: t("options.currentProfilePlaceholder", { defaultValue: "Select a profile" }),
     profilesForOrigin: t("options.profilesForOrigin", { defaultValue: "Profiles for {{origin}}" }),
@@ -1171,11 +1173,13 @@ const pageCss = `
     max-width: 740px;
     margin: 0 auto;
     padding: 20px 32px 0;
+    container-name: options-banner-stack;
+    container-type: inline-size;
   }
 
   .options-release-banner {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
     align-items: center;
     gap: 16px;
   }
@@ -1189,6 +1193,7 @@ const pageCss = `
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 8px;
+    width: min(100%, 320px);
   }
 
   .options-release-banner-actions .options-button {
@@ -1196,6 +1201,17 @@ const pageCss = `
     align-items: center;
     justify-content: center;
     text-decoration: none;
+  }
+
+  @container options-banner-stack (max-width: 620px) {
+    .options-release-banner {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .options-release-banner-actions {
+      justify-content: flex-start;
+      width: 100%;
+    }
   }
 
   /* Inline links */
@@ -2017,11 +2033,6 @@ function OptionsApp(): React.JSX.Element {
   };
 
   useEffect(() => {
-    const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
-    setRenameProfileName(activeProfile?.name ?? "");
-  }, [activeProfileId, profiles]);
-
-  useEffect(() => {
     document.body.dataset.theme = resolveTheme(settings.theme);
     document.documentElement.lang = settings.language;
   }, [settings.language, settings.theme]);
@@ -2029,10 +2040,31 @@ function OptionsApp(): React.JSX.Element {
   const { t } = useTranslation();
   useEffect(() => { void i18n.changeLanguage(settings.language); }, [settings.language]);
   const text = useOptionsText();
+  const formatProfileName = useCallback(
+    (profile: DeckProfileSummary) => (
+      profile.isBuiltInDefault && profile.name === "Default"
+        ? text.profilesDefaultName
+        : profile.name
+    ),
+    [text.profilesDefaultName],
+  );
+  useEffect(() => {
+    const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
+    setRenameProfileName(activeProfile ? formatProfileName(activeProfile) : "");
+  }, [activeProfileId, formatProfileName, profiles]);
+  useEffect(() => {
+    document.title = t("options.documentTitle", {
+      defaultValue: text.title,
+    });
+  }, [settings.language, t, text.title]);
   const version = useMemo(() => getManifestVersion(), []);
   const patStorageSessionLabel = t("options.patStorageSessionLabel");
   const patStoragePersistentLabel = t("options.patStoragePersistentLabel");
   const patStorageHint = t("options.patStorageHint");
+  const formatPerformancePurpose = useCallback(
+    (purpose: unknown) => localizePerformancePurpose(purpose, (key) => t(key)),
+    [t],
+  );
 
   const themeOptions = useMemo<CustomSelectOption[]>(
     () => [
@@ -2149,7 +2181,7 @@ function OptionsApp(): React.JSX.Element {
       .map(([path, count]) => ({
         path,
         count,
-        purpose: endpointPurpose.get(path) ?? "Other API request",
+        purpose: formatPerformancePurpose(endpointPurpose.get(path)),
         avgLatencyMs: computeAverage(endpointDurations.get(path) ?? []),
         p95LatencyMs: computeP95(endpointDurations.get(path) ?? []),
         errorCount: endpointErrors.get(path) ?? 0,
@@ -2168,14 +2200,14 @@ function OptionsApp(): React.JSX.Element {
       rateLimitWaits,
       endpointRows,
     };
-  }, [apiTraceEntries, traceEntries]);
+  }, [apiTraceEntries, formatPerformancePurpose, traceEntries]);
   const endpointSummaryRows = useMemo(() => {
     const multiplier = endpointSummarySort.direction === "asc" ? 1 : -1;
     return performanceSummary.endpointRows
       .slice()
       .sort((left, right) => {
         if (endpointSummarySort.key === "purpose") {
-          return left.purpose.localeCompare(right.purpose) * multiplier;
+          return left.purpose.localeCompare(right.purpose, settings.language) * multiplier;
         }
         if (endpointSummarySort.key === "avgLatencyMs") {
           return (left.avgLatencyMs - right.avgLatencyMs) * multiplier;
@@ -2189,14 +2221,18 @@ function OptionsApp(): React.JSX.Element {
         return (left.count - right.count) * multiplier;
       })
       .slice(0, 10);
-  }, [endpointSummarySort, performanceSummary.endpointRows]);
+  }, [endpointSummarySort, performanceSummary.endpointRows, settings.language]);
   const recentTraceRows = useMemo(() => {
     const multiplier = recentTraceSort.direction === "asc" ? 1 : -1;
     return apiTraceLogEntries
       .slice()
       .sort((left, right) => {
         if (recentTraceSort.key === "purpose") {
-          return String(left.payload?.purpose ?? "").localeCompare(String(right.payload?.purpose ?? "")) * multiplier;
+          return formatPerformancePurpose(left.payload?.purpose)
+            .localeCompare(
+              formatPerformancePurpose(right.payload?.purpose),
+              settings.language,
+            ) * multiplier;
         }
         if (recentTraceSort.key === "status") {
           return ((Number(left.payload?.status ?? 0)) - Number(right.payload?.status ?? 0)) * multiplier;
@@ -2207,7 +2243,7 @@ function OptionsApp(): React.JSX.Element {
         return (left.timestamp - right.timestamp) * multiplier;
       })
       .slice(0, 40);
-  }, [apiTraceLogEntries, recentTraceSort]);
+  }, [apiTraceLogEntries, formatPerformancePurpose, recentTraceSort, settings.language]);
   const serverUrlMissing = loaded && settings.serverUrl.trim().length === 0;
   const serverUrlFieldError = saveError === text.invalidServerUrl
     ? text.invalidServerUrl
@@ -2274,8 +2310,11 @@ function OptionsApp(): React.JSX.Element {
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? null;
   const canDeleteProfile = activeProfile !== null && profiles.length > 1;
   const profileOptions = useMemo<CustomSelectOption[]>(
-    () => profiles.map((profile) => ({ value: profile.id, label: profile.name })),
-    [profiles],
+    () => profiles.map((profile) => ({
+      value: profile.id,
+      label: formatProfileName(profile),
+    })),
+    [formatProfileName, profiles],
   );
 
   const handleSwitchProfile = async (profileId: string) => {
@@ -2337,7 +2376,10 @@ function OptionsApp(): React.JSX.Element {
       return;
     }
 
-    const duplicate = await duplicateDeckProfile(activeProfile.id, `${activeProfile.name} ${text.profilesCopySuffix}`);
+    const duplicate = await duplicateDeckProfile(
+      activeProfile.id,
+      `${formatProfileName(activeProfile)} ${text.profilesCopySuffix}`,
+    );
     if (!duplicate) {
       return;
     }
@@ -2361,7 +2403,9 @@ function OptionsApp(): React.JSX.Element {
       return;
     }
 
-    const confirmed = window.confirm(t("options.profilesDeleteConfirm", { name: activeProfile.name }));
+    const confirmed = window.confirm(t("options.profilesDeleteConfirm", {
+      name: formatProfileName(activeProfile),
+    }));
     if (!confirmed) {
       return;
     }
@@ -3048,7 +3092,11 @@ function OptionsApp(): React.JSX.Element {
                         type="button"
                         className="options-button options-button--ghost"
                         onClick={() => void handleRenameProfile()}
-                        disabled={!activeProfile || !renameProfileName.trim() || renameProfileName.trim() === activeProfile.name}
+                        disabled={
+                          !activeProfile ||
+                          !renameProfileName.trim() ||
+                          renameProfileName.trim() === formatProfileName(activeProfile)
+                        }
                       >
                         {text.renameProfileButton}
                       </button>
@@ -3495,11 +3543,11 @@ function OptionsApp(): React.JSX.Element {
               <div className="options-metric-grid">
                 <article className="options-metric-card">
                   <strong>{text.performanceEntries}</strong>
-                  <p>{performanceSummary.totalEntries.toLocaleString()}</p>
+                  <p>{performanceSummary.totalEntries.toLocaleString(settings.language)}</p>
                 </article>
                 <article className="options-metric-card">
                   <strong>{text.performanceApiRequests}</strong>
-                  <p>{performanceSummary.apiRequests.toLocaleString()}</p>
+                  <p>{performanceSummary.apiRequests.toLocaleString(settings.language)}</p>
                 </article>
                 <article className="options-metric-card">
                   <strong>{text.performanceErrorRate}</strong>
@@ -3523,7 +3571,7 @@ function OptionsApp(): React.JSX.Element {
                 </article>
                 <article className="options-metric-card">
                   <strong>{text.performanceRateLimitWaits}</strong>
-                  <p>{performanceSummary.rateLimitWaits.toLocaleString()}</p>
+                  <p>{performanceSummary.rateLimitWaits.toLocaleString(settings.language)}</p>
                 </article>
               </div>
 
@@ -3531,7 +3579,7 @@ function OptionsApp(): React.JSX.Element {
                 <article className="options-analysis-card">
                   <div className="options-analysis-header">
                     <strong>{text.performanceApiRate}</strong>
-                    <span>{performanceSummary.apiRequests.toLocaleString()}</span>
+                    <span>{performanceSummary.apiRequests.toLocaleString(settings.language)}</span>
                   </div>
                   <MiniBarChart values={requestTimeline} ariaLabel={text.performanceApiRate} />
                 </article>
@@ -3705,8 +3753,8 @@ function OptionsApp(): React.JSX.Element {
                         <tbody>
                           {recentTraceRows.map((entry) => (
                             <tr key={`${entry.timestamp}-${entry.source}-${entry.event}`}>
-                              <td>{new Date(entry.timestamp).toLocaleTimeString()}</td>
-                              <td>{entry.payload?.purpose ?? "-"}</td>
+                              <td>{new Date(entry.timestamp).toLocaleTimeString(settings.language)}</td>
+                              <td>{formatPerformancePurpose(entry.payload?.purpose)}</td>
                               <td>
                                 <div className="options-table-url">{String(entry.payload?.fullPath ?? entry.payload?.path ?? "-")}</div>
                               </td>

@@ -53,7 +53,6 @@ import {
 import {
   createColumn,
   createDefaultLayout,
-  getColumnTitle,
   STORAGE_KEY,
   type DeckColumn,
   type DeckColumnType,
@@ -444,6 +443,7 @@ declare global {
       getState: () => {
         contentMounted: boolean;
         stateStatus: string;
+        initialLanguage: DeckLanguage;
         username: string | null;
         routeKey: string;
         currentTeamId?: string;
@@ -2674,7 +2674,7 @@ function useDeckSettingsState(): {
     loaded: false,
     wsPat: "",
     theme: "mattermost",
-    language: "ja",
+    language: DEFAULT_SETTINGS.language,
     pollingIntervalSeconds: 45,
     fontScalePercent: DEFAULT_SETTINGS.fontScalePercent,
     preferredRailWidth: DEFAULT_SETTINGS.preferredRailWidth,
@@ -9342,6 +9342,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const [contentMounted, setContentMounted] = useState(true);
   const unmountTimerRef = useRef<number | null>(null);
   const deckSettings = useDeckSettingsState();
+  const initialDeckLanguageRef = useRef(deckSettings.language);
   const text = useAppText();
   useEffect(() => { void i18n.changeLanguage(deckSettings.language); }, [deckSettings.language]);
   const effectiveRealtimeEnabled = deckSettings.wsPat.trim().length > 0 && !realtimeAuthError;
@@ -9650,16 +9651,40 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     (target: RecentChannelTarget) => getRecentTargetLabel(target.channelLabel, userDirectory, state.userId),
     [state.userId, userDirectory],
   );
+  const getLocalizedColumnTitle = useCallback((type: DeckColumnType) => {
+    switch (type) {
+      case "mentions":
+        return text.addMentions;
+      case "channelWatch":
+        return text.addChannelWatch;
+      case "dmWatch":
+        return text.addDmWatch;
+      case "keywordWatch":
+      case "search":
+        return text.addSearch;
+      case "saved":
+        return text.addSaved;
+      case "diagnostics":
+        return text.addDiagnostics;
+    }
+  }, [
+    text.addChannelWatch,
+    text.addDiagnostics,
+    text.addDmWatch,
+    text.addMentions,
+    text.addSaved,
+    text.addSearch,
+  ]);
 
   const getColumnViewMeta = useCallback((column: DeckColumn) => {
     const root = columnRefs.current[column.id];
     const title = root?.querySelector(".deck-column-heading h2")?.textContent?.replace(/\s+/g, " ").trim();
     const subtitle = root?.querySelector(".deck-column-heading p")?.textContent?.replace(/\s+/g, " ").trim();
     return {
-      title: title && title.length > 0 ? title : getColumnTitle(column.type),
+      title: title && title.length > 0 ? title : getLocalizedColumnTitle(column.type),
       subtitle: subtitle && subtitle.length > 0 ? subtitle : undefined,
     };
-  }, []);
+  }, [getLocalizedColumnTitle]);
 
   const healthStatusLabel = getApiHealthLabel(apiHealthStatus);
   const connectionModeLabel = realtimeAuthError ? text.pollingRealtimeAuthFailed : effectiveRealtimeEnabled ? text.realtime : text.polling;
@@ -10667,6 +10692,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       getState: () => ({
         contentMounted,
         stateStatus: state.status,
+        initialLanguage: initialDeckLanguageRef.current,
         username: state.username,
         routeKey: currentRouteKey,
         currentTeamId: state.currentTeamId,

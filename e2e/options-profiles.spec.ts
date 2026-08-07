@@ -30,9 +30,13 @@ test("options page shows server-scoped profiles", async () => {
     await sw.evaluate((serverUrl: string) => {
       return new Promise<void>((resolve) => {
         const profileId = "e2e-default-profile";
+        const customProfileId = "e2e-custom-default-profile";
+        const now = Date.now();
         chrome.storage.local.set({
           "mattermostDeck.serverUrl.v1": serverUrl,
+          "mattermostDeck.language.v1": "ja",
           [`mattermostDeck.serverUrl.v1.profile.${profileId}`]: serverUrl,
+          [`mattermostDeck.language.v1.profile.${profileId}`]: "ja",
           "mattermostDeck.profiles.v1": {
             version: 1,
             profiles: [
@@ -40,8 +44,17 @@ test("options page shows server-scoped profiles", async () => {
                 id: profileId,
                 name: "Default",
                 origin: serverUrl,
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
+                createdAt: now,
+                updatedAt: now,
+                isBuiltInDefault: true,
+              },
+              {
+                id: customProfileId,
+                name: "Default",
+                origin: serverUrl,
+                createdAt: now + 1,
+                updatedAt: now + 1,
+                isBuiltInDefault: false,
               },
             ],
             activeProfileIdByOrigin: {
@@ -62,7 +75,25 @@ test("options page shows server-scoped profiles", async () => {
 
     const profileSelect = page.locator(".mm-custom-select").first();
     await expect(profileSelect).toBeVisible({ timeout: 10_000 });
-    await expect(profileSelect.locator(".mm-custom-select-label")).toContainText("Default");
+    await expect(profileSelect.locator(".mm-custom-select-label")).toHaveText("既定");
+    await expect(page.locator('input[aria-labelledby="manage-profile-label"]')).toHaveValue("既定");
+    await profileSelect.getByRole("combobox").click();
+    await expect(profileSelect.getByRole("option", { name: "既定", exact: true })).toBeVisible();
+    await expect(profileSelect.getByRole("option", { name: "Default", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    let deletePrompt = "";
+    page.once("dialog", async (dialog) => {
+      deletePrompt = dialog.message();
+      await dialog.dismiss();
+    });
+    await page.getByRole("button", { name: "削除", exact: true }).click();
+    await expect.poll(() => deletePrompt).toContain("「既定」");
+
+    await page.getByRole("button", { name: "複製", exact: true }).click();
+    await expect(profileSelect.locator(".mm-custom-select-label")).toHaveText("既定 コピー");
+    await profileSelect.getByRole("combobox").click();
+    await expect(profileSelect.getByRole("option", { name: "Default", exact: true })).toBeVisible();
     await expect(page.locator("main")).toContainText(baseUrl);
   } finally {
     await context.close();
@@ -278,6 +309,98 @@ test("1.0.4 release notice stays aligned, wraps actions, and explains the reliab
     await fs.rm(userDataDir, { recursive: true, force: true });
   }
 });
+
+for (const locale of [
+  { language: "de", label: "German" },
+  { language: "fr", label: "French" },
+]) {
+  test(`1.0.4 release notice keeps readable copy and contained actions in ${locale.label}`, async ({}, testInfo) => {
+    const extensionPath = path.resolve("./dist");
+    const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), `mattermost-deck-release-banner-${locale.language}-`));
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      channel: "chromium",
+      headless: true,
+      viewport: { width: 760, height: 800 },
+      args: [
+        `--disable-extensions-except=${extensionPath}`,
+        `--load-extension=${extensionPath}`,
+      ],
+    });
+
+    try {
+      const [existingSw] = context.serviceWorkers();
+      const sw = existingSw ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
+      await sw.evaluate((language: string) => {
+        return new Promise<void>((resolve) => {
+          chrome.storage.local.set({
+            "mattermostDeck.language.v1": language,
+            "mattermostDeck.releaseNotice.v1": {
+              version: "1.0.4",
+              previousVersion: "1.0.3",
+              seen: false,
+            },
+          }, () => resolve());
+        });
+      }, locale.language);
+
+      const extensionId = new URL(sw.url()).host;
+      const page = await context.newPage();
+      await page.goto(`chrome-extension://${extensionId}/options.html`);
+
+      const releaseBanner = page.locator(".options-release-banner");
+      await expect(releaseBanner).toBeVisible({ timeout: 10_000 });
+
+      for (const viewportWidth of [760, 420]) {
+        await page.setViewportSize({ width: viewportWidth, height: 800 });
+
+        const layout = await page.evaluate(() => {
+          const banner = document.querySelector<HTMLElement>(".options-release-banner")!;
+          const body = document.querySelector<HTMLElement>(".options-release-banner-body")!;
+          const actions = document.querySelector<HTMLElement>(".options-release-banner-actions")!;
+          const buttons = Array.from(actions.querySelectorAll<HTMLElement>(".options-button"));
+          const bannerRect = banner.getBoundingClientRect();
+          const bodyRect = body.getBoundingClientRect();
+          const actionsRect = actions.getBoundingClientRect();
+
+          return {
+            bodyWidth: bodyRect.width,
+            actionsWidth: actionsRect.width,
+            actionsHeight: actionsRect.height,
+            actionsBelowBody: actionsRect.top >= bodyRect.bottom,
+            bannerHasNoOverflow: banner.scrollWidth <= banner.clientWidth,
+            actionsHaveNoOverflow: actions.scrollWidth <= actions.clientWidth,
+            pageHasNoOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+            buttonsContained: buttons.every((button) => {
+              const rect = button.getBoundingClientRect();
+              return rect.left >= bannerRect.left && rect.right <= bannerRect.right;
+            }),
+            buttonHeights: buttons.map((button) => Math.round(button.getBoundingClientRect().height)),
+          };
+        });
+
+        expect(layout.actionsBelowBody).toBe(true);
+        expect(layout.bannerHasNoOverflow).toBe(true);
+        expect(layout.actionsHaveNoOverflow).toBe(true);
+        expect(layout.pageHasNoOverflow).toBe(true);
+        expect(layout.buttonsContained).toBe(true);
+        expect(layout.actionsWidth).toBeGreaterThanOrEqual(layout.bodyWidth - 1);
+        expect(layout.bodyWidth).toBeGreaterThanOrEqual(viewportWidth === 760 ? 400 : 260);
+        expect(layout.buttonHeights).toEqual([36, 36, 36]);
+        if (viewportWidth === 420) {
+          expect(layout.actionsHeight).toBeGreaterThan(36);
+        }
+
+        await page.screenshot({
+          path: testInfo.outputPath(`release-banner-${locale.language}-${viewportWidth}.png`),
+          fullPage: true,
+        });
+      }
+    } finally {
+      await context.close();
+      await fs.rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+}
 
 test("narrow navigation stays accessible and PWA launch failures remain visible", async () => {
   const extensionPath = path.resolve("./dist");

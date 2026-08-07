@@ -5,6 +5,7 @@ import en from "./locales/en.json";
 import fr from "./locales/fr.json";
 import ja from "./locales/ja.json";
 import zhCN from "./locales/zh-CN.json";
+import { resolveDeckLanguage } from "./language";
 
 void i18n.use(initReactI18next).init({
   resources: {
@@ -14,7 +15,7 @@ void i18n.use(initReactI18next).init({
     "zh-CN": { translation: zhCN },
     fr:    { translation: fr },
   },
-  lng: "ja",
+  lng: resolveDeckLanguage(),
   fallbackLng: "en",
   interpolation: {
     escapeValue: false,

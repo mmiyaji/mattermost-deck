@@ -12,6 +12,7 @@ import {
   createDeckProfile,
   getProfileStorageKey,
   loadDeckProfiles,
+  PROFILES_STORAGE_KEY,
   switchDeckProfile,
 } from "./profiles";
 
@@ -102,7 +103,12 @@ describe("profile-aware settings", () => {
       localStorage: { getItem: () => null, setItem: () => undefined, removeItem: () => undefined },
       matchMedia: () => ({ matches: false }),
     });
+    vi.stubGlobal("navigator", {
+      language: "fr-FR",
+      languages: ["fr-FR"],
+    });
     vi.stubGlobal("chrome", {
+      i18n: { getUILanguage: () => "de-DE" },
       runtime: { id: "test-extension" },
       storage: {
         local: createStorageArea(localValues),
@@ -110,6 +116,56 @@ describe("profile-aware settings", () => {
         onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
       },
     });
+  });
+
+  it("distinguishes the generated default profile from a user profile with the same name", async () => {
+    const serverUrl = "https://mattermost.example.test";
+    const generated = (await loadDeckProfiles(serverUrl)).profiles[0];
+    const userCreated = await createDeckProfile("Default", serverUrl);
+
+    expect(generated).toMatchObject({
+      name: "Default",
+      isBuiltInDefault: true,
+    });
+    expect(userCreated).toMatchObject({
+      name: "Default",
+      isBuiltInDefault: false,
+    });
+
+    const reloaded = await loadDeckProfiles(serverUrl);
+    expect(reloaded.profiles.find((profile) => profile.id === generated.id)?.isBuiltInDefault).toBe(true);
+    expect(reloaded.profiles.find((profile) => profile.id === userCreated.id)?.isBuiltInDefault).toBe(false);
+  });
+
+  it("does not translate a user-created Default profile after a legacy default was renamed", async () => {
+    const origin = "https://mattermost.example.test";
+    localValues.set(PROFILES_STORAGE_KEY, {
+      version: 1,
+      profiles: [
+        {
+          id: "renamed-built-in",
+          name: "Work",
+          origin,
+          createdAt: 100,
+          updatedAt: 300,
+        },
+        {
+          id: "user-default",
+          name: "Default",
+          origin,
+          createdAt: 200,
+          updatedAt: 200,
+        },
+      ],
+      activeProfileIdByOrigin: { [origin]: "renamed-built-in" },
+      lastActiveProfileId: "renamed-built-in",
+    });
+
+    const registry = await loadDeckProfiles(origin);
+    expect(registry.profiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "renamed-built-in", isBuiltInDefault: false }),
+      expect.objectContaining({ id: "user-default", isBuiltInDefault: false }),
+    ]));
   });
 
   it("publishes the active server URL and reloads the last active server profile from Options", async () => {
@@ -120,6 +176,12 @@ describe("profile-aware settings", () => {
     expect(stored[SETTINGS_KEYS.serverUrl]).toBe(serverUrl);
     expect(Object.keys(stored)).toContainEqual(expect.stringMatching(/^mattermostDeck\.serverUrl\.v1\.profile\./));
     await expect(loadDeckSettings()).resolves.toMatchObject({ serverUrl, compactMode: true });
+  });
+
+  it("uses the Chrome UI language for empty storage before navigator language", async () => {
+    await expect(loadDeckSettings()).resolves.toMatchObject({
+      language: "de",
+    });
   });
 
   it("enables thread layout adjustment by default and persists an opt-out per profile", async () => {
