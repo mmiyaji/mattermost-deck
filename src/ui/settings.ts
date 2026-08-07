@@ -6,9 +6,10 @@ import {
   hasStoredValue,
 } from "./storage";
 import { getProfileStorageKey, loadCurrentDeckProfile, PROFILES_STORAGE_KEY } from "./profiles";
+import { resolveDeckLanguage, type DeckLanguage } from "./language";
 
 export type DeckTheme = "system" | "dark" | "light" | "mattermost";
-export type DeckLanguage = "ja" | "en" | "de" | "zh-CN" | "fr";
+export type { DeckLanguage } from "./language";
 export type PostClickAction = "navigate" | "none" | "ask";
 export type ColumnColorKey =
   | "mentions"
@@ -90,7 +91,7 @@ export const DEFAULT_SETTINGS: DeckSettings = {
   allowedRouteKinds: "channels,messages,pl,threads",
   healthCheckPath: "/api/v4/users/me",
   theme: "mattermost",
-  language: "ja",
+  language: resolveDeckLanguage(),
   fontScalePercent: 100,
   preferredRailWidth: 720,
   autoAdjustThreadLayout: true,
@@ -318,12 +319,6 @@ function normaliseTheme(value: string | null): DeckTheme {
     : DEFAULT_SETTINGS.theme;
 }
 
-function normaliseLanguage(value: string | null): DeckLanguage {
-  return value === "ja" || value === "en" || value === "de" || value === "zh-CN" || value === "fr"
-    ? value
-    : DEFAULT_SETTINGS.language;
-}
-
 function normaliseColumnColorEnabled(value: unknown, legacyIdentityMode?: string | null): boolean {
   if (value !== undefined && value !== null && value !== "") {
     return normaliseBoolean(value, DEFAULT_SETTINGS.columnColorEnabled);
@@ -451,7 +446,7 @@ export async function loadDeckSettings(origin?: string): Promise<DeckSettings> {
     allowedRouteKinds,
     healthCheckPath: normaliseHealthCheckPath(healthCheckPath),
     theme: normaliseTheme(theme),
-    language: normaliseLanguage(language),
+    language: resolveDeckLanguage(language),
     fontScalePercent: normaliseFontScalePercent(fontScalePercent),
     preferredRailWidth: normalisePreferredRailWidth(preferredRailWidth),
     autoAdjustThreadLayout: normaliseBoolean(

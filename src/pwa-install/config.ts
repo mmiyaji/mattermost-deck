@@ -7,6 +7,7 @@ import {
 } from "./bridge";
 import { getProfileStorageKey, PROFILES_STORAGE_KEY } from "../ui/profiles";
 import { SETTINGS_KEYS } from "../ui/settings";
+import { resolveDeckLanguage } from "../ui/language";
 
 async function getConfiguredLanguage(): Promise<string> {
   const payload = await chrome.storage.local.get([SETTINGS_KEYS.language, PROFILES_STORAGE_KEY]);
@@ -17,11 +18,13 @@ async function getConfiguredLanguage(): Promise<string> {
     const profileKey = getProfileStorageKey(profileId, SETTINGS_KEYS.language);
     const profilePayload = await chrome.storage.local.get(profileKey);
     const profileValue = profilePayload[profileKey];
-    if (typeof profileValue === "string" && profileValue) return profileValue;
+    if (typeof profileValue === "string" && profileValue) {
+      return resolveDeckLanguage(profileValue);
+    }
   }
 
   const value = payload[SETTINGS_KEYS.language];
-  return typeof value === "string" ? value : "";
+  return resolveDeckLanguage(value);
 }
 
 function waitForInstallGuide(documentElement: HTMLElement): Promise<void> {
@@ -63,9 +66,7 @@ async function publishConfiguredLanguage(): Promise<void> {
   const installGuideReady = waitForInstallGuide(documentElement);
   try {
     const language = await getConfiguredLanguage();
-    if (language) {
-      documentElement.setAttribute(INSTALL_LANGUAGE_ATTRIBUTE, language);
-    }
+    documentElement.setAttribute(INSTALL_LANGUAGE_ATTRIBUTE, language);
   } catch {
     // The MAIN-world guide falls back to the page/browser language when
     // extension storage is unavailable.

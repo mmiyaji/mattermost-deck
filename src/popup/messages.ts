@@ -1,4 +1,6 @@
-export type PopupLocale = "en" | "ja" | "de" | "fr" | "zh-CN";
+import { resolveDeckLanguage, type DeckLanguage } from "../ui/language";
+
+export type PopupLocale = DeckLanguage;
 
 export interface PopupMessages {
   installApp: string;
@@ -46,18 +48,12 @@ const POPUP_MESSAGES: Record<PopupLocale, PopupMessages> = {
   },
 };
 
-export function resolvePopupLocale(value: unknown, browserLanguages: readonly string[] = []): PopupLocale {
-  const candidates = [value, ...browserLanguages];
-  for (const candidate of candidates) {
-    if (typeof candidate !== "string") continue;
-    const normalised = candidate.trim().replace("_", "-").toLowerCase();
-    if (normalised === "zh-cn" || normalised === "zh-hans" || normalised.startsWith("zh-hans-")) return "zh-CN";
-    if (normalised === "ja" || normalised.startsWith("ja-")) return "ja";
-    if (normalised === "de" || normalised.startsWith("de-")) return "de";
-    if (normalised === "fr" || normalised.startsWith("fr-")) return "fr";
-    if (normalised === "en" || normalised.startsWith("en-")) return "en";
-  }
-  return "en";
+export function resolvePopupLocale(
+  value: unknown,
+  browserLanguages: readonly string[] = [],
+  chromeUiLanguage?: unknown,
+): PopupLocale {
+  return resolveDeckLanguage(value, chromeUiLanguage, browserLanguages);
 }
 
 export function getPopupMessages(locale: PopupLocale): PopupMessages {

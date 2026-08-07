@@ -6,6 +6,7 @@ export interface DeckProfileSummary {
   origin: string;
   createdAt: number;
   updatedAt: number;
+  isBuiltInDefault?: boolean;
 }
 
 interface DeckProfileRegistry {
@@ -89,7 +90,7 @@ function isDeckProfileSummary(value: unknown): value is DeckProfileSummary {
   );
 }
 
-function createProfile(name: string, origin: string): DeckProfileSummary {
+function createProfile(name: string, origin: string, isBuiltInDefault = false): DeckProfileSummary {
   const now = Date.now();
   return {
     id: crypto.randomUUID(),
@@ -97,6 +98,7 @@ function createProfile(name: string, origin: string): DeckProfileSummary {
     origin: origin || DEFAULT_PROFILE_ORIGIN,
     createdAt: now,
     updatedAt: now,
+    isBuiltInDefault,
   };
 }
 
@@ -106,7 +108,7 @@ function getProfileById(registry: DeckProfileRegistry, profileId: string | null 
 
 function normaliseProfileRegistry(value: unknown): DeckProfileRegistry {
   const registry = value as Partial<DeckProfileRegistry> | null | undefined;
-  const profiles = Array.isArray(registry?.profiles)
+  const normalisedProfiles = Array.isArray(registry?.profiles)
     ? registry.profiles
         .filter(isDeckProfileSummary)
         .filter((profile) => profile.origin === DEFAULT_PROFILE_ORIGIN || Boolean(normaliseServerOrigin(profile.origin)))
@@ -116,8 +118,32 @@ function normaliseProfileRegistry(value: unknown): DeckProfileRegistry {
           origin: profile.origin === DEFAULT_PROFILE_ORIGIN
             ? DEFAULT_PROFILE_ORIGIN
             : normaliseServerOrigin(profile.origin),
+          isBuiltInDefault: typeof profile.isBuiltInDefault === "boolean"
+            ? profile.isBuiltInDefault
+            : undefined,
         }))
     : [];
+  const originsWithDefaultIdentity = new Set(
+    normalisedProfiles
+      .filter((profile) => typeof profile.isBuiltInDefault === "boolean")
+      .map((profile) => profile.origin),
+  );
+  const inferredDefaultProfileIds = new Set<string>();
+  for (const origin of new Set(normalisedProfiles.map((profile) => profile.origin))) {
+    if (originsWithDefaultIdentity.has(origin)) {
+      continue;
+    }
+    const oldestLegacyProfile = normalisedProfiles
+      .filter((profile) => profile.origin === origin)
+      .sort((left, right) => left.createdAt - right.createdAt)[0];
+    if (oldestLegacyProfile?.name === DEFAULT_PROFILE_NAME) {
+      inferredDefaultProfileIds.add(oldestLegacyProfile.id);
+    }
+  }
+  const profiles: DeckProfileSummary[] = normalisedProfiles.map((profile) => ({
+    ...profile,
+    isBuiltInDefault: profile.isBuiltInDefault ?? inferredDefaultProfileIds.has(profile.id),
+  }));
 
   const activeProfileIdByOrigin: Record<string, string> = {};
   if (registry?.activeProfileIdByOrigin && typeof registry.activeProfileIdByOrigin === "object") {
@@ -155,7 +181,7 @@ async function ensureProfileRegistry(): Promise<DeckProfileRegistry> {
   let changed = false;
 
   if (registry.profiles.length === 0) {
-    const initialProfile = createProfile(DEFAULT_PROFILE_NAME, currentOrigin ?? DEFAULT_PROFILE_ORIGIN);
+    const initialProfile = createProfile(DEFAULT_PROFILE_NAME, currentOrigin ?? DEFAULT_PROFILE_ORIGIN, true);
     registry.profiles.push(initialProfile);
     registry.activeProfileIdByOrigin[initialProfile.origin] = initialProfile.id;
     registry.lastActiveProfileId = initialProfile.id;
@@ -163,7 +189,7 @@ async function ensureProfileRegistry(): Promise<DeckProfileRegistry> {
   }
 
   if (currentOrigin && !registry.profiles.some((profile) => profile.origin === currentOrigin)) {
-    const originProfile = createProfile(DEFAULT_PROFILE_NAME, currentOrigin);
+    const originProfile = createProfile(DEFAULT_PROFILE_NAME, currentOrigin, true);
     registry.profiles.push(originProfile);
     registry.activeProfileIdByOrigin[currentOrigin] = originProfile.id;
     registry.lastActiveProfileId = originProfile.id;
@@ -244,7 +270,7 @@ export async function loadDeckProfiles(origin?: string): Promise<{ profiles: Dec
   const targetOrigin = resolveProfileOrigin(registry, origin, true);
   let profiles = registry.profiles.filter((profile) => profile.origin === targetOrigin);
   if (profiles.length === 0) {
-    const profile = createProfile(DEFAULT_PROFILE_NAME, targetOrigin);
+    const profile = createProfile(DEFAULT_PROFILE_NAME, targetOrigin, true);
     registry.profiles.push(profile);
     registry.activeProfileIdByOrigin[targetOrigin] = profile.id;
     registry.lastActiveProfileId = profile.id;

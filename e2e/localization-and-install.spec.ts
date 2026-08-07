@@ -2,6 +2,7 @@ import { expect, test, chromium, type BrowserContext, type Page, type Worker } f
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { normaliseDeckLanguage } from "../src/ui/language";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.json");
@@ -15,12 +16,13 @@ async function readState(): Promise<E2EState> {
   return JSON.parse(await fs.readFile(stateFile, "utf8")) as E2EState;
 }
 
-async function launchExtension(): Promise<{ context: BrowserContext; serviceWorker: Worker; userDataDir: string }> {
+async function launchExtension(locale?: string): Promise<{ context: BrowserContext; serviceWorker: Worker; userDataDir: string }> {
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-locale-"));
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: "chromium",
     headless: true,
+    ...(locale ? { locale } : {}),
     args: [
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`,
@@ -88,6 +90,99 @@ async function debugRequest<T>(page: Page, action: string, payload?: Record<stri
     window.dispatchEvent(new CustomEvent("mattermost-deck-debug-request", { detail: { id, action, payload } }));
   }), { action, payload });
 }
+
+test("empty language storage uses one browser-derived language across every extension surface", async () => {
+  const state = await readState();
+  const { context, serviceWorker, userDataDir } = await launchExtension("fr-FR");
+  try {
+    await serviceWorker.evaluate(() => chrome.storage.local.clear());
+    const uiLanguage = await serviceWorker.evaluate(() => chrome.i18n.getUILanguage());
+    const expectedLanguage = normaliseDeckLanguage(uiLanguage) ?? "fr";
+    const expectedTitles = {
+      en: "Mattermost Deck Settings",
+      ja: "Mattermost Deck 設定",
+      de: "Mattermost Deck – Einstellungen",
+      fr: "Paramètres de Mattermost Deck",
+      "zh-CN": "Mattermost Deck 设置",
+    } as const;
+    const expectedPopupLabels = {
+      en: "Install Mattermost app",
+      ja: "Mattermost アプリをインストール",
+      de: "Mattermost-App installieren",
+      fr: "Installer l’application Mattermost",
+      "zh-CN": "安装 Mattermost 应用",
+    } as const;
+    const expectedDefaultProfileNames = {
+      en: "Default",
+      ja: "既定",
+      de: "Standard",
+      fr: "Par défaut",
+      "zh-CN": "默认",
+    } as const;
+    const extensionId = new URL(serviceWorker.url()).host;
+    const optionsPage = await context.newPage();
+    await optionsPage.goto(`chrome-extension://${extensionId}/options.html`);
+    await expect(optionsPage.locator("html")).toHaveAttribute("lang", expectedLanguage);
+    await expect(optionsPage).toHaveTitle(expectedTitles[expectedLanguage]);
+    const hasSavedLanguage = await serviceWorker.evaluate(() => new Promise<boolean>((resolve) => {
+      chrome.storage.local.get(null, (values) => {
+        resolve(Object.keys(values).some((key) => key.startsWith("mattermostDeck.language.v1")));
+      });
+    }));
+    expect(hasSavedLanguage).toBe(false);
+
+    for (const [language, title] of Object.entries(expectedTitles)) {
+      await serviceWorker.evaluate((selectedLanguage) => new Promise<void>((resolve) => {
+        chrome.storage.local.set({
+          "mattermostDeck.language.v1": selectedLanguage,
+        }, () => resolve());
+      }), language);
+      await optionsPage.reload();
+      await expect(optionsPage.locator("html")).toHaveAttribute("lang", language);
+      await expect(optionsPage).toHaveTitle(title);
+      await optionsPage.getByTestId("options-nav-profiles").click();
+      await expect(
+        optionsPage.locator('[aria-labelledby="current-profile-label"][role="combobox"]'),
+      ).toContainText(expectedDefaultProfileNames[language as keyof typeof expectedDefaultProfileNames]);
+      const renameProfile = optionsPage.locator('input[aria-labelledby="manage-profile-label"]');
+      await expect(renameProfile).toHaveValue(
+        expectedDefaultProfileNames[language as keyof typeof expectedDefaultProfileNames],
+      );
+      await expect(renameProfile.locator("xpath=following-sibling::button")).toBeDisabled();
+    }
+    await serviceWorker.evaluate(() => chrome.storage.local.remove("mattermostDeck.language.v1"));
+    await optionsPage.reload();
+    await expect(optionsPage.locator("html")).toHaveAttribute("lang", expectedLanguage);
+
+    await serviceWorker.evaluate((serverUrl) => new Promise<void>((resolve) => {
+      chrome.storage.local.set({ "mattermostDeck.serverUrl.v1": serverUrl }, () => resolve());
+    }), baseUrl);
+
+    const mattermostPage = context.pages()[0] ?? await context.newPage();
+    await mattermostPage.addInitScript(() => window.localStorage.setItem("mattermostDeck.debugLogs", "1"));
+    await login(mattermostPage, state.memberUser.username, state.memberUser.password);
+    await expect(mattermostPage.locator("#mattermost-deck-root")).toBeAttached({ timeout: 20_000 });
+    await expect.poll(async () => (
+      await debugRequest<{ initialLanguage?: string }>(mattermostPage, "getState")
+    ).initialLanguage, { timeout: 10_000 }).toBe(expectedLanguage);
+
+    const popupPage = await context.newPage();
+    await popupPage.goto(`chrome-extension://${extensionId}/popup.html`);
+    await expect(popupPage.locator("html")).toHaveAttribute("lang", expectedLanguage);
+    await expect(popupPage.locator("#label-install")).toHaveText(expectedPopupLabels[expectedLanguage]);
+    const installPagePromise = context.waitForEvent("page");
+    await popupPage.locator("#btn-install").click();
+    const installPage = await installPagePromise;
+    await expect(installPage.locator("html")).toHaveAttribute(
+      "data-mattermost-deck-install-language",
+      expectedLanguage,
+      { timeout: 15_000 },
+    );
+  } finally {
+    await context.close();
+    await fs.rm(userDataDir, { recursive: true, force: true });
+  }
+});
 
 test("Deck and popup follow every supported configured language", async () => {
   const state = await readState();

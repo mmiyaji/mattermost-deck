@@ -3,7 +3,11 @@ import { getPopupMessages, resolvePopupLocale } from "./messages";
 document.addEventListener("DOMContentLoaded", async () => {
   const result = await chrome.runtime.sendMessage({ type: "mattermost-deck:get-server-url" }).catch(() => null) as { url?: unknown; language?: unknown } | null;
   const serverUrl = typeof result?.url === "string" ? result.url : "";
-  const locale = resolvePopupLocale(result?.language, navigator.languages);
+  const locale = resolvePopupLocale(
+    result?.language,
+    navigator.languages,
+    chrome.i18n?.getUILanguage?.(),
+  );
   const messages = getPopupMessages(locale);
 
   document.documentElement.lang = locale;
