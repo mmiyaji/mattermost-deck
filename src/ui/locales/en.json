@@ -430,6 +430,7 @@
     "releaseNotesTitle": "Updated to v{{version}}",
     "releaseNotesFromBody": "Updated from v{{previousVersion}} to v{{version}}. Review the latest changes before adjusting your settings.",
     "releaseNotesBody": "Review the latest changes before adjusting your settings.",
+    "releaseNote105PostActivation": "Kept post cards clickable when text remains selected elsewhere in Mattermost, while still preventing navigation when selecting text inside the clicked card",
     "releaseNote104Compatibility": "Added release-gated compatibility checks for Mattermost 9.5.11, 10.11.22, and 11.8.2",
     "releaseNote104StoreGate": "Automatically smoke-test the exact store ZIP in the ungranted startup and safe permission-denial paths without saving settings or injecting Deck; verify native permission approval and the resulting injection manually, and publish a SHA-256 checksum",
     "releaseNote104BoundedMentions": "Scans channel history incrementally in 200-post pages until the read marker, history end, cancellation, or 500 matched posts, with network and queue timeouts and cancellation when servers change",

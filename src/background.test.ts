@@ -69,7 +69,7 @@ async function loadBackground(
       onChanged: { addListener },
     },
     runtime: {
-      getManifest: () => ({ version: "1.0.4" }),
+      getManifest: () => ({ version: "1.0.5" }),
       openOptionsPage: vi.fn(async () => undefined),
       onInstalled: { addListener },
       onStartup: { addListener },

@@ -2485,6 +2485,16 @@ function OptionsApp(): React.JSX.Element {
   };
   const currentReleaseNotes = useMemo(() => {
     if (!releaseNotice) return null;
+    if (releaseNotice.version === "1.0.5") {
+      return {
+        title: "v1.0.5",
+        added: [],
+        changed: [],
+        fixed: [
+          t("options.releaseNote105PostActivation"),
+        ],
+      } satisfies ReleaseNotes;
+    }
     if (releaseNotice.version === "1.0.4") {
       return {
         title: "v1.0.4",
