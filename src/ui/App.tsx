@@ -103,6 +103,7 @@ import {
   uniqueTerms,
 } from "./postHelpers";
 import { shouldGroupAdjacentPosts } from "./postGrouping";
+import { shouldSuppressPostActivation } from "./postActivation";
 import {
   focusMattermostPost,
   getDeckRoutePath,
@@ -4241,12 +4242,24 @@ function PostListItem({
             }
           : undefined
       }
-      onClick={
+      onPointerCancel={
         onOpenPost && postClickAction !== "none"
           ? () => {
-              const selectionText = window.getSelection?.()?.toString().trim() ?? "";
-              if (dragDetectedRef.current || selectionText.length > 0) {
-                dragDetectedRef.current = false;
+              pointerStartRef.current = null;
+              dragDetectedRef.current = false;
+            }
+          : undefined
+      }
+      onClick={
+        onOpenPost && postClickAction !== "none"
+          ? (event) => {
+              const suppressActivation = shouldSuppressPostActivation(
+                dragDetectedRef.current,
+                window.getSelection?.(),
+                event.currentTarget,
+              );
+              dragDetectedRef.current = false;
+              if (suppressActivation) {
                 return;
               }
               activatePost();

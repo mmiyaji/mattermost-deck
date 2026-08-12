@@ -7,6 +7,10 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep post cards clickable when text remains selected elsewhere in Mattermost, while continuing to suppress navigation for text selected inside the clicked card.
+
 ## [1.0.4] - 2026-07-30
 
 ### Added
