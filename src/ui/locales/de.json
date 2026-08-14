@@ -430,6 +430,7 @@
     "releaseNotesTitle": "Auf v{{version}} aktualisiert",
     "releaseNotesFromBody": "Von v{{previousVersion}} auf v{{version}} aktualisiert. Prüfen Sie die neuesten Änderungen, bevor Sie Einstellungen anpassen.",
     "releaseNotesBody": "Prüfen Sie die neuesten Änderungen, bevor Sie Einstellungen anpassen.",
+    "releaseNote105PostActivation": "Beitragskarten bleiben anklickbar, wenn an anderer Stelle in Mattermost Text ausgewählt ist; beim Auswählen von Text innerhalb der angeklickten Karte wird die Navigation weiterhin verhindert",
     "releaseNote104Compatibility": "Release-Prüfungen für die wichtigsten Abläufe unter Mattermost 9.5.11, 10.11.22 und 11.8.2 hinzugefügt",
     "releaseNote104StoreGate": "Das tatsächliche Store-ZIP wird beim Start ohne Berechtigung und bei sicherer Ablehnung automatisch getestet, ohne Einstellungen zu speichern oder Deck einzubinden; die native Freigabe und anschließende Einbindung werden manuell geprüft, außerdem wird eine SHA-256-Prüfsumme veröffentlicht",
     "releaseNote104BoundedMentions": "Kanalverläufe werden schrittweise in Seiten mit je 200 Beiträgen bis zur Lesemarke, zum Verlaufsende, zum Abbruch oder zu 500 Treffern verarbeitet; ergänzt wurden Netzwerk- und Warteschlangen-Timeouts sowie der Abbruch bei Serverwechsel",

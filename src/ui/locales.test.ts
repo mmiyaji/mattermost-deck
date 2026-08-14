@@ -84,6 +84,7 @@ describe("UI locale coverage", () => {
       "options.performanceTitle",
       "options.saveFailed",
       "options.releaseNotesOpen",
+      "options.releaseNote105PostActivation",
       "options.releaseNote104Compatibility",
       "options.releaseNote104StoreGate",
       "options.releaseNote104BoundedMentions",

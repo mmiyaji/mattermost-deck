@@ -632,7 +632,10 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
           ) ?? false,
         mentionCount: column?.mentionCount ?? 0,
       };
-    }, { timeout: 35_000 }).toEqual({
+    // The stored 5-second value is normalized to the 15-second product
+    // minimum. Under the full one-worker suite a mention scan can overlap the
+    // first tick, so allow enough time for multiple complete polling cycles.
+    }, { timeout: 60_000 }).toEqual({
       postVisible: true,
       markerVisible: true,
       mentionCount: baselineMentionCount + 1,

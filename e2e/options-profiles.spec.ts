@@ -202,7 +202,7 @@ test("official website resources stay reachable on wide and narrow settings layo
   }
 });
 
-test("1.0.4 release notice stays aligned, wraps actions, and explains the reliability release", async () => {
+test("1.0.5 release notice stays aligned, wraps actions, and explains the post navigation fix", async () => {
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-release-banner-"));
   const context = await chromium.launchPersistentContext(userDataDir, {
@@ -223,8 +223,8 @@ test("1.0.4 release notice stays aligned, wraps actions, and explains the reliab
         chrome.storage.local.set({
           "mattermostDeck.language.v1": "ja",
           "mattermostDeck.releaseNotice.v1": {
-            version: "1.0.4",
-            previousVersion: "1.0.3",
+            version: "1.0.5",
+            previousVersion: "1.0.4",
             seen: false,
           },
         }, () => resolve());
@@ -237,7 +237,7 @@ test("1.0.4 release notice stays aligned, wraps actions, and explains the reliab
 
     const releaseBanner = page.locator(".options-release-banner");
     await expect(releaseBanner).toBeVisible({ timeout: 10_000 });
-    await expect(releaseBanner).toContainText("v1.0.4");
+    await expect(releaseBanner).toContainText("v1.0.5");
     await expect(releaseBanner.locator(".options-release-banner-actions .options-button")).toHaveCount(3);
 
     const narrowLayout = await page.evaluate(() => {
@@ -296,14 +296,11 @@ test("1.0.4 release notice stays aligned, wraps actions, and explains the reliab
     });
 
     await releaseBanner.getByRole("button", { name: "新機能" }).click();
-    const releaseDialog = page.getByRole("dialog", { name: "v1.0.4" });
+    const releaseDialog = page.getByRole("dialog", { name: "v1.0.5" });
     await expect(releaseDialog).toBeVisible();
-    await expect(releaseDialog.locator(".options-modal-section")).toHaveCount(3);
-    await expect(releaseDialog).toContainText("既読位置・履歴終端・中断・一致投稿500件");
-    await expect(releaseDialog).toContainText("旧runtime");
-    for (const supportedVersion of ["9.5.11", "10.11.22", "11.8.2"]) {
-      await expect(releaseDialog).toContainText(supportedVersion);
-    }
+    await expect(releaseDialog.locator(".options-modal-section")).toHaveCount(1);
+    await expect(releaseDialog).toContainText("別の場所にテキスト選択が残っていても投稿カードをクリック");
+    await expect(releaseDialog).toContainText("カード内のテキスト選択時は引き続き遷移を抑止");
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });
@@ -314,7 +311,7 @@ for (const locale of [
   { language: "de", label: "German" },
   { language: "fr", label: "French" },
 ]) {
-  test(`1.0.4 release notice keeps readable copy and contained actions in ${locale.label}`, async ({}, testInfo) => {
+  test(`1.0.5 release notice keeps readable copy and contained actions in ${locale.label}`, async ({}, testInfo) => {
     const extensionPath = path.resolve("./dist");
     const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), `mattermost-deck-release-banner-${locale.language}-`));
     const context = await chromium.launchPersistentContext(userDataDir, {
@@ -335,8 +332,8 @@ for (const locale of [
           chrome.storage.local.set({
             "mattermostDeck.language.v1": language,
             "mattermostDeck.releaseNotice.v1": {
-              version: "1.0.4",
-              previousVersion: "1.0.3",
+              version: "1.0.5",
+              previousVersion: "1.0.4",
               seen: false,
             },
           }, () => resolve());

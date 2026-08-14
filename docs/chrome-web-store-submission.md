@@ -16,14 +16,9 @@ Mattermost Deck adds a multi-pane viewing and search workspace to Mattermost Web
 
 Mattermost Deck adds monitoring-oriented panes to the right side of Mattermost Web. Users can arrange mentions, channels, direct messages, search results with keyword highlighting, and saved posts side by side. Mattermost remains the primary interface for login, posting, editing, team navigation, and thread views.
 
-## v1.0.4 release notes
+## v1.0.5 release notes
 
-- Scans channel mention history incrementally in 200-post pages until the read marker, channel-history end, cancellation, or 500 matched posts; network and queue timeouts plus server-change cancellation stop stalled work while keeping retained results bounded
-- Reconciles bursts of realtime mention events with one bounded refresh, applies edits and deletions immediately, and honors each user's channel-wide mention preference
-- Hands off cleanly from the previous content runtime after an extension update, removing old listeners, observers, timers, and React roots before the new bundle starts
-- Improved keyboard and screen-reader behavior for Deck dialogs, menus, retry states, Settings comboboxes, sortable performance tables, and validation errors in all supported languages
-- Added release gates for Mattermost 9.5.11, 10.11.22, and 11.8.2, exact-archive ungranted and safe-denial smoke coverage, SHA-256 release checksums, and scheduled fixed-seed monkey and memory-soak testing
-- Clarified that optional diagnostic traces are bounded and entries older than 24 hours are pruned on the extension's next activity
+- Keeps post cards clickable when text remains selected elsewhere in Mattermost, while still preventing thread navigation when selecting text inside the clicked card
 
 ## Permission justifications
 
