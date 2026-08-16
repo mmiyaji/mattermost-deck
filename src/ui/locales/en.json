@@ -434,6 +434,7 @@
     "releaseNotesTitle": "Updated to v{{version}}",
     "releaseNotesFromBody": "Updated from v{{previousVersion}} to v{{version}}. Review the latest changes before adjusting your settings.",
     "releaseNotesBody": "Review the latest changes before adjusting your settings.",
+    "releaseNote106HeaderOverflow": "Fixed the Deck header pushing its actions menu out of view when long translated labels did not fit a narrow rail",
     "releaseNote106Languages": "Added Russian, Ukrainian, Spanish, and Korean to Deck, Settings, the popup, the install guide, and the extension package description",
     "releaseNote106PluralForms": "Locale files now carry every CLDR plural form each language requires, so counts in Russian and Ukrainian no longer fall back to English",
     "releaseNote105PostActivation": "Kept post cards clickable when text remains selected elsewhere in Mattermost, while still preventing navigation when selecting text inside the clicked card",

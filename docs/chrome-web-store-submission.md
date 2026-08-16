@@ -16,6 +16,29 @@ Mattermost Deck adds a multi-pane viewing and search workspace to Mattermost Web
 
 Mattermost Deck adds monitoring-oriented panes to the right side of Mattermost Web. Users can arrange mentions, channels, direct messages, search results with keyword highlighting, and saved posts side by side. Mattermost remains the primary interface for login, posting, editing, team navigation, and thread views.
 
+## Localized detailed descriptions
+
+The extension name and the short description shown under the title come from
+`src/_locales/<locale>/messages.json` in the uploaded package, so they need no console entry.
+The detailed description below is per-language and must be pasted into the Store listing tab
+after a package containing that locale has been uploaded.
+
+### Russian (ru)
+
+Mattermost Deck добавляет панели для мониторинга справа от Mattermost Web. Упоминания, каналы, личные сообщения, результаты поиска с подсветкой ключевых слов и сохранённые сообщения можно расположить рядом друг с другом. Основным интерфейсом для входа, отправки и редактирования сообщений, перехода между командами и просмотра обсуждений остаётся сам Mattermost.
+
+### Ukrainian (uk)
+
+Mattermost Deck додає панелі для стеження праворуч від Mattermost Web. Згадування, канали, особисті повідомлення, результати пошуку з підсвічуванням ключових слів і збережені дописи можна розташувати поруч. Основним інтерфейсом для входу, надсилання та редагування дописів, переходу між командами й перегляду обговорень залишається сам Mattermost.
+
+### Spanish (es)
+
+Mattermost Deck añade paneles de seguimiento a la derecha de Mattermost Web. Puedes colocar en paralelo menciones, canales, mensajes directos, resultados de búsqueda con palabras clave resaltadas y publicaciones guardadas. Mattermost sigue siendo la interfaz principal para iniciar sesión, publicar, editar, cambiar de equipo y ver hilos.
+
+### Korean (ko)
+
+Mattermost Deck은 Mattermost Web 오른쪽에 모니터링용 패널을 추가합니다. 멘션, 채널, 다이렉트 메시지, 키워드가 강조된 검색 결과, 저장한 게시물을 나란히 배치할 수 있습니다. 로그인, 게시, 편집, 팀 이동, 스레드 보기 등 주요 작업은 계속 Mattermost 본체에서 이루어집니다.
+
 ## v1.0.6 release notes
 
 - Adds Russian, Ukrainian, Spanish, and Korean to Deck, Settings, the popup, the install guide, and the extension package description

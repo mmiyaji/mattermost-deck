@@ -176,6 +176,30 @@ export const railCssText = `
     flex: none;
   }
 
+  /*
+   * Header labels vary widely by language, so let the Views and Add buttons
+   * give up width before the trailing actions button is pushed out of the
+   * rail. The actions button stays a fixed size and must remain reachable.
+   */
+  .deck-topbar-actions .deck-add-wrap:not(.deck-actions-wrap) {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  .deck-topbar-actions .deck-actions-wrap {
+    flex: none;
+  }
+
+  .deck-topbar-actions .deck-status-badge,
+  .deck-topbar-button {
+    min-width: 0;
+  }
+
+  .deck-topbar-button .deck-button-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .deck-add-menu {
     position: absolute;
     top: calc(100% + 8px);

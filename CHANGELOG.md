@@ -18,6 +18,11 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Derived the supported-language list, the Settings language picker, and the store build's `_locales` gate from a single `SUPPORTED_LANGUAGES` definition in `src/ui/language.ts`.
 - Made the store release-candidate smoke test compare the permission-denial message against the locale the options page actually rendered, instead of assuming a Japanese host browser.
 - Locale parity tests now compare plural keys by base key and require exactly the CLDR plural categories each language declares, so four-form languages such as Russian and Ukrainian can no longer fall back to English. French gained its missing `many` forms, and the unused `one` forms were dropped from Japanese and Simplified Chinese.
+- Shortened the German and Russian header labels so the Deck top bar keeps its title, sign-in line, and actions on one row at narrow rail widths.
+
+### Fixed
+
+- Keep the Deck header's actions button inside the rail when long translated labels do not fit. The Views and Add labels now give up width first instead of pushing the actions button past the rail edge, which previously clipped it between the 620 px compact breakpoint and roughly 700 px.
 
 ## [1.0.5] - 2026-08-12
 

@@ -298,9 +298,10 @@ test("1.0.6 release notice stays aligned, wraps actions, and explains the added 
     await releaseBanner.getByRole("button", { name: "新機能" }).click();
     const releaseDialog = page.getByRole("dialog", { name: "v1.0.6" });
     await expect(releaseDialog).toBeVisible();
-    await expect(releaseDialog.locator(".options-modal-section")).toHaveCount(2);
+    await expect(releaseDialog.locator(".options-modal-section")).toHaveCount(3);
     await expect(releaseDialog).toContainText("ロシア語・ウクライナ語・スペイン語・韓国語を追加");
     await expect(releaseDialog).toContainText("CLDR の複数形");
+    await expect(releaseDialog).toContainText("アクションメニューが画面外へ押し出されて見切れる問題を修正");
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });

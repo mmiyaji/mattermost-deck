@@ -2488,7 +2488,9 @@ function OptionsApp(): React.JSX.Element {
         changed: [
           t("options.releaseNote106PluralForms"),
         ],
-        fixed: [],
+        fixed: [
+          t("options.releaseNote106HeaderOverflow"),
+        ],
       } satisfies ReleaseNotes;
     }
     if (releaseNotice.version === "1.0.5") {

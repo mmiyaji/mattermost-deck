@@ -439,6 +439,7 @@
     "releaseNotesTitle": "Mise à jour vers v{{version}}",
     "releaseNotesFromBody": "Mise à jour de v{{previousVersion}} vers v{{version}}. Consultez les dernières modifications avant d’ajuster vos paramètres.",
     "releaseNotesBody": "Consultez les dernières modifications avant d’ajuster vos paramètres.",
+    "releaseNote106HeaderOverflow": "Correction du menu d’actions de l’en-tête de Deck qui sortait de la zone visible lorsque des libellés traduits trop longs ne tenaient pas dans un rail étroit",
     "releaseNote106Languages": "Ajout du russe, de l’ukrainien, de l’espagnol et du coréen à Deck, aux Paramètres, à la fenêtre contextuelle, au guide d’installation et à la description du paquet d’extension",
     "releaseNote106PluralForms": "Les fichiers de langue contiennent désormais toutes les formes plurielles CLDR requises par chaque langue, afin que les décomptes en russe et en ukrainien ne reviennent plus à l’anglais",
     "releaseNote105PostActivation": "Les cartes de publication restent cliquables lorsqu’un texte est sélectionné ailleurs dans Mattermost, tandis que la navigation reste bloquée lors d’une sélection dans la carte cliquée",

@@ -137,6 +137,7 @@ describe("UI locale coverage", () => {
       "options.performanceTitle",
       "options.saveFailed",
       "options.releaseNotesOpen",
+      "options.releaseNote106HeaderOverflow",
       "options.releaseNote106Languages",
       "options.releaseNote106PluralForms",
       "options.releaseNote105PostActivation",
