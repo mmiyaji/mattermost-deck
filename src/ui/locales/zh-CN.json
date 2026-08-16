@@ -429,6 +429,7 @@
     "releaseNotesTitle": "已更新到 v{{version}}",
     "releaseNotesFromBody": "已从 v{{previousVersion}} 更新到 v{{version}}。调整设置前，请查看最新更改。",
     "releaseNotesBody": "调整设置前，请查看最新更改。",
+    "releaseNote106HeaderOverflow": "修复在窄边栏下，翻译文本过长时 Deck 顶栏的操作菜单被挤出可视区域的问题",
     "releaseNote106Languages": "为 Deck、设置、弹出窗口、安装指引以及扩展程序包说明新增俄语、乌克兰语、西班牙语和韩语",
     "releaseNote106PluralForms": "语言文件现在包含每种语言所需的全部 CLDR 复数形式，俄语和乌克兰语的计数不再回退到英语",
     "releaseNote105PostActivation": "即使 Mattermost 其他位置仍有文本被选中，帖子卡片也可继续点击；在所点击卡片内选择文本时仍会阻止跳转",

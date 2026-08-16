@@ -13,6 +13,29 @@ Chrome Web Store の「プライバシーへの取り組み」タブで使用す
 
 Mattermost Deck は、Mattermost Web の右側に監視向けマルチペインを追加する Chrome 拡張です。メンション、チャンネル、ダイレクトメッセージ、キーワード強調付きの検索結果、保存済み投稿を並べて確認できます。ログイン、投稿、編集、チーム移動、スレッド表示などの主要操作は Mattermost 本体を使用します。
 
+## 言語別の詳細説明
+
+拡張機能名とタイトル下の簡易説明は、アップロードしたパッケージの
+`src/_locales/<locale>/messages.json` から取得されるため、コンソールへの入力は不要です。
+以下の詳細説明は言語ごとの手入力が必要で、そのロケールを含むパッケージをアップロードした後に
+Store listing タブへ貼り付けます。
+
+### ロシア語 (ru)
+
+Mattermost Deck добавляет панели для мониторинга справа от Mattermost Web. Упоминания, каналы, личные сообщения, результаты поиска с подсветкой ключевых слов и сохранённые сообщения можно расположить рядом друг с другом. Основным интерфейсом для входа, отправки и редактирования сообщений, перехода между командами и просмотра обсуждений остаётся сам Mattermost.
+
+### ウクライナ語 (uk)
+
+Mattermost Deck додає панелі для стеження праворуч від Mattermost Web. Згадування, канали, особисті повідомлення, результати пошуку з підсвічуванням ключових слів і збережені дописи можна розташувати поруч. Основним інтерфейсом для входу, надсилання та редагування дописів, переходу між командами й перегляду обговорень залишається сам Mattermost.
+
+### スペイン語 (es)
+
+Mattermost Deck añade paneles de seguimiento a la derecha de Mattermost Web. Puedes colocar en paralelo menciones, canales, mensajes directos, resultados de búsqueda con palabras clave resaltadas y publicaciones guardadas. Mattermost sigue siendo la interfaz principal para iniciar sesión, publicar, editar, cambiar de equipo y ver hilos.
+
+### 韓国語 (ko)
+
+Mattermost Deck은 Mattermost Web 오른쪽에 모니터링용 패널을 추가합니다. 멘션, 채널, 다이렉트 메시지, 키워드가 강조된 검색 결과, 저장한 게시물을 나란히 배치할 수 있습니다. 로그인, 게시, 편집, 팀 이동, 스레드 보기 등 주요 작업은 계속 Mattermost 본체에서 이루어집니다.
+
 ## v1.0.6 リリースノート
 
 - Deck、設定画面、ポップアップ、インストール案内、拡張機能パッケージの説明文にロシア語・ウクライナ語・スペイン語・韓国語を追加

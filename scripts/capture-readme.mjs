@@ -22,6 +22,8 @@ const localeScreenshots = [
   { language: "es", filename: "demo-es.png" },
   { language: "ko", filename: "demo-ko.png" },
 ];
+const OVERVIEW_CAPTURE_RAIL_WIDTH = 880;
+const LOCALE_CAPTURE_RAIL_WIDTH = 640;
 const headless = process.env.README_CAPTURE_HEADLESS !== "0";
 const keepOpen = process.env.README_CAPTURE_KEEP_OPEN === "1";
 const headedProfileDir = path.resolve("./.tmp-readme-browser/profile");
@@ -330,7 +332,7 @@ async function configureExtension(page, extensionId, baseUrl, team, showcaseChan
   });
 
   await page.evaluate(
-    async ({ baseUrl: origin, profileId, teamName, teamId, showcaseChannelId, dmChannelId }) => {
+    async ({ baseUrl: origin, profileId, teamName, teamId, showcaseChannelId, dmChannelId, railWidth }) => {
       const now = Date.now();
       const settings = {
         "mattermostDeck.serverUrl.v1": origin,
@@ -341,10 +343,10 @@ async function configureExtension(page, extensionId, baseUrl, team, showcaseChan
         "mattermostDeck.language.v1": "en",
         "mattermostDeck.pollingIntervalSeconds.v1": "45",
         "mattermostDeck.fontScalePercent.v1": "100",
-        "mattermostDeck.preferredRailWidth.v1": "880",
+        "mattermostDeck.preferredRailWidth.v1": String(railWidth),
         "mattermostDeck.preferredColumnWidth.v1": "300",
         "mattermostDeck.drawerOpen.v1": 1,
-        "mattermostDeck.railWidth.v1": 880,
+        "mattermostDeck.railWidth.v1": railWidth,
         "mattermostDeck.layout.v1": [
           { id: "mentions", type: "mentions", teamId },
           { id: "channel-watch", type: "channelWatch", teamId, channelId: showcaseChannelId },
@@ -377,6 +379,7 @@ async function configureExtension(page, extensionId, baseUrl, team, showcaseChan
       teamId: team.id,
       showcaseChannelId: showcaseChannel.id,
       dmChannelId: dmChannel.id,
+      railWidth: OVERVIEW_CAPTURE_RAIL_WIDTH,
     },
   );
 }
@@ -401,6 +404,35 @@ async function setExtensionLanguage(context, language) {
       });
     }),
     { language, profileId: captureProfileId },
+  );
+}
+
+async function setDeckRailWidth(context, railWidth) {
+  const [serviceWorker] = context.serviceWorkers();
+  if (!serviceWorker) {
+    throw new Error("The extension service worker is not available for rail width capture.");
+  }
+
+  await serviceWorker.evaluate(
+    ({ width, profileId }) => new Promise((resolve, reject) => {
+      const settings = {
+        "mattermostDeck.preferredRailWidth.v1": String(width),
+        "mattermostDeck.railWidth.v1": width,
+      };
+      chrome.storage.local.set({
+        ...settings,
+        ...Object.fromEntries(
+          Object.entries(settings).map(([key, value]) => [`${key}.profile.${profileId}`, value]),
+        ),
+      }, () => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        resolve();
+      });
+    }),
+    { width: railWidth, profileId: captureProfileId },
   );
 }
 
@@ -483,7 +515,10 @@ async function captureShowcase() {
     });
 
     await fs.mkdir(localeScreenshotsDir, { recursive: true });
+    // Locale shots document the translated UI, so Deck takes about half of the
+    // 1280 px viewport and leaves the Mattermost main content readable.
     await page.setViewportSize({ width: 1280, height: 800 });
+    await setDeckRailWidth(context, LOCALE_CAPTURE_RAIL_WIDTH);
     for (const locale of localeScreenshots) {
       await setExtensionLanguage(context, locale.language);
       await page.reload({ waitUntil: "networkidle", timeout: 60_000 });
@@ -494,6 +529,7 @@ async function captureShowcase() {
     }
 
     await setExtensionLanguage(context, "en");
+    await setDeckRailWidth(context, OVERVIEW_CAPTURE_RAIL_WIDTH);
     await page.setViewportSize({ width: 1720, height: 1080 });
     await page.reload({ waitUntil: "networkidle", timeout: 60_000 });
     await applyMattermostThemeFromSettings(page, "Onyx");
