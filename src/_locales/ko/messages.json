@@ -1,0 +1,8 @@
+{
+  "appName": {
+    "message": "Mattermost Deck"
+  },
+  "appDescription": {
+    "message": "멘션, 채널, 다이렉트 메시지, 검색 결과를 모니터링하는 멀티 패널 작업 공간을 Mattermost Web에 추가합니다."
+  }
+}

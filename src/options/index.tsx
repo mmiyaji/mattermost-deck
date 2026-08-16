@@ -29,6 +29,7 @@ import {
   type DeckTheme,
   type PostClickAction,
 } from "../ui/settings";
+import { SUPPORTED_LANGUAGES } from "../ui/language";
 import {
   createDeckProfile,
   deleteDeckProfile,
@@ -195,11 +196,6 @@ function useOptionsText() {
     themeMattermost: t("options.themeMattermost"),
     themeDark: t("options.themeDark"),
     themeLight: t("options.themeLight"),
-    languageJa: t("options.languageJa"),
-    languageEn: t("options.languageEn"),
-    languageDe: t("options.languageDe"),
-    languageZhCn: t("options.languageZhCn"),
-    languageFr: t("options.languageFr"),
     behaviorTitle: t("options.behaviorTitle"),
     behaviorDesc: t("options.behaviorDesc"),
     performanceTitle: t("options.performanceTitle", { defaultValue: "Performance" }),
@@ -2076,14 +2072,12 @@ function OptionsApp(): React.JSX.Element {
     [text],
   );
   const languageOptions = useMemo<CustomSelectOption[]>(
-    () => [
-      { value: "ja",    label: text.languageJa },
-      { value: "en",    label: text.languageEn },
-      { value: "de",    label: text.languageDe },
-      { value: "zh-CN", label: text.languageZhCn },
-      { value: "fr",    label: text.languageFr },
-    ],
-    [text],
+    () =>
+      SUPPORTED_LANGUAGES.map((definition) => ({
+        value: definition.code,
+        label: t(definition.labelKey),
+      })),
+    [t],
   );
   const postClickActionOptions = useMemo<CustomSelectOption[]>(
     () => [
@@ -2485,6 +2479,18 @@ function OptionsApp(): React.JSX.Element {
   };
   const currentReleaseNotes = useMemo(() => {
     if (!releaseNotice) return null;
+    if (releaseNotice.version === "1.0.6") {
+      return {
+        title: "v1.0.6",
+        added: [
+          t("options.releaseNote106Languages"),
+        ],
+        changed: [
+          t("options.releaseNote106PluralForms"),
+        ],
+        fixed: [],
+      } satisfies ReleaseNotes;
+    }
     if (releaseNotice.version === "1.0.5") {
       return {
         title: "v1.0.5",
@@ -3266,7 +3272,7 @@ function OptionsApp(): React.JSX.Element {
                   <CustomSelect
                     options={languageOptions}
                     value={settings.language}
-                    placeholder={text.languageJa}
+                    placeholder={text.languageLabel}
                     allowClear={false}
                     ariaLabelledBy="language-label"
                     onChange={(v) => setSettings((s) => ({ ...s, language: v as DeckLanguage }))}

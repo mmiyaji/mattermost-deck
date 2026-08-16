@@ -8,13 +8,17 @@ describe("PWA install guide localization", () => {
     [["fr-CA"], "fr"],
     [["zh-Hans-CN"], "zh-CN"],
     [["en-GB"], "en"],
-    [["es-ES"], "en"],
+    [["ru-RU"], "ru"],
+    [["uk-UA"], "uk"],
+    [["es-ES"], "es"],
+    [["ko-KR"], "ko"],
+    [["it-IT"], "en"],
   ] satisfies Array<[string[], InstallLocale]>)('resolves %j to "%s"', (languages, expected) => {
     expect(resolveInstallLocale(languages)).toBe(expected);
   });
 
   it("provides a localized instruction for every supported browser", () => {
-    const locales: InstallLocale[] = ["de", "en", "fr", "ja", "zh-CN"];
+    const locales: InstallLocale[] = ["de", "en", "fr", "ja", "zh-CN", "ru", "uk", "es", "ko"];
     const browsers: BrowserKind[] = ["chrome", "edge", "firefox", "safari", "chromium", "other"];
 
     for (const locale of locales) {
@@ -29,10 +33,10 @@ describe("PWA install guide localization", () => {
     }
   });
 
-  it.each(["de", "en", "fr", "ja", "zh-CN"] satisfies InstallLocale[])(
+  it.each(["de", "en", "fr", "ja", "zh-CN", "ru", "uk", "es", "ko"] satisfies InstallLocale[])(
     "prefers the configured %s locale over the page and browser locales",
     (configuredLocale) => {
-      expect(resolveInstallLocale([configuredLocale, "es-ES", "en-US"])).toBe(configuredLocale);
+      expect(resolveInstallLocale([configuredLocale, "it-IT", "en-US"])).toBe(configuredLocale);
     },
   );
 

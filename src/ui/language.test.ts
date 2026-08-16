@@ -9,6 +9,10 @@ describe("Deck language resolution", () => {
     ["fr-CA", "fr"],
     ["zh-Hans-CN", "zh-CN"],
     ["zh-SG", "zh-CN"],
+    ["ru-RU", "ru"],
+    ["uk-UA", "uk"],
+    ["es-419", "es"],
+    ["ko-KR", "ko"],
   ] as const)("normalises %s to %s", (input, expected) => {
     expect(normaliseDeckLanguage(input)).toBe(expected);
   });
@@ -22,7 +26,7 @@ describe("Deck language resolution", () => {
   });
 
   it("uses navigator after an unsupported Chrome UI language and otherwise English", () => {
-    expect(resolveDeckLanguage(undefined, "es-ES", ["ja-JP"])).toBe("ja");
-    expect(resolveDeckLanguage(undefined, "es-ES", ["it-IT"])).toBe("en");
+    expect(resolveDeckLanguage(undefined, "it-IT", ["ja-JP"])).toBe("ja");
+    expect(resolveDeckLanguage(undefined, "it-IT", ["pt-PT"])).toBe("en");
   });
 });

@@ -51,7 +51,7 @@ Cloudflare Pages 編集権限だけを持つ `CLOUDFLARE_API_TOKEN` が必要で
 - 長いペインでの「最新へ戻る」フローティングボタン
 - 返信投稿の識別表示と、スレッド内にしかない返信でも開きやすい返信対応ナビゲーション
 - 日常監視向けの軽量な同期ヒントを出す Diagnostics と、API 集計や最近のトレース、JSONL 書き出しを備えた Performance タブ
-- 日本語、英語、ドイツ語、中国語簡体字、フランス語の UI
+- 日本語、英語、ドイツ語、中国語簡体字、フランス語、ロシア語、ウクライナ語、スペイン語、韓国語の UI
 - Chrome 拡張パッケージ名と説明文の多言語化
 - 設定画面から公式サイト、プライバシーポリシー、利用規約、サポート、Chrome ウェブストアへ移動できるリンク
 
@@ -192,7 +192,7 @@ npm run capture:readme
 
 ## リリース
 
-`v1.0.5` のような `v` 形式タグを push すると GitHub Actions が動作します。パッケージ、manifest、アプリ内表示、公式サイト、CHANGELOGの版番号とタグが一致しない場合、リリースジョブは停止します。
+`v1.0.6` のような `v` 形式タグを push すると GitHub Actions が動作します。パッケージ、manifest、アプリ内表示、公式サイト、CHANGELOGの版番号とタグが一致しない場合、リリースジョブは停止します。
 
 - 型チェック、単体テスト、Mattermost 9.5.4でのPlaywright全テスト、9.5.11・10.11.22・11.8.2でのリリース互換性テストを実行
 - `STORE_BUILD=true`でChrome Web Store用ZIPを生成し、そのZIPを展開した実物から未許可の初回状態と、Chrome標準の権限確認を自動承認できない場合の安全な拒否処理をスモークテスト
@@ -209,10 +209,10 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.0.5"
+$env:EXT_VERSION = "v1.0.6"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.5.zip -Force
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.6.zip -Force
 ```
 
 ZIP直下に `manifest.json` が配置されていることを確認してください。Web Store用ビルドではlocalhost専用の静的content scriptを意図的に除外し、E2Eテスト用の通常ビルドでは残します。
@@ -231,12 +231,13 @@ UI の locale ファイルは `src/ui/locales/` にあります。拡張パッ�
 
 UI 言語を追加する手順:
 
-1. `src/ui/locales/en.json` を `ko.json` などへコピーする
-2. `src/ui/i18n.ts` に登録する
-3. `src/ui/settings.ts` の `DeckLanguage` と `normaliseLanguage` に追加する
-4. `src/options/index.tsx` の言語選択肢に追加する
+1. `src/ui/locales/en.json` を `ko.json` などへコピーして翻訳する。複数形キーはその言語が CLDR で要求する形（`Intl.PluralRules(<code>).resolvedOptions().pluralCategories`）と完全に一致させる必要があり、`src/ui/locales.test.ts` で検証されます
+2. `src/ui/language.ts` の `SUPPORTED_LANGUAGES` に定義を追加する。設定画面の言語セレクタとストアビルドの locale 検証はここから導出されます
+3. `src/ui/i18n.ts` に resource を登録する
+4. すべての locale ファイルに `options.language<Code>` のラベルを追加する
+5. `src/popup/messages.ts` と `src/pwa-install/installGuide.ts` に翻訳を追加する
 
-拡張パッケージの名前や説明文も多言語化する場合は、対応する `src/_locales/<locale>/messages.json` を追加してください。
+拡張パッケージの名前や説明文も多言語化する場合は、対応する `src/_locales/<chromeLocale>/messages.json` を追加してください。`appDescription` は 132 文字以内である必要があり、ビルド時に検証されます。
 
 ## 設計メモ
 

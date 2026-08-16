@@ -1,0 +1,8 @@
+{
+  "appName": {
+    "message": "Mattermost Deck"
+  },
+  "appDescription": {
+    "message": "Añade a Mattermost Web un espacio multipanel para seguir menciones, canales, mensajes directos y resultados de búsqueda."
+  }
+}

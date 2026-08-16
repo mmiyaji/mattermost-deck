@@ -51,7 +51,7 @@ Dark theme:
 - Jump-to-latest floating control for long panes
 - Reply post indicator and reply-aware navigation that opens standalone replies in Mattermost thread view
 - Diagnostics pane with lightweight recent sync hints, plus a Performance tab with API endpoint summary, recent trace logs, and JSONL export
-- Japanese, English, German, Chinese (Simplified), and French UI
+- Japanese, English, German, Chinese (Simplified), French, Russian, Ukrainian, Spanish, and Korean UI
 - Localized extension package name and description for Chrome
 - Direct links from Settings to the official website, privacy policy, terms, support, and Chrome Web Store listing
 
@@ -184,7 +184,7 @@ npm run capture:readme
 
 ## Release
 
-Push a tag in `v` format, such as `v1.0.5`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
+Push a tag in `v` format, such as `v1.0.6`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
 
 - Runs type checks, unit tests, the full Mattermost 9.5.4 Playwright suite, and the release compatibility matrix for 9.5.11, 10.11.22, and 11.8.2
 - Builds the Chrome Web Store archive with `STORE_BUILD=true`, extracts that exact archive, and smoke-tests its ungranted first-run state and safe handling when Chrome cannot approve the native permission prompt
@@ -201,10 +201,10 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.0.5"
+$env:EXT_VERSION = "v1.0.6"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.5.zip -Force
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.6.zip -Force
 ```
 
 The archive must contain `manifest.json` at its root. Store builds intentionally omit the localhost-only static content script; local development builds retain it for E2E testing.
@@ -223,12 +223,13 @@ UI locale files live in `src/ui/locales/`. Extension package locale files live i
 
 To add a new UI language:
 
-1. Copy `src/ui/locales/en.json` to a new file such as `ko.json`
-2. Register it in `src/ui/i18n.ts`
-3. Add the locale code to `DeckLanguage` and `normaliseLanguage` in `src/ui/settings.ts`
-4. Add the language option in `src/options/index.tsx`
+1. Copy `src/ui/locales/en.json` to a new file such as `ko.json` and translate it. Plural keys must carry exactly the CLDR categories the language requires (`Intl.PluralRules(<code>).resolvedOptions().pluralCategories`), which is enforced by `src/ui/locales.test.ts`.
+2. Add an entry to `SUPPORTED_LANGUAGES` in `src/ui/language.ts`. The Settings language picker and the store build locale gate are derived from it.
+3. Register the resource in `src/ui/i18n.ts`
+4. Add the `options.language<Code>` label to every locale file
+5. Add the language to `src/popup/messages.ts` and `src/pwa-install/installGuide.ts`
 
-To localize the extension package metadata, add a matching `src/_locales/<locale>/messages.json`.
+To localize the extension package metadata, add a matching `src/_locales/<chromeLocale>/messages.json`. `appDescription` must stay within 132 characters, which the build enforces.
 
 ## Design Notes
 

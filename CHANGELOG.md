@@ -7,6 +7,18 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-08-16
+
+### Added
+
+- Added Russian, Ukrainian, Spanish, and Korean UI translations across Deck, Settings, the popup, the PWA install guide, and the Chrome Web Store package metadata.
+
+### Changed
+
+- Derived the supported-language list, the Settings language picker, and the store build's `_locales` gate from a single `SUPPORTED_LANGUAGES` definition in `src/ui/language.ts`.
+- Made the store release-candidate smoke test compare the permission-denial message against the locale the options page actually rendered, instead of assuming a Japanese host browser.
+- Locale parity tests now compare plural keys by base key and require exactly the CLDR plural categories each language declares, so four-form languages such as Russian and Ukrainian can no longer fall back to English. French gained its missing `many` forms, and the unused `one` forms were dropped from Japanese and Simplified Chinese.
+
 ## [1.0.5] - 2026-08-12
 
 ### Fixed
