@@ -51,7 +51,7 @@ Dark theme:
 - Jump-to-latest floating control for long panes
 - Reply post indicator and reply-aware navigation that opens standalone replies in Mattermost thread view
 - Diagnostics pane with lightweight recent sync hints, plus a Performance tab with API endpoint summary, recent trace logs, and JSONL export
-- Japanese, English, German, Chinese (Simplified), French, Russian, and Ukrainian UI
+- Japanese, English, German, Chinese (Simplified), French, Russian, Ukrainian, Spanish, and Korean UI
 - Localized extension package name and description for Chrome
 - Direct links from Settings to the official website, privacy policy, terms, support, and Chrome Web Store listing
 
@@ -184,7 +184,7 @@ npm run capture:readme
 
 ## Release
 
-Push a tag in `v` format, such as `v1.0.5`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
+Push a tag in `v` format, such as `v1.0.6`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
 
 - Runs type checks, unit tests, the full Mattermost 9.5.4 Playwright suite, and the release compatibility matrix for 9.5.11, 10.11.22, and 11.8.2
 - Builds the Chrome Web Store archive with `STORE_BUILD=true`, extracts that exact archive, and smoke-tests its ungranted first-run state and safe handling when Chrome cannot approve the native permission prompt
@@ -201,10 +201,10 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.0.5"
+$env:EXT_VERSION = "v1.0.6"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.5.zip -Force
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.6.zip -Force
 ```
 
 The archive must contain `manifest.json` at its root. Store builds intentionally omit the localhost-only static content script; local development builds retain it for E2E testing.

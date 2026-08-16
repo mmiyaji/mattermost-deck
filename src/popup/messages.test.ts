@@ -10,6 +10,8 @@ describe("popup messages", () => {
     ["en-US", "en"],
     ["ru-RU", "ru"],
     ["uk-UA", "uk"],
+    ["es-ES", "es"],
+    ["ko-KR", "ko"],
   ] as const)("resolves %s", (input, expected) => {
     expect(resolvePopupLocale(input)).toBe(expected);
   });
@@ -23,7 +25,7 @@ describe("popup messages", () => {
   });
 
   it("falls back to English for unsupported languages", () => {
-    expect(resolvePopupLocale("es-ES")).toBe("en");
+    expect(resolvePopupLocale("it-IT")).toBe("en");
     expect(getPopupMessages("en").installApp).toBe("Install Mattermost app");
     expect(getPopupMessages("ja").installFailed).toContain("Server URL");
   });

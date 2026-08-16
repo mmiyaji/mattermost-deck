@@ -100,7 +100,7 @@ describe("content runtime lifecycle", () => {
     vi.stubGlobal("__MATTERMOST_DECK_E2E_DEBUG__", false);
     vi.stubGlobal("chrome", {
       runtime: {
-        getManifest: () => ({ version: "1.0.5" }),
+        getManifest: () => ({ version: "1.0.6" }),
       },
     });
   });

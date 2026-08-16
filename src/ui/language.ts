@@ -19,6 +19,8 @@ export const SUPPORTED_LANGUAGES = [
   { code: "fr",    chromeLocale: "fr",    labelKey: "options.languageFr",   exact: [],      prefixed: ["fr"] },
   { code: "ru",    chromeLocale: "ru",    labelKey: "options.languageRu",   exact: [],      prefixed: ["ru"] },
   { code: "uk",    chromeLocale: "uk",    labelKey: "options.languageUk",   exact: [],      prefixed: ["uk"] },
+  { code: "es",    chromeLocale: "es",    labelKey: "options.languageEs",   exact: [],      prefixed: ["es"] },
+  { code: "ko",    chromeLocale: "ko",    labelKey: "options.languageKo",   exact: [],      prefixed: ["ko"] },
 ] as const satisfies readonly DeckLanguageDefinition[];
 
 export type DeckLanguage = (typeof SUPPORTED_LANGUAGES)[number]["code"];

@@ -53,6 +53,20 @@ const POPUP_MESSAGES: Record<PopupLocale, PopupMessages> = {
     installFailed: "Не удалось открыть Mattermost для установки. Проверьте URL сервера и повторите попытку.",
     openFailed: "Не удалось открыть Mattermost. Проверьте URL сервера и повторите попытку.",
   },
+  es: {
+    installApp: "Instalar la aplicación de Mattermost",
+    openMattermost: "Abrir Mattermost",
+    settings: "Configuración",
+    installFailed: "No se ha podido abrir Mattermost para instalarlo. Revisa la URL del servidor y vuelve a intentarlo.",
+    openFailed: "No se ha podido abrir Mattermost. Revisa la URL del servidor y vuelve a intentarlo.",
+  },
+  ko: {
+    installApp: "Mattermost 앱 설치",
+    openMattermost: "Mattermost 열기",
+    settings: "설정",
+    installFailed: "설치를 위해 Mattermost를 열지 못했습니다. 서버 URL을 확인한 후 다시 시도하세요.",
+    openFailed: "Mattermost를 열지 못했습니다. 서버 URL을 확인한 후 다시 시도하세요.",
+  },
   uk: {
     installApp: "Установити застосунок Mattermost",
     openMattermost: "Відкрити Mattermost",

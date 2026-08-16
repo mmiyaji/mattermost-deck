@@ -7,9 +7,11 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-08-16
+
 ### Added
 
-- Added Russian and Ukrainian UI translations across Deck, Settings, the popup, the PWA install guide, and the Chrome Web Store package metadata.
+- Added Russian, Ukrainian, Spanish, and Korean UI translations across Deck, Settings, the popup, the PWA install guide, and the Chrome Web Store package metadata.
 
 ### Changed
 

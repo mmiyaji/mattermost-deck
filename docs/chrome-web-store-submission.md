@@ -16,9 +16,10 @@ Mattermost Deck adds a multi-pane viewing and search workspace to Mattermost Web
 
 Mattermost Deck adds monitoring-oriented panes to the right side of Mattermost Web. Users can arrange mentions, channels, direct messages, search results with keyword highlighting, and saved posts side by side. Mattermost remains the primary interface for login, posting, editing, team navigation, and thread views.
 
-## v1.0.5 release notes
+## v1.0.6 release notes
 
-- Keeps post cards clickable when text remains selected elsewhere in Mattermost, while still preventing thread navigation when selecting text inside the clicked card
+- Adds Russian, Ukrainian, Spanish, and Korean to Deck, Settings, the popup, the install guide, and the extension package description
+- Keeps every CLDR plural form each language requires in the locale files, so Russian and Ukrainian counts no longer fall back to English
 
 ## Permission justifications
 

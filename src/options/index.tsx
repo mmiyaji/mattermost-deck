@@ -2479,6 +2479,18 @@ function OptionsApp(): React.JSX.Element {
   };
   const currentReleaseNotes = useMemo(() => {
     if (!releaseNotice) return null;
+    if (releaseNotice.version === "1.0.6") {
+      return {
+        title: "v1.0.6",
+        added: [
+          t("options.releaseNote106Languages"),
+        ],
+        changed: [
+          t("options.releaseNote106PluralForms"),
+        ],
+        fixed: [],
+      } satisfies ReleaseNotes;
+    }
     if (releaseNotice.version === "1.0.5") {
       return {
         title: "v1.0.5",

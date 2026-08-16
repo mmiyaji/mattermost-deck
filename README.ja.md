@@ -51,7 +51,7 @@ Cloudflare Pages 編集権限だけを持つ `CLOUDFLARE_API_TOKEN` が必要で
 - 長いペインでの「最新へ戻る」フローティングボタン
 - 返信投稿の識別表示と、スレッド内にしかない返信でも開きやすい返信対応ナビゲーション
 - 日常監視向けの軽量な同期ヒントを出す Diagnostics と、API 集計や最近のトレース、JSONL 書き出しを備えた Performance タブ
-- 日本語、英語、ドイツ語、中国語簡体字、フランス語、ロシア語、ウクライナ語の UI
+- 日本語、英語、ドイツ語、中国語簡体字、フランス語、ロシア語、ウクライナ語、スペイン語、韓国語の UI
 - Chrome 拡張パッケージ名と説明文の多言語化
 - 設定画面から公式サイト、プライバシーポリシー、利用規約、サポート、Chrome ウェブストアへ移動できるリンク
 
@@ -192,7 +192,7 @@ npm run capture:readme
 
 ## リリース
 
-`v1.0.5` のような `v` 形式タグを push すると GitHub Actions が動作します。パッケージ、manifest、アプリ内表示、公式サイト、CHANGELOGの版番号とタグが一致しない場合、リリースジョブは停止します。
+`v1.0.6` のような `v` 形式タグを push すると GitHub Actions が動作します。パッケージ、manifest、アプリ内表示、公式サイト、CHANGELOGの版番号とタグが一致しない場合、リリースジョブは停止します。
 
 - 型チェック、単体テスト、Mattermost 9.5.4でのPlaywright全テスト、9.5.11・10.11.22・11.8.2でのリリース互換性テストを実行
 - `STORE_BUILD=true`でChrome Web Store用ZIPを生成し、そのZIPを展開した実物から未許可の初回状態と、Chrome標準の権限確認を自動承認できない場合の安全な拒否処理をスモークテスト
@@ -209,10 +209,10 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.0.5"
+$env:EXT_VERSION = "v1.0.6"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.5.zip -Force
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.0.6.zip -Force
 ```
 
 ZIP直下に `manifest.json` が配置されていることを確認してください。Web Store用ビルドではlocalhost専用の静的content scriptを意図的に除外し、E2Eテスト用の通常ビルドでは残します。

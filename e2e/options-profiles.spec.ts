@@ -202,7 +202,7 @@ test("official website resources stay reachable on wide and narrow settings layo
   }
 });
 
-test("1.0.5 release notice stays aligned, wraps actions, and explains the post navigation fix", async () => {
+test("1.0.6 release notice stays aligned, wraps actions, and explains the added languages", async () => {
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-release-banner-"));
   const context = await chromium.launchPersistentContext(userDataDir, {
@@ -223,8 +223,8 @@ test("1.0.5 release notice stays aligned, wraps actions, and explains the post n
         chrome.storage.local.set({
           "mattermostDeck.language.v1": "ja",
           "mattermostDeck.releaseNotice.v1": {
-            version: "1.0.5",
-            previousVersion: "1.0.4",
+            version: "1.0.6",
+            previousVersion: "1.0.5",
             seen: false,
           },
         }, () => resolve());
@@ -237,7 +237,7 @@ test("1.0.5 release notice stays aligned, wraps actions, and explains the post n
 
     const releaseBanner = page.locator(".options-release-banner");
     await expect(releaseBanner).toBeVisible({ timeout: 10_000 });
-    await expect(releaseBanner).toContainText("v1.0.5");
+    await expect(releaseBanner).toContainText("v1.0.6");
     await expect(releaseBanner.locator(".options-release-banner-actions .options-button")).toHaveCount(3);
 
     const narrowLayout = await page.evaluate(() => {
@@ -296,11 +296,11 @@ test("1.0.5 release notice stays aligned, wraps actions, and explains the post n
     });
 
     await releaseBanner.getByRole("button", { name: "新機能" }).click();
-    const releaseDialog = page.getByRole("dialog", { name: "v1.0.5" });
+    const releaseDialog = page.getByRole("dialog", { name: "v1.0.6" });
     await expect(releaseDialog).toBeVisible();
-    await expect(releaseDialog.locator(".options-modal-section")).toHaveCount(1);
-    await expect(releaseDialog).toContainText("別の場所にテキスト選択が残っていても投稿カードをクリック");
-    await expect(releaseDialog).toContainText("カード内のテキスト選択時は引き続き遷移を抑止");
+    await expect(releaseDialog.locator(".options-modal-section")).toHaveCount(2);
+    await expect(releaseDialog).toContainText("ロシア語・ウクライナ語・スペイン語・韓国語を追加");
+    await expect(releaseDialog).toContainText("CLDR の複数形");
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });
@@ -310,8 +310,12 @@ test("1.0.5 release notice stays aligned, wraps actions, and explains the post n
 for (const locale of [
   { language: "de", label: "German" },
   { language: "fr", label: "French" },
+  { language: "ru", label: "Russian" },
+  { language: "uk", label: "Ukrainian" },
+  { language: "es", label: "Spanish" },
+  { language: "ko", label: "Korean" },
 ]) {
-  test(`1.0.5 release notice keeps readable copy and contained actions in ${locale.label}`, async ({}, testInfo) => {
+  test(`1.0.6 release notice keeps readable copy and contained actions in ${locale.label}`, async ({}, testInfo) => {
     const extensionPath = path.resolve("./dist");
     const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), `mattermost-deck-release-banner-${locale.language}-`));
     const context = await chromium.launchPersistentContext(userDataDir, {
@@ -332,8 +336,8 @@ for (const locale of [
           chrome.storage.local.set({
             "mattermostDeck.language.v1": language,
             "mattermostDeck.releaseNotice.v1": {
-              version: "1.0.5",
-              previousVersion: "1.0.4",
+              version: "1.0.6",
+              previousVersion: "1.0.5",
               seen: false,
             },
           }, () => resolve());

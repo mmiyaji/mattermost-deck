@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import de from "./locales/de.json";
 import en from "./locales/en.json";
+import es from "./locales/es.json";
 import fr from "./locales/fr.json";
 import ja from "./locales/ja.json";
+import ko from "./locales/ko.json";
 import ru from "./locales/ru.json";
 import uk from "./locales/uk.json";
 import zhCn from "./locales/zh-CN.json";
@@ -51,8 +53,8 @@ function englishReference(key: string): string {
   return pluralCategory(key) ? english[`${baseKey(key)}_other`] : english[key];
 }
 
-const allLocales = { en, ja, de, fr, "zh-CN": zhCn, ru, uk } as const;
-const locales = { ja, de, fr, "zh-CN": zhCn, ru, uk } as const;
+const allLocales = { en, ja, de, fr, "zh-CN": zhCn, ru, uk, es, ko } as const;
+const locales = { ja, de, fr, "zh-CN": zhCn, ru, uk, es, ko } as const;
 const english = flattenLocale(en);
 const englishPluralBases = baseKeys(english).filter(
   (base) => pluralCategoriesFor(english, base).length > 0,
@@ -135,6 +137,8 @@ describe("UI locale coverage", () => {
       "options.performanceTitle",
       "options.saveFailed",
       "options.releaseNotesOpen",
+      "options.releaseNote106Languages",
+      "options.releaseNote106PluralForms",
       "options.releaseNote105PostActivation",
       "options.releaseNote104Compatibility",
       "options.releaseNote104StoreGate",
@@ -171,6 +175,8 @@ describe("UI locale coverage", () => {
       "zh-CN": zhCn.options.paneTypeSavedDesc,
       ru: ru.options.paneTypeSavedDesc,
       uk: uk.options.paneTypeSavedDesc,
+      es: es.options.paneTypeSavedDesc,
+      ko: ko.options.paneTypeSavedDesc,
     }).toEqual({
       en: "Posts you save in Mattermost for later",
       ja: "Mattermost で後から確認するために保存した投稿",
@@ -179,6 +185,8 @@ describe("UI locale coverage", () => {
       "zh-CN": "在 Mattermost 中保存以便稍后查看的帖子",
       ru: "Сообщения, сохранённые в Mattermost, чтобы вернуться к ним позже",
       uk: "Дописи, збережені в Mattermost, щоб повернутися до них пізніше",
+      es: "Publicaciones que guardas en Mattermost para más tarde",
+      ko: "나중에 확인하려고 Mattermost에 저장한 게시물",
     });
   });
 
@@ -281,6 +289,8 @@ describe("UI locale coverage", () => {
       "zh-CN": zhCn.options.profilesDefaultName,
       ru: ru.options.profilesDefaultName,
       uk: uk.options.profilesDefaultName,
+      es: es.options.profilesDefaultName,
+      ko: ko.options.profilesDefaultName,
     }).toEqual({
       en: "Default",
       ja: "既定",
@@ -289,6 +299,8 @@ describe("UI locale coverage", () => {
       "zh-CN": "默认",
       ru: "По умолчанию",
       uk: "За умовчанням",
+      es: "Predeterminado",
+      ko: "기본값",
     });
   });
 
@@ -301,6 +313,8 @@ describe("UI locale coverage", () => {
       "languageFr",
       "languageRu",
       "languageUk",
+      "languageEs",
+      "languageKo",
     ] as const;
     for (const [locale, resource] of Object.entries(allLocales)) {
       for (const key of labelKeys) {
