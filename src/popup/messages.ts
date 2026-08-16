@@ -46,6 +46,20 @@ const POPUP_MESSAGES: Record<PopupLocale, PopupMessages> = {
     installFailed: "无法打开 Mattermost 进行安装。请检查服务器 URL 后重试。",
     openFailed: "无法打开 Mattermost。请检查服务器 URL 后重试。",
   },
+  ru: {
+    installApp: "Установить приложение Mattermost",
+    openMattermost: "Открыть Mattermost",
+    settings: "Настройки",
+    installFailed: "Не удалось открыть Mattermost для установки. Проверьте URL сервера и повторите попытку.",
+    openFailed: "Не удалось открыть Mattermost. Проверьте URL сервера и повторите попытку.",
+  },
+  uk: {
+    installApp: "Установити застосунок Mattermost",
+    openMattermost: "Відкрити Mattermost",
+    settings: "Налаштування",
+    installFailed: "Не вдалося відкрити Mattermost для встановлення. Перевірте URL сервера та повторіть спробу.",
+    openFailed: "Не вдалося відкрити Mattermost. Перевірте URL сервера та повторіть спробу.",
+  },
 };
 
 export function resolvePopupLocale(

@@ -252,6 +252,8 @@
     "languageDe": "German",
     "languageZhCn": "Chinese (Simplified)",
     "languageFr": "French",
+    "languageRu": "Russian",
+    "languageUk": "Ukrainian",
     "behaviorTitle": "Behavior",
     "behaviorDesc": "Configure post click action, image display, and Z-order.",
     "performanceTitle": "Performance",

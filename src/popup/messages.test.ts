@@ -8,6 +8,8 @@ describe("popup messages", () => {
     ["fr-FR", "fr"],
     ["zh-Hans-CN", "zh-CN"],
     ["en-US", "en"],
+    ["ru-RU", "ru"],
+    ["uk-UA", "uk"],
   ] as const)("resolves %s", (input, expected) => {
     expect(resolvePopupLocale(input)).toBe(expected);
   });

@@ -2,6 +2,25 @@ import { test, expect, chromium } from "@playwright/test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { SUPPORTED_LANGUAGES } from "../src/ui/language";
+
+// The store archive resolves its language from the host browser, which differs
+// between local runs and CI. Compare the denial message against the locale the
+// page actually rendered instead of assuming one language.
+async function readPermissionDeniedMessages(): Promise<Record<string, string>> {
+  const entries = await Promise.all(
+    SUPPORTED_LANGUAGES.map(async ({ code }) => {
+      const resource = JSON.parse(
+        await fs.readFile(
+          path.resolve(`./src/ui/locales/${code}.json`),
+          "utf8",
+        ),
+      ) as { options: { permissionDenied: string } };
+      return [code, resource.options.permissionDenied] as const;
+    }),
+  );
+  return Object.fromEntries(entries);
+}
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 const baseUrlParts = new URL(baseUrl);
@@ -95,8 +114,11 @@ test("store release candidate starts ungranted and handles native permission den
       "permission-denied",
       { timeout: 20_000 },
     );
+    const permissionDeniedByLanguage = await readPermissionDeniedMessages();
+    const renderedLanguage = await optionsPage.locator("html").getAttribute("lang");
+    expect(Object.keys(permissionDeniedByLanguage)).toContain(renderedLanguage);
     await expect(saveStatus).toHaveText(
-      /Mattermost origin.*Chrome.*権限.*拒否/,
+      permissionDeniedByLanguage[renderedLanguage as string],
     );
 
     // Require a safe, visible denial without persisting or injecting.

@@ -4,19 +4,28 @@ import de from "./locales/de.json";
 import en from "./locales/en.json";
 import fr from "./locales/fr.json";
 import ja from "./locales/ja.json";
+import ru from "./locales/ru.json";
+import uk from "./locales/uk.json";
 import zhCN from "./locales/zh-CN.json";
-import { resolveDeckLanguage } from "./language";
+import type { ResourceKey } from "i18next";
+import { DEFAULT_DECK_LANGUAGE, resolveDeckLanguage, type DeckLanguage } from "./language";
+
+const translations: Record<DeckLanguage, ResourceKey> = {
+  ja,
+  en,
+  de,
+  "zh-CN": zhCN,
+  fr,
+  ru,
+  uk,
+};
 
 void i18n.use(initReactI18next).init({
-  resources: {
-    ja:    { translation: ja },
-    en:    { translation: en },
-    de:    { translation: de },
-    "zh-CN": { translation: zhCN },
-    fr:    { translation: fr },
-  },
+  resources: Object.fromEntries(
+    Object.entries(translations).map(([code, translation]) => [code, { translation }]),
+  ),
   lng: resolveDeckLanguage(),
-  fallbackLng: "en",
+  fallbackLng: DEFAULT_DECK_LANGUAGE,
   interpolation: {
     escapeValue: false,
   },

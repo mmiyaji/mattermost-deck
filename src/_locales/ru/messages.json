@@ -1,0 +1,8 @@
+{
+  "appName": {
+    "message": "Mattermost Deck"
+  },
+  "appDescription": {
+    "message": "Добавляет в Mattermost Web многопанельную рабочую область: упоминания, каналы, личные сообщения и результаты поиска."
+  }
+}

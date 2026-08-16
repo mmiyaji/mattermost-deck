@@ -1,4 +1,6 @@
-export type InstallLocale = "de" | "en" | "fr" | "ja" | "zh-CN";
+import { normaliseDeckLanguage, DEFAULT_DECK_LANGUAGE, type DeckLanguage } from "../ui/language";
+
+export type InstallLocale = DeckLanguage;
 
 export type BrowserKind = "chrome" | "edge" | "firefox" | "safari" | "chromium" | "other";
 
@@ -117,19 +119,54 @@ const MESSAGES: Record<InstallLocale, InstallMessages> = {
     alreadyInstalled: "Mattermost 已作为安装的应用打开。",
     installed: "Mattermost 已成功安装。",
   },
+  ru: {
+    promptTitle: "Установить Mattermost",
+    promptDescription: "Установите его как приложение, чтобы запускать прямо с панели задач или из меню приложений.",
+    installButton: "Установить",
+    cancelButton: "Отмена",
+    closeLabel: "Закрыть",
+    manualTitle: "Установить Mattermost вручную",
+    manualIntro: "Автоматическое окно установки недоступно для этой страницы. Используйте меню браузера:",
+    manualInstructions: {
+      chrome: "Chrome: откройте меню ⋮ и выберите «Трансляция, сохранение и доступ» (или «Сохранение и доступ») → «Установить страницу как приложение». В более старых версиях выберите «Создать ярлык» и включите «Открывать в отдельном окне».",
+      edge: "Microsoft Edge: откройте меню … и выберите «Дополнительные инструменты» → «Приложения» → «Установить этот сайт как приложение».",
+      firefox: "Firefox в Windows: нажмите кнопку установки в адресной строке (Firefox 143 или новее; сборки из Microsoft Store требуют Firefox 150 или новее). Веб-приложения Firefox недоступны в macOS и Linux; там используйте Chrome, Edge или настольное приложение Mattermost.",
+      safari: "Safari в macOS Sonoma 14 или новее: откройте «Файл» → «Добавить в Dock». Более ранние версии macOS не поддерживают эту функцию.",
+      chromium: "Откройте меню браузера и выберите «Установить Mattermost» или «Установить страницу как приложение». Если такого пункта нет, откройте эту страницу в Chrome или Edge.",
+      other: "Откройте эту страницу в Chrome или Edge и выберите в меню браузера «Установить страницу как приложение» либо используйте настольное приложение Mattermost.",
+    },
+    insecureContext: "Mattermost нужно открыть по HTTPS, прежде чем его можно будет установить как приложение.",
+    alreadyInstalled: "Mattermost уже открыт как установленное приложение.",
+    installed: "Mattermost успешно установлен.",
+  },
+  uk: {
+    promptTitle: "Установити Mattermost",
+    promptDescription: "Установіть його як застосунок, щоб запускати прямо з панелі завдань або з меню застосунків.",
+    installButton: "Установити",
+    cancelButton: "Скасувати",
+    closeLabel: "Закрити",
+    manualTitle: "Установити Mattermost вручну",
+    manualIntro: "Автоматичне вікно встановлення недоступне для цієї сторінки. Скористайтеся меню браузера:",
+    manualInstructions: {
+      chrome: "Chrome: відкрийте меню ⋮ і виберіть «Трансляція, збереження та доступ» (або «Збереження та доступ») → «Установити сторінку як застосунок». У старіших версіях виберіть «Створити ярлик» і ввімкніть «Відкривати у вікні».",
+      edge: "Microsoft Edge: відкрийте меню … і виберіть «Додаткові інструменти» → «Застосунки» → «Установити цей сайт як застосунок».",
+      firefox: "Firefox у Windows: натисніть кнопку встановлення в адресному рядку (Firefox 143 або новіший; збірки з Microsoft Store потребують Firefox 150 або новішого). Вебзастосунки Firefox недоступні в macOS і Linux; там використовуйте Chrome, Edge або настільний застосунок Mattermost.",
+      safari: "Safari в macOS Sonoma 14 або новішій: відкрийте «Файл» → «Додати до Dock». Раніші версії macOS не підтримують цю функцію.",
+      chromium: "Відкрийте меню браузера та виберіть «Установити Mattermost» або «Установити сторінку як застосунок». Якщо такого пункту немає, відкрийте цю сторінку в Chrome або Edge.",
+      other: "Відкрийте цю сторінку в Chrome або Edge і виберіть у меню браузера «Установити сторінку як застосунок» або скористайтеся настільним застосунком Mattermost.",
+    },
+    insecureContext: "Mattermost потрібно відкрити через HTTPS, перш ніж його можна буде встановити як застосунок.",
+    alreadyInstalled: "Mattermost уже відкрито як встановлений застосунок.",
+    installed: "Mattermost успішно встановлено.",
+  },
 };
 
 export function resolveInstallLocale(languages: readonly string[]): InstallLocale {
   for (const language of languages) {
-    const normalized = language.trim().toLowerCase();
-    if (!normalized) continue;
-    if (normalized === "ja" || normalized.startsWith("ja-")) return "ja";
-    if (normalized === "de" || normalized.startsWith("de-")) return "de";
-    if (normalized === "fr" || normalized.startsWith("fr-")) return "fr";
-    if (normalized === "zh" || normalized === "zh-cn" || normalized === "zh-sg" || normalized.startsWith("zh-hans")) return "zh-CN";
-    if (normalized === "en" || normalized.startsWith("en-")) return "en";
+    const locale = normaliseDeckLanguage(language);
+    if (locale) return locale;
   }
-  return "en";
+  return DEFAULT_DECK_LANGUAGE;
 }
 
 export function detectBrowser(userAgent: string, brands: readonly string[] = []): BrowserKind {

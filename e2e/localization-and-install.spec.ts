@@ -104,6 +104,8 @@ test("empty language storage uses one browser-derived language across every exte
       de: "Mattermost Deck – Einstellungen",
       fr: "Paramètres de Mattermost Deck",
       "zh-CN": "Mattermost Deck 设置",
+      ru: "Настройки Mattermost Deck",
+      uk: "Налаштування Mattermost Deck",
     } as const;
     const expectedPopupLabels = {
       en: "Install Mattermost app",
@@ -111,6 +113,8 @@ test("empty language storage uses one browser-derived language across every exte
       de: "Mattermost-App installieren",
       fr: "Installer l’application Mattermost",
       "zh-CN": "安装 Mattermost 应用",
+      ru: "Установить приложение Mattermost",
+      uk: "Установити застосунок Mattermost",
     } as const;
     const expectedDefaultProfileNames = {
       en: "Default",
@@ -118,6 +122,8 @@ test("empty language storage uses one browser-derived language across every exte
       de: "Standard",
       fr: "Par défaut",
       "zh-CN": "默认",
+      ru: "По умолчанию",
+      uk: "За умовчанням",
     } as const;
     const extensionId = new URL(serviceWorker.url()).host;
     const optionsPage = await context.newPage();
@@ -204,6 +210,8 @@ test("Deck and popup follow every supported configured language", async () => {
       { language: "de", empty: "Mit einem Kanal beginnen", diagnostics: "Diagnose", popup: "Mattermost-App installieren" },
       { language: "fr", empty: "Commencer avec un canal", diagnostics: "Diagnostic", popup: "Installer l’application Mattermost" },
       { language: "zh-CN", empty: "从频道开始", diagnostics: "诊断", popup: "安装 Mattermost 应用" },
+      { language: "ru", empty: "Начните с канала", diagnostics: "Диагностика", popup: "Установить приложение Mattermost" },
+      { language: "uk", empty: "Почніть із каналу", diagnostics: "Діагностика", popup: "Установити застосунок Mattermost" },
     ];
 
     for (const expected of expectations) {
@@ -297,6 +305,8 @@ test("PWA install guide follows every configured Deck language", async () => {
       { language: "de", titles: ["Mattermost manuell installieren", "Mattermost installieren"] },
       { language: "fr", titles: ["Installer Mattermost manuellement", "Installer Mattermost"] },
       { language: "zh-CN", titles: ["手动安装 Mattermost", "安装 Mattermost"] },
+      { language: "ru", titles: ["Установить Mattermost вручную", "Установить Mattermost"] },
+      { language: "uk", titles: ["Установити Mattermost вручну", "Установити Mattermost"] },
     ];
 
     for (const expected of expectations) {

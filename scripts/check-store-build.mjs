@@ -13,6 +13,22 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+function readSupportedChromeLocales() {
+  const source = fs.readFileSync(
+    path.join(root, "src", "ui", "language.ts"),
+    "utf8",
+  );
+  const locales = [...source.matchAll(/chromeLocale:\s*"([^"]+)"/g)].map(
+    (match) => match[1],
+  );
+  if (locales.length === 0) {
+    throw new Error(
+      "src/ui/language.ts declares no chromeLocale entries; the store locale gate cannot run",
+    );
+  }
+  return locales.sort();
+}
+
 function listFiles(directory, prefix = "") {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const relativePath = path.join(prefix, entry.name);
@@ -110,7 +126,7 @@ if (JSON.stringify(manifest.icons ?? {}) !== JSON.stringify(expectedIcons)) {
   report("dist/manifest.json icons do not match the reviewed icon set");
 }
 
-const expectedLocales = ["de", "en", "fr", "ja", "zh_CN"];
+const expectedLocales = readSupportedChromeLocales();
 const actualLocales = fs
   .readdirSync(path.join(distDir, "_locales"), { withFileTypes: true })
   .filter((entry) => entry.isDirectory())

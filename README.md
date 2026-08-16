@@ -51,7 +51,7 @@ Dark theme:
 - Jump-to-latest floating control for long panes
 - Reply post indicator and reply-aware navigation that opens standalone replies in Mattermost thread view
 - Diagnostics pane with lightweight recent sync hints, plus a Performance tab with API endpoint summary, recent trace logs, and JSONL export
-- Japanese, English, German, Chinese (Simplified), and French UI
+- Japanese, English, German, Chinese (Simplified), French, Russian, and Ukrainian UI
 - Localized extension package name and description for Chrome
 - Direct links from Settings to the official website, privacy policy, terms, support, and Chrome Web Store listing
 
@@ -223,12 +223,13 @@ UI locale files live in `src/ui/locales/`. Extension package locale files live i
 
 To add a new UI language:
 
-1. Copy `src/ui/locales/en.json` to a new file such as `ko.json`
-2. Register it in `src/ui/i18n.ts`
-3. Add the locale code to `DeckLanguage` and `normaliseLanguage` in `src/ui/settings.ts`
-4. Add the language option in `src/options/index.tsx`
+1. Copy `src/ui/locales/en.json` to a new file such as `ko.json` and translate it. Plural keys must carry exactly the CLDR categories the language requires (`Intl.PluralRules(<code>).resolvedOptions().pluralCategories`), which is enforced by `src/ui/locales.test.ts`.
+2. Add an entry to `SUPPORTED_LANGUAGES` in `src/ui/language.ts`. The Settings language picker and the store build locale gate are derived from it.
+3. Register the resource in `src/ui/i18n.ts`
+4. Add the `options.language<Code>` label to every locale file
+5. Add the language to `src/popup/messages.ts` and `src/pwa-install/installGuide.ts`
 
-To localize the extension package metadata, add a matching `src/_locales/<locale>/messages.json`.
+To localize the extension package metadata, add a matching `src/_locales/<chromeLocale>/messages.json`. `appDescription` must stay within 132 characters, which the build enforces.
 
 ## Design Notes
 

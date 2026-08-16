@@ -17,6 +17,8 @@ const localeScreenshots = [
   { language: "de", filename: "demo-de.png" },
   { language: "fr", filename: "demo-fr.png" },
   { language: "zh-CN", filename: "demo-ch.png" },
+  { language: "ru", filename: "demo-ru.png" },
+  { language: "uk", filename: "demo-uk.png" },
 ];
 const headless = process.env.README_CAPTURE_HEADLESS !== "0";
 const keepOpen = process.env.README_CAPTURE_KEEP_OPEN === "1";
