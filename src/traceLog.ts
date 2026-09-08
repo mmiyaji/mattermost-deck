@@ -64,7 +64,14 @@ async function readStorage<T>(key: string, fallback: T): Promise<T> {
 
 async function writeStorage<T>(key: string, value: T): Promise<void> {
   if (hasChromeStorage()) {
-    await chrome.storage.local.set({ [key]: value });
+    // Diagnostics are best-effort, just like the localStorage fallback below.
+    // A full quota or invalidated extension context must not produce unhandled
+    // rejections from periodic flushes or prevent in-memory log retention.
+    try {
+      await chrome.storage.local.set({ [key]: value });
+    } catch {
+      return;
+    }
     return;
   }
 

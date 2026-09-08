@@ -87,6 +87,7 @@ const RECONNECT_MAX_MS = 30_000;
 const BACKGROUND_MIN_MS = 10_000;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
+const CONNECTION_TIMEOUT_MS = 30_000;
 export function hasMentionForDeck(message: string, username: string | null): boolean {
   return hasMattermostMention(message, username);
 }
@@ -389,10 +390,12 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
   }
 
   let socket: WebSocket | null = null;
+  let socketEvents: AbortController | null = null;
   let disposed = false;
   let reconnectTimer: number | null = null;
   let heartbeatTimer: number | null = null;
   let heartbeatTimeout: number | null = null;
+  let connectionTimeout: number | null = null;
   let seq = 1;
   let reconnectAttempt = 0;
   let authenticated = false;
@@ -441,16 +444,46 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
     pendingPingSeq = null;
   };
 
+  const clearConnectionTimeout = () => {
+    if (connectionTimeout !== null) window.clearTimeout(connectionTimeout);
+    connectionTimeout = null;
+  };
+
+  const clearSocketEvents = () => {
+    socketEvents?.abort();
+    socketEvents = null;
+  };
+
+  const retireSocket = (currentSocket: WebSocket, reason: string) => {
+    if (disposed || socket !== currentSocket) return;
+    // Do not wait for a close event: a suspended/failed transport may never
+    // deliver one. Late events from this socket are ignored by identity.
+    socket = null;
+    authenticated = false;
+    pendingAuthSeq = null;
+    clearConnectionTimeout();
+    clearHeartbeat();
+    clearSocketEvents();
+    log("warn", reason);
+    try { currentSocket.close(4000, reason); } catch { /* Already unusable. */ }
+    scheduleReconnect();
+  };
+
   const startHeartbeat = (currentSocket: WebSocket) => {
     clearHeartbeat();
     heartbeatTimer = window.setInterval(() => {
       if (disposed || socket !== currentSocket || currentSocket.readyState !== WebSocket.OPEN) return;
       const pingSeq = seq++;
       pendingPingSeq = pingSeq;
-      currentSocket.send(JSON.stringify({ seq: pingSeq, action: "ping" }));
+      try {
+        currentSocket.send(JSON.stringify({ seq: pingSeq, action: "ping" }));
+      } catch {
+        retireSocket(currentSocket, "Heartbeat send failed");
+        return;
+      }
       if (heartbeatTimeout !== null) window.clearTimeout(heartbeatTimeout);
       heartbeatTimeout = window.setTimeout(() => {
-        if (socket === currentSocket) currentSocket.close(4000, "Heartbeat timeout");
+        retireSocket(currentSocket, "Heartbeat timeout");
       }, HEARTBEAT_TIMEOUT_MS);
     }, HEARTBEAT_INTERVAL_MS);
   };
@@ -492,10 +525,17 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
     log("info", reconnectAttempt === 0 ? "WS connecting" : "WS reconnecting");
 
     try {
+      clearSocketEvents();
       const currentSocket = new WebSocket(getWebSocketUrl());
       socket = currentSocket;
+      socketEvents = new AbortController();
+      const socketEventOptions = { signal: socketEvents.signal };
       authenticated = false;
       pendingAuthSeq = null;
+      clearConnectionTimeout();
+      connectionTimeout = window.setTimeout(() => {
+        retireSocket(currentSocket, "Connection/authentication timeout");
+      }, CONNECTION_TIMEOUT_MS);
 
       const markAuthenticated = () => {
         if (authenticated || disposed || socket !== currentSocket) {
@@ -505,6 +545,7 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
         authenticated = true;
         hasAuthenticatedOnce = true;
         reconnectAttempt = 0;
+        clearConnectionTimeout();
         clearReconnectTimer();
         startHeartbeat(currentSocket);
         updateStatus("connected");
@@ -521,23 +562,32 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
         }
         log("info", "WS socket open");
         pendingAuthSeq = seq++;
-        currentSocket.send(
-          JSON.stringify({
-            seq: pendingAuthSeq,
-            action: "authentication_challenge",
-            data: {
-              token: options.token,
-            },
-          }),
-        );
+        try {
+          currentSocket.send(
+            JSON.stringify({
+              seq: pendingAuthSeq,
+              action: "authentication_challenge",
+              data: {
+                token: options.token,
+              },
+            }),
+          );
+        } catch {
+          retireSocket(currentSocket, "Authentication send failed");
+          return;
+        }
         log("info", "WS authentication challenge sent");
-      });
+      }, socketEventOptions);
 
       currentSocket.addEventListener("message", (event) => {
         if (disposed || socket !== currentSocket) return;
         let payload: MattermostEventEnvelope;
         try {
           payload = JSON.parse(String(event.data)) as MattermostEventEnvelope;
+          if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+            log("warn", "WS ignored non-object message");
+            return;
+          }
         } catch (error) {
           log("warn", error instanceof Error ? `WS ignored malformed message: ${error.message}` : "WS ignored malformed message");
           return;
@@ -571,6 +621,9 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
           }
 
           clearReconnectTimer();
+          clearConnectionTimeout();
+          clearHeartbeat();
+          clearSocketEvents();
           disposed = true;
           updateStatus("auth_failed");
           log("error", `WS authentication failed${payload.status ? ` status=${payload.status}` : ""}`);
@@ -608,24 +661,27 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
             ),
           );
         }
-      });
+      }, socketEventOptions);
 
       currentSocket.addEventListener("close", (event) => {
-        log("warn", `WS closed code=${event.code}${event.reason ? ` reason=${event.reason}` : ""}`);
         if (socket !== currentSocket) return;
+        log("warn", `WS closed code=${event.code}${event.reason ? ` reason=${event.reason}` : ""}`);
         socket = null;
         authenticated = false;
+        clearConnectionTimeout();
         clearHeartbeat();
+        clearSocketEvents();
         if (!disposed) {
           scheduleReconnect();
         }
-      });
+      }, socketEventOptions);
 
       currentSocket.addEventListener("error", () => {
         if (socket !== currentSocket) return;
         updateStatus("error");
         log("error", "WS error event");
-      });
+        retireSocket(currentSocket, "Socket transport error");
+      }, socketEventOptions);
     } catch (error) {
       log("error", error instanceof Error ? `WS setup failed: ${error.message}` : "WS setup failed");
       scheduleReconnect();
@@ -645,7 +701,9 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
   const handleOffline = () => {
     if (disposed) return;
     clearReconnectTimer();
+    clearConnectionTimeout();
     clearHeartbeat();
+    clearSocketEvents();
     reconnectAttempt = Math.max(1, reconnectAttempt);
     authenticated = false;
     const currentSocket = socket;
@@ -669,7 +727,9 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
   return () => {
     disposed = true;
     clearReconnectTimer();
+    clearConnectionTimeout();
     clearHeartbeat();
+    clearSocketEvents();
     window.removeEventListener("online", handleOnline);
     window.removeEventListener("offline", handleOffline);
     document.removeEventListener("visibilitychange", handleVisibility);

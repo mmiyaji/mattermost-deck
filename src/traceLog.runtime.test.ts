@@ -6,6 +6,42 @@ describe("trace log runtime lifecycle", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps logs bounded when storage fails and persists again after recovery", async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+    const set = vi.fn(async (): Promise<void> => { throw new Error("quota exceeded"); });
+    vi.stubGlobal("chrome", {
+      storage: {
+        local: {get: vi.fn(async () => ({})), set},
+        onChanged: {addListener: vi.fn(), removeListener: vi.fn()},
+      },
+    });
+    const traceLog = await import("./traceLog.js");
+    try {
+      for (let index = 0; index < 10; index++) await Promise.resolve();
+      traceLog.setTraceCaptureEnabled(true);
+      for (let index = 0; index < 2_000; index++) {
+        traceLog.addTraceEntry({source: "api", level: "info", event: `request-${index}`});
+      }
+      expect(vi.getTimerCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(traceLog.getTraceEntries()).toHaveLength(500);
+      expect(traceLog.getTraceEntries()[0].event).toBe("request-1999");
+      expect(vi.getTimerCount()).toBe(0);
+      set.mockImplementation(async () => undefined);
+      traceLog.addTraceEntry({source: "api", level: "info", event: "recovered"});
+      await vi.advanceTimersByTimeAsync(300);
+      expect(set).toHaveBeenLastCalledWith({
+        "mattermostDeck.traceEntries.v1": expect.arrayContaining([expect.objectContaining({event: "recovered"})]),
+      });
+      set.mockImplementation(async () => { throw new Error("context invalidated"); });
+      traceLog.clearTraceEntries();
+      traceLog.setTraceCaptureEnabled(false);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(traceLog.getTraceEntries()).toEqual([]);
+    } finally { traceLog.disposeTraceLogRuntime(); }
+  });
+
   it("removes its storage listener and pending flush when disposed", async () => {
     vi.useFakeTimers();
     vi.resetModules();

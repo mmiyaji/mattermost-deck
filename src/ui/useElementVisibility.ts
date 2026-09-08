@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { observeElementVisibility } from "./elementVisibility";
 
 interface UseElementVisibilityOptions {
   root?: Element | null;
@@ -24,19 +25,7 @@ export function useElementVisibility<T extends Element>(
       return;
     }
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        setIsVisible(entry?.isIntersecting ?? false);
-      },
-      {
-        root: options?.root ?? null,
-        rootMargin: options?.rootMargin,
-        threshold: options?.threshold ?? 0,
-      },
-    );
-
-    observer.observe(element);
-    return () => observer.disconnect();
+    return observeElementVisibility(element, setIsVisible, options);
   }, [element, options?.defaultVisible, options?.root, options?.rootMargin, options?.threshold]);
 
   return isVisible;
