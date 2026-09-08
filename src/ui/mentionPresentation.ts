@@ -38,6 +38,33 @@ export interface MentionPresentationChangeSummary {
   hasAdditionsOrUpdates: boolean;
 }
 
+export interface MentionDisplaySnapshotConditions {
+  refreshActive: boolean;
+  hasSnapshot: boolean;
+  visiblePostCount: number;
+  hasVerifiedLiveResult: boolean;
+  hasVisibleCachedBaseline: boolean;
+}
+
+/**
+ * Holds an existing, verified presentation steady while a background refresh
+ * runs. Realtime posts that arrive during an uncached initial load are not a
+ * stable baseline and must not hide the completed initial result behind an
+ * update prompt.
+ */
+export function shouldCaptureMentionDisplaySnapshot({
+  refreshActive,
+  hasSnapshot,
+  visiblePostCount,
+  hasVerifiedLiveResult,
+  hasVisibleCachedBaseline,
+}: MentionDisplaySnapshotConditions): boolean {
+  return refreshActive
+    && !hasSnapshot
+    && visiblePostCount > 0
+    && (hasVerifiedLiveResult || hasVisibleCachedBaseline);
+}
+
 /**
  * Summarises the rows that would change when a refreshed mentions result
  * replaces the currently displayed result. Each post ID contributes at most

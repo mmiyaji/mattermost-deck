@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MattermostPost } from "../mattermost/api";
 import {
   countMentionPresentationChanges,
+  shouldCaptureMentionDisplaySnapshot,
   summariseMentionPresentationChanges,
 } from "./mentionPresentation";
 
@@ -126,5 +127,60 @@ describe("countMentionPresentationChanges", () => {
     expect(
       countMentionPresentationChanges(displayed, refreshed),
     ).toBe(1);
+  });
+});
+
+describe("shouldCaptureMentionDisplaySnapshot", () => {
+  it("does not freeze realtime-only posts before an initial or retried load is verified", () => {
+    expect(shouldCaptureMentionDisplaySnapshot({
+      refreshActive: true,
+      hasSnapshot: false,
+      visiblePostCount: 2,
+      hasVerifiedLiveResult: false,
+      hasVisibleCachedBaseline: false,
+    })).toBe(false);
+  });
+
+  it("holds a verified cache steady while its first live refresh completes", () => {
+    expect(shouldCaptureMentionDisplaySnapshot({
+      refreshActive: true,
+      hasSnapshot: false,
+      visiblePostCount: 2,
+      hasVerifiedLiveResult: false,
+      hasVisibleCachedBaseline: true,
+    })).toBe(true);
+  });
+
+  it("holds the current result steady during later refreshes", () => {
+    expect(shouldCaptureMentionDisplaySnapshot({
+      refreshActive: true,
+      hasSnapshot: false,
+      visiblePostCount: 100,
+      hasVerifiedLiveResult: true,
+      hasVisibleCachedBaseline: false,
+    })).toBe(true);
+  });
+
+  it("does not replace an existing snapshot or capture an empty or idle view", () => {
+    const stableBaseline = {
+      refreshActive: true,
+      hasSnapshot: false,
+      visiblePostCount: 2,
+      hasVerifiedLiveResult: true,
+      hasVisibleCachedBaseline: false,
+    };
+
+    expect(shouldCaptureMentionDisplaySnapshot({
+      ...stableBaseline,
+      hasSnapshot: true,
+    })).toBe(false);
+    expect(shouldCaptureMentionDisplaySnapshot({
+      ...stableBaseline,
+      visiblePostCount: 0,
+    })).toBe(false);
+    expect(shouldCaptureMentionDisplaySnapshot({
+      ...stableBaseline,
+      refreshActive: false,
+    })).toBe(false);
   });
 });

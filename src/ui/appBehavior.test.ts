@@ -6,9 +6,12 @@ import type {
 } from "../mattermost/api";
 import type { PostedEvent } from "../mattermost/websocket";
 import {
+  appendPostPage,
+  getLoadedPostRefreshLimit,
   PendingPostMeta,
   postedEventNeedsChannelMetadata,
   postMatchesBoundedImplicitMention,
+  replacePolledPostWindow,
   shouldSafeStopDeckState,
   takeScopedMentionPostedEvents,
   withPostedEventChannelMetadata,
@@ -44,6 +47,40 @@ function postedEvent(overrides: Partial<PostedEvent> = {}): PostedEvent {
 }
 
 describe("App realtime behavior", () => {
+  it("refreshes every loaded page without resetting the next page cursor", () => {
+    expect(getLoadedPostRefreshLimit(1, 20, 100)).toBe(20);
+    expect(getLoadedPostRefreshLimit(4, 20, 100)).toBe(80);
+    expect(getLoadedPostRefreshLimit(8, 20, 100)).toBe(100);
+  });
+
+  it("computes pagination capacity after deduplication", () => {
+    const current = [post("one", "me", 3), post("two", "me", 2)];
+    const incoming = [post("two", "me", 2), post("three", "me", 1)];
+    const result = appendPostPage(current, incoming, 2, 3);
+
+    expect(result.posts.map((entry) => entry.id)).toEqual(["one", "two", "three"]);
+    expect(result.hasMore).toBe(false);
+  });
+
+  it("treats a polled window as authoritative while retaining concurrent realtime posts", () => {
+    const current = [
+      post("concurrent", "me", 300),
+      { ...post("edited-concurrently", "me", 100), update_at: 300 },
+      post("removed", "me", 100),
+    ];
+    const refreshed = replacePolledPostWindow([], current, {
+      maxPosts: 100,
+      requestStartedAt: 200,
+      deletedPostIds: new Set(["deleted"]),
+    });
+
+    expect(refreshed.map((entry) => entry.id)).toEqual([
+      "concurrent",
+      "edited-concurrently",
+    ]);
+    expect(replacePolledPostWindow([], current, { maxPosts: 100 })).toEqual([]);
+  });
+
   it("safe-stops when route-context refresh expires an existing session", () => {
     expect(shouldSafeStopDeckState({
       status: "error",

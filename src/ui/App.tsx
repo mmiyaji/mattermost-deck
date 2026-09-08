@@ -113,6 +113,8 @@ import { dedupeRecentTargets, type RecentChannelTarget } from "./recentTargets";
 import { mapInBatches } from "./asyncBatch";
 import { collectUnreadMentionThreads } from "./mentionThreadCollector";
 import { useElementVisibility } from "./useElementVisibility";
+import { useSyncLogStore, useSyncLogs, type SyncLogEntry, type SyncLogStore } from "./syncLogs";
+import { reuseUnchangedPostState, type PostState } from "./postState";
 import {
   calculateResponsiveRailWidth,
   calculateThreadAwareRailLayout,
@@ -152,11 +154,17 @@ import {
   saveMentionCache,
   type MentionCacheContext,
 } from "./mentionCache";
-import { summariseMentionPresentationChanges } from "./mentionPresentation";
 import {
+  shouldCaptureMentionDisplaySnapshot,
+  summariseMentionPresentationChanges,
+} from "./mentionPresentation";
+import {
+  appendPostPage,
+  getLoadedPostRefreshLimit,
   PendingPostMeta,
   postedEventNeedsChannelMetadata,
   postMatchesBoundedImplicitMention,
+  replacePolledPostWindow,
   shouldSafeStopDeckState,
   takeScopedMentionPostedEvents,
   withPostedEventChannelMetadata,
@@ -195,15 +203,6 @@ interface ChannelState {
   status: "idle" | "loading" | "ready" | "error";
   channels: MattermostChannel[];
   error: string | null;
-}
-
-interface PostState {
-  status: "idle" | "loading" | "ready" | "error";
-  posts: MattermostPost[];
-  error: string | null;
-  nextPage: number;
-  hasMore: boolean;
-  loadingMore: boolean;
 }
 
 interface MentionLoadProgressState {
@@ -270,14 +269,6 @@ interface MentionActiveChannelSnapshot {
   activeChannelIds: Record<string, true> | null;
   channelDirectory: ReadonlyMap<string, MattermostChannel>;
 }
-
-interface WsLogEntry {
-  level: "info" | "warn" | "error";
-  message: string;
-  timestamp: number;
-}
-
-type SyncLogEntry = WsLogEntry;
 
 interface DiagnosticsLogEntry extends SyncLogEntry {
   summary: string;
@@ -2324,31 +2315,6 @@ function useWebSocketStatus(): WebSocketStatus {
   }, []);
 
   return status;
-}
-
-function useSyncLogs(): SyncLogEntry[] {
-  const [logs, setLogs] = useState<SyncLogEntry[]>([]);
-
-  useEffect(() => {
-    const pushEntry = (entry: SyncLogEntry) => {
-      setLogs((current) => [entry, ...current].slice(0, 20));
-    };
-    const handleWsLog = (event: Event) => {
-      pushEntry((event as CustomEvent<SyncLogEntry>).detail);
-    };
-    const handleApiLog = (event: Event) => {
-      pushEntry((event as CustomEvent<SyncLogEntry>).detail);
-    };
-
-    window.addEventListener("mattermost-deck-ws-log", handleWsLog as EventListener);
-    window.addEventListener("mattermost-deck-api-log", handleApiLog as EventListener);
-    return () => {
-      window.removeEventListener("mattermost-deck-ws-log", handleWsLog as EventListener);
-      window.removeEventListener("mattermost-deck-api-log", handleApiLog as EventListener);
-    };
-  }, []);
-
-  return logs;
 }
 
 function summariseSyncLogMessage(message: string): string {
@@ -4459,7 +4425,9 @@ function PostList({
       window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [posts]);
+    // These elements stay mounted for the lifetime of PostList. Native resize
+    // notifications cover layout changes without reconnecting on every poll.
+  }, []);
 
   useEffect(() => {
     if (!reversedPostOrder || hasInitialScrolledRef.current) return;
@@ -4962,6 +4930,11 @@ function MentionsColumn({
         : new Set<string>(),
     [mentionCacheActiveForContext, mentionCacheState.posts],
   );
+  const hasVisibleCachedMentionBaseline =
+    mentionCacheActiveForContext &&
+    resolvedVisiblePosts.some((post) =>
+      mentionCacheStoredPostIdsRef.current.has(post.id),
+    );
   const deferredMentionPostIds = useMemo(
     () => new Set([...provisionalPostIds, ...cachedPostIds]),
     [cachedPostIds, provisionalPostIds],
@@ -5004,11 +4977,14 @@ function MentionsColumn({
   }, [postState.posts]);
 
   useEffect(() => {
-    if (
-      !mentionLoadProgress.active ||
-      mentionDisplaySnapshot ||
-      resolvedVisiblePosts.length === 0
-    ) {
+    if (!shouldCaptureMentionDisplaySnapshot({
+      refreshActive: mentionLoadProgress.active,
+      hasSnapshot: Boolean(mentionDisplaySnapshot),
+      visiblePostCount: resolvedVisiblePosts.length,
+      hasVerifiedLiveResult:
+        hasCompletedInitialLoad && mentionCacheSaveVersion > 0,
+      hasVisibleCachedBaseline: hasVisibleCachedMentionBaseline,
+    })) {
       return;
     }
 
@@ -5024,6 +5000,9 @@ function MentionsColumn({
     });
   }, [
     deferredMentionPostIds,
+    hasCompletedInitialLoad,
+    hasVisibleCachedMentionBaseline,
+    mentionCacheSaveVersion,
     mentionDisplaySnapshot,
     mentionLoadProgress.active,
     mentionLoadProgress.runId,
@@ -5144,6 +5123,9 @@ function MentionsColumn({
     () => (currentUser ? buildMentionSearchTerms(currentUser) : ""),
     [mentionKeySignature],
   );
+  const mentionLoadMoreContext = `${teamIds.join(",")}|${currentUserId ?? ""}|${mentionSearchTerms}`;
+  const mentionLoadMoreContextRef = useRef(mentionLoadMoreContext);
+  mentionLoadMoreContextRef.current = mentionLoadMoreContext;
   const collapsedReplyThreads = currentUser?.collapsed_reply_threads === true;
   const commentsNotify = currentUser?.notify_props?.comments;
   const mentionCacheSignature = useMemo(
@@ -6480,9 +6462,8 @@ function MentionsColumn({
           ...latestPosts,
           ...(reconciledPostsById?.values() ?? []),
         ].map((post) => post.user_id));
-        setPostState((current) => ({
-          status: "ready",
-          posts: mergePosts(
+        setPostState((current) => {
+          const posts = mergePosts(
             latestPosts.filter(
               (post) => !deletedPostIdsRef.current?.has(post.id),
             ),
@@ -6503,12 +6484,16 @@ function MentionsColumn({
               return reconciledPost ? [reconciledPost] : [];
             }),
             MENTIONS_MAX_BUFFER,
-          ),
-          error: null,
-          nextPage: 1,
-          hasMore: searchHasMore,
-          loadingMore: false,
-        }));
+          );
+          return {
+            status: "ready",
+            posts,
+            error: null,
+            nextPage: current.nextPage,
+            hasMore: searchHasMore && posts.length < MENTIONS_MAX_BUFFER,
+            loadingMore: false,
+          };
+        });
         setMentionCacheState(
           createMentionCacheDisplayState(mentionCacheEntryId),
         );
@@ -6992,6 +6977,9 @@ function MentionsColumn({
       return;
     }
 
+    const requestContext = mentionLoadMoreContext;
+    const requestRunId = mentionLoadRunIdRef.current;
+    const requestPage = postState.nextPage;
     setPostState((current) => ({ ...current, loadingMore: true, error: null }));
 
     try {
@@ -7005,7 +6993,7 @@ function MentionsColumn({
             const teamPosts = await searchPostsInTeam(
               teamId,
               mentionSearchTerms,
-              postState.nextPage,
+              requestPage,
               MENTIONS_PAGE_SIZE,
               { isOrSearch: true },
             );
@@ -7022,18 +7010,39 @@ function MentionsColumn({
         ),
         new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
       ]);
+      if (
+        mentionLoadMoreContextRef.current !== requestContext ||
+        mentionLoadRunIdRef.current !== requestRunId
+      ) {
+        return;
+      }
       void ensureUsers(posts.map((post) => post.user_id));
-      setPostState((current) => ({
-        status: "ready",
-        posts: mergePosts(current.posts, posts, MENTIONS_MAX_BUFFER),
-        error: null,
-        nextPage: current.nextPage + 1,
-        hasMore:
-          hasFullPage &&
-          current.posts.length + posts.length < MENTIONS_MAX_BUFFER,
-        loadingMore: false,
-      }));
+      setPostState((current) => {
+        if (current.nextPage !== requestPage) {
+          return current;
+        }
+        const merged = appendPostPage(
+          current.posts,
+          posts,
+          MENTIONS_PAGE_SIZE,
+          MENTIONS_MAX_BUFFER,
+        );
+        return {
+          status: "ready",
+          posts: merged.posts,
+          error: null,
+          nextPage: current.nextPage + 1,
+          hasMore: hasFullPage && merged.hasMore,
+          loadingMore: false,
+        };
+      });
     } catch (error) {
+      if (
+        mentionLoadMoreContextRef.current !== requestContext ||
+        mentionLoadRunIdRef.current !== requestRunId
+      ) {
+        return;
+      }
       setPostState((current) => ({
         ...current,
         status: "error",
@@ -7486,6 +7495,7 @@ function ChannelWatchColumn({
   userDirectory,
   ensureUsers,
   postedEvents,
+  deletedPostIds,
   reconnectNonce,
   pollingIntervalSeconds,
   canMoveLeft,
@@ -7519,6 +7529,7 @@ function ChannelWatchColumn({
   userDirectory: Record<string, MattermostUser>;
   ensureUsers: (userIds: string[]) => Promise<void>;
   postedEvents: PostedEvent[];
+  deletedPostIds: string[];
   reconnectNonce: number;
   pollingIntervalSeconds: number;
   canMoveLeft: boolean;
@@ -7549,6 +7560,12 @@ function ChannelWatchColumn({
     hasMore: false,
     loadingMore: false,
   });
+  const postStateRef = useRef(postState);
+  postStateRef.current = postState;
+  const loadMoreRequestRef = useRef<object | null>(null);
+  const loadMoreContext = `${mode}|${column.teamId ?? ""}|${column.channelId ?? ""}`;
+  const loadMoreContextRef = useRef(loadMoreContext);
+  loadMoreContextRef.current = loadMoreContext;
   const [memberDirectory, setMemberDirectory] = useState<Record<string, string[]>>({});
   const [refreshNonce, setRefreshNonce] = useState(0);
   const { isRefreshing, startRefresh, finishRefresh } = useRefreshIndicator();
@@ -7569,6 +7586,7 @@ function ChannelWatchColumn({
   const selectedTeam = column.teamId ? teamDirectory[column.teamId] : undefined;
 
   useEffect(() => {
+    loadMoreRequestRef.current = null;
     setHasCompletedInitialLoad(false);
     setPostState({
       status: "idle",
@@ -7762,25 +7780,42 @@ function ChannelWatchColumn({
 
   useColumnPolling(
     async (isCancelled) => {
-      setPostState((current) => ({
+      loadMoreRequestRef.current = null;
+      const refreshNextPage = postStateRef.current.nextPage;
+      const refreshLimit = getLoadedPostRefreshLimit(
+        refreshNextPage,
+        POSTS_PAGE_SIZE,
+        POSTS_MAX_BUFFER,
+      );
+      const requestStartedAt = Date.now();
+      setPostState((current) => reuseUnchangedPostState(current, {
         ...current,
         status: current.posts.length > 0 ? current.status : "loading",
         error: null,
+        loadingMore: false,
       }));
       try {
-        const latestPosts = await getRecentPosts(column.channelId as string, 0, POSTS_PAGE_SIZE);
+        const latestPosts = await getRecentPosts(column.channelId as string, 0, refreshLimit);
         if (isCancelled()) {
           return;
         }
         void ensureUsers(latestPosts.map((post) => post.user_id));
-        setPostState((current) => ({
-          status: "ready",
-          posts: current.posts.length > 0 ? mergePosts(latestPosts, current.posts, POSTS_MAX_BUFFER) : latestPosts,
-          error: null,
-          nextPage: 1,
-          hasMore: latestPosts.length === POSTS_PAGE_SIZE,
-          loadingMore: false,
-        }));
+        const deletedPostIdSet = new Set(deletedPostIds);
+        setPostState((current) => {
+          const posts = replacePolledPostWindow(latestPosts, current.posts, {
+            maxPosts: POSTS_MAX_BUFFER,
+            requestStartedAt,
+            deletedPostIds: deletedPostIdSet,
+          });
+          return reuseUnchangedPostState(current, {
+            status: "ready",
+            posts,
+            error: null,
+            nextPage: refreshNextPage,
+            hasMore: latestPosts.length === refreshLimit && posts.length < POSTS_MAX_BUFFER,
+            loadingMore: false,
+          });
+        });
         setHasCompletedInitialLoad(true);
         finishRefresh();
       } catch (error) {
@@ -7819,6 +7854,7 @@ function ChannelWatchColumn({
         channelPostPollingIntervalMs,
         column.channelId,
         column.teamId,
+        deletedPostIds,
         ensureUsers,
         finishRefresh,
         mode,
@@ -7828,6 +7864,17 @@ function ChannelWatchColumn({
       ],
     },
   );
+
+  useEffect(() => {
+    if (deletedPostIds.length === 0) {
+      return;
+    }
+    const deletedPostIdSet = new Set(deletedPostIds);
+    setPostState((current) => {
+      const posts = current.posts.filter((post) => !deletedPostIdSet.has(post.id));
+      return posts.length === current.posts.length ? current : { ...current, posts };
+    });
+  }, [deletedPostIds]);
 
   useEffect(() => {
     const matchingEvents = postedEvents.filter((event) => event.channelId === column.channelId);
@@ -7852,22 +7899,49 @@ function ChannelWatchColumn({
       return;
     }
 
+    const requestToken = {};
+    const requestContext = loadMoreContext;
+    const requestPage = postState.nextPage;
+    loadMoreRequestRef.current = requestToken;
     setPostState((current) => ({ ...current, loadingMore: true, error: null }));
     try {
       const [posts] = await Promise.all([
-        getRecentPosts(column.channelId, postState.nextPage, POSTS_PAGE_SIZE),
+        getRecentPosts(column.channelId, requestPage, POSTS_PAGE_SIZE),
         new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
       ]);
+      if (
+        loadMoreRequestRef.current !== requestToken ||
+        loadMoreContextRef.current !== requestContext
+      ) {
+        return;
+      }
       void ensureUsers(posts.map((post) => post.user_id));
-      setPostState((current) => ({
-        status: "ready",
-        posts: mergePosts(current.posts, posts),
-        error: null,
-        nextPage: current.nextPage + 1,
-        hasMore: posts.length === POSTS_PAGE_SIZE && current.posts.length + posts.length < POSTS_MAX_BUFFER,
-        loadingMore: false,
-      }));
+      setPostState((current) => {
+        if (current.nextPage !== requestPage) {
+          return current;
+        }
+        const merged = appendPostPage(
+          current.posts,
+          posts.filter((post) => !deletedPostIds.includes(post.id)),
+          POSTS_PAGE_SIZE,
+          POSTS_MAX_BUFFER,
+        );
+        return {
+          status: "ready",
+          posts: merged.posts,
+          error: null,
+          nextPage: current.nextPage + 1,
+          hasMore: merged.hasMore,
+          loadingMore: false,
+        };
+      });
     } catch (error) {
+      if (
+        loadMoreRequestRef.current !== requestToken ||
+        loadMoreContextRef.current !== requestContext
+      ) {
+        return;
+      }
       setPostState((current) => ({
         ...current,
         status: "error",
@@ -8299,6 +8373,7 @@ function SearchLikeColumn({
   teams,
   userDirectory,
   ensureUsers,
+  deletedPostIds,
   pollingIntervalSeconds,
   reconnectNonce,
   canMoveLeft,
@@ -8323,6 +8398,7 @@ function SearchLikeColumn({
   teams: MattermostTeam[];
   userDirectory: Record<string, MattermostUser>;
   ensureUsers: (userIds: string[]) => Promise<void>;
+  deletedPostIds: string[];
   pollingIntervalSeconds: number;
   reconnectNonce: number;
   canMoveLeft: boolean;
@@ -8351,6 +8427,9 @@ function SearchLikeColumn({
     hasMore: false,
     loadingMore: false,
   });
+  const postStateRef = useRef(postState);
+  postStateRef.current = postState;
+  const loadMoreRequestRef = useRef<object | null>(null);
   const { isRefreshing, startRefresh, finishRefresh } = useRefreshIndicator();
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -8384,6 +8463,9 @@ function SearchLikeColumn({
     [currentUsername, highlightKeywords, query],
   );
   const apiQuery = useMemo(() => expandSearchQueryForApi(query), [query]);
+  const loadMoreContext = `${column.teamId ?? ""}|${apiQuery}`;
+  const loadMoreContextRef = useRef(loadMoreContext);
+  loadMoreContextRef.current = loadMoreContext;
   const ready = Boolean(column.teamId && query);
   const shouldShowLoadingState =
     ready &&
@@ -8394,6 +8476,7 @@ function SearchLikeColumn({
   const title = query || text.addSearch;
 
   useEffect(() => {
+    loadMoreRequestRef.current = null;
     setHasCompletedInitialLoad(false);
     setPostState({
       status: "idle",
@@ -8465,24 +8548,36 @@ function SearchLikeColumn({
 
   useColumnPolling(
     async (isCancelled) => {
-      setPostState((current) => ({
+      loadMoreRequestRef.current = null;
+      const refreshNextPage = postStateRef.current.nextPage;
+      const refreshLimit = getLoadedPostRefreshLimit(
+        refreshNextPage,
+        POSTS_PAGE_SIZE,
+        POSTS_MAX_BUFFER,
+      );
+      setPostState((current) => reuseUnchangedPostState(current, {
         ...current,
         status: current.posts.length > 0 ? current.status : "loading",
         error: null,
+        loadingMore: false,
       }));
 
       try {
-        const latestPosts = await searchPostsInTeam(column.teamId as string, apiQuery, 0, POSTS_PAGE_SIZE);
+        const latestPosts = await searchPostsInTeam(column.teamId as string, apiQuery, 0, refreshLimit);
         if (isCancelled()) {
           return;
         }
         ensureUsers(latestPosts.map((post) => post.user_id));
-        setPostState((current) => ({
+        const posts = replacePolledPostWindow(latestPosts, [], {
+          maxPosts: POSTS_MAX_BUFFER,
+          deletedPostIds: new Set(deletedPostIds),
+        });
+        setPostState((current) => reuseUnchangedPostState(current, {
           status: "ready",
-          posts: current.posts.length > 0 ? mergePosts(latestPosts, current.posts, POSTS_MAX_BUFFER) : latestPosts,
+          posts,
           error: null,
-          nextPage: 1,
-          hasMore: latestPosts.length === POSTS_PAGE_SIZE,
+          nextPage: refreshNextPage,
+          hasMore: latestPosts.length === refreshLimit && posts.length < POSTS_MAX_BUFFER,
           loadingMore: false,
         }));
         setHasCompletedInitialLoad(true);
@@ -8522,6 +8617,7 @@ function SearchLikeColumn({
       dependencies: [
         apiQuery,
         column.teamId,
+        deletedPostIds,
         ensureUsers,
         finishRefresh,
         paused,
@@ -8533,27 +8629,65 @@ function SearchLikeColumn({
     },
   );
 
+  useEffect(() => {
+    if (deletedPostIds.length === 0) {
+      return;
+    }
+    const deletedPostIdSet = new Set(deletedPostIds);
+    setPostState((current) => {
+      const posts = current.posts.filter((post) => !deletedPostIdSet.has(post.id));
+      return posts.length === current.posts.length ? current : { ...current, posts };
+    });
+  }, [deletedPostIds]);
+
   const handleLoadMore = async () => {
     if (!ready || postState.loadingMore || !postState.hasMore) {
       return;
     }
 
+    const requestToken = {};
+    const requestContext = loadMoreContext;
+    const requestPage = postState.nextPage;
+    loadMoreRequestRef.current = requestToken;
     setPostState((current) => ({ ...current, loadingMore: true, error: null }));
     try {
       const [posts] = await Promise.all([
-        searchPostsInTeam(column.teamId as string, apiQuery, postState.nextPage, POSTS_PAGE_SIZE),
+        searchPostsInTeam(column.teamId as string, apiQuery, requestPage, POSTS_PAGE_SIZE),
         new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
       ]);
+      if (
+        loadMoreRequestRef.current !== requestToken ||
+        loadMoreContextRef.current !== requestContext
+      ) {
+        return;
+      }
       ensureUsers(posts.map((post) => post.user_id));
-      setPostState((current) => ({
-        status: "ready",
-        posts: mergePosts(current.posts, posts),
-        error: null,
-        nextPage: current.nextPage + 1,
-        hasMore: posts.length === POSTS_PAGE_SIZE && current.posts.length + posts.length < POSTS_MAX_BUFFER,
-        loadingMore: false,
-      }));
+      setPostState((current) => {
+        if (current.nextPage !== requestPage) {
+          return current;
+        }
+        const merged = appendPostPage(
+          current.posts,
+          posts.filter((post) => !deletedPostIds.includes(post.id)),
+          POSTS_PAGE_SIZE,
+          POSTS_MAX_BUFFER,
+        );
+        return {
+          status: "ready",
+          posts: merged.posts,
+          error: null,
+          nextPage: current.nextPage + 1,
+          hasMore: merged.hasMore,
+          loadingMore: false,
+        };
+      });
     } catch (error) {
+      if (
+        loadMoreRequestRef.current !== requestToken ||
+        loadMoreContextRef.current !== requestContext
+      ) {
+        return;
+      }
       setPostState((current) => ({
         ...current,
         status: "error",
@@ -8788,6 +8922,7 @@ function SavedPostsColumn({
   currentUserId,
   userDirectory,
   ensureUsers,
+  deletedPostIds,
   pollingIntervalSeconds,
   reconnectNonce,
   canMoveLeft,
@@ -8810,6 +8945,7 @@ function SavedPostsColumn({
   currentUserId?: string | null;
   userDirectory: Record<string, MattermostUser>;
   ensureUsers: (userIds: string[]) => Promise<void>;
+  deletedPostIds: string[];
   pollingIntervalSeconds: number;
   reconnectNonce: number;
   canMoveLeft: boolean;
@@ -8837,6 +8973,9 @@ function SavedPostsColumn({
     hasMore: false,
     loadingMore: false,
   });
+  const postStateRef = useRef(postState);
+  postStateRef.current = postState;
+  const loadMoreRequestRef = useRef<object | null>(null);
   const { isRefreshing, startRefresh, finishRefresh } = useRefreshIndicator();
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -8857,19 +8996,35 @@ function SavedPostsColumn({
 
   useColumnPolling(
     async (isCancelled) => {
-      setPostState((current) => ({ ...current, status: current.posts.length > 0 ? current.status : "loading", error: null }));
+      loadMoreRequestRef.current = null;
+      const refreshNextPage = postStateRef.current.nextPage;
+      const refreshLimit = getLoadedPostRefreshLimit(
+        refreshNextPage,
+        POSTS_PAGE_SIZE,
+        POSTS_MAX_BUFFER,
+      );
+      setPostState((current) => reuseUnchangedPostState(current, {
+        ...current,
+        status: current.posts.length > 0 ? current.status : "loading",
+        error: null,
+        loadingMore: false,
+      }));
       try {
-        const latestPosts = await getFlaggedPosts(0, POSTS_PAGE_SIZE);
+        const latestPosts = await getFlaggedPosts(0, refreshLimit);
         if (isCancelled()) {
           return;
         }
         ensureUsers(latestPosts.map((post) => post.user_id));
-        setPostState((current) => ({
+        const posts = replacePolledPostWindow(latestPosts, [], {
+          maxPosts: POSTS_MAX_BUFFER,
+          deletedPostIds: new Set(deletedPostIds),
+        });
+        setPostState((current) => reuseUnchangedPostState(current, {
           status: "ready",
-          posts: current.posts.length > 0 ? mergePosts(latestPosts, current.posts, POSTS_MAX_BUFFER) : latestPosts,
+          posts,
           error: null,
-          nextPage: 1,
-          hasMore: latestPosts.length === POSTS_PAGE_SIZE,
+          nextPage: refreshNextPage,
+          hasMore: latestPosts.length === refreshLimit && posts.length < POSTS_MAX_BUFFER,
           loadingMore: false,
         }));
         setHasCompletedInitialLoad(true);
@@ -8895,6 +9050,7 @@ function SavedPostsColumn({
       paused,
       dependencies: [
         ensureUsers,
+        deletedPostIds,
         finishRefresh,
         paused,
         reconnectNonce,
@@ -8903,6 +9059,17 @@ function SavedPostsColumn({
       ],
     },
   );
+
+  useEffect(() => {
+    if (deletedPostIds.length === 0) {
+      return;
+    }
+    const deletedPostIdSet = new Set(deletedPostIds);
+    setPostState((current) => {
+      const posts = current.posts.filter((post) => !deletedPostIdSet.has(post.id));
+      return posts.length === current.posts.length ? current : { ...current, posts };
+    });
+  }, [deletedPostIds]);
 
   useEffect(() => {
     const missingChannelIds = Array.from(
@@ -8942,22 +9109,42 @@ function SavedPostsColumn({
       return;
     }
 
+    const requestToken = {};
+    const requestPage = postState.nextPage;
+    loadMoreRequestRef.current = requestToken;
     setPostState((current) => ({ ...current, loadingMore: true, error: null }));
     try {
       const [posts] = await Promise.all([
-        getFlaggedPosts(postState.nextPage, POSTS_PAGE_SIZE),
+        getFlaggedPosts(requestPage, POSTS_PAGE_SIZE),
         new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
       ]);
+      if (loadMoreRequestRef.current !== requestToken) {
+        return;
+      }
       ensureUsers(posts.map((post) => post.user_id));
-      setPostState((current) => ({
-        status: "ready",
-        posts: mergePosts(current.posts, posts),
-        error: null,
-        nextPage: current.nextPage + 1,
-        hasMore: posts.length === POSTS_PAGE_SIZE && current.posts.length + posts.length < POSTS_MAX_BUFFER,
-        loadingMore: false,
-      }));
+      setPostState((current) => {
+        if (current.nextPage !== requestPage) {
+          return current;
+        }
+        const merged = appendPostPage(
+          current.posts,
+          posts.filter((post) => !deletedPostIds.includes(post.id)),
+          POSTS_PAGE_SIZE,
+          POSTS_MAX_BUFFER,
+        );
+        return {
+          status: "ready",
+          posts: merged.posts,
+          error: null,
+          nextPage: current.nextPage + 1,
+          hasMore: merged.hasMore,
+          loadingMore: false,
+        };
+      });
     } catch (error) {
+      if (loadMoreRequestRef.current !== requestToken) {
+        return;
+      }
       setPostState((current) => ({
         ...current,
         status: "error",
@@ -9105,7 +9292,7 @@ function SavedPostsColumn({
 function DiagnosticsColumn({
   column,
   wsStatus,
-  syncLogs,
+  syncLogStore,
   apiHealthStatus,
   realtimeEnabled,
   runtimeMetrics,
@@ -9121,7 +9308,7 @@ function DiagnosticsColumn({
 }: {
   column: DeckColumn;
   wsStatus: WebSocketStatus;
-  syncLogs: SyncLogEntry[];
+  syncLogStore: SyncLogStore;
   apiHealthStatus: ApiHealthStatus;
   realtimeEnabled: boolean;
   runtimeMetrics: RuntimePerformanceSnapshot;
@@ -9137,6 +9324,7 @@ function DiagnosticsColumn({
 }): React.JSX.Element {
   const text = useAppText();
   const [showControls, setShowControls] = useState(false);
+  const syncLogs = useSyncLogs(syncLogStore);
   const diagnosticsLogs = useMemo(() => buildDiagnosticsLogEntries(syncLogs), [syncLogs]);
   const healthLabel =
     apiHealthStatus === "healthy"
@@ -9462,7 +9650,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const resizeFrameRef = useRef<number | null>(null);
   const pendingWidthRef = useRef<number | null>(null);
   const wsStatus = useWebSocketStatus();
-  const syncLogs = useSyncLogs();
+  const syncLogStore = useSyncLogStore();
   const runtimeMetrics = useRuntimePerformanceSnapshot(
     (columns ?? []).some((column) => column.type === "diagnostics"),
   );
@@ -11729,6 +11917,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           userDirectory={userDirectory}
                           ensureUsers={ensureUsers}
                           postedEvents={postedEvents}
+                          deletedPostIds={deletedPostIds}
                           reconnectNonce={reconnectNonce}
                           pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
                           canMoveLeft={index > 0}
@@ -11768,6 +11957,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           userDirectory={userDirectory}
                           ensureUsers={ensureUsers}
                           postedEvents={postedEvents}
+                          deletedPostIds={deletedPostIds}
                           reconnectNonce={reconnectNonce}
                           pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
                           canMoveLeft={index > 0}
@@ -11801,6 +11991,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           teams={state.teams}
                           userDirectory={userDirectory}
                           ensureUsers={ensureUsers}
+                          deletedPostIds={deletedPostIds}
                           pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
                           reconnectNonce={reconnectNonce}
                           canMoveLeft={index > 0}
@@ -11830,6 +12021,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           currentUserId={state.userId}
                           userDirectory={userDirectory}
                           ensureUsers={ensureUsers}
+                          deletedPostIds={deletedPostIds}
                           pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
                           reconnectNonce={reconnectNonce}
                           canMoveLeft={index > 0}
@@ -11855,7 +12047,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         <DiagnosticsColumn
                           column={column}
                           wsStatus={wsStatus}
-                          syncLogs={syncLogs}
+                          syncLogStore={syncLogStore}
                           apiHealthStatus={apiHealthStatus}
                           realtimeEnabled={effectiveRealtimeEnabled}
                           runtimeMetrics={runtimeMetrics}

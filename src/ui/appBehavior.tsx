@@ -8,6 +8,56 @@ import {
   postMatchesImplicitMention,
   type ImplicitMentionSettings,
 } from "./mentionFeed";
+import { mergePosts } from "./postHelpers";
+
+export function getLoadedPostRefreshLimit(
+  nextPage: number,
+  pageSize: number,
+  maxPosts: number,
+): number {
+  return Math.min(maxPosts, Math.max(pageSize, nextPage * pageSize));
+}
+
+export function appendPostPage(
+  currentPosts: MattermostPost[],
+  incomingPosts: MattermostPost[],
+  pageSize: number,
+  maxPosts: number,
+): { posts: MattermostPost[]; hasMore: boolean } {
+  const posts = mergePosts(currentPosts, incomingPosts, maxPosts);
+  return {
+    posts,
+    hasMore: incomingPosts.length === pageSize && posts.length < maxPosts,
+  };
+}
+
+export function replacePolledPostWindow(
+  latestPosts: MattermostPost[],
+  currentPosts: MattermostPost[],
+  options: {
+    maxPosts: number;
+    requestStartedAt?: number;
+    deletedPostIds?: ReadonlySet<string>;
+  },
+): MattermostPost[] {
+  const deletedPostIds = options.deletedPostIds;
+  const filteredLatest = latestPosts.filter(
+    (post) => !deletedPostIds?.has(post.id),
+  );
+  if (options.requestStartedAt === undefined) {
+    return filteredLatest.slice(0, options.maxPosts);
+  }
+
+  // The refreshed window is authoritative. Preserve only realtime posts that
+  // arrived after the request began so a response race cannot drop them.
+  const concurrentPosts = currentPosts.filter(
+    (post) =>
+      Math.max(post.create_at, post.update_at ?? post.create_at) >=
+        (options.requestStartedAt as number) &&
+      !deletedPostIds?.has(post.id),
+  );
+  return mergePosts(concurrentPosts, filteredLatest, options.maxPosts);
+}
 
 export function shouldSafeStopDeckState(state: {
   status: "loading" | "ready" | "error";
