@@ -62,10 +62,15 @@ async function apiCall(method, path, body, token) {
 
 async function waitForHealth(maxWaitMs = 120_000) {
   const deadline = Date.now() + maxWaitMs;
-  process.stdout.write("Waiting for Mattermost 9.5 to be ready");
+  process.stdout.write(`Waiting for Mattermost ${MATTERMOST_VERSION} to be ready`);
   while (Date.now() < deadline) {
+    const controller = new AbortController();
+    // Keep startup bounded even if the new container accepts a connection but
+    // has not started serving HTTP yet. A referenced timer also keeps Node
+    // alive while fetch is pending during container replacement on Windows.
+    const timer = setTimeout(() => controller.abort(), Math.min(5_000, deadline - Date.now()));
     try {
-      const res = await fetch(`${BASE_URL}/api/v4/system/ping`);
+      const res = await fetch(`${BASE_URL}/api/v4/system/ping`, { signal: controller.signal });
       if (res.ok) {
         const j = await res.json();
         if (j.status === "OK") {
@@ -75,6 +80,8 @@ async function waitForHealth(maxWaitMs = 120_000) {
       }
     } catch {
       // not up yet
+    } finally {
+      clearTimeout(timer);
     }
     process.stdout.write(".");
     await sleep(3000);
