@@ -43,6 +43,7 @@
     "apiSessionExpired": "Ihre Mattermost-Sitzung ist abgelaufen. Melden Sie sich erneut an und versuchen Sie es noch einmal.",
     "apiPermissionDenied": "Mattermost hat diese Anfrage abgelehnt. Prüfen Sie, ob Ihr Konto Zugriff auf diesen Kanal oder diese Ressource hat.",
     "apiRateLimited": "Mattermost erhält zu viele Anfragen. Warten Sie einen Moment und versuchen Sie es erneut.",
+    "apiRequestTimeout": "Die Antwort dauert zu lange. Bitte warten Sie einen Moment und versuchen Sie es erneut.",
     "apiServerUnavailable": "Mattermost ist vorübergehend nicht verfügbar. Prüfen Sie den Serverstatus oder wenden Sie sich an Ihre Administration.",
     "apiRequestFailed": "Mattermost-Anfrage fehlgeschlagen (HTTP {{status}}). Versuchen Sie es erneut oder wenden Sie sich an Ihre Administration, wenn das Problem weiterhin besteht.",
     "failedToLoad": "Daten konnten nicht geladen werden.",

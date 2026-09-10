@@ -1,4 +1,4 @@
-import { getMattermostApiErrorStatus } from "../mattermost/errors";
+import { ApiRequestTimeoutError, getMattermostApiErrorStatus } from "../mattermost/errors";
 import i18n from "./i18n";
 
 /**
@@ -8,6 +8,9 @@ import i18n from "./i18n";
  */
 export function getLocalizedApiErrorMessage(error: unknown, fallback: string): string {
   const status = getMattermostApiErrorStatus(error);
+  if (error instanceof ApiRequestTimeoutError || status === 408 || status === 504) {
+    return i18n.t("deck.apiRequestTimeout");
+  }
   if (status === null) {
     return fallback;
   }

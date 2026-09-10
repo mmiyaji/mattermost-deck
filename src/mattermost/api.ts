@@ -1,5 +1,5 @@
 import { addTraceEntry } from "../traceLog";
-import { MattermostApiError } from "./errors";
+import { ApiRequestTimeoutError, MattermostApiError } from "./errors";
 
 export interface MattermostUser {
   id: string;
@@ -472,13 +472,6 @@ function refillRateBucket(bucket: ApiRateBucket, now: number): void {
 
   bucket.tokens = Math.min(bucket.capacity, bucket.tokens + elapsed * bucket.refillPerMs);
   bucket.lastRefillAt = now;
-}
-
-class ApiRequestTimeoutError extends Error {
-  constructor(stage: "queue" | "network", timeoutMs: number) {
-    super(`mattermost_api_timeout:${stage}:${timeoutMs}`);
-    this.name = "ApiRequestTimeoutError";
-  }
 }
 
 class ApiServerChangedError extends Error {

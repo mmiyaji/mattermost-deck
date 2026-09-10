@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { MattermostApiError } from "../mattermost/errors";
+import { ApiRequestTimeoutError, MattermostApiError } from "../mattermost/errors";
 import { getLocalizedApiErrorMessage, isMattermostSessionExpiredError } from "./apiErrorMessage";
 import i18n from "./i18n";
 
@@ -11,13 +11,31 @@ describe("getLocalizedApiErrorMessage", () => {
   it.each([
     [401, "deck.apiSessionExpired"],
     [403, "deck.apiPermissionDenied"],
+    [408, "deck.apiRequestTimeout"],
     [429, "deck.apiRateLimited"],
     [500, "deck.apiServerUnavailable"],
     [503, "deck.apiServerUnavailable"],
+    [504, "deck.apiRequestTimeout"],
   ] as const)("maps HTTP %i to %s", (status, key) => {
     const error = new MattermostApiError("GET", "/api/v4/test", status);
 
     expect(getLocalizedApiErrorMessage(error, "fallback")).toBe(i18n.t(key));
+  });
+
+  it.each(["queue", "network"] as const)("gives retry guidance for a %s timeout", (stage) => {
+    expect(getLocalizedApiErrorMessage(new ApiRequestTimeoutError(stage, 20_000), "fallback"))
+      .toBe(i18n.t("deck.apiRequestTimeout"));
+  });
+
+  it("explains timeouts in Japanese without exposing technical details", async () => {
+    await i18n.changeLanguage("ja");
+    expect(getLocalizedApiErrorMessage(new ApiRequestTimeoutError("network", 20_000), "fallback"))
+      .toBe("応答に時間がかかっています。しばらく待ってから、もう一度お試しください。");
+  });
+
+  it("does not classify an unknown error by its text", () => {
+    expect(getLocalizedApiErrorMessage(new Error("mattermost_api_timeout:network:20000"), "fallback"))
+      .toBe("fallback");
   });
 
   it("uses the localized generic API message for other HTTP statuses", () => {

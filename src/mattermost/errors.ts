@@ -1,5 +1,12 @@
 export type MattermostApiMethod = "GET" | "POST";
 
+export class ApiRequestTimeoutError extends Error {
+  constructor(stage: "queue" | "network", timeoutMs: number) {
+    super(`mattermost_api_timeout:${stage}:${timeoutMs}`);
+    this.name = "ApiRequestTimeoutError";
+  }
+}
+
 export class MattermostApiError extends Error {
   readonly method: MattermostApiMethod;
   readonly pathname: string;

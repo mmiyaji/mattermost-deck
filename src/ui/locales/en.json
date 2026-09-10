@@ -43,6 +43,7 @@
     "apiSessionExpired": "Your Mattermost session has expired. Sign in again, then retry.",
     "apiPermissionDenied": "Mattermost denied this request. Check that your account has access to this channel or resource.",
     "apiRateLimited": "Mattermost is receiving too many requests. Wait a moment, then retry.",
+    "apiRequestTimeout": "The response is taking too long. Please wait a while, then try again.",
     "apiServerUnavailable": "Mattermost is temporarily unavailable. Check the server status or contact your administrator.",
     "apiRequestFailed": "Mattermost request failed (HTTP {{status}}). Try again, or contact your administrator if the problem continues.",
     "failedToLoad": "Failed to load data.",
