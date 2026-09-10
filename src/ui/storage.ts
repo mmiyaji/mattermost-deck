@@ -105,6 +105,9 @@ function getStorageArea(area: StorageAreaName): chrome.storage.StorageArea | nul
 async function getRawStoredString(storageKey: string, area: StorageAreaName = "local"): Promise<string | null> {
   const storageArea = getStorageArea(area);
   if (!storageArea) {
+    if (area === "session") {
+      return null;
+    }
     const raw = window.localStorage.getItem(storageKey);
     return raw && raw.length > 0 ? raw : null;
   }
@@ -114,6 +117,9 @@ async function getRawStoredString(storageKey: string, area: StorageAreaName = "l
     const value = payload[storageKey];
     return typeof value === "string" && value.length > 0 ? value : null;
   } catch {
+    if (area === "session") {
+      return null;
+    }
     const raw = window.localStorage.getItem(storageKey);
     return raw && raw.length > 0 ? raw : null;
   }
@@ -123,6 +129,9 @@ async function setRawStoredStrings(values: Record<string, string>, area: Storage
   const normalizedEntries = Object.entries(values).map(([storageKey, value]) => [storageKey, value.trim()] as const);
   const storageArea = getStorageArea(area);
   if (!storageArea) {
+    if (area === "session") {
+      throw new Error("Session storage is unavailable");
+    }
     for (const [storageKey, normalized] of normalizedEntries) {
       if (normalized) {
         window.localStorage.setItem(storageKey, normalized);
@@ -150,7 +159,10 @@ async function setRawStoredStrings(values: Record<string, string>, area: Storage
     if (removeKeys.length > 0) {
       await storageArea.remove(removeKeys);
     }
-  } catch {
+  } catch (error) {
+    if (area === "session") {
+      throw error;
+    }
     for (const [storageKey, normalized] of normalizedEntries) {
       if (normalized) {
         window.localStorage.setItem(storageKey, normalized);
@@ -311,6 +323,9 @@ export async function saveStoredNumber(storageKey: string, value: number): Promi
 export async function hasStoredValue(storageKey: string, area: StorageAreaName = "local"): Promise<boolean> {
   const storageArea = getStorageArea(area);
   if (!storageArea) {
+    if (area === "session") {
+      return false;
+    }
     return window.localStorage.getItem(storageKey) !== null;
   }
 
@@ -318,6 +333,9 @@ export async function hasStoredValue(storageKey: string, area: StorageAreaName =
     const payload = await storageArea.get(storageKey);
     return Object.prototype.hasOwnProperty.call(payload, storageKey);
   } catch {
+    if (area === "session") {
+      return false;
+    }
     return window.localStorage.getItem(storageKey) !== null;
   }
 }

@@ -60,6 +60,39 @@ describe("Mattermost API request timeout", () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps the timeout active while a successful response body is still being read", async () => {
+    const api = await loadApi();
+    let firstSignal: AbortSignal | undefined;
+    vi.mocked(fetch)
+      .mockImplementationOnce((_input, init) => {
+        firstSignal = init?.signal ?? undefined;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => new Promise<unknown>(() => undefined),
+        } as Response);
+      })
+      .mockResolvedValueOnce(response({
+        id: "team-after-body-timeout",
+        name: "team-after-body-timeout",
+      }));
+
+    const hungBodyRequest = api.getCurrentUser();
+    const hungBodyExpectation = expect(hungBodyRequest).rejects.toThrow(
+      "mattermost_api_timeout:network:20000",
+    );
+    await vi.advanceTimersByTimeAsync(20_000);
+    await hungBodyExpectation;
+    expect(firstSignal?.aborted).toBe(true);
+
+    const nextRequest = api.getTeamByName("team-after-body-timeout");
+    await vi.advanceTimersByTimeAsync(120);
+    await expect(nextRequest).resolves.toMatchObject({
+      id: "team-after-body-timeout",
+    });
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+  });
+
   it("aborts an in-flight request when the configured server changes", async () => {
     const api = await loadApi();
     let firstSignal: AbortSignal | undefined;

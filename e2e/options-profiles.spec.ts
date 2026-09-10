@@ -71,11 +71,15 @@ test("options page shows server-scoped profiles", async () => {
     // that automatic navigation cannot race this test's explicit goto.
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/options.html`);
+    const unsavedServerUrl = "https://unsaved.example.test";
+    await page.locator('input[type="url"]').fill(unsavedServerUrl);
     await openProfilesPanel(page);
 
     const profileSelect = page.locator(".mm-custom-select").first();
     await expect(profileSelect).toBeVisible({ timeout: 10_000 });
     await expect(profileSelect.locator(".mm-custom-select-label")).toHaveText("既定");
+    await expect(page.locator("#current-profile-hint")).toContainText(baseUrl);
+    await expect(page.locator("#current-profile-hint")).not.toContainText(unsavedServerUrl);
     await expect(page.locator('input[aria-labelledby="manage-profile-label"]')).toHaveValue("既定");
     await profileSelect.getByRole("combobox").click();
     await expect(profileSelect.getByRole("option", { name: "既定", exact: true })).toBeVisible();
@@ -95,6 +99,16 @@ test("options page shows server-scoped profiles", async () => {
     await profileSelect.getByRole("combobox").click();
     await expect(profileSelect.getByRole("option", { name: "Default", exact: true })).toBeVisible();
     await expect(page.locator("main")).toContainText(baseUrl);
+    const profileOrigins = await sw.evaluate(() => new Promise<string[]>((resolve) => {
+      chrome.storage.local.get("mattermostDeck.profiles.v1", (payload) => {
+        const registry = payload["mattermostDeck.profiles.v1"] as {
+          profiles?: Array<{ origin?: string }>;
+        } | undefined;
+        resolve((registry?.profiles ?? []).map((profile) => profile.origin ?? ""));
+      });
+    }));
+    expect(profileOrigins).not.toContain(unsavedServerUrl);
+    expect(profileOrigins.every((origin) => origin === baseUrl)).toBe(true);
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });
@@ -202,7 +216,7 @@ test("official website resources stay reachable on wide and narrow settings layo
   }
 });
 
-test("1.0.6 release notice stays aligned, wraps actions, and explains the added languages", async () => {
+test("1.0.9 release notice stays aligned, wraps actions, and explains the consistency and safety fixes", async () => {
   const extensionPath = path.resolve("./dist");
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-release-banner-"));
   const context = await chromium.launchPersistentContext(userDataDir, {
@@ -223,8 +237,8 @@ test("1.0.6 release notice stays aligned, wraps actions, and explains the added 
         chrome.storage.local.set({
           "mattermostDeck.language.v1": "ja",
           "mattermostDeck.releaseNotice.v1": {
-            version: "1.0.6",
-            previousVersion: "1.0.5",
+            version: "1.0.9",
+            previousVersion: "1.0.8",
             seen: false,
           },
         }, () => resolve());
@@ -237,7 +251,7 @@ test("1.0.6 release notice stays aligned, wraps actions, and explains the added 
 
     const releaseBanner = page.locator(".options-release-banner");
     await expect(releaseBanner).toBeVisible({ timeout: 10_000 });
-    await expect(releaseBanner).toContainText("v1.0.6");
+    await expect(releaseBanner).toContainText("v1.0.9");
     await expect(releaseBanner.locator(".options-release-banner-actions .options-button")).toHaveCount(3);
 
     const narrowLayout = await page.evaluate(() => {
@@ -296,12 +310,13 @@ test("1.0.6 release notice stays aligned, wraps actions, and explains the added 
     });
 
     await releaseBanner.getByRole("button", { name: "新機能" }).click();
-    const releaseDialog = page.getByRole("dialog", { name: "v1.0.6" });
+    const releaseDialog = page.getByRole("dialog", { name: "v1.0.9" });
     await expect(releaseDialog).toBeVisible();
-    await expect(releaseDialog.locator(".options-modal-section")).toHaveCount(3);
-    await expect(releaseDialog).toContainText("ロシア語・ウクライナ語・スペイン語・韓国語を追加");
-    await expect(releaseDialog).toContainText("CLDR の複数形");
-    await expect(releaseDialog).toContainText("アクションメニューが画面外へ押し出されて見切れる問題を修正");
+    await expect(releaseDialog.locator(".options-modal-section")).toHaveCount(2);
+    await expect(releaseDialog).toContainText("不要なペイン再描画");
+    await expect(releaseDialog).toContainText("しばらく待ってから再試行");
+    await expect(releaseDialog).toContainText("読み込み済みページとページ位置を同期");
+    await expect(releaseDialog).toContainText("セッション限定PATを永続保存せず");
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });
@@ -316,7 +331,7 @@ for (const locale of [
   { language: "es", label: "Spanish" },
   { language: "ko", label: "Korean" },
 ]) {
-  test(`1.0.6 release notice keeps readable copy and contained actions in ${locale.label}`, async ({}, testInfo) => {
+  test(`1.0.9 release notice keeps readable copy and contained actions in ${locale.label}`, async ({}, testInfo) => {
     const extensionPath = path.resolve("./dist");
     const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), `mattermost-deck-release-banner-${locale.language}-`));
     const context = await chromium.launchPersistentContext(userDataDir, {
@@ -337,8 +352,8 @@ for (const locale of [
           chrome.storage.local.set({
             "mattermostDeck.language.v1": language,
             "mattermostDeck.releaseNotice.v1": {
-              version: "1.0.6",
-              previousVersion: "1.0.5",
+              version: "1.0.9",
+              previousVersion: "1.0.8",
               seen: false,
             },
           }, () => resolve());

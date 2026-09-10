@@ -10,6 +10,8 @@ const RELEASE_NOTICE_STORAGE_KEY = "mattermostDeck.releaseNotice.v1";
 const INSTALL_TAB_STORAGE_KEY = "mattermostDeck.pwaInstallTab.v1";
 const INSTALL_CLEANUP_ALARM = "mattermost-deck-pwa-install-cleanup";
 let contentScriptSyncQueue: Promise<void> = Promise.resolve();
+let contentScriptSyncRevision = 0;
+let pendingContentScriptUpdateRefresh = false;
 
 async function configureSessionStorageAccess(): Promise<void> {
   try {
@@ -61,12 +63,87 @@ export async function getConfiguredLanguage(): Promise<string> {
   return resolveDeckLanguage(value);
 }
 
-async function unregisterDeckContentScript(): Promise<void> {
-  try {
-    await chrome.scripting.unregisterContentScripts({ ids: [CONTENT_SCRIPT_ID] });
-  } catch {
-    // Ignore when the script was not registered yet.
+function createDeckContentScript(originPattern: string): chrome.scripting.RegisteredContentScript {
+  return {
+    id: CONTENT_SCRIPT_ID,
+    matches: [originPattern],
+    js: ["content.js"],
+    allFrames: false,
+    matchOriginAsFallback: false,
+    runAt: "document_idle",
+    world: "ISOLATED",
+    persistAcrossSessions: true,
+  };
+}
+
+function stringArraysEqual(actual: string[] | undefined, expected: string[]): boolean {
+  return actual?.length === expected.length
+    && actual.every((value, index) => value === expected[index]);
+}
+
+function isCurrentDeckContentScript(
+  script: chrome.scripting.RegisteredContentScript,
+  expected: chrome.scripting.RegisteredContentScript,
+): boolean {
+  return stringArraysEqual(script.matches, expected.matches ?? [])
+    && stringArraysEqual(script.js, expected.js ?? [])
+    && (script.allFrames ?? false) === false
+    && (script.matchOriginAsFallback ?? false) === false
+    && (script.runAt ?? "document_idle") === "document_idle"
+    && (script.world ?? "ISOLATED") === "ISOLATED"
+    && (script.persistAcrossSessions ?? true) === true;
+}
+
+async function ensureDeckContentScriptInExistingTabs(
+  originPattern: string,
+  shouldContinue: () => boolean = () => true,
+): Promise<void> {
+  if (!shouldContinue()) {
+    return;
   }
+
+  let tabs: chrome.tabs.Tab[];
+  try {
+    tabs = await chrome.tabs.query({ url: originPattern });
+  } catch {
+    return;
+  }
+  if (!shouldContinue()) {
+    return;
+  }
+
+  await Promise.all(
+    tabs.map(async (tab) => {
+      if (typeof tab.id !== "number" || !shouldContinue()) {
+        return;
+      }
+
+      try {
+        const runtimeResults = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: "ISOLATED",
+          func: () => typeof (
+            globalThis as typeof globalThis & {
+              __mattermostDeckContentRuntimeV1?: {
+                dispose?: unknown;
+              };
+            }
+          ).__mattermostDeckContentRuntimeV1?.dispose === "function",
+        });
+        if (runtimeResults[0]?.result === true || !shouldContinue()) {
+          return;
+        }
+
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: "ISOLATED",
+          files: ["content.js"],
+        });
+      } catch {
+        // Ignore tabs that navigated, are discarded, or otherwise cannot accept injection.
+      }
+    }),
+  );
 }
 
 let pwaInstallLifecycle = Promise.resolve();
@@ -90,59 +167,114 @@ function cleanupPwaInstallScript(expectedTabId?: number): Promise<void> {
   return runPwaInstallLifecycle(() => cleanupPwaInstallScriptNow(expectedTabId));
 }
 
-async function performDeckContentScriptSync(): Promise<void> {
-  await unregisterDeckContentScript();
+type ExistingTabSyncMode = "repair-missing" | "refresh-after-update";
 
+async function performDeckContentScriptRegistrationSync(): Promise<string | null> {
+  // Read and validate the desired state before mutating the persisted registration.
+  // Removing it first creates a startup gap in which restored tabs can miss injection.
   const serverUrl = await getConfiguredServerUrl();
   const originPattern = originToPermissionPattern(serverUrl);
+  const registeredScripts = await chrome.scripting.getRegisteredContentScripts({
+    ids: [CONTENT_SCRIPT_ID],
+  });
+  const registeredScript = registeredScripts[0];
+
   if (!originPattern) {
-    return;
+    if (registeredScript) {
+      await chrome.scripting.unregisterContentScripts({ ids: [CONTENT_SCRIPT_ID] });
+    }
+    return null;
   }
 
   const hasPermission = await chrome.permissions.contains({ origins: [originPattern] });
   if (!hasPermission) {
-    return;
+    if (registeredScript) {
+      await chrome.scripting.unregisterContentScripts({ ids: [CONTENT_SCRIPT_ID] });
+    }
+    return null;
   }
 
-  await chrome.scripting.registerContentScripts([
-    {
-      id: CONTENT_SCRIPT_ID,
-      matches: [originPattern],
-      js: ["content.js"],
-      runAt: "document_idle",
-      persistAcrossSessions: true,
-    },
-  ]);
+  const expectedScript = createDeckContentScript(originPattern);
+  if (!registeredScript) {
+    await chrome.scripting.registerContentScripts([expectedScript]);
+  } else if (!isCurrentDeckContentScript(registeredScript, expectedScript)) {
+    // Updating in place keeps the previous valid registration if validation fails.
+    await chrome.scripting.updateContentScripts([expectedScript]);
+  }
+  return originPattern;
 }
 
-function syncDeckContentScript(): Promise<void> {
+function syncDeckContentScript(options: { existingTabs?: ExistingTabSyncMode } = {}): Promise<void> {
+  const existingTabMode = options.existingTabs ?? "repair-missing";
+  if (existingTabMode === "refresh-after-update") {
+    // An ordinary storage-triggered sync can supersede an update sync while the
+    // registration queue is still running. Keep the stronger refresh intent
+    // until the newest sync has actually refreshed the already-open tabs.
+    pendingContentScriptUpdateRefresh = true;
+  }
+  const revision = ++contentScriptSyncRevision;
   // Storage writes for a profile switch can arrive in quick succession. Keep
-  // unregister/register operations ordered so a slower, stale sync cannot win
-  // the shared dynamic content-script ID after a newer one.
-  const sync = contentScriptSyncQueue.then(
-    async () => await performDeckContentScriptSync(),
-    async () => await performDeckContentScriptSync(),
+  // registration updates ordered so a slower, stale sync cannot win the shared
+  // dynamic content-script ID after a newer one. Existing-tab repair is kept
+  // outside this queue because executeScript can wait for a loading document.
+  const registrationSync = contentScriptSyncQueue.then(
+    () => performDeckContentScriptRegistrationSync(),
+    () => performDeckContentScriptRegistrationSync(),
   );
-  contentScriptSyncQueue = sync.catch(() => undefined);
-  return sync;
+  contentScriptSyncQueue = registrationSync.then(() => undefined, () => undefined);
+
+  return registrationSync.then((originPattern) => {
+    if (!originPattern || revision !== contentScriptSyncRevision) {
+      return;
+    }
+
+    const shouldContinue = () => revision === contentScriptSyncRevision;
+    const shouldRefreshAfterUpdate = pendingContentScriptUpdateRefresh;
+    const existingTabSync = shouldRefreshAfterUpdate
+      ? refreshExistingDeckTabs({ originPattern, shouldContinue })
+      : ensureDeckContentScriptInExistingTabs(originPattern, shouldContinue);
+    void existingTabSync.then(
+      () => {
+        if (shouldRefreshAfterUpdate && revision === contentScriptSyncRevision) {
+          pendingContentScriptUpdateRefresh = false;
+        }
+      },
+      (error) => {
+        console.error("[Mattermost Deck] Failed to synchronize existing tabs", error);
+      },
+    );
+  });
 }
 
-export async function refreshExistingDeckTabs(): Promise<void> {
-  const serverUrl = await getConfiguredServerUrl();
-  const originPattern = originToPermissionPattern(serverUrl);
+interface ExistingTabSyncOptions {
+  originPattern?: string;
+  shouldContinue?: () => boolean;
+}
+
+export async function refreshExistingDeckTabs(options: ExistingTabSyncOptions = {}): Promise<void> {
+  const shouldContinue = options.shouldContinue ?? (() => true);
+  if (!shouldContinue()) {
+    return;
+  }
+
+  const originPattern = options.originPattern
+    ?? originToPermissionPattern(await getConfiguredServerUrl());
   if (!originPattern) {
     return;
   }
 
   const hasPermission = await chrome.permissions.contains({ origins: [originPattern] });
-  if (!hasPermission) {
+  if (!hasPermission || !shouldContinue()) {
     return;
   }
 
   const tabs = await chrome.tabs.query({ url: originPattern });
+  if (!shouldContinue()) {
+    return;
+  }
   await Promise.all(
     tabs.map(async (tab) => {
-      if (!tab.id) {
+      if (typeof tab.id !== "number" || !shouldContinue()) {
         return;
       }
 
@@ -178,6 +310,9 @@ export async function refreshExistingDeckTabs(): Promise<void> {
             return disposed;
           },
         });
+        if (!shouldContinue()) {
+          return;
+        }
         if (cleanupResults[0]?.result === true) {
           await chrome.scripting.executeScript({
             target: { tabId: tab.id },
@@ -201,11 +336,12 @@ void configureSessionStorageAccess();
 chrome.runtime.onInstalled.addListener((details) => {
   void (async () => {
     await cleanupPwaInstallScript();
-    await syncDeckContentScript();
-    if (details.reason === "update") {
-      await refreshExistingDeckTabs();
-    }
-  })();
+    await syncDeckContentScript({
+      existingTabs: details.reason === "update" ? "refresh-after-update" : "repair-missing",
+    });
+  })().catch((error) => {
+    console.error("[Mattermost Deck] Failed to synchronize the content script after installation", error);
+  });
 
   if (details.reason === "install") {
     void chrome.runtime.openOptionsPage();
@@ -225,7 +361,9 @@ chrome.runtime.onInstalled.addListener((details) => {
 
 chrome.runtime.onStartup.addListener(() => {
   void cleanupPwaInstallScript();
-  void syncDeckContentScript().catch(() => undefined);
+  void syncDeckContentScript().catch((error) => {
+    console.error("[Mattermost Deck] Failed to synchronize the content script during startup", error);
+  });
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -248,7 +386,9 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     return;
   }
 
-  void syncDeckContentScript();
+  void syncDeckContentScript().catch((error) => {
+    console.error("[Mattermost Deck] Failed to synchronize the content script after a settings change", error);
+  });
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

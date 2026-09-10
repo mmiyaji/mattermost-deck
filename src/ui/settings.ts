@@ -474,6 +474,11 @@ export async function saveDeckSettings(settings: DeckSettings, origin?: string):
   const localPat = await encodeStoredEncryptedString(persistPat ? normalizedPat : "");
   const sessionPat = await encodeStoredEncryptedString(persistPat ? "" : normalizedPat);
 
+  // Commit the session-only credential first. If session storage is
+  // unavailable, fail before any persistent setting can claim the save
+  // succeeded or leave a partially updated profile behind.
+  await saveStoredStrings({ [profileKey(SETTINGS_KEYS.wsPat)]: sessionPat }, "session");
+
   await Promise.all([
     // Keep the active server URL available to extension-only contexts such as
     // the service worker and popup. All remaining settings stay profile-scoped.
@@ -503,7 +508,6 @@ export async function saveDeckSettings(settings: DeckSettings, origin?: string):
       [profileKey(SETTINGS_KEYS.highZIndex)]: settings.highZIndex ? "true" : "false",
       [profileKey(SETTINGS_KEYS.reversedPostOrder)]: settings.reversedPostOrder ? "true" : "false",
     }),
-    saveStoredStrings({ [profileKey(SETTINGS_KEYS.wsPat)]: sessionPat }, "session"),
   ]);
 }
 

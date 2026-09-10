@@ -38,6 +38,8 @@ async function loadBackground(
     sender: chrome.runtime.MessageSender,
     sendResponse: (response: unknown) => void,
   ) => boolean | void> = [];
+  const installedListeners: Array<(details: chrome.runtime.InstalledDetails) => void> = [];
+  const startupListeners: Array<() => void> = [];
   const tabUpdatedListeners: Array<(
     tabId: number,
     changeInfo: chrome.tabs.OnUpdatedInfo,
@@ -49,10 +51,15 @@ async function loadBackground(
   const session = createStorageArea(sessionValues);
   const registerContentScripts = vi.fn(async () => undefined);
   const unregisterContentScripts = vi.fn(async () => undefined);
+  const getRegisteredContentScripts = vi.fn(
+    async () => [] as chrome.scripting.RegisteredContentScript[],
+  );
+  const updateContentScripts = vi.fn(async () => undefined);
   const executeScript = vi.fn(
     async (_injection: unknown) =>
       [] as chrome.scripting.InjectionResult[],
   );
+  const permissionsContains = vi.fn(async () => true);
   const tabsQuery = vi.fn(async () => [] as chrome.tabs.Tab[]);
   const tabsReload = vi.fn(async () => undefined);
   const tabsCreate = vi.fn(async () => ({ id: 42 }));
@@ -69,18 +76,26 @@ async function loadBackground(
       onChanged: { addListener },
     },
     runtime: {
-      getManifest: () => ({ version: "1.0.6" }),
+      getManifest: () => ({ version: "1.0.9" }),
       openOptionsPage: vi.fn(async () => undefined),
-      onInstalled: { addListener },
-      onStartup: { addListener },
+      onInstalled: {
+        addListener: vi.fn((listener: (details: chrome.runtime.InstalledDetails) => void) => {
+          installedListeners.push(listener);
+        }),
+      },
+      onStartup: {
+        addListener: vi.fn((listener: () => void) => startupListeners.push(listener)),
+      },
       onMessage: { addListener: vi.fn((listener) => messageListeners.push(listener)) },
     },
     scripting: {
       unregisterContentScripts,
       registerContentScripts,
+      getRegisteredContentScripts,
+      updateContentScripts,
       executeScript,
     },
-    permissions: { contains: vi.fn(async () => true) },
+    permissions: { contains: permissionsContains },
     tabs: {
       query: tabsQuery,
       create: tabsCreate,
@@ -100,14 +115,45 @@ async function loadBackground(
     background,
     local,
     messageListeners,
+    installedListeners,
+    startupListeners,
     registerContentScripts,
     unregisterContentScripts,
+    getRegisteredContentScripts,
+    updateContentScripts,
     executeScript,
+    permissionsContains,
     tabsQuery,
     tabsReload,
     tabsCreate,
     tabUpdatedListeners,
   };
+}
+
+function createDeckContentScript(originPattern: string): chrome.scripting.RegisteredContentScript {
+  return {
+    id: "mattermost-deck-content",
+    matches: [originPattern],
+    js: ["content.js"],
+    allFrames: false,
+    matchOriginAsFallback: false,
+    runAt: "document_idle",
+    world: "ISOLATED",
+    persistAcrossSessions: true,
+  };
+}
+
+function sendBackgroundMessage(
+  listener: (
+    message: unknown,
+    sender: chrome.runtime.MessageSender,
+    sendResponse: (response: unknown) => void,
+  ) => boolean | void,
+  message: unknown,
+): Promise<unknown> {
+  return new Promise((resolve) => {
+    listener(message, {} as chrome.runtime.MessageSender, resolve);
+  });
 }
 
 describe("background active profile settings", () => {
@@ -144,6 +190,370 @@ describe("background active profile settings", () => {
     const { background } = await loadBackground(new Map(), "de-DE", ["fr-FR"]);
 
     await expect(background.getConfiguredLanguage()).resolves.toBe("de");
+  });
+
+  it("keeps the persistent registration during startup and repairs a restored tab", async () => {
+    const serverUrl = "https://mattermost.example.test/company";
+    const originPattern = "https://mattermost.example.test/*";
+    const {
+      startupListeners,
+      getRegisteredContentScripts,
+      registerContentScripts,
+      updateContentScripts,
+      unregisterContentScripts,
+      executeScript,
+      tabsQuery,
+      tabsReload,
+    } = await loadBackground(new Map([[SETTINGS_KEYS.serverUrl, serverUrl]]));
+    getRegisteredContentScripts.mockResolvedValue([{
+      id: "mattermost-deck-content",
+      matches: [originPattern],
+      js: ["content.js"],
+    }]);
+    tabsQuery.mockResolvedValue([{ id: 7 }] as chrome.tabs.Tab[]);
+    executeScript.mockResolvedValueOnce([
+      { result: false },
+    ] as chrome.scripting.InjectionResult[]);
+
+    expect(startupListeners).toHaveLength(1);
+    startupListeners[0]?.();
+
+    await vi.waitFor(() => {
+      expect(executeScript).toHaveBeenCalledWith({
+        target: { tabId: 7 },
+        world: "ISOLATED",
+        files: ["content.js"],
+      });
+    });
+    expect(tabsQuery).toHaveBeenCalledWith({ url: originPattern });
+    expect(registerContentScripts).not.toHaveBeenCalled();
+    expect(updateContentScripts).not.toHaveBeenCalled();
+    expect(unregisterContentScripts).not.toHaveBeenCalledWith({
+      ids: ["mattermost-deck-content"],
+    });
+    expect(tabsReload).not.toHaveBeenCalled();
+  });
+
+  it("registers a missing content script and injects it into an already open tab", async () => {
+    const serverUrl = "https://mattermost.example.test/company";
+    const originPattern = "https://mattermost.example.test/*";
+    const {
+      messageListeners,
+      registerContentScripts,
+      updateContentScripts,
+      unregisterContentScripts,
+      executeScript,
+      tabsQuery,
+    } = await loadBackground(new Map([[SETTINGS_KEYS.serverUrl, serverUrl]]));
+    tabsQuery.mockResolvedValue([{ id: 11 }] as chrome.tabs.Tab[]);
+    executeScript.mockResolvedValueOnce([
+      { result: false },
+    ] as chrome.scripting.InjectionResult[]);
+
+    const response = await sendBackgroundMessage(messageListeners[0], {
+      type: "mattermost-deck:sync-content-script",
+    });
+
+    expect(response).toEqual({ success: true });
+    expect(registerContentScripts).toHaveBeenCalledWith([
+      createDeckContentScript(originPattern),
+    ]);
+    expect(updateContentScripts).not.toHaveBeenCalled();
+    expect(unregisterContentScripts).not.toHaveBeenCalledWith({
+      ids: ["mattermost-deck-content"],
+    });
+    expect(executeScript).toHaveBeenCalledWith({
+      target: { tabId: 11 },
+      world: "ISOLATED",
+      files: ["content.js"],
+    });
+  });
+
+  it("does not let a blocked restored tab delay a newer registration sync", async () => {
+    const firstServerUrl = "https://first-mattermost.example.test/company";
+    const firstOriginPattern = "https://first-mattermost.example.test/*";
+    const secondServerUrl = "https://second-mattermost.example.test/company";
+    const secondOriginPattern = "https://second-mattermost.example.test/*";
+    const localValues = new Map<string, unknown>([[SETTINGS_KEYS.serverUrl, firstServerUrl]]);
+    const {
+      messageListeners,
+      getRegisteredContentScripts,
+      updateContentScripts,
+      executeScript,
+      tabsQuery,
+    } = await loadBackground(localValues);
+    getRegisteredContentScripts.mockResolvedValue([
+      createDeckContentScript(firstOriginPattern),
+    ]);
+    tabsQuery.mockResolvedValue([{ id: 21 }] as chrome.tabs.Tab[]);
+
+    let releaseBlockedProbe: ((results: chrome.scripting.InjectionResult[]) => void) | undefined;
+    const blockedProbe = new Promise<chrome.scripting.InjectionResult[]>((resolve) => {
+      releaseBlockedProbe = resolve;
+    });
+    let probeCount = 0;
+    executeScript.mockImplementation(async (injection: unknown) => {
+      const request = injection as { files?: string[] };
+      if (!request.files) {
+        probeCount += 1;
+        if (probeCount === 1) {
+          return await blockedProbe;
+        }
+        return [{ result: true }] as chrome.scripting.InjectionResult[];
+      }
+      return [] as chrome.scripting.InjectionResult[];
+    });
+
+    await expect(sendBackgroundMessage(messageListeners[0], {
+      type: "mattermost-deck:sync-content-script",
+    })).resolves.toEqual({ success: true });
+    await vi.waitFor(() => expect(executeScript).toHaveBeenCalledTimes(1));
+
+    localValues.set(SETTINGS_KEYS.serverUrl, secondServerUrl);
+    await expect(sendBackgroundMessage(messageListeners[0], {
+      type: "mattermost-deck:sync-content-script",
+    })).resolves.toEqual({ success: true });
+
+    expect(updateContentScripts).toHaveBeenCalledWith([
+      createDeckContentScript(secondOriginPattern),
+    ]);
+    await vi.waitFor(() => expect(executeScript).toHaveBeenCalledTimes(2));
+
+    releaseBlockedProbe?.([{ result: false }] as chrome.scripting.InjectionResult[]);
+    await blockedProbe;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const staleInjectionCalls = executeScript.mock.calls.filter(([injection]) =>
+      (injection as { files?: string[] }).files?.includes("content.js")
+    );
+    expect(staleInjectionCalls).toHaveLength(0);
+  });
+
+  it("updates a changed registration in place without creating an injection gap", async () => {
+    const originPattern = "https://mattermost.example.test/*";
+    const {
+      messageListeners,
+      getRegisteredContentScripts,
+      registerContentScripts,
+      updateContentScripts,
+      unregisterContentScripts,
+    } = await loadBackground(new Map([[
+      SETTINGS_KEYS.serverUrl,
+      "https://mattermost.example.test/company",
+    ]]));
+    getRegisteredContentScripts.mockResolvedValue([
+      createDeckContentScript("https://old-mattermost.example.test/*"),
+    ]);
+
+    const response = await sendBackgroundMessage(messageListeners[0], {
+      type: "mattermost-deck:sync-content-script",
+    });
+
+    expect(response).toEqual({ success: true });
+    expect(updateContentScripts).toHaveBeenCalledWith([
+      createDeckContentScript(originPattern),
+    ]);
+    expect(registerContentScripts).not.toHaveBeenCalled();
+    expect(unregisterContentScripts).not.toHaveBeenCalledWith({
+      ids: ["mattermost-deck-content"],
+    });
+  });
+
+  it("preserves an existing registration when the permission lookup fails", async () => {
+    const originPattern = "https://mattermost.example.test/*";
+    const {
+      messageListeners,
+      getRegisteredContentScripts,
+      permissionsContains,
+      registerContentScripts,
+      updateContentScripts,
+      unregisterContentScripts,
+      tabsQuery,
+    } = await loadBackground(new Map([[
+      SETTINGS_KEYS.serverUrl,
+      "https://mattermost.example.test/company",
+    ]]));
+    getRegisteredContentScripts.mockResolvedValue([
+      createDeckContentScript(originPattern),
+    ]);
+    permissionsContains.mockRejectedValueOnce(new Error("permission lookup failed"));
+
+    const response = await sendBackgroundMessage(messageListeners[0], {
+      type: "mattermost-deck:sync-content-script",
+    });
+
+    expect(response).toEqual({ success: false, error: "permission lookup failed" });
+    expect(registerContentScripts).not.toHaveBeenCalled();
+    expect(updateContentScripts).not.toHaveBeenCalled();
+    expect(unregisterContentScripts).not.toHaveBeenCalledWith({
+      ids: ["mattermost-deck-content"],
+    });
+    expect(tabsQuery).not.toHaveBeenCalled();
+  });
+
+  it("does not remove the previous registration when an in-place update fails", async () => {
+    const {
+      messageListeners,
+      getRegisteredContentScripts,
+      registerContentScripts,
+      updateContentScripts,
+      unregisterContentScripts,
+      tabsQuery,
+    } = await loadBackground(new Map([[
+      SETTINGS_KEYS.serverUrl,
+      "https://mattermost.example.test/company",
+    ]]));
+    getRegisteredContentScripts.mockResolvedValue([
+      createDeckContentScript("https://old-mattermost.example.test/*"),
+    ]);
+    updateContentScripts.mockRejectedValueOnce(new Error("update failed"));
+
+    const response = await sendBackgroundMessage(messageListeners[0], {
+      type: "mattermost-deck:sync-content-script",
+    });
+
+    expect(response).toEqual({ success: false, error: "update failed" });
+    expect(registerContentScripts).not.toHaveBeenCalled();
+    expect(unregisterContentScripts).not.toHaveBeenCalledWith({
+      ids: ["mattermost-deck-content"],
+    });
+    expect(tabsQuery).not.toHaveBeenCalled();
+  });
+
+  it("removes a stale registration only when site access is intentionally absent", async () => {
+    const originPattern = "https://mattermost.example.test/*";
+    const {
+      messageListeners,
+      getRegisteredContentScripts,
+      permissionsContains,
+      registerContentScripts,
+      updateContentScripts,
+      unregisterContentScripts,
+      tabsQuery,
+    } = await loadBackground(new Map([[
+      SETTINGS_KEYS.serverUrl,
+      "https://mattermost.example.test/company",
+    ]]));
+    getRegisteredContentScripts.mockResolvedValue([
+      createDeckContentScript(originPattern),
+    ]);
+    permissionsContains.mockResolvedValueOnce(false);
+
+    const response = await sendBackgroundMessage(messageListeners[0], {
+      type: "mattermost-deck:sync-content-script",
+    });
+
+    expect(response).toEqual({ success: true });
+    expect(unregisterContentScripts).toHaveBeenCalledWith({
+      ids: ["mattermost-deck-content"],
+    });
+    expect(registerContentScripts).not.toHaveBeenCalled();
+    expect(updateContentScripts).not.toHaveBeenCalled();
+    expect(tabsQuery).not.toHaveBeenCalled();
+  });
+
+  it("does not reinject when the existing tab already has a healthy runtime", async () => {
+    const originPattern = "https://mattermost.example.test/*";
+    const {
+      messageListeners,
+      getRegisteredContentScripts,
+      executeScript,
+      tabsQuery,
+    } = await loadBackground(new Map([[
+      SETTINGS_KEYS.serverUrl,
+      "https://mattermost.example.test/company",
+    ]]));
+    getRegisteredContentScripts.mockResolvedValue([
+      createDeckContentScript(originPattern),
+    ]);
+    tabsQuery.mockResolvedValue([{ id: 13 }] as chrome.tabs.Tab[]);
+    executeScript.mockResolvedValueOnce([
+      { result: true },
+    ] as chrome.scripting.InjectionResult[]);
+
+    const response = await sendBackgroundMessage(messageListeners[0], {
+      type: "mattermost-deck:sync-content-script",
+    });
+
+    expect(response).toEqual({ success: true });
+    expect(executeScript).toHaveBeenCalledTimes(1);
+    expect(executeScript).toHaveBeenCalledWith(expect.objectContaining({
+      target: { tabId: 13 },
+      world: "ISOLATED",
+      func: expect.any(Function),
+    }));
+  });
+
+  it("keeps the legacy-runtime update cleanup ahead of missing-runtime repair", async () => {
+    const originPattern = "https://mattermost.example.test/*";
+    const {
+      installedListeners,
+      getRegisteredContentScripts,
+      executeScript,
+      tabsQuery,
+      tabsReload,
+    } = await loadBackground(new Map([[
+      SETTINGS_KEYS.serverUrl,
+      "https://mattermost.example.test/company",
+    ]]));
+    getRegisteredContentScripts.mockResolvedValue([
+      createDeckContentScript(originPattern),
+    ]);
+    tabsQuery.mockResolvedValue([{ id: 17 }] as chrome.tabs.Tab[]);
+    executeScript.mockResolvedValueOnce([
+      { result: false },
+    ] as chrome.scripting.InjectionResult[]);
+
+    expect(installedListeners).toHaveLength(1);
+    installedListeners[0]?.({ reason: "update", previousVersion: "1.0.6" });
+
+    await vi.waitFor(() => {
+      expect(tabsReload).toHaveBeenCalledWith(17);
+    });
+    expect(executeScript).toHaveBeenCalledTimes(1);
+    expect(executeScript).toHaveBeenCalledWith(expect.objectContaining({
+      target: { tabId: 17 },
+      func: expect.any(Function),
+    }));
+  });
+
+  it("carries an update refresh forward when a newer ordinary sync supersedes it", async () => {
+    const originPattern = "https://mattermost.example.test/*";
+    const {
+      installedListeners,
+      messageListeners,
+      getRegisteredContentScripts,
+      executeScript,
+      tabsQuery,
+    } = await loadBackground(new Map([[
+      SETTINGS_KEYS.serverUrl,
+      "https://mattermost.example.test/company",
+    ]]));
+    let releaseUpdateRegistration!: () => void;
+    getRegisteredContentScripts
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        releaseUpdateRegistration = () => resolve([
+          createDeckContentScript(originPattern),
+        ]);
+      }))
+      .mockResolvedValue([createDeckContentScript(originPattern)]);
+    tabsQuery.mockResolvedValue([{ id: 18 }] as chrome.tabs.Tab[]);
+    executeScript.mockResolvedValueOnce([
+      { result: true },
+    ] as chrome.scripting.InjectionResult[]);
+
+    installedListeners[0]?.({ reason: "update", previousVersion: "1.0.6" });
+    await vi.waitFor(() => expect(getRegisteredContentScripts).toHaveBeenCalledTimes(1));
+    const newerSync = sendBackgroundMessage(messageListeners[0], {
+      type: "mattermost-deck:sync-content-script",
+    });
+    releaseUpdateRegistration();
+
+    await expect(newerSync).resolves.toEqual({ success: true });
+    await vi.waitFor(() => expect(executeScript).toHaveBeenCalledTimes(2));
+    expect(executeScript.mock.calls[1]?.[0]).toEqual({
+      target: { tabId: 18 },
+      files: ["content.js"],
+    });
   });
 
   it("registers both the isolated configuration bridge and main install guide", async () => {

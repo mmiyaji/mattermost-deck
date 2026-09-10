@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { loadDeckLayout, normaliseColumns } from "./storage";
+import {
+  hasStoredValue,
+  loadDeckLayout,
+  loadStoredString,
+  normaliseColumns,
+  saveStoredString,
+} from "./storage";
 import type { DeckColumn } from "./layout";
 
 const layout: DeckColumn[] = [
@@ -51,5 +57,48 @@ describe("loadDeckLayout", () => {
     });
 
     await expect(loadDeckLayout("mattermostDeck.layout.v1")).resolves.toEqual(layout);
+  });
+});
+
+describe("session-only storage", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("never reads a session secret from persistent localStorage when session storage fails", async () => {
+    const localStorage = createLocalStorage({ secret: "persistent-secret" });
+    vi.stubGlobal("window", { localStorage });
+    vi.stubGlobal("chrome", {
+      storage: {
+        session: {
+          get: vi.fn(async () => {
+            throw new Error("session unavailable");
+          }),
+        },
+      },
+    });
+
+    await expect(loadStoredString("secret", "session")).resolves.toBeNull();
+    await expect(hasStoredValue("secret", "session")).resolves.toBe(false);
+    expect(localStorage.getItem).not.toHaveBeenCalled();
+  });
+
+  it("fails closed instead of persisting a session secret to localStorage", async () => {
+    const localStorage = createLocalStorage();
+    vi.stubGlobal("window", { localStorage });
+    vi.stubGlobal("chrome", {
+      storage: {
+        session: {
+          set: vi.fn(async () => {
+            throw new Error("session quota exceeded");
+          }),
+          remove: vi.fn(async () => undefined),
+        },
+      },
+    });
+
+    await expect(saveStoredString("secret", "encrypted", "session"))
+      .rejects.toThrow("session quota exceeded");
+    expect(localStorage.setItem).not.toHaveBeenCalled();
   });
 });

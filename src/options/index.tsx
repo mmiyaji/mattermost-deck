@@ -2300,8 +2300,13 @@ function OptionsApp(): React.JSX.Element {
     { id: "performance", icon: <NavIconPerformance />, label: text.performanceTitle },
     { id: "security",   icon: <NavIconSecurity />,    label: text.securityTitle },
   ];
-  const targetProfileOrigin = normaliseServerUrl(settings.serverUrl) || profileOrigin || initialServerUrl;
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? null;
+  // Profile actions belong to the last saved connection. An edited Server URL
+  // has not passed host-permission approval yet and must not silently become a
+  // profile origin before the user saves the connection.
+  const targetProfileOrigin = normaliseServerUrl(
+    activeProfile?.origin || profileOrigin || initialServerUrl,
+  );
   const canDeleteProfile = activeProfile !== null && profiles.length > 1;
   const profileOptions = useMemo<CustomSelectOption[]>(
     () => profiles.map((profile) => ({
@@ -2479,6 +2484,40 @@ function OptionsApp(): React.JSX.Element {
   };
   const currentReleaseNotes = useMemo(() => {
     if (!releaseNotice) return null;
+    if (releaseNotice.version === "1.0.9") {
+      return {
+        title: "v1.0.9",
+        added: [],
+        changed: [t("options.releaseNote109Stability")],
+        fixed: [
+          t("options.releaseNote109Timeout"),
+          t("options.releaseNote108FeedConsistency"),
+          t("options.releaseNote108Safety"),
+        ],
+      } satisfies ReleaseNotes;
+    }
+    if (releaseNotice.version === "1.0.8") {
+      return {
+        title: "v1.0.8",
+        added: [],
+        changed: [],
+        fixed: [
+          t("options.releaseNote108FeedConsistency"),
+          t("options.releaseNote108Safety"),
+        ],
+      } satisfies ReleaseNotes;
+    }
+    if (releaseNotice.version === "1.0.7") {
+      return {
+        title: "v1.0.7",
+        added: [],
+        changed: [],
+        fixed: [
+          t("options.releaseNote107StartupInjection"),
+          t("options.releaseNote107MentionRefresh"),
+        ],
+      } satisfies ReleaseNotes;
+    }
     if (releaseNotice.version === "1.0.6") {
       return {
         title: "v1.0.6",

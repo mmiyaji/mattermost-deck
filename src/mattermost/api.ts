@@ -562,21 +562,33 @@ async function waitForRateLimit(
   }
 }
 
-async function fetchWithTimeout(
+interface ConsumedResponse<T> {
+  response: Response;
+  value: T;
+}
+
+async function fetchWithTimeout<T>(
   input: RequestInfo | URL,
   init: RequestInit,
-): Promise<Response> {
+  consume: (response: Response) => Promise<T>,
+): Promise<ConsumedResponse<T>> {
   const controller = new AbortController();
   activeRequestControllers.add(controller);
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   try {
     return await Promise.race([
-      fetch(input, {
-        ...init,
-        signal: controller.signal,
-      }),
-      new Promise<Response>((_, reject) => {
+      (async () => {
+        const response = await fetch(input, {
+          ...init,
+          signal: controller.signal,
+        });
+        return {
+          response,
+          value: await consume(response),
+        };
+      })(),
+      new Promise<ConsumedResponse<T>>((_, reject) => {
         timer = setTimeout(() => {
           controller.abort();
           reject(new ApiRequestTimeoutError("network", API_REQUEST_TIMEOUT_MS));
@@ -591,13 +603,13 @@ async function fetchWithTimeout(
   }
 }
 
-async function performMeasuredFetch(
+async function performMeasuredFetch<T>(
   method: "GET" | "POST",
   pathname: string,
-  request: () => Promise<Response>,
+  request: () => Promise<ConsumedResponse<T>>,
   serverConfigurationGeneration:
     number = apiServerConfigurationGeneration,
-): Promise<Response> {
+): Promise<ConsumedResponse<T>> {
   totalRequests += 1;
   if (method === "GET") {
     totalGetRequests += 1;
@@ -612,7 +624,7 @@ async function performMeasuredFetch(
 
   try {
     const queueEnteredAt = Date.now();
-    const response = await scheduleApiRequest(
+    const result = await scheduleApiRequest(
       method,
       async () => {
         queueWaitMs = Date.now() - queueEnteredAt;
@@ -622,6 +634,7 @@ async function performMeasuredFetch(
     );
     const finishedAt = Date.now();
     const durationMs = finishedAt - startedAt;
+    const { response } = result;
     failed = !response.ok;
     if (failed) {
       totalFailedRequests += 1;
@@ -646,7 +659,7 @@ async function performMeasuredFetch(
       response.ok ? "info" : response.status >= 500 ? "error" : "warn",
       `${purpose} | ${method} ${response.status} ${durationMs}ms ${pathname}`,
     );
-    return response;
+    return result;
   } catch (error) {
     const finishedAt = Date.now();
     const durationMs = finishedAt - startedAt;
@@ -783,7 +796,7 @@ async function apiGet<T>(
     ?.slice("MMCSRF=".length);
 
   const request = (async () => {
-    const response = await performMeasuredFetch(
+    const { response, value: payload } = await performMeasuredFetch(
       "GET",
       pathname,
       async () => {
@@ -797,7 +810,7 @@ async function apiGet<T>(
             "X-Requested-With": "XMLHttpRequest",
             ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
           },
-        });
+        }, async (response) => response.ok ? await response.json() as T : null);
       },
       serverConfigurationGeneration,
     );
@@ -806,7 +819,6 @@ async function apiGet<T>(
       throw new MattermostApiError("GET", pathname, response.status);
     }
 
-    const payload = (await response.json()) as T;
     if (generation === apiServerGeneration) {
       pruneRecentGetResponses();
       recentGetResponses.set(cacheKey, {
@@ -815,7 +827,7 @@ async function apiGet<T>(
       });
       pruneRecentGetResponses();
     }
-    return payload;
+    return payload as T;
   })();
 
   inflightGetRequests.set(cacheKey, request as Promise<unknown>);
@@ -837,7 +849,7 @@ async function apiGetAbsolute(pathname: string): Promise<Response> {
     .find((entry) => entry.startsWith("MMCSRF="))
     ?.slice("MMCSRF=".length);
 
-  return await performMeasuredFetch(
+  const { response } = await performMeasuredFetch(
     "GET",
     pathname,
     async () => {
@@ -851,10 +863,11 @@ async function apiGetAbsolute(pathname: string): Promise<Response> {
           "X-Requested-With": "XMLHttpRequest",
           ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
         },
-      });
+      }, async () => undefined);
     },
     serverConfigurationGeneration,
   );
+  return response;
 }
 
 async function apiPost<T>(pathname: string, body: unknown): Promise<T> {
@@ -866,7 +879,7 @@ async function apiPost<T>(pathname: string, body: unknown): Promise<T> {
     .find((entry) => entry.startsWith("MMCSRF="))
     ?.slice("MMCSRF=".length);
 
-  const response = await performMeasuredFetch(
+  const { response, value: payload } = await performMeasuredFetch(
     "POST",
     pathname,
     async () => {
@@ -883,7 +896,7 @@ async function apiPost<T>(pathname: string, body: unknown): Promise<T> {
           ...(csrfToken ? { "X-CSRF-Token": decodeURIComponent(csrfToken) } : {}),
         },
         body: JSON.stringify(body),
-      });
+      }, async (response) => response.ok ? await response.json() as T : null);
     },
     serverConfigurationGeneration,
   );
@@ -892,7 +905,7 @@ async function apiPost<T>(pathname: string, body: unknown): Promise<T> {
     throw new MattermostApiError("POST", pathname, response.status);
   }
 
-  return (await response.json()) as T;
+  return payload as T;
 }
 
 export function readCurrentRoute(): CurrentRoute {

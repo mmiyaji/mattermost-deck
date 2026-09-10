@@ -24,6 +24,7 @@ async function launchExtension(locale?: string): Promise<{ context: BrowserConte
     headless: true,
     ...(locale ? { locale } : {}),
     args: [
+      ...(locale ? [`--lang=${locale}`] : []),
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`,
     ],

@@ -5,6 +5,7 @@ import {
   type BrowserContext,
   type CDPSession,
   type Request,
+  type Route,
 } from "@playwright/test";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -315,6 +316,7 @@ test("all-teams mention refresh keeps rows stable until updates are applied", as
   let readRegressionChannelId = "";
   let context: BrowserContext | null = null;
   let cdpSession: CDPSession | null = null;
+  let releaseInitialLateRequests: (() => void) | null = null;
   let releaseHeldSearchRequests: (() => void) | null = null;
 
   try {
@@ -509,6 +511,34 @@ test("all-teams mention refresh keeps rows stable until updates are applied", as
     };
     page.on("requestfinished", markSearchFinished);
     page.on("requestfailed", markSearchFinished);
+    let holdInitialLateRequests = true;
+    let resolveInitialLateRequests = () => undefined;
+    let initialLateRequestCount = 0;
+    const initialLateRequestsGate = new Promise<void>((resolve) => {
+      resolveInitialLateRequests = resolve;
+    });
+    releaseInitialLateRequests = () => {
+      if (!holdInitialLateRequests) {
+        return;
+      }
+      holdInitialLateRequests = false;
+      resolveInitialLateRequests();
+    };
+    const holdInitialLateRoute = async (route: Route) => {
+      if (holdInitialLateRequests) {
+        initialLateRequestCount += 1;
+        await initialLateRequestsGate;
+      }
+      await route.continue();
+    };
+    const initialLateRoutePatterns = [
+      `**/api/v4/teams/${lateTeamId}/posts/search*`,
+      `**/api/v4/users/me/teams/${lateTeamId}/channels/members*`,
+      `**/api/v4/users/${state.memberUser.id}/teams/${lateTeamId}/threads*`,
+    ];
+    for (const pattern of initialLateRoutePatterns) {
+      await page.route(pattern, holdInitialLateRoute);
+    }
     await page.addInitScript(() => {
       window.localStorage.setItem("mattermostDeck.debugLogs", "1");
       const debugWindow = window as typeof window & {
@@ -626,22 +656,71 @@ test("all-teams mention refresh keeps rows stable until updates are applied", as
     });
 
     await expect
+      .poll(() => initialLateRequestCount, { timeout: 10_000 })
+      .toBeGreaterThan(0);
+    const initialRealtimeMarker = `initial-realtime-${timestamp}`;
+    const initialRealtimePost = await apiPost<{ id: string }>(
+      adminToken,
+      "/posts",
+      {
+        channel_id: readRegressionChannelId,
+        message:
+          `@${state.memberUser.username} ${initialRealtimeMarker}`,
+      },
+    );
+    await expect
+      .poll(() => observedWsPostIds.has(initialRealtimePost.id), {
+        timeout: 15_000,
+      })
+      .toBe(true);
+    await expect
+      .poll(async () => {
+        const columnState = await debugRequest<{
+          mentionLoadActive?: boolean;
+          mentionDisplaySnapshotRunId?: number | null;
+          mentionUpdatePending?: boolean;
+          visiblePostMessages?: string[];
+        } | null>(page, "getColumnState", { id: mentionsColumn!.id });
+        return Boolean(
+          columnState?.mentionLoadActive === true &&
+          columnState.mentionDisplaySnapshotRunId === null &&
+          columnState.mentionUpdatePending === false &&
+          (columnState.visiblePostMessages ?? []).some((message) =>
+            message.includes(initialRealtimeMarker)
+          ),
+        );
+      }, { timeout: 15_000 })
+      .toBe(true);
+
+    releaseInitialLateRequests();
+
+    await expect
       .poll(async () => {
         const columnState = await debugRequest<{
           postStatus?: string;
           mentionLoadActive?: boolean;
+          mentionDisplaySnapshotRunId?: number | null;
+          mentionUpdatePending?: boolean;
           visiblePostMessages?: string[];
         } | null>(page, "getColumnState", { id: mentionsColumn!.id });
         const messages = columnState?.visiblePostMessages ?? [];
         return Boolean(
           columnState?.postStatus === "ready" &&
           columnState.mentionLoadActive === false &&
+          columnState.mentionDisplaySnapshotRunId === null &&
+          columnState.mentionUpdatePending === false &&
+          messages.some((message) =>
+            message.includes(initialRealtimeMarker)
+          ) &&
           createdMentions.every((mention) =>
             messages.some((message) => message.includes(mention.marker))
           ),
         );
       }, { timeout: 30_000 })
       .toBe(true);
+    for (const pattern of initialLateRoutePatterns) {
+      await page.unroute(pattern, holdInitialLateRoute);
+    }
 
     const finishedLoadingState = await debugRequest<{
       present?: boolean;
@@ -1514,6 +1593,7 @@ test("all-teams mention refresh keeps rows stable until updates are applied", as
     );
     await page.unroute(channelPostsRoutePattern);
   } finally {
+    releaseInitialLateRequests?.();
     releaseHeldSearchRequests?.();
     await cdpSession?.detach().catch(() => undefined);
     await context?.close();

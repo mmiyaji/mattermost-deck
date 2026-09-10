@@ -39,10 +39,12 @@ Mattermost Deck añade paneles de seguimiento a la derecha de Mattermost Web. Pu
 
 Mattermost Deck은 Mattermost Web 오른쪽에 모니터링용 패널을 추가합니다. 멘션, 채널, 다이렉트 메시지, 키워드가 강조된 검색 결과, 저장한 게시물을 나란히 배치할 수 있습니다. 로그인, 게시, 편집, 팀 이동, 스레드 보기 등 주요 작업은 계속 Mattermost 본체에서 이루어집니다.
 
-## v1.0.6 release notes
+## v1.0.9 release notes
 
-- Adds Russian, Ukrainian, Spanish, and Korean to Deck, Settings, the popup, the install guide, and the extension package description
-- Keeps every CLDR plural form each language requires in the locale files, so Russian and Ukrainian counts no longer fall back to English
+- Reduced unnecessary rendering and observer allocation, and improved connection cleanup during long-running use.
+- Added clear wait-and-retry guidance for request timeouts.
+- Hardens post-update reinjection, loaded-page polling reconciliation, deletion handling, and response-body timeouts so transient races cannot leave missing or stale rows
+- Keeps session-only PATs out of persistent fallback storage and prevents unsaved Server URLs from becoming profile targets
 
 ## Permission justifications
 

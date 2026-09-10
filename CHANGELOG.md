@@ -7,6 +7,37 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.9] - 2026-09-11
+
+### Changed
+
+- Reduced unnecessary pane renders during diagnostic log updates and unchanged post refreshes.
+- Shared visibility observers across post cards to reduce observer allocation during repeated pane mounting.
+
+### Fixed
+
+- Bounded WebSocket connection and authentication waits and cleaned up retired socket listeners to improve long-running reconnect stability.
+- Kept optional diagnostic logging best-effort when browser storage writes fail.
+- Displayed localized wait-and-retry guidance for client timeouts and HTTP 408/504 responses.
+
+## [1.0.8] - 2026-09-06
+
+### Fixed
+
+- Preserved the mandatory existing-tab refresh across overlapping update and settings synchronization, so an ordinary storage event cannot cancel the new bundle injection after an extension update.
+- Reconciled channel, search, and saved-post polling against every loaded page while preserving the pagination cursor, removing deleted or unflagged rows without requiring a reload.
+- Discarded stale load-more responses after a channel, team, search query, or mention scope changes and based pagination limits on deduplicated results.
+- Kept the network timeout active through JSON body consumption so a stalled response body cannot block the serialized API queue.
+- Made session-only personal access tokens fail closed when Chrome session storage is unavailable instead of falling back to persistent page storage.
+- Bound profile actions to the last saved server origin so an unapproved, unsaved Server URL cannot silently become a profile target.
+
+## [1.0.7] - 2026-09-04
+
+### Fixed
+
+- Kept the persistent content-script registration intact across Chrome startup and repaired already-open Mattermost tabs when the Deck runtime was missing, without letting a slow loading tab delay later registration updates or Settings saves.
+- Prevented realtime-only mention rows arriving during the initial scan from becoming the frozen display snapshot, so the complete result appears without reloading while verified cache and later-refresh stability are preserved.
+
 ## [1.0.6] - 2026-08-16
 
 ### Added
