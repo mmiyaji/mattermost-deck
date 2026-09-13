@@ -1,5 +1,12 @@
 {
   "deck": {
+    "paneSearchOpen": "Rechercher dans ce volet",
+    "paneSearchPlaceholder": "Filtrer les messages ou auteurs",
+    "paneSearchHint": "Rechercher parmi les messages chargés",
+    "paneSearchCount": "{{count}} sur {{total}} messages",
+    "paneSearchClear": "Effacer la recherche",
+    "paneSearchClose": "Fermer la recherche",
+    "paneSearchEmpty": "Aucun message correspondant",
     "title": "Mattermost Deck",
     "signedInAs": "Connect\u00e9 en tant que",
     "usingSession": "Utilisation de la session Mattermost actuelle",

@@ -4,6 +4,7 @@ import { ShadowRootContext } from "./ShadowRootContext";
 import i18n from "./i18n";
 import { FavoriteButton, FavoritesProvider, useFavorites } from "./FavoritesContext";
 import { FAVORITES_REFRESH_MS } from "./favorites";
+import { PaneSearchField, PaneSearchToggle, usePaneSearch, type PaneSearchState } from "./PaneSearch";
 import {
   checkApiHealth,
   fetchPostFileInfos,
@@ -4301,7 +4302,8 @@ function PostListItem({
 }
 
 function PostList({
-  posts,
+  posts: originalPosts,
+  paneSearch,
   userDirectory,
   compactMode = false,
   hasMore = false,
@@ -4329,6 +4331,7 @@ function PostList({
   listId,
 }: {
   posts: MattermostPost[];
+  paneSearch?: PaneSearchState;
   userDirectory: Record<string, MattermostUser>;
   compactMode?: boolean;
   hasMore?: boolean;
@@ -4356,6 +4359,14 @@ function PostList({
   listId?: string;
 }): React.JSX.Element {
   const text = useAppText();
+  const posts = paneSearch?.posts ?? originalPosts;
+  const filterQuery = paneSearch?.query.trim() ?? "";
+  const previousFilterQueryRef = useRef(filterQuery);
+  const filteredHighlightTerms = useMemo(() => filterQuery ? [...highlightTerms, filterQuery] : highlightTerms, [highlightTerms, filterQuery]);
+  const filteredRenderBody = useCallback((post: MattermostPost, { isVisible }: { isVisible: boolean }) => {
+    const snippet = buildSearchSnippet(post.message, filterQuery);
+    return isVisible ? renderHighlightedTextFromTerms(snippet, filteredHighlightTerms) : snippet;
+  }, [filterQuery, filteredHighlightTerms]);
   const resolvedUnreadSeparatorLabel =
     unreadSeparatorLabel ?? text.unreadSeparatorLabel;
   const resolvedMarkReadLabel = markReadLabel ?? text.markRead;
@@ -4455,7 +4466,13 @@ function PostList({
     previousTopPostIdRef.current = nextTopPostId;
     previousPostCountRef.current = posts.length;
 
-    if (suppressNewPostNotifications) {
+    const filterChanged = previousFilterQueryRef.current !== filterQuery;
+    previousFilterQueryRef.current = filterQuery;
+    if (filterChanged) {
+      const viewport = viewportRef.current;
+      if (viewport) viewport.scrollTop = reversedPostOrderRef.current ? viewport.scrollHeight : 0;
+    }
+    if (suppressNewPostNotifications || filterQuery || filterChanged) {
       setNewPostCount(0);
       setShowJumpToLatest(false);
       return;
@@ -4500,7 +4517,7 @@ function PostList({
       setNewPostCount(0);
       setShowJumpToLatest(false);
     }
-  }, [posts, suppressNewPostNotifications]);
+  }, [posts, suppressNewPostNotifications, filterQuery]);
 
   const renderEntry = (entry: PostListEntry, entryIndex: number): React.ReactNode => {
     if (entry.type === "separator") {
@@ -4514,7 +4531,7 @@ function PostList({
     if (entry.type === "unread-separator") {
       return (
         <li key={entry.key} className="deck-list-separator deck-list-separator--unread">
-          {onMarkRead ? (
+          {onMarkRead && !filterQuery ? (
             <button
               type="button"
               className="deck-unread-mark-read-toggle"
@@ -4550,11 +4567,11 @@ function PostList({
         userDirectory={userDirectory}
         compactMode={compactMode}
         renderMeta={renderMeta}
-        renderBody={renderBody}
+        renderBody={filterQuery ? filteredRenderBody : renderBody}
         onOpenPost={deferRemoteContent ? undefined : onOpenPost}
         postClickAction={postClickAction}
         showImagePreviews={showImagePreviews}
-        highlightTerms={highlightTerms}
+        highlightTerms={filteredHighlightTerms}
         currentUserId={currentUserId}
         deferRemoteContent={deferRemoteContent}
         viewport={viewportRef.current}
@@ -4562,7 +4579,7 @@ function PostList({
     );
   };
 
-  const footerNode = suppressEndState ? null : hasMore || loadingMore ? (
+  const footerNode = suppressEndState || Boolean(filterQuery) ? null : hasMore || loadingMore ? (
     <div className="deck-list-footer">
       <button
         type="button"
@@ -7149,6 +7166,8 @@ function MentionsColumn({
     visiblePosts,
   ]);
 
+  const paneSearch = usePaneSearch(visiblePosts, userDirectory);
+
   return (
     <section
       ref={setSectionNode}
@@ -7234,6 +7253,7 @@ function MentionsColumn({
           )}
         </div>
         <div className="deck-column-actions">
+          <PaneSearchToggle search={paneSearch} icon={<SearchIcon />} />
           <div className="deck-badge" title={text.mentionBadge(mentionCount, Boolean(column.teamId))}>
             {mentionCount}
           </div>
@@ -7258,6 +7278,7 @@ function MentionsColumn({
           </button>
         </div>
       </header>
+      <PaneSearchField search={paneSearch} icon={<SearchIcon />} closeIcon={<CloseIcon />} />
 
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
@@ -7391,7 +7412,7 @@ function MentionsColumn({
               <p>{column.unreadOnly ? text.noUnreadMentions : text.mentionsWillAppear}</p>
             </article>
           ) : visiblePosts.length > 0 || mentionDisplaySnapshot ? (
-            <PostList
+            <PostList paneSearch={paneSearch}
               posts={visiblePosts}
               userDirectory={userDirectory}
               compactMode={compactMode}
@@ -7988,6 +8009,8 @@ function ChannelWatchColumn({
     };
   }, [channelOptions, channelState.status, column.channelId, column.id, column.teamId, mode, showControls]);
 
+  const paneSearch = usePaneSearch(postState.posts, userDirectory);
+
   return (
     <section
       ref={setSectionNode}
@@ -8023,6 +8046,7 @@ function ChannelWatchColumn({
           </p>
         </div>
         <div className="deck-column-actions">
+          <PaneSearchToggle search={paneSearch} icon={<SearchIcon />} />
           {isFocusedPane ? (
             <button
               type="button"
@@ -8048,6 +8072,7 @@ function ChannelWatchColumn({
           </button>
         </div>
       </header>
+      <PaneSearchField search={paneSearch} icon={<SearchIcon />} closeIcon={<CloseIcon />} />
 
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
@@ -8213,7 +8238,7 @@ function ChannelWatchColumn({
           <p>{mode === "dm" ? text.noDirectPosts : text.noChannelPosts}</p>
         </article>
       ) : (
-        <PostList
+        <PostList paneSearch={paneSearch}
           posts={postState.posts}
           userDirectory={userDirectory}
           compactMode={compactMode}
@@ -8710,6 +8735,8 @@ function SearchLikeColumn({
     onUpdate(column.id, { query: draftQuery.trim() || undefined });
   };
 
+  const paneSearch = usePaneSearch(postState.posts, userDirectory);
+
   return (
     <section
       ref={setSectionNode}
@@ -8729,6 +8756,7 @@ function SearchLikeColumn({
           </p>
         </div>
         <div className="deck-column-actions">
+          <PaneSearchToggle search={paneSearch} icon={<SearchIcon />} />
           {isFocusedPane ? (
             <button
               type="button"
@@ -8750,6 +8778,7 @@ function SearchLikeColumn({
           </button>
         </div>
       </header>
+      <PaneSearchField search={paneSearch} icon={<SearchIcon />} closeIcon={<CloseIcon />} />
 
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
@@ -8897,7 +8926,7 @@ function SearchLikeColumn({
           <p>{text.noResultsDesc}</p>
         </article>
       ) : (
-        <PostList
+        <PostList paneSearch={paneSearch}
           posts={postState.posts}
           userDirectory={userDirectory}
           compactMode={compactMode}
@@ -8963,12 +8992,15 @@ function FavoritesColumn(props: React.ComponentProps<typeof SavedPostsColumn> & 
   useEffect(() => {
     if (props.deletedPostIds.some(id => favorites.entries.some(f => f.id === id && f.post))) void favorites.refresh(true);
   }, [props.deletedPostIds, favorites.entries, favorites.refresh]);
+  const paneSearch = usePaneSearch(posts, userDirectory);
+
   return <section className={`deck-column deck-column--favorites${props.isFocusedPane ? " deck-column--pane-focused" : ""}`}
     style={getColumnAccentStyle("favorites", columnColors)}>
     <header className="deck-column-header">
       <div className="deck-column-heading"><h2><span className="deck-title-with-icon"><ColumnTypeBadge type="favorites" />{text.addFavorites}</span></h2>
         <p>{i18n.t("deck.favoritesDescription")}</p></div>
       <div className="deck-column-actions">
+          <PaneSearchToggle search={paneSearch} icon={<SearchIcon />} />
         {props.isFocusedPane ? <button type="button"
           className="deck-icon-button deck-icon-button--ghost deck-icon-button--active"
           title={text.exitFocus} aria-label={text.exitFocus}
@@ -8982,6 +9014,7 @@ function FavoritesColumn(props: React.ComponentProps<typeof SavedPostsColumn> & 
         </button>
       </div>
     </header>
+      <PaneSearchField search={paneSearch} icon={<SearchIcon />} closeIcon={<CloseIcon />} />
     {showControls ? <div id={controlsId} className="deck-stack deck-stack--controls">
     <div className="deck-inline-actions">
       <button type="button" className="deck-icon-button deck-icon-button--ghost" aria-label={text.moveLeft} title={text.moveLeft} disabled={!props.canMoveLeft} onClick={() => props.onMove(column.id, "left")}><ArrowIcon direction="left" /></button>
@@ -8998,7 +9031,7 @@ function FavoritesColumn(props: React.ComponentProps<typeof SavedPostsColumn> & 
       <p>{i18n.t("deck.favoritesUnavailable")}</p>
       <button type="button" className="deck-button" onClick={() => void favorites.remove(f.id)}>{i18n.t("deck.favoriteRemove")}</button>
     </article>)}</div> : null}
-    {posts.length ? <PostList posts={posts} userDirectory={userDirectory} compactMode={compactMode}
+    {posts.length ? <PostList paneSearch={paneSearch} posts={posts} userDirectory={userDirectory} compactMode={compactMode}
       onOpenPost={post => onOpenPost(post, {
         teamName: props.teams.find(t => t.id === channels[post.channel_id]?.team_id)?.name,
         // Favorites span channels: always use a permalink rather than the
@@ -9249,6 +9282,8 @@ function SavedPostsColumn({
     }
   };
 
+  const paneSearch = usePaneSearch(postState.posts, userDirectory);
+
   return (
     <section
       ref={setSectionNode}
@@ -9261,6 +9296,7 @@ function SavedPostsColumn({
           <p>{text.flaggedPosts}</p>
         </div>
         <div className="deck-column-actions">
+          <PaneSearchToggle search={paneSearch} icon={<SearchIcon />} />
           {isFocusedPane ? (
             <button
               type="button"
@@ -9293,6 +9329,7 @@ function SavedPostsColumn({
           </button>
         </div>
       </header>
+      <PaneSearchField search={paneSearch} icon={<SearchIcon />} closeIcon={<CloseIcon />} />
       {showControls ? (
         <div
           id={`mattermost-deck-saved-controls-${column.id}`}
@@ -9362,7 +9399,7 @@ function SavedPostsColumn({
           <p>{text.noSavedPostsDesc}</p>
         </article>
       ) : (
-        <PostList
+        <PostList paneSearch={paneSearch}
           posts={postState.posts}
           userDirectory={userDirectory}
           compactMode={compactMode}

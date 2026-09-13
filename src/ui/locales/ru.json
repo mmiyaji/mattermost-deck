@@ -1,5 +1,12 @@
 {
   "deck": {
+    "paneSearchOpen": "Поиск в этой панели",
+    "paneSearchPlaceholder": "Фильтр по сообщениям или авторам",
+    "paneSearchHint": "Поиск только в загруженных сообщениях",
+    "paneSearchCount": "{{count}} из {{total}} сообщений",
+    "paneSearchClear": "Сбросить поиск",
+    "paneSearchClose": "Закрыть поиск",
+    "paneSearchEmpty": "Нет подходящих сообщений",
     "title": "Mattermost Deck",
     "signedInAs": "Вход выполнен как",
     "usingSession": "Используется текущий сеанс Mattermost",

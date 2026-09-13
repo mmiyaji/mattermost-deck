@@ -1,5 +1,12 @@
 {
   "deck": {
+    "paneSearchOpen": "Search this pane",
+    "paneSearchPlaceholder": "Filter posts or authors",
+    "paneSearchHint": "Search loaded posts only",
+    "paneSearchCount": "{{count}} of {{total}} posts",
+    "paneSearchClear": "Clear search",
+    "paneSearchClose": "Close search",
+    "paneSearchEmpty": "No matching posts",
     "title": "Mattermost Deck",
     "signedInAs": "Signed in as",
     "usingSession": "Using current Mattermost session",

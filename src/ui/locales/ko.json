@@ -1,5 +1,12 @@
 {
   "deck": {
+    "paneSearchOpen": "이 패널에서 검색",
+    "paneSearchPlaceholder": "게시물 또는 작성자로 필터링",
+    "paneSearchHint": "불러온 게시물에서 검색",
+    "paneSearchCount": "{{total}}개 중 {{count}}개",
+    "paneSearchClear": "검색 해제",
+    "paneSearchClose": "검색창 닫기",
+    "paneSearchEmpty": "일치하는 게시물이 없습니다",
     "title": "Mattermost Deck",
     "signedInAs": "로그인 계정",
     "usingSession": "현재 Mattermost 세션을 사용 중",

@@ -51,7 +51,7 @@ test("built Deck displays and operates the favorites pane with a fixture server"
     }), { origin, channel, team });
     const page = await context.newPage();
     await page.goto(`${origin}/testteam/channels/town-square`);
-    const inspect = (selector: string, click: boolean | "focus" = false) => sw.evaluate(async ({ origin, selector, click }) => {
+    const inspect = (selector: string, click: boolean | "focus" | "compose-start" | "compose-end" = false) => sw.evaluate(async ({ origin, selector, click }) => {
       const tab = (await chrome.tabs.query({})).find(t => t.url?.startsWith(origin));
       if (!tab?.id) return null;
       const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (selector, click) => {
@@ -59,6 +59,7 @@ test("built Deck displays and operates the favorites pane with a fixture server"
         const root = host && (chrome as any).dom.openOrClosedShadowRoot(host);
         const el = root?.querySelector(selector) as HTMLElement | null;
         if (click === "focus") el?.focus();
+        else if (click === "compose-start" || click === "compose-end") el?.dispatchEvent(new CompositionEvent(click === "compose-start" ? "compositionstart" : "compositionend", { bubbles: true }));
         else if (click) el?.click();
         return el ? { text: el.textContent, pressed: el.getAttribute("aria-pressed"), expanded: el.getAttribute("aria-expanded"), opacity: getComputedStyle(el).opacity, paddingLeft: getComputedStyle(el).paddingLeft, paddingRight: getComputedStyle(el).paddingRight, bottom: el.getBoundingClientRect().bottom, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
       }, args: [selector, click] });
@@ -84,7 +85,37 @@ test("built Deck displays and operates the favorites pane with a fixture server"
     await page.reload();
     await expect.poll(async () => (await inspect(`${favoritePane} .deck-card--post`))?.text).toContain(post.message);
     expect(favoritesRequests).toBe(0);
-    const controlsToggle = `${favoritePane} .deck-column-header [aria-expanded]`;
+    const searchToggle = `${favoritePane} .deck-pane-search-toggle`;
+    const searchInput = `${favoritePane} .deck-pane-search input`;
+    expect(await inspect(searchInput)).toBeNull();
+    await inspect(searchToggle, true);
+    await expect.poll(async () => (await inspect(searchToggle))?.expanded).toBe("true");
+    await inspect(searchInput, "focus");
+    await page.keyboard.insertText("missing-result");
+    await expect.poll(async () => (await inspect(`${favoritePane} .deck-pane-search-count`))?.text).toBe("0 / 1");
+    expect(await inspect(`${favoritePane} .deck-card--post`)).toBeNull();
+    expect((await inspect(`${favoritePane} .deck-pane-search-empty`))?.text).toContain("No matching posts");
+    await expect.poll(async () => (await inspect('.deck-column--channel .deck-card--post'))?.text).toContain(post.message);
+    expect(favoritesRequests).toBe(0);
+    await page.screenshot({ path: testInfo.outputPath("pane-search-empty.png"), fullPage: true });
+    await page.keyboard.press("Control+A");
+    await page.keyboard.insertText("Favorite");
+    await expect.poll(async () => (await inspect(`${favoritePane} .deck-pane-search-count`))?.text).toBe("1 / 1");
+    await page.screenshot({ path: testInfo.outputPath("pane-search-active.png"), fullPage: true });
+    await page.keyboard.press("Control+A");
+    await page.keyboard.insertText("@favoriteuser");
+    await expect.poll(async () => (await inspect(`${favoritePane} .deck-pane-search-count`))?.text).toBe("1 / 1");
+    await inspect(searchInput, "compose-start");
+    await page.keyboard.press("Control+A");
+    await page.keyboard.insertText("変換中");
+    expect((await inspect(`${favoritePane} .deck-pane-search-count`))?.text).toBe("1 / 1");
+    await inspect(searchInput, "compose-end");
+    await expect.poll(async () => (await inspect(`${favoritePane} .deck-pane-search-count`))?.text).toBe("0 / 1");
+    await page.keyboard.press("Escape");
+    await expect.poll(async () => (await inspect(searchToggle))?.expanded).toBe("false");
+    expect((await inspect(`${favoritePane} .deck-card--post`))?.text).toContain(post.message);
+    expect(favoritesRequests).toBe(0);
+    const controlsToggle = `${favoritePane} .deck-column-header [aria-expanded]:not(.deck-pane-search-toggle)`;
     expect((await inspect(controlsToggle))?.expanded).toBe("false");
     expect(await inspect(`${favoritePane} [aria-label="Refresh"]`)).toBeNull();
     await inspect(controlsToggle, true);

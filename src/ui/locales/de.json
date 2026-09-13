@@ -1,5 +1,12 @@
 {
   "deck": {
+    "paneSearchOpen": "Diesen Bereich durchsuchen",
+    "paneSearchPlaceholder": "Beiträge oder Autoren filtern",
+    "paneSearchHint": "Nur geladene Beiträge durchsuchen",
+    "paneSearchCount": "{{count}} von {{total}} Beiträgen",
+    "paneSearchClear": "Suche zurücksetzen",
+    "paneSearchClose": "Suche schließen",
+    "paneSearchEmpty": "Keine passenden Beiträge",
     "title": "Mattermost Deck",
     "signedInAs": "Angemeldet als",
     "usingSession": "Aktuelle Mattermost-Sitzung wird verwendet",

@@ -9,6 +9,8 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added on-demand incremental search to post panes, with local message/author filtering, match counts, highlighted excerpts, IME support, and no additional search requests.
+
 - Added a personal Favorites pane with star controls on Deck posts, independent of Mattermost saved posts and shared channel pins.
 - Persisted up to 100 favorites per server/account with bounded post snapshots, cross-tab synchronization, cache-first rendering, batched five-minute refresh, and safe handling of expired, deleted, or inaccessible posts.
 

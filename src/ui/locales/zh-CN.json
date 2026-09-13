@@ -1,5 +1,12 @@
 {
   "deck": {
+    "paneSearchOpen": "在此面板中搜索",
+    "paneSearchPlaceholder": "按帖子或作者筛选",
+    "paneSearchHint": "仅搜索已加载的帖子",
+    "paneSearchCount": "{{total}} 条中的 {{count}} 条",
+    "paneSearchClear": "清除搜索",
+    "paneSearchClose": "关闭搜索框",
+    "paneSearchEmpty": "没有匹配的帖子",
     "title": "Mattermost Deck",
     "signedInAs": "\u5df2\u767b\u5f55\u4e3a",
     "usingSession": "\u6b63\u5728\u4f7f\u7528\u5f53\u524d Mattermost \u4f1a\u8bdd",

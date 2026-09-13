@@ -1,5 +1,12 @@
 {
   "deck": {
+    "paneSearchOpen": "Пошук у цій панелі",
+    "paneSearchPlaceholder": "Фільтр за дописами або авторами",
+    "paneSearchHint": "Пошук лише в завантажених дописах",
+    "paneSearchCount": "{{count}} із {{total}} дописів",
+    "paneSearchClear": "Очистити пошук",
+    "paneSearchClose": "Закрити пошук",
+    "paneSearchEmpty": "Немає відповідних дописів",
     "title": "Mattermost Deck",
     "signedInAs": "Вхід виконано як",
     "usingSession": "Використовується поточний сеанс Mattermost",

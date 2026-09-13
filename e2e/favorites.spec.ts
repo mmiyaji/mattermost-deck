@@ -31,7 +31,7 @@ test("favorites persist, sync across tabs, use cached posts offline, and reconci
   };
   // Use Chrome's supported closed-shadow-root API in the content script world
   // so the shipped DOM and click handlers are exercised without opening it.
-  const deck = async (tabUrl: string, action: "read" | "star" | "refresh" | "remove" | "controls", pane = "favorites") => {
+  const deck = async (tabUrl: string, action: "read" | "star" | "refresh" | "remove" | "controls" | "search" | "focusSearch", pane = "favorites") => {
     return worker.evaluate(async ({ tabUrl, action, pane, marker }) => {
       const tabs = await chrome.tabs.query({});
       const tab = tabs.find(t => t.url === tabUrl);
@@ -46,14 +46,18 @@ test("favorites persist, sync across tabs, use cached posts offline, and reconci
           if (action === "star") {
             const card = Array.from(section?.querySelectorAll(".deck-post-item") ?? []).find(el => el.textContent?.includes(marker));
             (card?.querySelector(".deck-favorite-button") as HTMLElement | null)?.click();
+          } else if (action === "search") {
+            (section?.querySelector('.deck-pane-search-toggle') as HTMLElement | null)?.click();
+          } else if (action === "focusSearch") {
+            (section?.querySelector('.deck-pane-search input') as HTMLElement | null)?.focus();
           } else if (action === "controls") {
-            (section?.querySelector('.deck-column-header [aria-expanded]') as HTMLElement | null)?.click();
+            (section?.querySelector('.deck-column-header [aria-expanded]:not(.deck-pane-search-toggle)') as HTMLElement | null)?.click();
           } else if (action === "refresh") {
             (section?.querySelector('[aria-label="Refresh"]') as HTMLElement | null)?.click();
           } else if (action === "remove") {
             (section?.querySelector(".deck-favorites-unavailable button") as HTMLElement | null)?.click();
           }
-          return { text: section?.textContent ?? "", controls: section?.querySelector('.deck-column-header [aria-expanded]')?.getAttribute("aria-expanded"), count: section?.querySelectorAll(".deck-card--post").length ?? 0,
+          return { text: section?.textContent ?? "", searchOpen: section?.querySelector('.deck-pane-search-toggle')?.getAttribute("aria-expanded"), controls: section?.querySelector('.deck-column-header [aria-expanded]:not(.deck-pane-search-toggle)')?.getAttribute("aria-expanded"), count: section?.querySelectorAll(".deck-card--post").length ?? 0,
             error: root?.querySelector('[role="alert"]')?.textContent ?? "" };
         }, args: [action, pane, marker],
       });
@@ -124,6 +128,22 @@ test("favorites persist, sync across tabs, use cached posts offline, and reconci
     await expect(dismissOnboarding).toBeHidden();
     await expect(restored.locator(".modal-backdrop:visible")).toHaveCount(0);
     await restored.screenshot({ path: testInfo.outputPath("favorites.png"), fullPage: true });
+    await deck(url, "search");
+    await expect.poll(async () => (await deck(url, "read"))?.searchOpen).toBe("true");
+    await deck(url, "focusSearch");
+    await restored.keyboard.insertText("no-matching-loaded-post");
+    await expect.poll(async () => (await deck(url, "read"))?.count).toBe(0);
+    await expect.poll(async () => (await deck(url, "read", "channel"))?.text).toContain(marker);
+    await restored.keyboard.press("Control+A");
+    await restored.keyboard.insertText("edited");
+    await expect.poll(async () => (await deck(url, "read"))?.count).toBe(1);
+    await deck(url, "controls");
+    await expect.poll(async () => (await deck(url, "read"))?.controls).toBe("false");
+    await restored.screenshot({ path: testInfo.outputPath("pane-search.png"), fullPage: true });
+    await restored.keyboard.press("Escape");
+    await expect.poll(async () => (await deck(url, "read"))?.searchOpen).toBe("false");
+    await deck(url, "controls");
+    await expect.poll(async () => (await deck(url, "read"))?.controls).toBe("true");
     await api("DELETE", `/posts/${post.id}`);
     await deck(url, "refresh");
     await expect.poll(async () => (await deck(url, "read"))?.count).toBe(0);

@@ -1,5 +1,12 @@
 {
   "deck": {
+    "paneSearchOpen": "このペイン内を検索",
+    "paneSearchPlaceholder": "投稿・投稿者で絞り込む",
+    "paneSearchHint": "読み込み済みの投稿から検索",
+    "paneSearchCount": "{{total}}件中{{count}}件",
+    "paneSearchClear": "検索を解除",
+    "paneSearchClose": "検索欄を閉じる",
+    "paneSearchEmpty": "該当する投稿がありません",
     "title": "Mattermost Deck",
     "signedInAs": "\u30ed\u30b0\u30a4\u30f3\u4e2d",
     "usingSession": "\u73fe\u5728\u306e Mattermost \u30bb\u30c3\u30b7\u30e7\u30f3\u3092\u5229\u7528",
