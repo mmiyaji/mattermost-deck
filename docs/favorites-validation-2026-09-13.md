@@ -20,8 +20,18 @@
 - Existing settings/profile browser tests: 10 passed.
 - The Favorites screenshot was inspected in the light theme.
 
+## Docker integration validation
+
+After Docker Desktop was restored, Docker Engine 29.4.0 ran Mattermost Preview 9.5.11 on `127.0.0.1:8066`.
+
+- Full E2E suite: **44 passed, 3 skipped, 0 failed** in 8.6 minutes.
+- The skipped cases require explicit opt-in: long-running memory soak, seeded UI monkey, and the store-build permission smoke test.
+- `favorites.spec.ts` passed against the real server, covering persistence across browser restarts, cross-tab synchronization, cached rendering when post lookup fails, subsequent edit refresh, and removal of deleted posts.
+- Screenshot capture uses a 1920 × 1080 viewport and dismisses optional Mattermost onboarding/status prompts so both panes remain visible. The adjusted favorites scenario was rerun successfully.
+- Results: `test-results/docker-favorites-full/`; final screenshot: `test-results/favorites-docker-screen-final/favorites-favorites-persis-c3d66-econcile-edits-and-deletion/favorites.png` (local, ignored artifacts).
+
 ## Limitations
 
-`favorites.spec.ts` adds the real Mattermost integration scenario, but it could not run locally: Docker Desktop failed while initializing its inference socket. Automated cleanup of that socket was blocked by policy and was not performed. The prior v1.0.9 Docker results predate this feature and do not validate these changes. Run the new scenario and the full Docker E2E suite after restoring Docker.
+This run validates Mattermost 9.5.11. Long-running soak, monkey testing, store packaging, and other server versions were not rerun for this feature.
 
 This change is in Unreleased. The existing v1.0.9 ZIP has not been replaced or republished.

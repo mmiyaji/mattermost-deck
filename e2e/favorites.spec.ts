@@ -24,7 +24,7 @@ test("favorites persist, sync across tabs, use cached posts offline, and reconci
   let worker: Worker;
   const launch = async () => {
     context = await chromium.launchPersistentContext(profile, {
-      channel: "chromium", headless: true,
+      channel: "chromium", headless: true, viewport: { width: 1920, height: 1080 },
       args: [`--disable-extensions-except=${path.resolve("dist")}`, `--load-extension=${path.resolve("dist")}`],
     });
     worker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
@@ -111,6 +111,13 @@ test("favorites persist, sync across tabs, use cached posts offline, and reconci
     await api("PUT", `/posts/${post.id}/patch`, { message: `${marker} edited` });
     await deck(url, "refresh");
     await expect.poll(async () => (await deck(url, "read"))?.text).toContain(`${marker} edited`);
+    const keepOffline = restored.getByRole("button", { name: /No, keep it as.*Offline/i });
+    if (await keepOffline.isVisible()) await keepOffline.click();
+    await expect(keepOffline).toBeHidden();
+    const dismissOnboarding = restored.getByText(/No thanks, I.*figure it out myself/i);
+    if (await dismissOnboarding.isVisible()) await dismissOnboarding.click();
+    await expect(dismissOnboarding).toBeHidden();
+    await expect(restored.locator(".modal-backdrop:visible")).toHaveCount(0);
     await restored.screenshot({ path: testInfo.outputPath("favorites.png"), fullPage: true });
     await api("DELETE", `/posts/${post.id}`);
     await deck(url, "refresh");
