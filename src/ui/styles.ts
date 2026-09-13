@@ -2466,8 +2466,43 @@ export const railCssText = `
   }
   .deck-post-item { position: relative; list-style: none; }
   .deck-post-item > .deck-card { padding-right: 50px; }
-  .deck-favorite-button { position: absolute; top: 6px; right: 6px; font-size: 21px; }
-  .deck-shell .deck-favorite-button[aria-pressed="true"] { color: var(--deck-accent); }
+  .deck-column .deck-favorite-button {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    min-width: 28px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 16px;
+    color: var(--deck-text);
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .deck-post-item:hover .deck-favorite-button,
+  .deck-post-item:focus-within .deck-favorite-button {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .deck-column .deck-favorite-button:hover {
+    background: color-mix(in srgb, var(--deck-text) 8%, transparent);
+  }
+  .deck-column .deck-favorite-button:focus-visible {
+    outline: 2px solid var(--deck-accent);
+    outline-offset: 2px;
+  }
+  @media (hover: none), (pointer: coarse) {
+    .deck-column .deck-favorite-button {
+      min-width: 36px;
+      width: 36px;
+      height: 36px;
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
   .deck-favorites-status { margin: 8px 12px; font-size: 12px; }
   .deck-favorites-unavailable { max-height: 30%; overflow: auto; }
   .deck-favorites-error { position: fixed; bottom: 16px; right: 16px; z-index: 2147483647; max-width: min(360px, 90vw); padding: 12px; border: 1px solid currentColor; border-radius: 8px; background: var(--deck-bg); color: var(--deck-text); }
