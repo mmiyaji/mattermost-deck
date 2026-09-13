@@ -4,6 +4,7 @@ export type DeckColumnType =
   | "dmWatch"
   | "keywordWatch"
   | "search"
+  | "favorites"
   | "saved"
   | "diagnostics";
 
@@ -48,6 +49,8 @@ export function getColumnTitle(type: DeckColumnType): string {
       return "Search";
     case "search":
       return "Search";
+    case "favorites":
+      return "Favorites";
     case "saved":
       return "Saved";
     case "diagnostics":

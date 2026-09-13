@@ -25,6 +25,7 @@ export function isDeckColumn(value: unknown): value is DeckColumn {
       candidate.type === "dmWatch" ||
       candidate.type === "keywordWatch" ||
       candidate.type === "search" ||
+      candidate.type === "favorites" ||
       candidate.type === "saved" ||
       candidate.type === "diagnostics") &&
     (candidate.teamId === undefined || typeof candidate.teamId === "string") &&

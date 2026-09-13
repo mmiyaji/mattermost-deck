@@ -137,6 +137,7 @@
               <ul>
                 <li>MattermostサーバーURLと任意のTeam Slug</li>
                 <li>テーマ、言語、ポーリング間隔、レイアウト、保存済みViews、プロファイルなどの表示・動作設定</li>
+                <li>個人用お気に入りの投稿ID、登録日時、本文の一部、投稿者・チャンネル・添付ファイルのIDと投稿日時。サーバーとアカウントごとに最大100件を拡張機能のローカル保存領域に保存します。本文キャッシュは最終確認から7日を超えると次回読み込み時に破棄し、登録情報は解除するまで保持します。取得に成功した際に削除・閲覧不可と判明した投稿の本文も破棄します。解除すると該当のお気に入りとキャッシュを削除します。</li>
                 <li>PATを永続保存するかどうかの任意設定</li>
                 <li>トレース記録を有効にした場合の件数制限付き診断ログ。24時間を超えた項目は、次に拡張機能が動作、記録、または診断画面を開いたときに削除します。</li>
               </ul>
@@ -266,6 +267,7 @@
               <ul>
                 <li>Mattermost server URL and optional Team Slug</li>
                 <li>Theme, language, polling interval, layout, saved Views, profiles, and other display or behavior settings</li>
+                <li>Personal favorite post IDs, saved timestamps, bounded message text, author/channel/attachment IDs, and post timestamps. Up to 100 entries per server/account are kept in extension local storage. Cached bodies older than seven days since verification are discarded on the next load, while membership remains until removed. Bodies are also discarded when a successful fetch identifies a deleted or inaccessible post. Removing a favorite deletes its entry and cached body.</li>
                 <li>The optional preference for persistent PAT storage</li>
                 <li>Bounded diagnostic trace logs; entries older than 24 hours are pruned the next time the extension runs, writes a trace, or opens diagnostics</li>
               </ul>

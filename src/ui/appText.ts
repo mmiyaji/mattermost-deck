@@ -17,6 +17,7 @@ export function useAppText() {
     addChannelWatch: t("deck.addChannelWatch"),
     addDmWatch: t("deck.addDmWatch"),
     addSearch: t("deck.addSearch"),
+    addFavorites: t("deck.addFavorites"),
     addSaved: t("deck.addSaved"),
     addDiagnostics: t("deck.addDiagnostics"),
     viewsLabel: t("deck.viewsLabel"),

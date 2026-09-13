@@ -41,6 +41,7 @@ Dark theme:
   - `search`
   - `saved`
   - `diagnostics`
+- Personal Favorites pane with add/remove star controls on Deck posts, independent of Mattermost saved posts and shared pins. Keeps up to 100 favorites per server/account in this browser, displays cached posts first, and refreshes in a batch every five minutes while the pane is open. Includes manual refresh and pause. Cached bodies older than seven days are discarded on the next load; favorite membership remains until removed.
 - Saved pane sets from the Views menu
 - Layout export and import as JSON
 - Optional realtime updates with a Mattermost PAT

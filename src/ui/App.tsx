@@ -2,6 +2,8 @@ import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, us
 import { createPortal, flushSync } from "react-dom";
 import { ShadowRootContext } from "./ShadowRootContext";
 import i18n from "./i18n";
+import { FavoriteButton, FavoritesProvider, useFavorites } from "./FavoritesContext";
+import { FAVORITES_REFRESH_MS } from "./favorites";
 import {
   checkApiHealth,
   fetchPostFileInfos,
@@ -840,6 +842,7 @@ function getColumnColorKey(type: DeckColumnType): ColumnColorKey {
       return "keywordWatch";
     case "search":
       return "search";
+    case "favorites":
     case "saved":
       return "saved";
     case "diagnostics":
@@ -1045,6 +1048,7 @@ function getColumnGlyph(type: DeckColumnType): string {
     case "keywordWatch":
     case "search":
       return "search";
+    case "favorites":
     case "saved":
       return "saved";
     case "diagnostics":
@@ -1186,6 +1190,8 @@ function ColumnTypeIcon({ type }: { type: DeckColumnType }): React.JSX.Element {
           <path d="M10.2 10.2L13.4 13.4" />
         </svg>
       );
+    case "favorites":
+      return <svg className="deck-type-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m8 1.5 2 4.2 4.5.6-3.2 3.2.8 4.5L8 11.9 3.9 14l.8-4.5L1.5 6.3l4.5-.6Z" /></svg>;
     case "saved":
       return (
         <svg className="deck-type-icon" viewBox="0 0 16 16" aria-hidden="true">
@@ -4151,7 +4157,7 @@ function PostListItem({
   deferRemoteContent: boolean;
   viewport: HTMLDivElement | null;
 }): React.JSX.Element {
-  const [node, setNode] = useState<HTMLLIElement | null>(null);
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
   const isVisible = useElementVisibility(node, { root: viewport, rootMargin: "320px 0px", defaultVisible: true });
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragDetectedRef = useRef(false);
@@ -4174,7 +4180,8 @@ function PostListItem({
   };
 
   return (
-    <li
+    <li className="deck-post-item">
+    <div
       ref={setNode}
       key={entry.key}
       role={canOpenPost ? "button" : undefined}
@@ -4287,6 +4294,8 @@ function PostListItem({
       {!deferRemoteContent && post.file_ids && post.file_ids.length > 0 ? (
         <PostFileAttachments fileIds={post.file_ids} postId={post.id} showImagePreviews={showImagePreviews} viewport={viewport} />
       ) : null}
+    </div>
+    <FavoriteButton post={post} />
     </li>
   );
 }
@@ -8916,6 +8925,75 @@ function SearchLikeColumn({
   );
 }
 
+function FavoritesColumn(props: React.ComponentProps<typeof SavedPostsColumn> & { teams: MattermostTeam[] }): React.JSX.Element {
+  const favorites = useFavorites()!;
+  const text = useAppText();
+  const { column, userDirectory, ensureUsers, onOpenPost, compactMode, postClickAction,
+    showImagePreviews, language, currentUserId, columnColors } = props;
+  const posts = useMemo(() => favorites.entries.flatMap(f => f.post ? [f.post] : [])
+    .sort((a, b) => b.create_at - a.create_at), [favorites.entries]);
+  const unavailable = favorites.entries.filter(f => !f.post);
+  const [channels, setChannels] = useState<Record<string, MattermostChannel>>({});
+  const [paused, setPaused] = useState(false);
+  useEffect(() => { void ensureUsers(posts.map(p => p.user_id)).catch(() => undefined); }, [ensureUsers, posts]);
+  useEffect(() => {
+    const missing = [...new Set(posts.map(p => p.channel_id))].filter(id => !channels[id]);
+    if (!missing.length) return;
+    let cancelled = false;
+    void getChannelsByIds(missing).then(result => {
+      if (!cancelled) setChannels(current => ({ ...current, ...Object.fromEntries(result.map(c => [c.id, c])) }));
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [posts, channels]);
+  useEffect(() => {
+    if (paused) return;
+    void favorites.refresh();
+    const timer = setInterval(() => { void favorites.refresh(); }, FAVORITES_REFRESH_MS);
+    const resume = () => { void favorites.refresh(); };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("online", resume);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("online", resume);
+    };
+  }, [favorites.refresh, paused, props.reconnectNonce]);
+  useEffect(() => {
+    if (props.deletedPostIds.some(id => favorites.entries.some(f => f.id === id && f.post))) void favorites.refresh(true);
+  }, [props.deletedPostIds, favorites.entries, favorites.refresh]);
+  return <section className={`deck-column deck-column--favorites${props.isFocusedPane ? " deck-column--pane-focused" : ""}`}
+    style={getColumnAccentStyle("favorites", columnColors)}>
+    <header className="deck-column-header">
+      <div className="deck-column-heading"><h2><span className="deck-title-with-icon"><ColumnTypeBadge type="favorites" />{text.addFavorites}</span></h2>
+        <p>{i18n.t("deck.favoritesDescription")}</p></div>
+    </header>
+    <div className="deck-inline-actions">
+      <button type="button" className="deck-icon-button deck-icon-button--ghost" aria-label={text.moveLeft} title={text.moveLeft} disabled={!props.canMoveLeft} onClick={() => props.onMove(column.id, "left")}><ArrowIcon direction="left" /></button>
+      <button type="button" className="deck-icon-button deck-icon-button--ghost" aria-label={text.moveRight} title={text.moveRight} disabled={!props.canMoveRight} onClick={() => props.onMove(column.id, "right")}><ArrowIcon direction="right" /></button>
+      <button type="button" className="deck-icon-button deck-icon-button--ghost" aria-label={text.refresh} title={text.refresh} disabled={!favorites.ready || favorites.refreshing} onClick={() => void favorites.refresh(true)}><RefreshIcon spinning={favorites.refreshing} /></button>
+      <button type="button" className="deck-icon-button deck-icon-button--ghost" aria-label={paused ? text.resumePolling : text.pausePolling} title={paused ? text.resumePolling : text.pausePolling} onClick={() => setPaused(v => !v)}>{paused ? <PlayIcon /> : <PauseIcon />}</button>
+      <button type="button" className="deck-icon-button deck-icon-button--ghost" aria-label={props.isFocusedPane ? text.exitFocus : text.focusPane} title={props.isFocusedPane ? text.exitFocus : text.focusPane} onClick={() => props.onToggleFocus(column.id)}><FocusIcon active={props.isFocusedPane} /></button>
+      <button type="button" className="deck-icon-button deck-icon-button--ghost" aria-label={text.removeColumn} title={text.removeColumn} onClick={() => props.onRemove(column.id)}>×</button>
+    </div>
+    <p className="deck-favorites-status" role="status">{favorites.refreshing ? text.loading : i18n.t("deck.favoritesCacheHint")}</p>
+    {!favorites.ready ? <p>{text.loading}</p> : favorites.entries.length === 0 ? <article className="deck-card"><p>{i18n.t("deck.favoritesEmpty")}</p></article> : null}
+    {unavailable.length ? <div className="deck-favorites-unavailable">{unavailable.map(f => <article className="deck-card" key={f.id}>
+      <p>{i18n.t("deck.favoritesUnavailable")}</p>
+      <button type="button" className="deck-button" onClick={() => void favorites.remove(f.id)}>{i18n.t("deck.favoriteRemove")}</button>
+    </article>)}</div> : null}
+    {posts.length ? <PostList posts={posts} userDirectory={userDirectory} compactMode={compactMode}
+      onOpenPost={post => onOpenPost(post, {
+        teamName: props.teams.find(t => t.id === channels[post.channel_id]?.team_id)?.name,
+        // Favorites span channels: always use a permalink rather than the
+        // currently open channel's thread route.
+        channelName: "",
+      })} postClickAction={postClickAction} showImagePreviews={showImagePreviews}
+      renderMeta={post => channels[post.channel_id]?.display_name ?? null}
+      language={language} currentUserId={currentUserId} reversedPostOrder={props.reversedPostOrder}
+      highlightTerms={resolveHighlightTerms(props.highlightKeywords, props.currentUsername)} suppressNewPostNotifications /> : null}
+  </section>;
+}
+
 function SavedPostsColumn({
   column,
   currentUsername,
@@ -9863,6 +9941,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       case "keywordWatch":
       case "search":
         return text.addSearch;
+      case "favorites":
+        return text.addFavorites;
       case "saved":
         return text.addSaved;
       case "diagnostics":
@@ -9874,6 +9954,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     text.addDmWatch,
     text.addMentions,
     text.addSaved,
+    text.addFavorites,
     text.addSearch,
   ]);
 
@@ -11358,6 +11439,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
   return (
     <ShadowRootContext.Provider value={shadowRoot}>
+    <FavoritesProvider key={`${getMattermostUrl("/")}:${state.userId ?? ""}`} server={getMattermostUrl("/")} userId={state.userId}>
     <aside
       ref={shellRef}
       className={`deck-shell${effectiveDrawerOpen ? "" : " deck-shell--collapsed"}`}
@@ -11616,6 +11698,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                     <button type="button" className="deck-add-item" onClick={() => handleAddColumn("search")}>
                       <ColumnMenuLabel type="search" label={text.addSearch} />
                     </button>
+                    <button type="button" className="deck-add-item" onClick={() => handleAddColumn("favorites")}>
+                      <ColumnMenuLabel type="favorites" label={text.addFavorites} />
+                    </button>
                     <button type="button" className="deck-add-item" onClick={() => handleAddColumn("saved")}>
                       <ColumnMenuLabel type="saved" label={text.addSaved} />
                     </button>
@@ -11691,6 +11776,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         </button>
                         <button type="button" className="deck-add-item" onClick={() => handleAddColumn("search")}>
                           <ColumnMenuLabel type="search" label={text.addSearch} />
+                        </button>
+                        <button type="button" className="deck-add-item" onClick={() => handleAddColumn("favorites")}>
+                          <ColumnMenuLabel type="favorites" label={text.addFavorites} />
                         </button>
                         <button type="button" className="deck-add-item" onClick={() => handleAddColumn("saved")}>
                           <ColumnMenuLabel type="saved" label={text.addSaved} />
@@ -12012,6 +12100,36 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                         />
                       </div>
                     );
+                  case "favorites":
+                    return (
+                      <div key={column.id} ref={setColumnRef} className={motionClassName}>
+                        <FavoritesColumn
+                          teams={state.teams}
+                          column={column}
+                          currentUsername={state.username}
+                          currentUserId={state.userId}
+                          userDirectory={userDirectory}
+                          ensureUsers={ensureUsers}
+                          deletedPostIds={deletedPostIds}
+                          pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
+                          reconnectNonce={reconnectNonce}
+                          canMoveLeft={index > 0}
+                          canMoveRight={index < allColumns.length - 1}
+                          onMove={moveColumn}
+                          onRemove={removeColumn}
+                          onOpenPost={handleOpenPost}
+                          postClickAction={deckSettings.postClickAction}
+                          compactMode={deckSettings.compactMode}
+                          columnColors={deckSettings.columnColors}
+                          showImagePreviews={deckSettings.showImagePreviews}
+                          language={deckSettings.language}
+                          reversedPostOrder={deckSettings.reversedPostOrder}
+                          highlightKeywords={deckSettings.highlightKeywords}
+                          isFocusedPane={isFocusedPane}
+                          onToggleFocus={(id) => setFocusedColumnId((current) => (current === id ? null : id))}
+                        />
+                      </div>
+                    );
                   case "saved":
                     return (
                       <div key={column.id} ref={setColumnRef} className={motionClassName}>
@@ -12117,6 +12235,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
               <button type="button" className="deck-add-item" onClick={() => handleAddColumn("search")}>
                 <ColumnMenuLabel type="search" label={text.addSearch} />
               </button>
+              <button type="button" className="deck-add-item" onClick={() => handleAddColumn("favorites")}>
+                <ColumnMenuLabel type="favorites" label={text.addFavorites} />
+              </button>
               <button type="button" className="deck-add-item" onClick={() => handleAddColumn("saved")}>
                 <ColumnMenuLabel type="saved" label={text.addSaved} />
               </button>
@@ -12128,6 +12249,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         </div>
       )}
     </aside>
+    </FavoritesProvider>
     </ShadowRootContext.Provider>
   );
 }
