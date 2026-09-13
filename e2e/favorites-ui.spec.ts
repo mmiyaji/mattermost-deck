@@ -60,7 +60,7 @@ test("built Deck displays and operates the favorites pane with a fixture server"
         const el = root?.querySelector(selector) as HTMLElement | null;
         if (click === "focus") el?.focus();
         else if (click) el?.click();
-        return el ? { text: el.textContent, pressed: el.getAttribute("aria-pressed"), expanded: el.getAttribute("aria-expanded"), opacity: getComputedStyle(el).opacity, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
+        return el ? { text: el.textContent, pressed: el.getAttribute("aria-pressed"), expanded: el.getAttribute("aria-expanded"), opacity: getComputedStyle(el).opacity, paddingLeft: getComputedStyle(el).paddingLeft, paddingRight: getComputedStyle(el).paddingRight, bottom: el.getBoundingClientRect().bottom, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
       }, args: [selector, click] });
       return result.result;
     }, { origin, selector, click });
@@ -102,7 +102,11 @@ test("built Deck displays and operates the favorites pane with a fixture server"
     expect(favoritesRequests).toBe(1);
     const author = await inspect(`${favoritePane} .deck-card-author`);
     const star = await inspect(`${favoritePane} .deck-favorite-button`);
-    expect(author!.right).toBeLessThan(star!.left);
+    const favoriteCard = await inspect(`${favoritePane} .deck-card--post`);
+    expect(favoriteCard!.paddingRight).toBe(favoriteCard!.paddingLeft);
+    expect(favoriteCard!.right - author!.right).toBeLessThan(20);
+    expect(favoriteCard!.bottom - star!.bottom).toBeCloseTo(6, 0);
+    expect(favoriteCard!.right - star!.right).toBeCloseTo(6, 0);
     expect(star!.opacity).toBe("0");
     await page.screenshot({ path: testInfo.outputPath("favorites-pane.png"), fullPage: true });
     await page.mouse.move(star!.left + 14, star!.top + 14);

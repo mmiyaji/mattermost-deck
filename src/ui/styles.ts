@@ -2465,10 +2465,9 @@ export const railCssText = `
     }
   }
   .deck-post-item { position: relative; list-style: none; }
-  .deck-post-item > .deck-card { padding-right: 50px; }
   .deck-column .deck-favorite-button {
     position: absolute;
-    top: 6px;
+    bottom: 6px;
     right: 6px;
     min-width: 28px;
     width: 28px;
@@ -2476,7 +2475,7 @@ export const railCssText = `
     padding: 0;
     font-size: 16px;
     color: var(--deck-text);
-    background: transparent;
+    background: var(--deck-panel);
     border-color: transparent;
     box-shadow: none;
     opacity: 0;
@@ -2488,13 +2487,14 @@ export const railCssText = `
     pointer-events: auto;
   }
   .deck-column .deck-favorite-button:hover {
-    background: color-mix(in srgb, var(--deck-text) 8%, transparent);
+    background: color-mix(in srgb, var(--deck-text) 8%, var(--deck-panel));
   }
   .deck-column .deck-favorite-button:focus-visible {
     outline: 2px solid var(--deck-accent);
     outline-offset: 2px;
   }
   @media (hover: none), (pointer: coarse) {
+    .deck-post-item > .deck-card { padding-bottom: 44px; }
     .deck-column .deck-favorite-button {
       min-width: 36px;
       width: 36px;
