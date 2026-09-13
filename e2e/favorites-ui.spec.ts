@@ -60,7 +60,7 @@ test("built Deck displays and operates the favorites pane with a fixture server"
         const el = root?.querySelector(selector) as HTMLElement | null;
         if (click === "focus") el?.focus();
         else if (click) el?.click();
-        return el ? { text: el.textContent, pressed: el.getAttribute("aria-pressed"), opacity: getComputedStyle(el).opacity, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
+        return el ? { text: el.textContent, pressed: el.getAttribute("aria-pressed"), expanded: el.getAttribute("aria-expanded"), opacity: getComputedStyle(el).opacity, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
       }, args: [selector, click] });
       return result.result;
     }, { origin, selector, click });
@@ -84,6 +84,18 @@ test("built Deck displays and operates the favorites pane with a fixture server"
     await page.reload();
     await expect.poll(async () => (await inspect(`${favoritePane} .deck-card--post`))?.text).toContain(post.message);
     expect(favoritesRequests).toBe(0);
+    const controlsToggle = `${favoritePane} .deck-column-header [aria-expanded]`;
+    expect((await inspect(controlsToggle))?.expanded).toBe("false");
+    expect(await inspect(`${favoritePane} [aria-label="Refresh"]`)).toBeNull();
+    await inspect(controlsToggle, true);
+    await expect.poll(async () => (await inspect(controlsToggle))?.expanded).toBe("true");
+    expect(await inspect(`${favoritePane} [aria-label="Refresh"]`)).not.toBeNull();
+    await inspect(controlsToggle, true);
+    await expect.poll(async () => (await inspect(controlsToggle))?.expanded).toBe("false");
+    expect((await inspect(`${favoritePane} .deck-card--post`))?.text).toContain(post.message);
+    expect(favoritesRequests).toBe(0);
+    await inspect(controlsToggle, true);
+    await expect.poll(async () => (await inspect(controlsToggle))?.expanded).toBe("true");
     post = { ...post, message: "Favorite UI fixture edited" };
     await inspect(`${favoritePane} [aria-label="Refresh"]`, true);
     await expect.poll(async () => (await inspect(`${favoritePane} .deck-card--post`))?.text).toContain("edited");

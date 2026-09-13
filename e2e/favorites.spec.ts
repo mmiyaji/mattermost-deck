@@ -31,7 +31,7 @@ test("favorites persist, sync across tabs, use cached posts offline, and reconci
   };
   // Use Chrome's supported closed-shadow-root API in the content script world
   // so the shipped DOM and click handlers are exercised without opening it.
-  const deck = async (tabUrl: string, action: "read" | "star" | "refresh" | "remove", pane = "favorites") => {
+  const deck = async (tabUrl: string, action: "read" | "star" | "refresh" | "remove" | "controls", pane = "favorites") => {
     return worker.evaluate(async ({ tabUrl, action, pane, marker }) => {
       const tabs = await chrome.tabs.query({});
       const tab = tabs.find(t => t.url === tabUrl);
@@ -46,12 +46,14 @@ test("favorites persist, sync across tabs, use cached posts offline, and reconci
           if (action === "star") {
             const card = Array.from(section?.querySelectorAll(".deck-post-item") ?? []).find(el => el.textContent?.includes(marker));
             (card?.querySelector(".deck-favorite-button") as HTMLElement | null)?.click();
+          } else if (action === "controls") {
+            (section?.querySelector('.deck-column-header [aria-expanded]') as HTMLElement | null)?.click();
           } else if (action === "refresh") {
             (section?.querySelector('[aria-label="Refresh"]') as HTMLElement | null)?.click();
           } else if (action === "remove") {
             (section?.querySelector(".deck-favorites-unavailable button") as HTMLElement | null)?.click();
           }
-          return { text: section?.textContent ?? "", count: section?.querySelectorAll(".deck-card--post").length ?? 0,
+          return { text: section?.textContent ?? "", controls: section?.querySelector('.deck-column-header [aria-expanded]')?.getAttribute("aria-expanded"), count: section?.querySelectorAll(".deck-card--post").length ?? 0,
             error: root?.querySelector('[role="alert"]')?.textContent ?? "" };
         }, args: [action, pane, marker],
       });
@@ -108,6 +110,9 @@ test("favorites persist, sync across tabs, use cached posts offline, and reconci
     await expect.poll(async () => (await deck(url, "read"))?.text).toContain(marker);
     await expect.poll(async () => (await deck(url, "read"))?.error).not.toBe("");
     await restored.unroute("**/api/v4/posts/ids");
+    expect((await deck(url, "read"))?.controls).toBe("false");
+    await deck(url, "controls");
+    await expect.poll(async () => (await deck(url, "read"))?.controls).toBe("true");
     await api("PUT", `/posts/${post.id}/patch`, { message: `${marker} edited` });
     await deck(url, "refresh");
     await expect.poll(async () => (await deck(url, "read"))?.text).toContain(`${marker} edited`);

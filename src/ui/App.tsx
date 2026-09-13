@@ -8935,6 +8935,8 @@ function FavoritesColumn(props: React.ComponentProps<typeof SavedPostsColumn> & 
   const unavailable = favorites.entries.filter(f => !f.post);
   const [channels, setChannels] = useState<Record<string, MattermostChannel>>({});
   const [paused, setPaused] = useState(false);
+  const [showControls, setShowControls] = useState(false);
+  const controlsId = `mattermost-deck-favorites-controls-${column.id}`;
   useEffect(() => { void ensureUsers(posts.map(p => p.user_id)).catch(() => undefined); }, [ensureUsers, posts]);
   useEffect(() => {
     const missing = [...new Set(posts.map(p => p.channel_id))].filter(id => !channels[id]);
@@ -8966,7 +8968,21 @@ function FavoritesColumn(props: React.ComponentProps<typeof SavedPostsColumn> & 
     <header className="deck-column-header">
       <div className="deck-column-heading"><h2><span className="deck-title-with-icon"><ColumnTypeBadge type="favorites" />{text.addFavorites}</span></h2>
         <p>{i18n.t("deck.favoritesDescription")}</p></div>
+      <div className="deck-column-actions">
+        {props.isFocusedPane ? <button type="button"
+          className="deck-icon-button deck-icon-button--ghost deck-icon-button--active"
+          title={text.exitFocus} aria-label={text.exitFocus}
+          onClick={() => props.onToggleFocus(column.id)}><FocusIcon active /></button> : null}
+        <button type="button" className="deck-icon-button deck-icon-button--ghost"
+          onClick={() => setShowControls(current => !current)}
+          title={showControls ? text.collapseControls(text.addFavorites) : text.expandControls(text.addFavorites)}
+          aria-label={showControls ? text.collapseControls(text.addFavorites) : text.expandControls(text.addFavorites)}
+          aria-expanded={showControls} aria-controls={controlsId}>
+          <ChevronIcon expanded={showControls} />
+        </button>
+      </div>
     </header>
+    {showControls ? <div id={controlsId} className="deck-stack deck-stack--controls">
     <div className="deck-inline-actions">
       <button type="button" className="deck-icon-button deck-icon-button--ghost" aria-label={text.moveLeft} title={text.moveLeft} disabled={!props.canMoveLeft} onClick={() => props.onMove(column.id, "left")}><ArrowIcon direction="left" /></button>
       <button type="button" className="deck-icon-button deck-icon-button--ghost" aria-label={text.moveRight} title={text.moveRight} disabled={!props.canMoveRight} onClick={() => props.onMove(column.id, "right")}><ArrowIcon direction="right" /></button>
@@ -8976,6 +8992,7 @@ function FavoritesColumn(props: React.ComponentProps<typeof SavedPostsColumn> & 
       <button type="button" className="deck-icon-button deck-icon-button--ghost" aria-label={text.removeColumn} title={text.removeColumn} onClick={() => props.onRemove(column.id)}>×</button>
     </div>
     <p className="deck-favorites-status" role="status">{favorites.refreshing ? text.loading : i18n.t("deck.favoritesCacheHint")}</p>
+    </div> : null}
     {!favorites.ready ? <p>{text.loading}</p> : favorites.entries.length === 0 ? <article className="deck-card"><p>{i18n.t("deck.favoritesEmpty")}</p></article> : null}
     {unavailable.length ? <div className="deck-favorites-unavailable">{unavailable.map(f => <article className="deck-card" key={f.id}>
       <p>{i18n.t("deck.favoritesUnavailable")}</p>
