@@ -91,7 +91,7 @@ test("built Deck displays and operates the favorites pane with a fixture server"
     await inspect(searchToggle, true);
     await expect.poll(async () => (await inspect(searchToggle))?.expanded).toBe("true");
     await inspect(searchInput, "focus");
-    await page.keyboard.insertText("missing-result");
+    await page.keyboard.type("missing-result");
     await expect.poll(async () => (await inspect(`${favoritePane} .deck-pane-search-count`))?.text).toBe("0 / 1");
     expect(await inspect(`${favoritePane} .deck-card--post`)).toBeNull();
     expect((await inspect(`${favoritePane} .deck-pane-search-empty`))?.text).toContain("No matching posts");
@@ -99,11 +99,11 @@ test("built Deck displays and operates the favorites pane with a fixture server"
     expect(favoritesRequests).toBe(0);
     await page.screenshot({ path: testInfo.outputPath("pane-search-empty.png"), fullPage: true });
     await page.keyboard.press("Control+A");
-    await page.keyboard.insertText("Favorite");
+    await page.keyboard.type("Favorite");
     await expect.poll(async () => (await inspect(`${favoritePane} .deck-pane-search-count`))?.text).toBe("1 / 1");
     await page.screenshot({ path: testInfo.outputPath("pane-search-active.png"), fullPage: true });
     await page.keyboard.press("Control+A");
-    await page.keyboard.insertText("@favoriteuser");
+    await page.keyboard.type("@favoriteuser");
     await expect.poll(async () => (await inspect(`${favoritePane} .deck-pane-search-count`))?.text).toBe("1 / 1");
     await inspect(searchInput, "compose-start");
     await page.keyboard.press("Control+A");

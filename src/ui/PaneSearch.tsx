@@ -35,7 +35,13 @@ export function PaneSearchToggle({ search, icon }: { search: PaneSearchState; ic
 
 export function PaneSearchField({ search, icon, closeIcon }: { search: PaneSearchState; icon: React.ReactNode; closeIcon: React.ReactNode }) {
   if (!search.open) return null;
-  return <div id={search.id} className="deck-pane-search">
+  // Outside the closed shadow root, Mattermost sees the host rather than our
+  // input and may redirect typing to its composer. Keep key events local while
+  // retaining their native editing, focus navigation, and IME behavior.
+  return <div id={search.id} className="deck-pane-search"
+    onKeyDown={event => event.stopPropagation()}
+    onKeyUp={event => event.stopPropagation()}
+    onKeyPress={event => event.stopPropagation()}>
     <div className="deck-pane-search-row">
       {icon}
       <input ref={search.inputRef} autoFocus type="text" value={search.draft} maxLength={200} autoComplete="off" spellCheck={false}

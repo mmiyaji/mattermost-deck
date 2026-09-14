@@ -57,7 +57,7 @@ test("favorites persist, sync across tabs, use cached posts offline, and reconci
           } else if (action === "remove") {
             (section?.querySelector(".deck-favorites-unavailable button") as HTMLElement | null)?.click();
           }
-          return { text: section?.textContent ?? "", searchOpen: section?.querySelector('.deck-pane-search-toggle')?.getAttribute("aria-expanded"), controls: section?.querySelector('.deck-column-header [aria-expanded]:not(.deck-pane-search-toggle)')?.getAttribute("aria-expanded"), count: section?.querySelectorAll(".deck-card--post").length ?? 0,
+          return { text: section?.textContent ?? "", searchValue: (section?.querySelector(".deck-pane-search input") as HTMLInputElement | null)?.value, searchOpen: section?.querySelector('.deck-pane-search-toggle')?.getAttribute("aria-expanded"), controls: section?.querySelector('.deck-column-header [aria-expanded]:not(.deck-pane-search-toggle)')?.getAttribute("aria-expanded"), count: section?.querySelectorAll(".deck-card--post").length ?? 0,
             error: root?.querySelector('[role="alert"]')?.textContent ?? "" };
         }, args: [action, pane, marker],
       });
@@ -131,11 +131,19 @@ test("favorites persist, sync across tabs, use cached posts offline, and reconci
     await deck(url, "search");
     await expect.poll(async () => (await deck(url, "read"))?.searchOpen).toBe("true");
     await deck(url, "focusSearch");
-    await restored.keyboard.insertText("no-matching-loaded-post");
+    const composerValues = () => restored.locator("textarea").evaluateAll(elements => elements.map(el => el.value));
+    const originalComposerValues = await composerValues();
+    expect(originalComposerValues.length).toBeGreaterThan(0);
+    await restored.keyboard.type("no-matching-loaded-post");
+    await expect.poll(async () => (await deck(url, "read"))?.searchValue).toBe("no-matching-loaded-post");
+    expect(await composerValues()).toEqual(originalComposerValues);
     await expect.poll(async () => (await deck(url, "read"))?.count).toBe(0);
     await expect.poll(async () => (await deck(url, "read", "channel"))?.text).toContain(marker);
     await restored.keyboard.press("Control+A");
-    await restored.keyboard.insertText("edited");
+    await restored.keyboard.type("edited");
+    await expect.poll(async () => (await deck(url, "read"))?.searchValue).toBe("edited");
+    await restored.keyboard.press("Enter");
+    expect(await composerValues()).toEqual(originalComposerValues);
     await expect.poll(async () => (await deck(url, "read"))?.count).toBe(1);
     await deck(url, "controls");
     await expect.poll(async () => (await deck(url, "read"))?.controls).toBe("false");

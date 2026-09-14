@@ -19,6 +19,10 @@
 
 ## Artifacts and limits
 
+### Keyboard isolation follow-up
+
+Manual use exposed a gap in the original tests: `keyboard.insertText` did not emit the keyboard events that Mattermost's global composer handler consumes. Switching the real-server test to `keyboard.type` reproduced input being redirected away from Deck. Search now stops keydown, keypress, and keyup propagation at its boundary without preventing normal editing or IME defaults. Regression checks assert the complete search value and unchanged Mattermost textarea values, including Ctrl+A and Enter. Updated fixture and Docker scenarios pass; results are in `test-results/search-keyboard-final/`.
+
 - Full run: `test-results/pane-search-full/`
 - Real-server/IME/empty-state captures: `test-results/pane-search-final/`
 - Final author-search UI run: `test-results/pane-search-author-final/`
