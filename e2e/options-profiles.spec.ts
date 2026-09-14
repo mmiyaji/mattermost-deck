@@ -479,3 +479,37 @@ test("narrow navigation stays accessible and PWA launch failures remain visible"
     await fs.rm(userDataDir, { recursive: true, force: true });
   }
 });
+
+test("1.1.0 release notes describe favorites, search, and keyboard isolation in all languages", async () => {
+  const extensionPath = path.resolve("./dist");
+  const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-release110-"));
+  const context = await chromium.launchPersistentContext(userDataDir, {
+    channel: "chromium", headless: true, viewport: { width: 640, height: 800 },
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  try {
+    const sw = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
+    const page = await context.newPage();
+    for (const language of ["ja", "en", "de", "es", "fr", "ko", "ru", "uk", "zh-CN"]) {
+      const resource = JSON.parse(await fs.readFile(path.resolve(`src/ui/locales/${language}.json`), "utf8"));
+      await sw.evaluate(async language => {
+        await chrome.storage.local.set({
+          "mattermostDeck.language.v1": language,
+          "mattermostDeck.releaseNotice.v1": { version: "1.1.0", previousVersion: "1.0.9", seen: false },
+        });
+      }, language);
+      await page.goto(`chrome-extension://${new URL(sw.url()).host}/options.html`);
+      const banner = page.locator(".options-release-banner");
+      await expect(banner).toContainText("v1.1.0");
+      await banner.locator(".options-release-banner-actions button").first().click();
+      const dialog = page.getByRole("dialog", { name: "v1.1.0" });
+      await expect(dialog).toBeVisible();
+      for (const key of ["releaseNote110Favorites", "releaseNote110Search", "releaseNote110Typing"]) {
+        await expect(dialog).toContainText(resource.options[key]);
+      }
+    }
+  } finally {
+    await context.close();
+    await fs.rm(userDataDir, { recursive: true, force: true });
+  }
+});

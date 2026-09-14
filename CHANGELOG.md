@@ -7,12 +7,22 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-14
+
 ### Added
 
 - Added on-demand incremental search to post panes, with local message/author filtering, match counts, highlighted excerpts, IME support, and no additional search requests.
 
 - Added a personal Favorites pane with star controls on Deck posts, independent of Mattermost saved posts and shared channel pins.
 - Persisted up to 100 favorites per server/account with bounded post snapshots, cross-tab synchronization, cache-first rendering, batched five-minute refresh, and safe handling of expired, deleted, or inaccessible posts.
+
+### Changed
+
+- Kept favorite controls subtle on hover and keyboard focus, moved them to the post bottom corner, and made Favorites pane controls collapsible.
+
+### Fixed
+
+- Isolated pane-search keyboard events so Mattermost does not redirect typing to its post composer.
 
 ## [1.0.9] - 2026-09-11
 
