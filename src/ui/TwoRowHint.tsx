@@ -20,10 +20,11 @@ export function TwoRowHint({ mode, onTry }: { mode: "row" | "twoRows"; onTry: ()
   useEffect(() => { if (mode === "twoRows" && dismissed === false) dismiss(); }, [mode, dismissed]);
   if (dismissed !== false || mode === "twoRows") return null;
   return <aside className="deck-layout-tip" aria-label={i18n.t("deck.tryTwoRows")}>
+    <span className="deck-layout-tip-preview" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="3" width="20" height="18" rx="3"/><path d="M2 12h20M11 3v9M15 12v9"/></svg></span>
+    <span className="deck-layout-tip-copy"><strong>{i18n.t("deck.layoutTwoRows")}</strong><small>{i18n.t("deck.tryTwoRowsHelp")}</small></span>
     <button type="button" className="deck-layout-tip-try" title={i18n.t("deck.tryTwoRowsHelp")}
       onClick={() => { dismiss(); onTry(); }}>
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><rect x="2" y="2" width="12" height="5" rx="1"/><rect x="2" y="9" width="12" height="5" rx="1"/></svg>
-      <span>{i18n.t("deck.tryTwoRows")}</span>
+      <span>{i18n.t("deck.tryTwoRows")}</span><span aria-hidden="true">→</span>
     </button>
     <button type="button" className="deck-layout-tip-dismiss" aria-label={i18n.t("deck.dismissTwoRowsHint")}
       title={i18n.t("deck.dismissTwoRowsHint")} onClick={dismiss}>×</button>

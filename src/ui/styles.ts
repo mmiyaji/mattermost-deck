@@ -2703,13 +2703,20 @@ export const railCssText = `
 .deck-rename-dialog button { padding: 6px 12px; font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--deck-border-strong); background: var(--deck-panel-2); color: var(--deck-text); }
 .deck-rename-dialog button[type="submit"] { background: var(--deck-accent); color: var(--deck-panel); }
 
-.deck-layout-tip { display: flex; align-items: center; flex: 0 0 auto; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--deck-border); background: color-mix(in srgb, var(--deck-accent) 8%, var(--deck-panel)); }
-.deck-layout-tip button { border: 0; background: transparent; color: var(--deck-text); font: inherit; cursor: pointer; min-height: 28px; border-radius: 4px; }
-.deck-layout-tip-try { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; text-align: left; font-size: 12px !important; }
-.deck-layout-tip-try span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.deck-layout-tip-try svg { flex-shrink: 0; }
-.deck-layout-tip-dismiss { width: 28px; flex-shrink: 0; }
-.deck-layout-tip button:hover { background: var(--deck-panel-2); }
+.deck-layout-tip { container-type: inline-size; display: flex; align-items: center; flex: 0 0 auto; gap: 10px; padding: 7px 12px; border-bottom: 1px solid var(--deck-border); background: linear-gradient(100deg, color-mix(in srgb, var(--deck-accent) 9%, var(--deck-panel)), var(--deck-panel)); }
+.deck-layout-tip-preview { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 8px; color: var(--deck-accent); background: color-mix(in srgb, var(--deck-accent) 10%, var(--deck-panel)); }
+.deck-layout-tip-copy { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.deck-layout-tip-copy strong { font-size: 12px; font-weight: 600; }
+.deck-layout-tip-copy small { color: var(--deck-text-soft); font-size: 11px; }
+.deck-layout-tip-copy strong, .deck-layout-tip-copy small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.deck-layout-tip button { color: var(--deck-text); font: inherit; cursor: pointer; min-height: 30px; border-radius: 7px; }
+.deck-layout-tip .deck-layout-tip-try { display: flex; align-items: center; justify-content: center; gap: 7px; flex: 0 1 auto; min-width: 0; padding: 4px 10px; font-size: 12px; font-weight: 600; border: 1px solid color-mix(in srgb, var(--deck-accent) 35%, var(--deck-border)); background: color-mix(in srgb, var(--deck-accent) 10%, var(--deck-panel)); }
+.deck-layout-tip-try span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck-layout-tip .deck-layout-tip-dismiss { display: grid; place-items: center; width: 28px; padding: 0; flex-shrink: 0; border: 0; background: transparent; color: var(--deck-text-soft); font-size: 16px; }
+.deck-layout-tip button:hover { background: color-mix(in srgb, var(--deck-accent) 18%, var(--deck-panel)); }
+.deck-layout-tip button:focus-visible { outline: 2px solid var(--deck-accent); outline-offset: 2px; }
+@container (max-width: 500px) { .deck-layout-tip-copy small { display: none; } }
+@container (max-width: 350px) { .deck-layout-tip-copy { display: none; } .deck-layout-tip .deck-layout-tip-try { flex: 1; } }
 
 /* Keep the title focus outline clear; opacity preserves Tab access to tools. */
 .deck-column-header:has(.deck-column-heading h2:focus) > .deck-column-actions {
