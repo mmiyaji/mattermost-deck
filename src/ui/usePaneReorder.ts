@@ -25,8 +25,20 @@ export function usePaneReorder(enabled: boolean, onMove: (source: string, target
   };
   useEffect(() => {
     if (!enabled) clear();
+    // Catch Escape before host-app shortcuts, even if focus leaves the drag root.
+    const cancelOnEscape = (event: KeyboardEvent) => {
+      if (!drag.current || event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      clear();
+    };
+    window.addEventListener("keydown", cancelOnEscape, true);
     window.addEventListener("blur", clear);
-    return () => { window.removeEventListener("blur", clear); clear(); };
+    return () => {
+      window.removeEventListener("keydown", cancelOnEscape, true);
+      window.removeEventListener("blur", clear);
+      clear();
+    };
   }, [enabled]);
   const locate = () => {
     const current = drag.current;

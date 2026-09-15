@@ -400,6 +400,20 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     expect(await inspect('.deck-columns--dragging')).toBeNull();
     expect(await inspect('.deck-drop-placeholder')).toBeNull();
     expect(await inspect('.deck-drag-ghost')).toBeNull();
+    // Escape must also cancel immediately when the host app takes keyboard focus.
+    const escapedTitle = (await inspect('[data-pane-id="watch2"] h2'))!;
+    await page.mouse.move(escapedTitle.left + 30, escapedTitle.top + 8);
+    await page.mouse.down();
+    await page.mouse.move(cancelTarget.left + 270, cancelTarget.top + 30, {steps: 10});
+    await expect.poll(async () => (await inspect('.deck-drop-placeholder'))?.width).toBeGreaterThan(0);
+    await page.evaluate(() => { document.body.tabIndex = -1; document.body.focus({preventScroll: true}); });
+    await page.keyboard.press('Escape');
+    expect(await inspect('.deck-drop-placeholder')).toBeNull();
+    expect(await inspect('.deck-drag-ghost')).toBeNull();
+    expect(await inspect('.deck-columns--dragging')).toBeNull();
+    await page.mouse.move(cancelTarget.left + 200, cancelTarget.top + 40);
+    await page.mouse.up();
+    expect(await order()).toEqual(['watch2', 'favorites', 'watch', 'saved']);
     // Releasing outside the deck cancels instead of accepting the last hovered slot.
     const outsideTitle = (await inspect('[data-pane-id="watch2"] h2'))!;
     await page.mouse.move(outsideTitle.left + 30, outsideTitle.top + 8);
