@@ -2550,15 +2550,19 @@ export const railCssText = `
 
   .deck-columns { width: max-content; }
   .deck-pane-frame { position: relative; container-type: inline-size; }
+  .deck-column-row { display: flex; gap: 12px; flex: none; width: max-content; height: 100%; min-height: 0; }
+  .deck-columns--focus .deck-column-row { display: contents; }
   .deck-columns--two-rows {
-    display: grid;
-    grid-template-rows: repeat(2, minmax(0, 1fr));
-    grid-auto-columns: max-content;
-    align-content: stretch;
+    flex-direction: column;
+    position: relative;
+    padding-right: 56px;
   }
-  .deck-columns--two-rows .deck-column-tail { grid-row: 1 / 3; }
+  .deck-columns--two-rows .deck-column-row {
+    display: flex; gap: 12px; flex: 1 1 0; min-height: 0; width: max-content;
+  }
+  .deck-columns--two-rows .deck-column-tail { position: absolute; right: 0; top: 0; }
   .deck-column-resize {
-    position: absolute; top: 0; bottom: 0; right: -5px; width: 10px;
+    position: relative; flex: none; width: 14px; height: 100%; margin-left: -8px; margin-right: -6px;
     z-index: 9; cursor: col-resize; touch-action: none;
     border-radius: 6px; background: transparent;
   }

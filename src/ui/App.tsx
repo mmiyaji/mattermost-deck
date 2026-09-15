@@ -11965,11 +11965,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
           >
             <div
               className={`deck-columns${focusedColumnId ? " deck-columns--focus" : layoutMode === "twoRows" && !isInitialLoading && !shouldSafeStop ? " deck-columns--two-rows" : ""}`}
-              style={{
-                minWidth: focusedColumnId
-                  ? "100%"
-                  : "100%",
-              }}
+              style={{ minWidth: "100%" }}
             >
               {isInitialLoading ? (
                 <div className="deck-column-motion">
@@ -12018,7 +12014,13 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                     </article>
                   </section>
                 </div>
-              ) : (columns ?? []).map((column, index, allColumns) => {
+              ) : [
+                (columns ?? []).slice(0, Math.ceil((columns?.length ?? 0) / 2)),
+                (columns ?? []).slice(Math.ceil((columns?.length ?? 0) / 2)),
+              ].map((rowColumns, rowIndex) => <div key={rowIndex} className="deck-column-row">
+                {rowColumns.map((column, rowColumnIndex) => {
+                const allColumns = columns ?? [];
+                const index = rowColumnIndex + (rowIndex === 0 ? 0 : Math.ceil(allColumns.length / 2));
                 const setColumnRef = (element: HTMLDivElement | null) => {
                   columnRefs.current[column.id] = element;
                 };
@@ -12030,8 +12032,6 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                   className: motionClassName,
                   width: normalisePreferredColumnWidth(column.width ?? deckSettings.preferredColumnWidth),
                   focused: isFocusedPane,
-                  row: layoutMode === "twoRows" ? (index < Math.ceil(allColumns.length / 2) ? 1 : 2) : undefined,
-                  track: layoutMode === "twoRows" ? index % Math.ceil(allColumns.length / 2) + 1 : undefined,
                   onResize: (width: number | undefined) => updateColumn(column.id, { width }),
                 };
                 switch (column.type) {
@@ -12273,7 +12273,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                       </PaneFrame>
                   );
                 }
-              })}
+              })}</div>)}
               <div className="deck-column-tail" ref={railAddMenuRef}>
                 <button
                   ref={railAddButtonRef}

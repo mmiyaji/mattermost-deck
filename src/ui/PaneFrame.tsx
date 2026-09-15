@@ -3,14 +3,12 @@ import i18n from "./i18n";
 import { MIN_PREFERRED_COLUMN_WIDTH, MAX_PREFERRED_COLUMN_WIDTH, normalisePreferredColumnWidth } from "./columnWidth";
 
 /** Resize only this frame during a gesture; persist once when the pointer is released. */
-export function PaneFrame({ children, frameRef, className, width, focused, row, track, onResize }: {
+export function PaneFrame({ children, frameRef, className, width, focused, onResize }: {
   children: React.ReactNode;
   frameRef: (node: HTMLDivElement | null) => void;
   className: string;
   width: number;
   focused: boolean;
-  row?: number;
-  track?: number;
   onResize: (width: number | undefined) => void;
 }): React.JSX.Element {
   const [preview, setPreview] = useState<number | null>(null);
@@ -20,8 +18,6 @@ export function PaneFrame({ children, frameRef, className, width, focused, row, 
   return <div ref={frameRef} className={`${className} deck-pane-frame`} style={{
     "--deck-column-width": `${preview ?? width}px`,
     width: focused ? undefined : preview ?? width,
-    gridRow: focused ? undefined : row,
-    gridColumn: focused ? undefined : track,
   } as React.CSSProperties}>
     {children}
     {!focused && <div className="deck-column-resize" role="separator" tabIndex={0}
@@ -32,7 +28,7 @@ export function PaneFrame({ children, frameRef, className, width, focused, row, 
       onPointerDown={event => {
         if (event.button !== 0 || !event.isPrimary) return;
         event.preventDefault(); event.stopPropagation();
-        event.currentTarget.focus();
+        event.currentTarget.focus({ preventScroll: true });
         event.currentTarget.setPointerCapture(event.pointerId);
         gesture.current = { pointer: event.pointerId, x: event.clientX, width, next: width };
       }}

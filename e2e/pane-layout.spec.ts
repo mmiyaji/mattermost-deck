@@ -94,9 +94,9 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     expect((await geometry()).every(p => p.contained)).toBe(true);
     await page.screenshot({path: testInfo.outputPath('minimum-width.png')});
     const before = await inspect(handle);
-    await page.mouse.move(before!.left + 5, before!.top + 100);
+    await page.mouse.move(before!.right - 6, before!.top + 100);
     await page.mouse.down();
-    await page.mouse.move(before!.left + 105, before!.top + 100, {steps: 8});
+    await page.mouse.move(before!.right + 94, before!.top + 100, {steps: 8});
     await page.mouse.up();
     await expect.poll(async () => (await geometry())[0].width).toBe(360);
     expect((await geometry())[1].width).toBe(260);
@@ -124,7 +124,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await expect.poll(async () => (await inspect('.deck-column--saved .deck-card--post'))?.text).toContain(post.message);
     await page.screenshot({path: testInfo.outputPath('two-rows.png')});
     // The lower row can be resized independently, and cancellation never saves.
-    const lowerHandle = '.deck-column-motion:nth-child(3) .deck-column-resize';
+    const lowerHandle = '.deck-column-row:nth-child(2) .deck-column-resize';
     const low = (await inspect(lowerHandle))!;
     await page.mouse.move(low.left + 5, low.top + 80);
     await page.mouse.down();
@@ -136,6 +136,14 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await page.keyboard.press('End');
     await expect.poll(async () => (await geometry())[2].width).toBe(480);
     expect((await geometry())[0].width).toBe(260);
+    expect((await geometry())[1].x).toBe(grid[1].x);
+    const lowerNeighborX = (await geometry())[3].x;
+    await inspect(handle, 'focus');
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(async () => (await geometry())[0].width).toBe(270);
+    expect((await geometry())[3].x).toBe(lowerNeighborX);
+    await page.keyboard.press('Home');
+    await inspect(lowerHandle, 'focus');
     await page.keyboard.press('Home');
     // Focus mode fills the rail and returns to the same two-row layout.
     await inspect(controlsToggle, true);
@@ -156,6 +164,14 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
     await inspect('.deck-layout-mode button:first-child', true);
     await expect.poll(async () => { const g = await geometry(); return g.length === 4 && g.every(p => p.y === g[0].y); }).toBe(true);
+    await expect.poll(async () => (await inspect(handle))?.width).toBeGreaterThan(0);
+    const rowEdge = (await inspect(pane))!;
+    await page.mouse.move(rowEdge.right - 2, (rowEdge.top + rowEdge.bottom) / 2);
+    await page.mouse.down();
+    await page.mouse.move(rowEdge.right + 68, (rowEdge.top + rowEdge.bottom) / 2, {steps: 8});
+    await page.mouse.up();
+    await expect.poll(async () => (await inspect(pane))?.width).toBe(330);
+    await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
     await inspect('.deck-add-menu--views .deck-add-item--recent', true);
     await expect.poll(async () => (await inspect('.deck-columns--two-rows'))?.width).toBeGreaterThan(0);
   } finally {
