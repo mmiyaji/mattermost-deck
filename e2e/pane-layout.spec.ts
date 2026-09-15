@@ -507,6 +507,25 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     expect((await inspect('.deck-column-row:nth-child(2) .deck-column-add-button'))!.expanded).toBe('true');
     await inspect('.deck-add-menu--tail .deck-add-item', true);
     await expect.poll(async () => (await order()).length).toBe(5);
+    await page.setViewportSize({width: 1100, height: 900});
+    await inspect('.deck-actions-wrap > button', true);
+    await expect.poll(async () => (await inspect('.deck-add-menu--compact'))?.width).toBeGreaterThan(0);
+    const overlap = await sw.evaluate(async origin => {
+      const tab = (await chrome.tabs.query({})).find(t => t.url?.startsWith(origin));
+      const [result] = await chrome.scripting.executeScript({target:{tabId:tab!.id!},func:() => {
+        const root = (chrome as any).dom.openOrClosedShadowRoot(document.getElementById('mattermost-deck-root'));
+        const menu = root.querySelector('.deck-add-menu--compact').getBoundingClientRect();
+        const divider = root.querySelector('.deck-row-resize').getBoundingClientRect();
+        const left = Math.max(menu.left, divider.left), right = Math.min(menu.right, divider.right);
+        const top = Math.max(menu.top, divider.top), bottom = Math.min(menu.bottom, divider.bottom);
+        const target = root.elementFromPoint((left+right)/2, (top+bottom)/2);
+        return {width:right-left,height:bottom-top,menuReceivesPointer:!!target?.closest('.deck-add-menu--compact')};
+      }}); return result.result!;
+    },origin);
+    expect(overlap.width).toBeGreaterThan(0);
+    expect(overlap.height).toBeGreaterThan(0);
+    expect(overlap.menuReceivesPointer).toBe(true);
+    await page.screenshot({path:testInfo.outputPath('menu-over-row-divider.png')});
   } finally {
     await context.close();
     await new Promise<void>(resolve => server.close(() => resolve()));

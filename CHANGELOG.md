@@ -20,6 +20,8 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Kept popup menus above pane resize handles so row dividers cannot draw over menus or intercept their pointer input.
+
 - Preserved pane components, search state and scroll positions when reordering across rows, and avoided post refreshes caused by transient drag visibility.
 
 - Made Escape cancel pane dragging even when keyboard focus leaves the pane, without committing a later mouse release.

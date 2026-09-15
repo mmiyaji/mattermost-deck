@@ -776,6 +776,8 @@ export const railCssText = `
   }
 
   .deck-scroll-wrap {
+    /* Keep pane resize handles below menus outside the scrolling content. */
+    isolation: isolate;
     display: flex;
     flex-direction: column;
     flex: 1 1 auto;
