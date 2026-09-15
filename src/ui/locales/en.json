@@ -1,5 +1,10 @@
 {
   "deck": {
+    "renamePane": "Rename pane",
+    "renamePaneHint": "Double-click, right-click or press F2 to rename",
+    "renamePaneHelp": "Leave blank to use the original title.",
+    "renamePaneSave": "Save",
+    "renamePaneCancel": "Cancel",
     "balanceRows": "Distribute evenly between rows",
     "resizeRows": "Resize row heights",
     "resizeRowsHint": "Drag to adjust heights. Double-click or Home restores equal heights. Up/down keys also adjust the split.",

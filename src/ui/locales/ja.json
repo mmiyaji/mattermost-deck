@@ -1,5 +1,10 @@
 {
   "deck": {
+    "renamePane": "ペインの別名を設定",
+    "renamePaneHint": "ダブルクリック・右クリック、または F2 で別名を設定",
+    "renamePaneHelp": "空欄で保存すると元のタイトルに戻ります。",
+    "renamePaneSave": "保存",
+    "renamePaneCancel": "キャンセル",
     "balanceRows": "上下に均等配置",
     "resizeRows": "上下の高さを変更",
     "resizeRowsHint": "境界をドラッグして高さを調整。ダブルクリックまたはHomeで均等に戻します。上下キーでも調整できます。",

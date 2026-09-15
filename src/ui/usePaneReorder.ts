@@ -88,8 +88,7 @@ export function usePaneReorder(enabled: boolean, onMove: (source: string, target
       const source = target.closest<HTMLElement>(".deck-pane-frame");
       if (!source?.dataset.paneId) return;
       event.preventDefault(); event.stopPropagation();
-      event.currentTarget.focus({ preventScroll: true });
-      event.currentTarget.setPointerCapture(event.pointerId);
+      target.closest<HTMLElement>("h2")?.focus({ preventScroll: true });
       const rows = [...event.currentTarget.querySelectorAll<HTMLElement>(".deck-row-scroll")];
       drag.current = { destination: null, restoreScroll: preservePaneScroll(event.currentTarget), rows, panes: rows.map(row => [...row.querySelectorAll<HTMLElement>(".deck-pane-frame")]), root: event.currentTarget, source, id: event.pointerId, x: event.clientX, y: event.clientY,
         startX: event.clientX, startY: event.clientY, active: false, target: null, after: false, placeholder: null, ghost: null };
@@ -99,6 +98,7 @@ export function usePaneReorder(enabled: boolean, onMove: (source: string, target
       if (!current || current.id !== event.pointerId) return;
       current.x = event.clientX; current.y = event.clientY;
       if (!current.active && Math.hypot(current.x - current.startX, current.y - current.startY) >= 6) {
+        current.root.setPointerCapture(event.pointerId);
         current.active = true;
         const placeholder = document.createElement("div");
         placeholder.className = "deck-drop-placeholder";
@@ -135,6 +135,7 @@ export function usePaneReorder(enabled: boolean, onMove: (source: string, target
         onMove(source, target ?? null, after, current.root.classList.contains("deck-columns--two-rows") ? current.destination : undefined);
       }
     },
+    onPointerLeave: () => { if (drag.current && !drag.current.active) clear(); },
     onPointerCancel: clear,
     onLostPointerCapture: clear,
     onKeyDownCapture: event => {

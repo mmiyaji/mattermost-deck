@@ -3,6 +3,7 @@ import { usePaneReorder } from "./usePaneReorder";
 import { movePaneRelative, paneRow, initialisePaneRows, balancePaneRows } from "./paneOrder";
 import { RowSplitter } from "./RowSplitter";
 import { normaliseRowSplit } from "./rowSplit";
+import { PaneTitle } from "./PaneTitle";
 import { PaneFrame } from "./PaneFrame";
 import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
@@ -481,9 +482,9 @@ declare global {
       };
       addColumn: (
         type: DeckColumnType,
-        defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>,
+        defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>,
       ) => string;
-      updateColumn: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>) => void;
+      updateColumn: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>) => void;
       moveColumn: (id: string, direction: "left" | "right") => void;
       removeColumn: (id: string) => void;
     };
@@ -2387,9 +2388,9 @@ function buildDiagnosticsLogEntries(logs: SyncLogEntry[], limit = 5): Diagnostic
 
 function useDeckLayout(): [
   DeckColumn[] | null,
-  (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>, groupRows?: boolean) => string,
+  (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>, groupRows?: boolean) => string,
   (id: string) => void,
-  (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>) => void,
+  (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>) => void,
   (id: string, direction: "left" | "right") => void,
   (nextColumns: DeckColumn[]) => void,
   (source: string, target: string | null, after: boolean, row?: 0 | 1) => void,
@@ -2430,7 +2431,7 @@ function useDeckLayout(): [
   const addColumn = useCallback(
     (
       type: DeckColumnType,
-      defaults: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">> = {},
+      defaults: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">> = {},
       groupRows = false,
     ): string => {
       const nextColumn = createColumn(type, defaults);
@@ -2450,7 +2451,7 @@ function useDeckLayout(): [
     });
   }, [persistFromCurrent]);
 
-  const updateColumn = useCallback((id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>): void => {
+  const updateColumn = useCallback((id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>): void => {
     persistFromCurrent((current) =>
       current.map((column) =>
         column.id === id
@@ -4735,7 +4736,7 @@ function MentionsColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
@@ -7198,7 +7199,7 @@ function MentionsColumn({
     >
       <header className="deck-column-header">
         <div className="deck-column-heading">
-          <h2
+          <PaneTitle
             title={text.addMentions}
             tabIndex={-1}
             data-deck-mention-apply-focus="true"
@@ -7207,7 +7208,7 @@ function MentionsColumn({
               <ColumnTypeBadge type="mentions" />
               <span>{text.addMentions}</span>
             </span>
-          </h2>
+          </PaneTitle>
           {mentionLoadProgress.active ? (
             <ColumnLoadingProgress
               title={
@@ -7589,9 +7590,9 @@ function ChannelWatchColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onAddColumn: (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>) => string;
+  onAddColumn: (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>) => string;
   onRememberTarget: (target: RecentChannelTarget) => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
@@ -8042,12 +8043,12 @@ function ChannelWatchColumn({
     >
       <header className="deck-column-header">
         <div className="deck-column-heading">
-          <h2 title={selectedChannelLabel ?? (mode === "dm" ? text.addDmWatch : text.addChannelWatch)}>
+          <PaneTitle title={selectedChannelLabel ?? (mode === "dm" ? text.addDmWatch : text.addChannelWatch)}>
             <span className="deck-title-with-icon">
               <ColumnTypeBadge type={column.type} />
               <span>{selectedChannelLabel ?? (mode === "dm" ? text.addDmWatch : text.addChannelWatch)}</span>
             </span>
-          </h2>
+          </PaneTitle>
           <p
             title={
               selectedChannel
@@ -8464,7 +8465,7 @@ function SearchLikeColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
@@ -8770,12 +8771,12 @@ function SearchLikeColumn({
     >
       <header className="deck-column-header">
         <div className="deck-column-heading">
-          <h2 title={title}>
+          <PaneTitle title={title}>
             <span className="deck-title-with-icon">
               <ColumnTypeBadge type={column.type} />
               <span>{title}</span>
             </span>
-          </h2>
+          </PaneTitle>
           <p title={selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.pickTeam}>
             {selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.pickTeam}
           </p>
@@ -9025,7 +9026,7 @@ function FavoritesColumn(props: React.ComponentProps<typeof SavedPostsColumn> & 
   return <section className={`deck-column deck-column--favorites${props.isFocusedPane ? " deck-column--pane-focused" : ""}`}
     style={getColumnAccentStyle("favorites", columnColors)}>
     <header className="deck-column-header">
-      <div className="deck-column-heading"><h2><span className="deck-title-with-icon"><ColumnTypeBadge type="favorites" />{text.addFavorites}</span></h2>
+      <div className="deck-column-heading"><PaneTitle><span className="deck-title-with-icon"><ColumnTypeBadge type="favorites" />{text.addFavorites}</span></PaneTitle>
         <p>{i18n.t("deck.favoritesDescription")}</p></div>
       <div className="deck-column-actions">
           <PaneSearchToggle search={paneSearch} icon={<SearchIcon />} />
@@ -9321,7 +9322,7 @@ function SavedPostsColumn({
     >
       <header className="deck-column-header">
         <div className="deck-column-heading">
-          <h2><span className="deck-title-with-icon"><ColumnTypeBadge type="saved" /><span>{text.addSaved}</span></span></h2>
+          <PaneTitle><span className="deck-title-with-icon"><ColumnTypeBadge type="saved" /><span>{text.addSaved}</span></span></PaneTitle>
           <p>{text.flaggedPosts}</p>
         </div>
         <div className="deck-column-actions">
@@ -9524,7 +9525,7 @@ function DiagnosticsColumn({
     <section className={`deck-column deck-column--diagnostics${isFocusedPane ? " deck-column--pane-focused" : ""}`} style={getColumnAccentStyle(column.type, columnColors)}>
       <header className="deck-column-header">
         <div className="deck-column-heading">
-          <h2><span className="deck-title-with-icon"><ColumnTypeBadge type="diagnostics" /><span>{text.diagnosticsTitle}</span></span></h2>
+          <PaneTitle><span className="deck-title-with-icon"><ColumnTypeBadge type="diagnostics" /><span>{text.diagnosticsTitle}</span></span></PaneTitle>
           <p>{text.diagnosticsDesc}</p>
         </div>
         <div className="deck-column-actions">
@@ -10094,7 +10095,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     const title = root?.querySelector(".deck-column-heading h2")?.textContent?.replace(/\s+/g, " ").trim();
     const subtitle = root?.querySelector(".deck-column-heading p")?.textContent?.replace(/\s+/g, " ").trim();
     return {
-      title: title && title.length > 0 ? title : getLocalizedColumnTitle(column.type),
+      title: column.customTitle ?? (title && title.length > 0 ? title : getLocalizedColumnTitle(column.type)),
       subtitle: subtitle && subtitle.length > 0 ? subtitle : undefined,
     };
   }, [getLocalizedColumnTitle]);
@@ -10836,7 +10837,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
   const handleAddColumn = (
     type: DeckColumnType,
-    defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>,
+    defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>,
   ): string => {
     const row = layoutMode === "twoRows" || columns?.some(column => column.row !== undefined)
       ? (showRailAddMenu && railAddButtonRef.current?.dataset.addRow === "1" ? 1 : 0) : undefined;
@@ -11239,12 +11240,12 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       } else if (action === "addColumn") {
         result = handleAddColumn(
           payload.type as DeckColumnType,
-          payload.defaults as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">> | undefined,
+          payload.defaults as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">> | undefined,
         );
       } else if (action === "updateColumn") {
         updateColumn(
           payload.id as string,
-          payload.patch as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>,
+          payload.patch as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>,
         );
       } else if (action === "moveColumn") {
         moveColumn(payload.id as string, payload.direction as "left" | "right");
@@ -12141,6 +12142,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                 const motionClassName = `deck-column-motion${isFocusedPane ? " deck-column-motion--focused" : ""}${isHiddenByFocus ? " deck-column-motion--hidden" : ""}`;
                 const frameProps = {
                   paneId: column.id,
+                  customTitle: column.customTitle,
+                  onRename: (customTitle: string | undefined) => updateColumn(column.id, { customTitle }),
                   getContainer: () => paneRows.current[layoutMode === "twoRows" ? paneRow(column, index, allColumns.length) : 0],
                   frameRef: setColumnRef,
                   className: motionClassName,

@@ -75,6 +75,35 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     const pane = '.deck-column--channel';
     const handle = '.deck-column-motion .deck-column-resize';
     await expect.poll(async () => (await inspect(pane))?.width).toBe(260);
+    // Rename through real pointer/keyboard input, without fetching posts again.
+    await expect.poll(async () => (await inspect('[data-pane-id="watch"] h2'))?.text).toContain(channel.display_name);
+    await page.waitForTimeout(600);
+    const readsBeforeRename = postReads;
+    const titleBounds = (await inspect('[data-pane-id="watch"] h2'))!;
+    await page.mouse.dblclick(titleBounds.left + 35, titleBounds.top + 8);
+    await expect.poll(async () => (await inspect('.deck-rename-dialog[open]'))?.text).toContain('Rename pane');
+    await page.keyboard.insertText('  リリース確認  ');
+    await page.screenshot({ path: testInfo.outputPath('rename-pane-dialog.png') });
+    await page.keyboard.press('Enter');
+    await expect.poll(async () => (await inspect('[data-pane-id="watch"] h2'))?.text).toContain('リリース確認');
+    await page.waitForTimeout(400);
+    expect(postReads).toBe(readsBeforeRename);
+    await page.reload();
+    await expect.poll(async () => (await inspect('[data-pane-id="watch"] h2'))?.text).toContain('リリース確認');
+    // Escape leaves the persisted alias unchanged and returns focus to the title.
+    await inspect('[data-pane-id="watch"] h2', 'focus');
+    await page.keyboard.press('F2');
+    await expect.poll(async () => (await inspect('.deck-rename-dialog input'))?.inputValue).toBe('リリース確認');
+    await page.keyboard.insertText('Discard this');
+    await page.keyboard.press('Escape');
+    expect((await inspect('[data-pane-id="watch"] h2'))?.text).toContain('リリース確認');
+    const renamedBounds = (await inspect('[data-pane-id="watch"] h2'))!;
+    await page.mouse.click(renamedBounds.left + 35, renamedBounds.top + 8, { button: 'right' });
+    await expect.poll(async () => (await inspect('.deck-rename-dialog input'))?.inputValue).toBe('リリース確認');
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.press('Enter');
+    await expect.poll(async () => (await inspect('[data-pane-id="watch"] h2'))?.text).toContain(channel.display_name);
     // Check actual rendered controls instead of just container scrollWidth.
     const geometry = () => sw.evaluate(async origin => {
       const tab = (await chrome.tabs.query({})).find(t => t.url?.startsWith(origin));
@@ -115,7 +144,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     console.log('minimum-width header/control geometry', compactHeader);
     expect(compactHeader.sameHeaderRow).toBe(true);
     expect(compactHeader.titleContained).toBe(true);
-    expect(compactHeader.titleTooltip).toBe(channel.display_name);
+    expect(compactHeader.titleTooltip).toContain(channel.display_name);
     expect(compactHeader.buttonCount).toBe(6);
     expect(compactHeader.buttonRows).toBe(1);
     expect(compactHeader.minButtonWidth).toBeGreaterThanOrEqual(28);
@@ -564,12 +593,28 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await expect.poll(async () => (await rowLayout())?.map(row => row.length)).toEqual([1,4]);
     await page.screenshot({path:testInfo.outputPath('row-placement-restored.png')});
     await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
+    await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
+    await inspect('[data-pane-id="watch2"] h2', 'focus');
+    await page.keyboard.press('F2');
+    await expect.poll(async () => !!(await inspect('.deck-rename-dialog[open]'))).toBe(true);
+    await page.keyboard.insertText('Review queue');
+    await page.keyboard.press('Enter');
+    await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
+    await expect.poll(async () => (await inspect('#mattermost-deck-views-menu'))?.text).toContain('Review queue');
     page.once('dialog', dialog => dialog.accept('Uneven rows'));
     await inspect('Save current set', 'text');
     await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
     await inspect('.deck-balance-rows', true);
     await expect.poll(async () => (await rowLayout()).map(row => row.length)).toEqual([3,2]);
+    await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
+    await inspect('[data-pane-id="watch2"] h2', 'focus');
+    await page.keyboard.press('F2');
+    await expect.poll(async () => (await inspect('.deck-rename-dialog input'))?.inputValue).toBe('Review queue');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.press('Enter');
+    await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
     await inspect('Uneven rows', 'text');
+    await expect.poll(async () => (await inspect('[data-pane-id="watch2"] h2'))?.text).toContain('Review queue');
     await expect.poll(async () => (await rowLayout()).map(row => row.length)).toEqual([1,4]);
     await rowScroll('reset');
     await inspect('[data-pane-id="favorites"] .deck-column-actions > button:last-child', true);

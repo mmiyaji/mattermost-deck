@@ -2687,4 +2687,19 @@ export const railCssText = `
       .deck-column-header { min-height: 28px; }
     }
   }
+
+.deck-rename-dialog {
+  width: min(360px, calc(100vw - 48px)); max-height: calc(100vh - 48px);
+  box-sizing: border-box; border: 1px solid var(--deck-border); border-radius: 12px;
+  padding: 20px; background: var(--deck-panel); color: var(--deck-text);
+  box-shadow: 0 12px 40px #0004;
+}
+.deck-rename-dialog::backdrop { background: #0005; }
+.deck-rename-dialog form { display: flex; flex-direction: column; gap: 12px; }
+.deck-rename-dialog label { font-weight: 600; }
+.deck-rename-dialog input { width: 100%; box-sizing: border-box; padding: 8px; font: inherit; background: var(--deck-panel-2); color: var(--deck-text); border: 1px solid var(--deck-border-strong); border-radius: 6px; }
+.deck-rename-dialog p { margin: 0; font-size: 12px; }
+.deck-rename-dialog form > div { display: flex; justify-content: flex-end; gap: 8px; }
+.deck-rename-dialog button { padding: 6px 12px; font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--deck-border-strong); background: var(--deck-panel-2); color: var(--deck-text); }
+.deck-rename-dialog button[type="submit"] { background: var(--deck-accent); color: var(--deck-panel); }
 `;

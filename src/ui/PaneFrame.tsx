@@ -1,11 +1,14 @@
+import { PaneTitleContext } from "./PaneTitle";
 import { createPortal } from "react-dom";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import i18n from "./i18n";
 import { MIN_PREFERRED_COLUMN_WIDTH, MAX_PREFERRED_COLUMN_WIDTH, normalisePreferredColumnWidth } from "./columnWidth";
 
 /** Resize only this frame during a gesture; persist once when the pointer is released. */
-export function PaneFrame({ paneId, getContainer, children, frameRef, className, width, focused, onResize }: {
+export function PaneFrame({ paneId, customTitle, onRename, getContainer, children, frameRef, className, width, focused, onResize }: {
   paneId: string;
+  customTitle?: string;
+  onRename: (title: string | undefined) => void;
   getContainer: () => HTMLElement | null;
   children: React.ReactNode;
   frameRef: (node: HTMLDivElement | null) => void;
@@ -35,7 +38,7 @@ export function PaneFrame({ paneId, getContainer, children, frameRef, className,
   useLayoutEffect(() => () => { frameRef(null); host.remove(); }, [host]);
   // A stable portal host keeps pane state and effects alive across row boundaries.
   return mounted ? createPortal(<>
-    {children}
+    <PaneTitleContext.Provider value={{ customTitle, onRename }}>{children}</PaneTitleContext.Provider>
     {!focused && <div className="deck-column-resize" role="separator" tabIndex={0}
       aria-label={i18n.t("deck.resizeColumn")}
       aria-orientation="vertical" aria-valuemin={MIN_PREFERRED_COLUMN_WIDTH}

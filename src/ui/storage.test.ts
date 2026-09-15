@@ -117,3 +117,15 @@ it("retains valid pane rows and ignores invalid imported row assignments", () =>
   ]);
   expect(result.map(column => column.row)).toEqual([0,1,undefined,undefined]);
 });
+
+
+describe("pane aliases in imported and saved layouts", () => {
+  it("preserves aliases for all pane types and normalizes only the optional title", () => {
+    const types = ["mentions", "channelWatch", "dmWatch", "search", "keywordWatch", "favorites", "saved", "diagnostics"];
+    const columns = types.map((type, index) => ({ id: String(index), type, customTitle: "  Team\n  notes  " }));
+    expect(normaliseColumns({ columns }).map(column => column.customTitle)).toEqual(types.map(() => "Team notes"));
+    expect(normaliseColumns([{ id: "a", type: "favorites", customTitle: 123 }])).toHaveLength(1);
+    expect(normaliseColumns([{ id: "a", type: "favorites", customTitle: "   " }])[0].customTitle).toBeUndefined();
+    expect(normaliseColumns([{ id: "a", type: "favorites", customTitle: "x".repeat(120) }])[0].customTitle).toHaveLength(100);
+  });
+});

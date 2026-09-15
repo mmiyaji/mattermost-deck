@@ -1,5 +1,10 @@
 {
   "deck": {
+    "renamePane": "패널 이름 변경",
+    "renamePaneHint": "두 번 클릭, 오른쪽 클릭 또는 F2로 이름 변경",
+    "renamePaneHelp": "비워 두고 저장하면 원래 제목으로 돌아갑니다.",
+    "renamePaneSave": "저장",
+    "renamePaneCancel": "취소",
     "balanceRows": "위아래에 균등 배치",
     "resizeRows": "위아래 높이 조절",
     "resizeRowsHint": "경계를 드래그해 조절합니다. 두 번 클릭하거나 Home을 누르면 균등해집니다. 위아래 방향키로도 조절할 수 있습니다.",

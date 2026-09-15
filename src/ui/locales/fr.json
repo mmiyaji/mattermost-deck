@@ -1,5 +1,10 @@
 {
   "deck": {
+    "renamePane": "Renommer le panneau",
+    "renamePaneHint": "Double-clic, clic droit ou F2 pour renommer",
+    "renamePaneHelp": "Laissez vide pour utiliser le titre d’origine.",
+    "renamePaneSave": "Enregistrer",
+    "renamePaneCancel": "Annuler",
     "balanceRows": "Répartir également entre les rangées",
     "resizeRows": "Ajuster la hauteur des rangées",
     "resizeRowsHint": "Faites glisser pour ajuster. Double-clic ou Début rétablit des hauteurs égales. Les flèches haut et bas ajustent aussi la répartition.",

@@ -1,5 +1,10 @@
 {
   "deck": {
+    "renamePane": "设置面板别名",
+    "renamePaneHint": "双击、右键点击或按 F2 设置别名",
+    "renamePaneHelp": "留空保存可恢复原标题。",
+    "renamePaneSave": "保存",
+    "renamePaneCancel": "取消",
     "balanceRows": "上下均匀排列",
     "resizeRows": "调整上下高度",
     "resizeRowsHint": "拖动分隔线调整高度。双击或按 Home 恢复等高，也可使用上下方向键调整。",

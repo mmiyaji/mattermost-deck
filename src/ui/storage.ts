@@ -1,3 +1,4 @@
+import { normalisePaneTitle } from "./paneTitleValue";
 import { normalisePreferredColumnWidth } from "./columnWidth";
 import { createDefaultLayout, type DeckColumn } from "./layout";
 
@@ -59,6 +60,7 @@ function normaliseColumnsOrNull(value: unknown): DeckColumn[] | null {
     teamId: column.teamId,
     channelId: column.channelId,
     query: column.query,
+    ...(normalisePaneTitle(column.customTitle) ? { customTitle: normalisePaneTitle(column.customTitle) } : {}),
     unreadOnly: column.unreadOnly,
     ...(column.row === 0 || column.row === 1 ? { row: column.row } : {}),
     ...(typeof column.width === "number" && Number.isFinite(column.width)

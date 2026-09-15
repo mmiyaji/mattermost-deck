@@ -9,6 +9,8 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added per-pane custom titles, editable by double-click, right-click or F2, with persistence in layouts and saved sets and localized editing in all nine languages.
+
 - Added persistent independent top/bottom pane placement, row-specific additions, empty-row drop targets, and an explicit Distribute evenly between rows action.
 
 - Added pane reordering by dragging titles, including cross-row moves, dashed destination placeholders, cursor-following title previews, edge scrolling, and cancellation.
