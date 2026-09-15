@@ -1,3 +1,4 @@
+import { waitForInstalledOptions } from "./extension-install";
 import { expect, test, chromium, type BrowserContext, type Page, type Worker } from "@playwright/test";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -31,6 +32,7 @@ async function launchExtension(locale?: string): Promise<{ context: BrowserConte
   });
   const [existingWorker] = context.serviceWorkers();
   const serviceWorker = existingWorker ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
+  await waitForInstalledOptions(context, serviceWorker);
   return { context, serviceWorker, userDataDir };
 }
 
@@ -94,11 +96,13 @@ async function debugRequest<T>(page: Page, action: string, payload?: Record<stri
 
 test("empty language storage uses one browser-derived language across every extension surface", async () => {
   const state = await readState();
-  const { context, serviceWorker, userDataDir } = await launchExtension("fr-FR");
+  const { context, serviceWorker, userDataDir } = await launchExtension();
   try {
     await serviceWorker.evaluate(() => chrome.storage.local.clear());
     const uiLanguage = await serviceWorker.evaluate(() => chrome.i18n.getUILanguage());
-    const expectedLanguage = normaliseDeckLanguage(uiLanguage) ?? "fr";
+    // Playwright locale emulation affects pages but not extension workers on Linux.
+    // Use the actual browser UI language to test cross-surface consistency.
+    const expectedLanguage = normaliseDeckLanguage(uiLanguage) ?? "en";
     const expectedTitles = {
       en: "Mattermost Deck Settings",
       ja: "Mattermost Deck 設定",

@@ -1,3 +1,4 @@
+import { waitForInstalledOptions } from "./extension-install";
 import { test, expect, chromium } from "@playwright/test";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -489,7 +490,7 @@ test("1.1.0 release notes describe favorites, search, and keyboard isolation in 
   });
   try {
     const sw = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
-    const page = await context.newPage();
+    const page = await waitForInstalledOptions(context, sw);
     for (const language of ["ja", "en", "de", "es", "fr", "ko", "ru", "uk", "zh-CN"]) {
       const resource = JSON.parse(await fs.readFile(path.resolve(`src/ui/locales/${language}.json`), "utf8"));
       await sw.evaluate(async language => {
@@ -523,7 +524,7 @@ test("1.2.0 release notes describe layout, titles, tools, and preserved state in
   });
   try {
     const sw = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
-    const page = await context.newPage();
+    const page = await waitForInstalledOptions(context, sw);
     for (const language of ["ja", "en", "de", "es", "fr", "ko", "ru", "uk", "zh-CN"]) {
       const resource = JSON.parse(await fs.readFile(path.resolve(`src/ui/locales/${language}.json`), "utf8"));
       await sw.evaluate(async language => {

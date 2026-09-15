@@ -144,14 +144,14 @@ test("built Deck displays and operates the favorites pane with a fixture server"
     await expect.poll(async () => (await inspect(`${favoritePane} .deck-favorite-button`))?.opacity).toBe("1");
     await page.screenshot({ path: testInfo.outputPath("favorites-hover.png"), fullPage: true });
     await page.mouse.move(0, 0);
-    const touchSession = await context.newCDPSession(page);
-    await touchSession.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
-    await expect.poll(async () => (await inspect(`${favoritePane} .deck-favorite-button`))?.opacity).toBe("1");
-    await touchSession.send("Emulation.setTouchEmulationEnabled", { enabled: false });
-    await touchSession.detach();
     await expect.poll(async () => (await inspect(`${favoritePane} .deck-favorite-button`))?.opacity).toBe("0");
     await inspect(`${favoritePane} .deck-card--post`, true);
     await expect(page).toHaveURL(`${origin}/testteam/pl/${post.id}`);
+    // Finish desktop assertions before touch emulation. Linux Chromium does not
+    // consistently restore hover media features when a CDP session is detached.
+    const touchSession = await context.newCDPSession(page);
+    await touchSession.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+    await expect.poll(async () => (await inspect(`${favoritePane} .deck-favorite-button`))?.opacity).toBe("1");
     deleted = true;
     await inspect(`${favoritePane} [aria-label="Refresh"]`, true);
     await expect.poll(async () => (await inspect(`${favoritePane} .deck-favorites-unavailable`))?.text).toContain("unavailable");
