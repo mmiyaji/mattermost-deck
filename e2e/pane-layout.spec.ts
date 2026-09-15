@@ -93,6 +93,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await expect.poll(async () => (await geometry())[0].controls).toBeGreaterThan(3);
     expect((await geometry()).every(p => p.contained)).toBe(true);
 
+    await expect.poll(async () => (await inspect('[data-pane-id="watch"] h2'))?.text).toContain(channel.display_name);
     const compactHeader = await sw.evaluate(async origin => {
       const tab = (await chrome.tabs.query({})).find(t => t.url?.startsWith(origin));
       const [result] = await chrome.scripting.executeScript({target:{tabId:tab!.id!},func:()=> {
@@ -243,6 +244,9 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
       const [result] = await chrome.scripting.executeScript({target:{tabId:tab!.id!},func:(action) => {
         const root = (chrome as any).dom.openOrClosedShadowRoot(document.getElementById('mattermost-deck-root'));
         const scrollers = [...root.querySelectorAll('.deck-row-scroll')] as HTMLElement[];
+        if (action === 'end') scrollers.forEach(row => { row.scrollLeft = row.scrollWidth; });
+        if (action === 'endOuter') root.querySelector('.deck-scroll-wrap').scrollLeft = root.querySelector('.deck-scroll-wrap').scrollWidth;
+        if (action === 'resetOuter') root.querySelector('.deck-scroll-wrap').scrollLeft = 0;
         if (action === 'reset') scrollers.forEach(row => { row.scrollLeft = 0; });
         if (action === 'lastView') (root.querySelectorAll('.deck-menu-row--view .deck-add-item')[3] as HTMLElement)?.click();
         return { outer: root.querySelector('.deck-scroll-wrap').scrollLeft, rows: scrollers.map(row => ({
@@ -349,6 +353,40 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await page.reload();
     await expect.poll(async () => (await geometry())?.length ?? 0).toBe(4);
     expect(await order()).toEqual(['favorites', 'watch2', 'watch', 'saved']);
+    // Add controls belong to the scroll content, never a permanently reserved strip.
+    const viewport = (await inspect('.deck-scroll-wrap'))!;
+    expect((await inspect('.deck-column-add-button'))!.left).toBeGreaterThan(viewport.right);
+    await rowScroll('endOuter');
+    const rowAdd = (await inspect('.deck-column-add-button'))!;
+    expect(rowAdd.right).toBeLessThanOrEqual(viewport.right);
+    await page.mouse.click(rowAdd.left + 18, rowAdd.top + 18);
+    await expect.poll(async () => (await inspect('.deck-add-menu--tail'))?.width).toBeGreaterThan(0);
+    await rowScroll('resetOuter');
+    await expect.poll(async () => await inspect('.deck-add-menu--tail')).toBeNull();
+    await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
+    await inspect('.deck-layout-mode button:last-child', true);
+    await rowScroll('reset');
+    expect((await inspect('.deck-columns--two-rows'))!.paddingRight).toBe('0px');
+    for (const row of [1, 2]) {
+      const scroller = (await inspect('.deck-column-row:nth-child(' + row + ') .deck-row-scroll'))!;
+      const add = (await inspect('.deck-column-row:nth-child(' + row + ') .deck-column-add-button'))!;
+      expect(add.left).toBeGreaterThanOrEqual(scroller.right);
+    }
+    await page.screenshot({path: testInfo.outputPath('add-button-hidden.png')});
+    await rowScroll('end');
+    for (const row of [1, 2]) {
+      const scroller = (await inspect('.deck-column-row:nth-child(' + row + ') .deck-row-scroll'))!;
+      const add = (await inspect('.deck-column-row:nth-child(' + row + ') .deck-column-add-button'))!;
+      expect(add.right).toBeLessThanOrEqual(scroller.right);
+    }
+    await page.screenshot({path: testInfo.outputPath('add-button-at-end.png')});
+    const lowerAdd = (await inspect('.deck-column-row:nth-child(2) .deck-column-add-button'))!;
+    await page.mouse.click(lowerAdd.left + 18, lowerAdd.top + 18);
+    await expect.poll(async () => (await inspect('.deck-add-menu--tail'))?.width).toBeGreaterThan(0);
+    expect((await inspect('.deck-column-row:first-child .deck-column-add-button'))!.expanded).toBe('false');
+    expect((await inspect('.deck-column-row:nth-child(2) .deck-column-add-button'))!.expanded).toBe('true');
+    await inspect('.deck-add-menu--tail .deck-add-item', true);
+    await expect.poll(async () => (await order()).length).toBe(5);
   } finally {
     await context.close();
     await new Promise<void>(resolve => server.close(() => resolve()));

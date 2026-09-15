@@ -10883,7 +10883,15 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
     updatePosition();
     window.addEventListener("resize", updatePosition);
+    const scrollPositions = new Map([...shell.querySelectorAll<HTMLElement>(".deck-row-scroll, .deck-scroll-wrap")]
+      .map(element => [element, element.scrollLeft]));
+    const closeOnScroll = (event: Event) => {
+      const element = event.target as HTMLElement;
+      if (scrollPositions.has(element) && scrollPositions.get(element) !== element.scrollLeft) setShowRailAddMenu(false);
+    };
+    shell.addEventListener("scroll", closeOnScroll, true);
     return () => {
+      shell.removeEventListener("scroll", closeOnScroll, true);
       window.removeEventListener("resize", updatePosition);
     };
   }, [showRailAddMenu]);
@@ -12294,35 +12302,40 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                       </PaneFrame>
                   );
                 }
-              })}</div>
+              })}
+              {(layoutMode === "twoRows" || rowIndex === 1) && (
+                <div className="deck-column-tail">
+                  <button
+                    type="button"
+                    className="deck-column-add-button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      railAddButtonRef.current = event.currentTarget;
+                      railAddMenuRef.current = event.currentTarget.parentElement as HTMLDivElement;
+                      setShowRailAddMenu((current) => {
+                        const next = !current;
+                        if (next) {
+                          setShowAddMenu(false);
+                          setShowViewsMenu(false);
+                          setShowActionsMenu(false);
+                        }
+                        return next;
+                      });
+                    }}
+                    aria-label={text.addLabel}
+                    title={text.addLabel}
+                    data-add-row={rowIndex}
+                    aria-expanded={showRailAddMenu && railAddButtonRef.current?.dataset.addRow === String(rowIndex)}
+                    aria-controls={RAIL_ADD_MENU_ID}
+                  >
+                    <PlusIcon />
+                  </button>
+                </div>
+              )}
+              </div>
                 {rowIndex === 0 && layoutMode === "twoRows" && !focusedColumnId && layoutModeReady
                   ? <RowSplitter value={rowSplit} onChange={changeRowSplit} /> : null}
               </div>)}
-              <div className="deck-column-tail" ref={railAddMenuRef}>
-                <button
-                  ref={railAddButtonRef}
-                  type="button"
-                  className="deck-column-add-button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setShowRailAddMenu((current) => {
-                      const next = !current;
-                      if (next) {
-                        setShowAddMenu(false);
-                        setShowViewsMenu(false);
-                        setShowActionsMenu(false);
-                      }
-                      return next;
-                    });
-                  }}
-                  aria-label={text.addLabel}
-                  title={text.addLabel}
-                  aria-expanded={showRailAddMenu}
-                  aria-controls={RAIL_ADD_MENU_ID}
-                >
-                  <PlusIcon />
-                </button>
-              </div>
             </div>
           </div>
           {showRailAddMenu && railAddMenuPosition ? (

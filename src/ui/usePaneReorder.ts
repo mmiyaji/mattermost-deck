@@ -17,7 +17,7 @@ export function usePaneReorder(enabled: boolean, onMove: (source: string, target
     current.root.classList.remove("deck-columns--dragging");
     current.source.classList.remove("deck-pane-frame--dragging");
     // Restore React-owned sibling order before persisting the new layout or cancelling.
-    if (current.active) current.rows.forEach((row, index) => current.panes[index].forEach(pane => row.append(pane)));
+    if (current.active) current.rows.forEach((row, index) => current.panes[index].forEach(pane => row.insertBefore(pane, row.querySelector(".deck-column-tail"))));
     current.placeholder?.remove();
     current.ghost?.remove();
     current.target?.removeAttribute("data-drop-side");
@@ -61,7 +61,7 @@ export function usePaneReorder(enabled: boolean, onMove: (source: string, target
       // Preview the same balanced rows that the saved layout will use on release.
       ordered.forEach((pane, index) => {
         const destination = current.rows[index < split ? 0 : 1];
-        destination.append(pane === current.source ? current.placeholder! : pane);
+        destination.insertBefore(pane === current.source ? current.placeholder! : pane, destination.querySelector(".deck-column-tail"));
       });
       break;
     }

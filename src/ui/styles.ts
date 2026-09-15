@@ -2556,12 +2556,12 @@ export const railCssText = `
   .deck-columns--two-rows {
     flex-direction: column;
     position: relative;
-    padding-right: 56px;
+    padding-right: 0;
   }
   .deck-columns--two-rows .deck-column-row {
     display: flex; gap: 12px; flex: 1 1 0; min-height: 0; width: max-content;
   }
-  .deck-columns--two-rows .deck-column-tail { position: absolute; right: 0; top: 0; }
+
   .deck-column-resize {
     position: relative; flex: none; width: 14px; height: 100%; margin-left: -8px; margin-right: -6px;
     z-index: 9; cursor: col-resize; touch-action: none;
