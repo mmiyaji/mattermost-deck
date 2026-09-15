@@ -7,7 +7,7 @@ import path from "node:path";
 test("pane sizing and two-row layouts stay usable and persist", async ({}, testInfo) => {
   const user = { id: "u".repeat(26), username: "favoriteuser", first_name: "Favorite", last_name: "User", notify_props: {} };
   const team = { id: "t".repeat(26), name: "testteam", display_name: "Test team" };
-  const channel = { id: "c".repeat(26), name: "town-square", display_name: "Town Square", team_id: team.id, type: "O" };
+  const channel = { id: "c".repeat(26), name: "town-square", display_name: "開発チームの共有チャンネル / Product discussions and release planning", team_id: team.id, type: "O" };
   let post = { id: "p".repeat(26), user_id: user.id, channel_id: channel.id, create_at: Date.now(), message: "Favorite UI fixture" };
   let deleted = false;
   let favoritesRequests = 0;
@@ -92,6 +92,29 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     if ((await inspect(controlsToggle))?.expanded === 'false') await inspect(controlsToggle, true);
     await expect.poll(async () => (await geometry())[0].controls).toBeGreaterThan(3);
     expect((await geometry()).every(p => p.contained)).toBe(true);
+
+    const compactHeader = await sw.evaluate(async origin => {
+      const tab = (await chrome.tabs.query({})).find(t => t.url?.startsWith(origin));
+      const [result] = await chrome.scripting.executeScript({target:{tabId:tab!.id!},func:()=> {
+        const root = (chrome as any).dom.openOrClosedShadowRoot(document.getElementById('mattermost-deck-root'));
+        const pane = root.querySelector('.deck-column--channel');
+        const heading = pane.querySelector('.deck-column-heading').getBoundingClientRect();
+        const actions = pane.querySelector('.deck-column-actions').getBoundingClientRect();
+        const buttons = [...pane.querySelectorAll('.deck-stack--controls > .deck-inline-actions:first-child button')].map((b:any)=>b.getBoundingClientRect());
+        return { headerHeight:pane.querySelector('.deck-column-header').getBoundingClientRect().height,
+          controlHeight:pane.querySelector('.deck-stack--controls > .deck-inline-actions').getBoundingClientRect().height,
+          sameHeaderRow:Math.abs(heading.top-actions.top)<2,
+          titleContained:heading.right <= actions.left, titleTooltip:pane.querySelector("h2").title, buttonRows:new Set(buttons.map((b:any)=>Math.round(b.top))).size,
+          buttonCount:buttons.length, minButtonWidth:Math.min(...buttons.map((b:any)=>b.width)) };
+      }}); return result.result!;
+    }, origin);
+    console.log('minimum-width header/control geometry', compactHeader);
+    expect(compactHeader.sameHeaderRow).toBe(true);
+    expect(compactHeader.titleContained).toBe(true);
+    expect(compactHeader.titleTooltip).toBe(channel.display_name);
+    expect(compactHeader.buttonCount).toBe(6);
+    expect(compactHeader.buttonRows).toBe(1);
+    expect(compactHeader.minButtonWidth).toBeGreaterThanOrEqual(28);
     await page.screenshot({path: testInfo.outputPath('minimum-width.png')});
     const before = await inspect(handle);
     await page.mouse.move(before!.right - 6, before!.top + 100);

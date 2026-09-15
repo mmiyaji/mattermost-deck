@@ -18,6 +18,8 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Kept narrow pane titles and header actions on one line, and compacted the expanded toolbar to a single row.
+
 - Preserved draggable resize handles after switching back to a single row, and made upper/lower row spacing independent.
 - Kept pane actions and team/channel selectors within the minimum pane width; made short two-row panes scrollable.
 

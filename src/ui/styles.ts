@@ -2585,9 +2585,18 @@ export const railCssText = `
   .deck-column .deck-select, .deck-column input { min-width: 0; max-width: 100%; }
   .deck-column .mm-custom-select-chevron { flex-shrink: 0; }
   @container (max-width: 330px) {
-    .deck-column-header { gap: 6px; }
-    .deck-column-heading { flex-basis: 100%; }
-    .deck-column-actions { width: 100%; justify-content: flex-end; }
+    .deck-column-header { gap: 6px; flex-wrap: nowrap; }
+    .deck-column-heading { flex: 1 1 0; min-width: 0; }
+    .deck-column-actions { width: auto; flex: none; flex-wrap: nowrap; gap: 4px; }
+    .deck-column-actions .deck-icon-button { width: 28px; min-width: 28px; height: 28px; padding: 0; }
+    .deck-column-heading .deck-title-with-icon { max-width: 100%; }
+    .deck-column-heading .deck-title-with-icon > span:last-child:not(:first-child) {
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .deck-column .deck-stack--controls > .deck-inline-actions:first-child { gap: 4px; flex-wrap: nowrap; }
+    .deck-column .deck-stack--controls > .deck-inline-actions:first-child .deck-icon-button {
+      width: 32px; min-width: 32px; height: 32px; padding: 0; flex: none;
+    }
   }
 
   .deck-columns--two-rows .deck-column { overflow-y: auto; }
