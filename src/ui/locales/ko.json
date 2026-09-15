@@ -1,5 +1,10 @@
 {
   "deck": {
+    "layoutMode": "패널 배치",
+    "layoutRow": "한 줄",
+    "layoutTwoRows": "위아래 두 줄",
+    "resizeColumn": "패널 너비 조절",
+    "resizeColumnHint": "드래그로 조절합니다. 두 번 클릭하거나 Home으로 초기화합니다. 방향키로도 조절할 수 있습니다.",
     "paneSearchOpen": "이 패널에서 검색",
     "paneSearchPlaceholder": "게시물 또는 작성자로 필터링",
     "paneSearchHint": "불러온 게시물에서 검색",

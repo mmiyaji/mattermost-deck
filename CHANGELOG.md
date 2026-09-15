@@ -7,6 +7,16 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added per-pane drag resizing with keyboard controls, reset to the default width, and persistence in layouts and saved views.
+- Added single-row and two-row pane layouts in Views, with saved-view and layout import/export support.
+
+### Fixed
+
+- Kept pane actions and team/channel selectors within the minimum pane width; made short two-row panes scrollable.
+
+
 ## [1.1.0] - 2026-09-14
 
 ### Added

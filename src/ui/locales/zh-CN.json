@@ -1,5 +1,10 @@
 {
   "deck": {
+    "layoutMode": "面板布局",
+    "layoutRow": "单行",
+    "layoutTwoRows": "上下两行",
+    "resizeColumn": "调整面板宽度",
+    "resizeColumnHint": "拖动调整宽度。双击或按 Home 恢复默认宽度，也可使用左右方向键调整。",
     "paneSearchOpen": "在此面板中搜索",
     "paneSearchPlaceholder": "按帖子或作者筛选",
     "paneSearchHint": "仅搜索已加载的帖子",

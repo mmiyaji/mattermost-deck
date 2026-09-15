@@ -1,0 +1,166 @@
+import { test, expect, chromium } from "@playwright/test";
+import { createServer } from "node:http";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+test("pane sizing and two-row layouts stay usable and persist", async ({}, testInfo) => {
+  const user = { id: "u".repeat(26), username: "favoriteuser", first_name: "Favorite", last_name: "User", notify_props: {} };
+  const team = { id: "t".repeat(26), name: "testteam", display_name: "Test team" };
+  const channel = { id: "c".repeat(26), name: "town-square", display_name: "Town Square", team_id: team.id, type: "O" };
+  let post = { id: "p".repeat(26), user_id: user.id, channel_id: channel.id, create_at: Date.now(), message: "Favorite UI fixture" };
+  let deleted = false;
+  let favoritesRequests = 0;
+  const server = createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    if (!url.pathname.startsWith("/api/")) {
+      res.setHeader("Content-Type", "text/html");
+      res.end('<html><body class="app__body"><div id="root"><div id="SidebarContainer">Test workspace</div><main class="app__content"><h1 class="channel-header">Town Square</h1></main></div></body></html>');
+      return;
+    }
+    res.setHeader("Content-Type", "application/json");
+    const p = url.pathname.replace("/api/v4", "");
+    let data: unknown = [];
+    if (p === "/system/ping") data = { status: "OK" };
+    else if (p === "/users/me") data = user;
+    else if (p === "/users/ids") data = [user];
+    else if (p === "/users/me/teams") data = [team];
+    else if (p.startsWith("/config/client")) data = { CollapsedThreads: "disabled" };
+    else if (p.endsWith("/channels/members")) data = [{ user_id: user.id, channel_id: channel.id, last_viewed_at: 0 }];
+    else if (p.endsWith("/channels")) data = [channel];
+    else if (p.includes("/channels/name/") || p === `/channels/${channel.id}`) data = channel;
+    else if (p.endsWith("/posts") || p.includes("/posts/flagged")) data = { order: deleted ? [] : [post.id], posts: deleted ? {} : { [post.id]: post } };
+    else if (p === "/posts/ids") { favoritesRequests++; data = deleted ? [] : [post]; }
+    else if (p.endsWith(`/members/${user.id}`)) data = { user_id: user.id, channel_id: channel.id, last_viewed_at: 0 };
+    else if (p.includes("/threads")) data = { total: 0, threads: [] };
+    res.end(JSON.stringify(data));
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as { port: number };
+  const origin = `http://127.0.0.1:${address.port}`;
+  const profile = await fs.mkdtemp(path.join(os.tmpdir(), "deck-favorites-ui-"));
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: "chromium", headless: true, viewport: { width: 1600, height: 900 },
+    args: [`--disable-extensions-except=${path.resolve("dist")}`, `--load-extension=${path.resolve("dist")}`],
+  });
+  try {
+    const sw = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
+    await sw.evaluate(({ origin, channel, team }) => chrome.storage.local.set({
+      "mattermostDeck.serverUrl.v1": origin, "mattermostDeck.language.v1": "en", "mattermostDeck.theme.v1": "light", "mattermostDeck.postClickAction.v1": "navigate",
+      "mattermostDeck.preferredColumnWidth.v1": "260",
+      "mattermostDeck.railWidth.v1": 900,
+      "mattermostDeck.preferredRailWidth.v1": "900",
+      "mattermostDeck.layout.v1": [{ id: "watch", type: "channelWatch", channelId: channel.id, teamId: team.id }, { id: "favorites", type: "favorites" }, { id: "watch2", type: "channelWatch", channelId: channel.id, teamId: team.id }, { id: "saved", type: "saved" }],
+    }), { origin, channel, team });
+    const page = await context.newPage();
+    await page.goto(`${origin}/testteam/channels/town-square`);
+    const inspect = (selector: string, click: boolean | "focus" | "compose-start" | "compose-end" | "text" = false) => sw.evaluate(async ({ origin, selector, click }) => {
+      const tab = (await chrome.tabs.query({})).find(t => t.url?.startsWith(origin));
+      if (!tab?.id) return null;
+      const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (selector, click) => {
+        const host = document.getElementById("mattermost-deck-root");
+        const root = host && (chrome as any).dom.openOrClosedShadowRoot(host);
+        const el = (click === "text" ? [...root.querySelectorAll("button")].find((button: HTMLElement) => button.textContent?.trim() === selector) : root?.querySelector(selector)) as HTMLElement | null;
+        if (click === "focus") el?.focus();
+        else if (click === "compose-start" || click === "compose-end") el?.dispatchEvent(new CompositionEvent(click === "compose-start" ? "compositionstart" : "compositionend", { bubbles: true }));
+        else if (click) el?.click();
+        return el ? { text: el.textContent, pressed: el.getAttribute("aria-pressed"), expanded: el.getAttribute("aria-expanded"), opacity: getComputedStyle(el).opacity, paddingLeft: getComputedStyle(el).paddingLeft, paddingRight: getComputedStyle(el).paddingRight, bottom: el.getBoundingClientRect().bottom, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
+      }, args: [selector, click] });
+      return result.result;
+    }, { origin, selector, click });
+
+    const pane = '.deck-column--channel';
+    const handle = '.deck-column-motion .deck-column-resize';
+    await expect.poll(async () => (await inspect(pane))?.width).toBe(260);
+    // Check actual rendered controls instead of just container scrollWidth.
+    const geometry = () => sw.evaluate(async origin => {
+      const tab = (await chrome.tabs.query({})).find(t => t.url?.startsWith(origin));
+      const [result] = await chrome.scripting.executeScript({ target: { tabId: tab!.id! }, func: () => {
+        const root = (chrome as any).dom.openOrClosedShadowRoot(document.getElementById('mattermost-deck-root'));
+        const panes = [...root.querySelectorAll('.deck-column-motion > .deck-column')] as HTMLElement[];
+        return panes.map(pane => {
+          const r = pane.getBoundingClientRect();
+          const controls = [...pane.querySelectorAll('.deck-column-header button, .mm-custom-select-button, .deck-select')] as HTMLElement[];
+          const visible = controls.filter(c => c.getBoundingClientRect().width > 0);
+          return { x: r.x, y: r.y, width: r.width, height: r.height, controls: visible.length,
+            contained: visible.every(c => { const b = c.getBoundingClientRect(); return b.left >= r.left && b.right <= r.right && b.top >= r.top && b.bottom <= r.bottom; }) };
+        });
+      } });
+      return result.result!;
+    }, origin);
+    const controlsToggle = pane + ' .deck-column-header [aria-expanded]:not(.deck-pane-search-toggle)';
+    if ((await inspect(controlsToggle))?.expanded === 'false') await inspect(controlsToggle, true);
+    await expect.poll(async () => (await geometry())[0].controls).toBeGreaterThan(3);
+    expect((await geometry()).every(p => p.contained)).toBe(true);
+    await page.screenshot({path: testInfo.outputPath('minimum-width.png')});
+    const before = await inspect(handle);
+    await page.mouse.move(before!.left + 5, before!.top + 100);
+    await page.mouse.down();
+    await page.mouse.move(before!.left + 105, before!.top + 100, {steps: 8});
+    await page.mouse.up();
+    await expect.poll(async () => (await geometry())[0].width).toBe(360);
+    expect((await geometry())[1].width).toBe(260);
+    await page.reload();
+    await expect.poll(async () => (await inspect(pane))?.width).toBe(360);
+    await inspect(handle, 'focus');
+    await page.keyboard.press('ArrowLeft');
+    await expect.poll(async () => (await inspect(pane))?.width).toBe(350);
+    await page.keyboard.press('Home');
+    await expect.poll(async () => (await inspect(pane))?.width).toBe(260);
+    // Open Views through its real button and switch layout.
+    await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
+    await expect.poll(async () => (await inspect('.deck-layout-mode'))?.text).toContain('Two rows');
+    await inspect('.deck-layout-mode button:nth-child(2)', true);
+    await expect.poll(async () => (await geometry())[2].y > (await geometry())[0].y + 100).toBe(true);
+    const grid = await geometry();
+    expect(grid[0].y).toBe(grid[1].y);
+    expect(grid[2].y).toBe(grid[3].y);
+    expect(Math.abs(grid[0].height - grid[2].height)).toBeLessThan(2);
+    expect(grid.every(p => p.contained)).toBe(true);
+    await page.reload();
+    await expect.poll(async () => (await inspect('.deck-columns--two-rows'))?.width).toBeGreaterThan(0);
+    await expect.poll(async () => (await geometry()).length).toBe(4);
+    await expect.poll(async () => (await inspect(pane + ' .deck-card--post'))?.text).toContain(post.message);
+    await expect.poll(async () => (await inspect('.deck-column--saved .deck-card--post'))?.text).toContain(post.message);
+    await page.screenshot({path: testInfo.outputPath('two-rows.png')});
+    // The lower row can be resized independently, and cancellation never saves.
+    const lowerHandle = '.deck-column-motion:nth-child(3) .deck-column-resize';
+    const low = (await inspect(lowerHandle))!;
+    await page.mouse.move(low.left + 5, low.top + 80);
+    await page.mouse.down();
+    await page.mouse.move(low.left + 85, low.top + 80, {steps: 5});
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    expect((await geometry())[2].width).toBe(260);
+    await inspect(lowerHandle, 'focus');
+    await page.keyboard.press('End');
+    await expect.poll(async () => (await geometry())[2].width).toBe(480);
+    expect((await geometry())[0].width).toBe(260);
+    await page.keyboard.press('Home');
+    // Focus mode fills the rail and returns to the same two-row layout.
+    await inspect(controlsToggle, true);
+    await inspect(pane + ' [aria-label="Focus pane"]', true);
+    await expect.poll(async () => (await inspect('.deck-columns--focus'))?.width).toBeGreaterThan(800);
+    await inspect(pane + ' .deck-column-header [aria-label="Exit focus"]', true);
+    await expect.poll(async () => (await inspect('.deck-columns--two-rows'))?.width).toBeGreaterThan(0);
+
+    await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
+    page.once('dialog', dialog => dialog.accept('Two-row workspace'));
+    await inspect('Save current set', 'text');
+    await expect.poll(async () => {
+      const data = await sw.evaluate(() => chrome.storage.local.get('mattermostDeck.savedViews.v1'));
+      const stored = data['mattermostDeck.savedViews.v1'];
+      const views = typeof stored === 'string' ? JSON.parse(stored) : stored;
+      return views?.[0]?.layoutMode;
+    }).toBe('twoRows');
+    await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
+    await inspect('.deck-layout-mode button:first-child', true);
+    await expect.poll(async () => { const g = await geometry(); return g.length === 4 && g.every(p => p.y === g[0].y); }).toBe(true);
+    await inspect('.deck-add-menu--views .deck-add-item--recent', true);
+    await expect.poll(async () => (await inspect('.deck-columns--two-rows'))?.width).toBeGreaterThan(0);
+  } finally {
+    await context.close();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await fs.rm(profile, { recursive: true, force: true });
+  }
+});

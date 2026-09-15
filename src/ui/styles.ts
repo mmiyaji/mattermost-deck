@@ -2547,4 +2547,45 @@ export const railCssText = `
   .deck-favorites-unavailable { max-height: 30%; overflow: auto; }
   .deck-favorites-error { position: fixed; bottom: 16px; right: 16px; z-index: 2147483647; max-width: min(360px, 90vw); padding: 12px; border: 1px solid currentColor; border-radius: 8px; background: var(--deck-bg); color: var(--deck-text); }
 
+
+  .deck-columns { width: max-content; }
+  .deck-pane-frame { position: relative; container-type: inline-size; }
+  .deck-columns--two-rows {
+    display: grid;
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    grid-auto-columns: max-content;
+    align-content: stretch;
+  }
+  .deck-columns--two-rows .deck-column-tail { grid-row: 1 / 3; }
+  .deck-column-resize {
+    position: absolute; top: 0; bottom: 0; right: -5px; width: 10px;
+    z-index: 9; cursor: col-resize; touch-action: none;
+    border-radius: 6px; background: transparent;
+  }
+  .deck-column-resize:hover, .deck-column-resize:focus-visible {
+    background: color-mix(in srgb, var(--deck-accent) 35%, transparent);
+    outline: 2px solid var(--deck-accent); outline-offset: -3px;
+  }
+  .deck-layout-mode { display: flex; gap: 6px; padding: 6px 10px; }
+  .deck-layout-mode .deck-add-item { flex: 1; min-width: 0; justify-content: center; }
+  .deck-layout-mode [aria-pressed="true"] {
+    color: var(--deck-accent); background: var(--deck-panel); outline: 1px solid var(--deck-border-strong);
+  }
+  .deck-column-header { flex-wrap: wrap; }
+  .deck-column-actions { flex-wrap: wrap; flex-shrink: 0; max-width: 100%; gap: 4px; }
+  .deck-column .deck-field, .deck-column .deck-field--inline,
+  .deck-column .deck-controls, .deck-column .mm-custom-select { min-width: 0; max-width: 100%; }
+  .deck-column .deck-field--inline { flex: 1 1 180px; }
+  .deck-column .deck-inline-actions { flex-wrap: wrap; min-width: 0; }
+  .deck-column .deck-select, .deck-column input { min-width: 0; max-width: 100%; }
+  .deck-column .mm-custom-select-chevron { flex-shrink: 0; }
+  @container (max-width: 330px) {
+    .deck-column-header { gap: 6px; }
+    .deck-column-heading { flex-basis: 100%; }
+    .deck-column-actions { width: 100%; justify-content: flex-end; }
+  }
+
+  .deck-columns--two-rows .deck-column { overflow-y: auto; }
+  .deck-columns--two-rows .deck-post-list { min-height: 120px; }
+  .deck-columns--two-rows .mm-custom-select-menu { position: relative; top: auto; margin-top: 8px; }
 `;

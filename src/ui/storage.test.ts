@@ -32,6 +32,13 @@ function createLocalStorage(initial: Record<string, string> = {}): Storage {
 }
 
 describe("normaliseColumns", () => {
+  it("retains valid individual widths, clamps bounds, and ignores invalid widths without dropping panes", () => {
+    const widths = [360, 100, 9999, NaN, "400", undefined];
+    const result = normaliseColumns(widths.map((width, index) => ({ id: String(index), type: "favorites", width })));
+    expect(result).toHaveLength(6);
+    expect(result.map(column => column.width)).toEqual([360, 260, 480, undefined, undefined, undefined]);
+  });
+
   it("accepts legacy layout payload objects", () => {
     expect(normaliseColumns({ columns: layout })).toEqual(layout);
   });

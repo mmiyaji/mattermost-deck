@@ -1,5 +1,10 @@
 {
   "deck": {
+    "layoutMode": "Pane layout",
+    "layoutRow": "Single row",
+    "layoutTwoRows": "Two rows",
+    "resizeColumn": "Resize pane",
+    "resizeColumnHint": "Drag to resize. Double-click or Home to reset. Arrow keys also adjust the width.",
     "paneSearchOpen": "Search this pane",
     "paneSearchPlaceholder": "Filter posts or authors",
     "paneSearchHint": "Search loaded posts only",

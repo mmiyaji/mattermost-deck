@@ -1,3 +1,4 @@
+import { PaneFrame } from "./PaneFrame";
 import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { ShadowRootContext } from "./ShadowRootContext";
@@ -475,9 +476,9 @@ declare global {
       };
       addColumn: (
         type: DeckColumnType,
-        defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>,
+        defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>,
       ) => string;
-      updateColumn: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void;
+      updateColumn: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>) => void;
       moveColumn: (id: string, direction: "left" | "right") => void;
       removeColumn: (id: string) => void;
     };
@@ -667,6 +668,7 @@ type PostListEntry =
     };
 
 interface SavedDeckView {
+  layoutMode?: "row" | "twoRows";
   id: string;
   name: string;
   columns: DeckColumn[];
@@ -2373,9 +2375,9 @@ function buildDiagnosticsLogEntries(logs: SyncLogEntry[], limit = 5): Diagnostic
 
 function useDeckLayout(): [
   DeckColumn[] | null,
-  (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => string,
+  (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>) => string,
   (id: string) => void,
-  (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void,
+  (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>) => void,
   (id: string, direction: "left" | "right") => void,
   (nextColumns: DeckColumn[]) => void,
 ] {
@@ -2415,7 +2417,7 @@ function useDeckLayout(): [
   const addColumn = useCallback(
     (
       type: DeckColumnType,
-      defaults: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">> = {},
+      defaults: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">> = {},
     ): string => {
       const nextColumn = createColumn(type, defaults);
       persistFromCurrent((current) => [...current, nextColumn]);
@@ -2431,7 +2433,7 @@ function useDeckLayout(): [
     });
   }, [persistFromCurrent]);
 
-  const updateColumn = useCallback((id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>): void => {
+  const updateColumn = useCallback((id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>): void => {
     persistFromCurrent((current) =>
       current.map((column) =>
         column.id === id
@@ -2525,7 +2527,7 @@ function isSavedView(value: unknown): value is SavedDeckView {
 
 function useSavedViews(): [
   SavedDeckView[],
-  (name: string, columns: DeckColumn[]) => void,
+  (name: string, columns: DeckColumn[], layoutMode: "row" | "twoRows") => void,
   (id: string) => void,
   (id: string) => SavedDeckView | undefined,
 ] {
@@ -2547,7 +2549,7 @@ function useSavedViews(): [
     };
   }, []);
 
-  const saveView = useCallback((name: string, columns: DeckColumn[]) => {
+  const saveView = useCallback((name: string, columns: DeckColumn[], layoutMode: "row" | "twoRows") => {
     const normalized = name.trim();
     if (!normalized) {
       return;
@@ -2556,8 +2558,8 @@ function useSavedViews(): [
     setViews((current) => {
       const existing = current.find((entry) => entry.name.toLowerCase() === normalized.toLowerCase());
       const nextEntry: SavedDeckView = existing
-        ? { ...existing, columns }
-        : { id: crypto.randomUUID(), name: normalized, columns };
+        ? { ...existing, columns, layoutMode }
+        : { id: crypto.randomUUID(), name: normalized, columns, layoutMode };
       const next = [nextEntry, ...current.filter((entry) => entry.id !== nextEntry.id)].slice(0, MAX_SAVED_VIEWS);
       void saveStoredJson(SAVED_VIEWS_STORAGE_KEY, next);
       return next;
@@ -4713,7 +4715,7 @@ function MentionsColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
@@ -7272,6 +7274,7 @@ function MentionsColumn({
             type="button"
             className="deck-icon-button deck-icon-button--ghost"
             onClick={() => setShowControls((current) => !current)}
+            aria-expanded={showControls}
             aria-label={showControls ? text.collapseControls("mentions") : text.expandControls("mentions")}
           >
             <ChevronIcon expanded={showControls} />
@@ -7565,9 +7568,9 @@ function ChannelWatchColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onAddColumn: (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => string;
+  onAddColumn: (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>) => string;
   onRememberTarget: (target: RecentChannelTarget) => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
@@ -8062,6 +8065,7 @@ function ChannelWatchColumn({
             type="button"
             className="deck-icon-button deck-icon-button--ghost"
             onClick={() => setShowControls((current) => !current)}
+            aria-expanded={showControls}
             aria-label={
               showControls
                 ? text.collapseControls(selectedChannelLabel ?? (mode === "dm" ? text.addDmWatch : text.addChannelWatch))
@@ -8438,7 +8442,7 @@ function SearchLikeColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
@@ -8772,6 +8776,7 @@ function SearchLikeColumn({
             type="button"
             className="deck-icon-button deck-icon-button--ghost"
             onClick={() => setShowControls((current) => !current)}
+            aria-expanded={showControls}
             aria-label={showControls ? text.collapseControls(title) : text.expandControls(title)}
           >
             <ChevronIcon expanded={showControls} />
@@ -9688,6 +9693,25 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   }, [state.userId]);
   const [mentionsLastReadAt, setMentionsLastReadAt] = useMentionsLastReadAt();
   const [columns, addColumn, removeColumn, updateColumn, moveColumn, replaceColumns] = useDeckLayout();
+  const [layoutMode, setLayoutMode] = useState<"row" | "twoRows">("row");
+  const [layoutModeReady, setLayoutModeReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void loadStoredJson("mattermostDeck.layoutMode.v1", "row").then(mode => {
+      if (!cancelled) { setLayoutMode(mode === "twoRows" ? "twoRows" : "row"); setLayoutModeReady(true); }
+    });
+    return () => { cancelled = true; };
+  }, []);
+  const changeLayoutMode = (mode: "row" | "twoRows") => {
+    setLayoutMode(mode);
+    void saveStoredJson("mattermostDeck.layoutMode.v1", mode);
+  };
+  const layoutModeControls = <div className="deck-layout-mode" role="group" aria-label={i18n.t("deck.layoutMode")}>
+    {(["row", "twoRows"] as const).map(mode => <button key={mode} type="button"
+      className="deck-add-item" disabled={!layoutModeReady} aria-pressed={layoutMode === mode}
+      onClick={() => changeLayoutMode(mode)}>{i18n.t(mode === "row" ? "deck.layoutRow" : "deck.layoutTwoRows")}</button>)}
+  </div>;
+
   realtimeMentionScopeRef.current = {
     hasAllMentionsColumn: (columns ?? []).some(
       (column) => column.type === "mentions" && !column.teamId,
@@ -10747,7 +10771,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
   const handleAddColumn = (
     type: DeckColumnType,
-    defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>,
+    defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>,
   ): string => {
     const nextId = addColumn(type, defaults);
     setPendingScrollColumnId(nextId);
@@ -10890,7 +10914,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       return;
     }
 
-    saveView(name, currentColumns);
+    saveView(name, currentColumns, layoutMode);
     setShowViewsMenu(false);
     setShowActionsMenu(false);
     setShowRailAddMenu(false);
@@ -10902,7 +10926,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       return;
     }
 
-    replaceColumns(view.columns);
+    replaceColumns(normaliseColumns(view.columns));
+    changeLayoutMode(view.layoutMode === "twoRows" ? "twoRows" : "row");
     setShowViewsMenu(false);
     setShowActionsMenu(false);
     setShowRailAddMenu(false);
@@ -10973,7 +10998,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   }, [showViewsMenu, viewReorderMode]);
 
   const handleExportLayout = () => {
-    const payload = JSON.stringify({ columns: columns ?? [] }, null, 2);
+    const payload = JSON.stringify({ columns: columns ?? [], layoutMode }, null, 2);
     const blob = new Blob([payload], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -11000,11 +11025,12 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
     try {
       const raw = await file.text();
-      const parsed = JSON.parse(raw) as { columns?: DeckColumn[] };
+      const parsed = JSON.parse(raw) as { columns?: DeckColumn[]; layoutMode?: unknown };
       if (!Array.isArray(parsed.columns)) {
         return;
       }
       replaceColumns(normaliseColumns(parsed.columns));
+      changeLayoutMode(parsed.layoutMode === "twoRows" ? "twoRows" : "row");
       setShowActionsMenu(false);
       setShowRailAddMenu(false);
     } catch {
@@ -11136,12 +11162,12 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       } else if (action === "addColumn") {
         result = handleAddColumn(
           payload.type as DeckColumnType,
-          payload.defaults as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">> | undefined,
+          payload.defaults as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">> | undefined,
         );
       } else if (action === "updateColumn") {
         updateColumn(
           payload.id as string,
-          payload.patch as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly">>,
+          payload.patch as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>,
         );
       } else if (action === "moveColumn") {
         moveColumn(payload.id as string, payload.direction as "left" | "right");
@@ -11631,6 +11657,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                 {showViewsMenu ? (
                   <div id={VIEWS_MENU_ID} className="deck-add-menu deck-add-menu--views">
                     <div className="deck-add-menu-title">{text.viewsLabel}</div>
+                    {layoutModeControls}
                     <div className="deck-menu-row deck-menu-row--toolbar">
                       {!viewReorderMode ? (
                         <button type="button" className="deck-add-item" onClick={handleStartViewReorder}>
@@ -11863,6 +11890,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           </>
                         ) : null}
                         <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.viewsLabel}</div>
+                        {layoutModeControls}
                         {(columns ?? []).map((column, index) => {
                           const meta = getColumnViewMeta(column);
                           return (
@@ -11936,11 +11964,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
             }}
           >
             <div
-              className={`deck-columns${focusedColumnId ? " deck-columns--focus" : ""}`}
+              className={`deck-columns${focusedColumnId ? " deck-columns--focus" : layoutMode === "twoRows" && !isInitialLoading && !shouldSafeStop ? " deck-columns--two-rows" : ""}`}
               style={{
                 minWidth: focusedColumnId
                   ? "100%"
-                  : (columns?.length ?? 1) * (normalisePreferredColumnWidth(deckSettings.preferredColumnWidth) + 20) + 32,
+                  : "100%",
               }}
             >
               {isInitialLoading ? (
@@ -11997,10 +12025,19 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                 const isFocusedPane = focusedColumnId === column.id;
                 const isHiddenByFocus = Boolean(focusedColumnId) && !isFocusedPane;
                 const motionClassName = `deck-column-motion${isFocusedPane ? " deck-column-motion--focused" : ""}${isHiddenByFocus ? " deck-column-motion--hidden" : ""}`;
+                const frameProps = {
+                  frameRef: setColumnRef,
+                  className: motionClassName,
+                  width: normalisePreferredColumnWidth(column.width ?? deckSettings.preferredColumnWidth),
+                  focused: isFocusedPane,
+                  row: layoutMode === "twoRows" ? (index < Math.ceil(allColumns.length / 2) ? 1 : 2) : undefined,
+                  track: layoutMode === "twoRows" ? index % Math.ceil(allColumns.length / 2) + 1 : undefined,
+                  onResize: (width: number | undefined) => updateColumn(column.id, { width }),
+                };
                 switch (column.type) {
                   case "mentions":
                     return (
-                      <div key={column.id} ref={setColumnRef} className={motionClassName}>
+                      <PaneFrame key={column.id} {...frameProps}>
         <MentionsColumn
           column={column}
           username={state.username}
@@ -12040,11 +12077,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           isFocusedPane={isFocusedPane}
                           onToggleFocus={(id) => setFocusedColumnId((current) => (current === id ? null : id))}
                         />
-                      </div>
+                      </PaneFrame>
                     );
                   case "channelWatch":
                     return (
-                      <div key={column.id} ref={setColumnRef} className={motionClassName}>
+                      <PaneFrame key={column.id} {...frameProps}>
                         <ChannelWatchColumn
                           column={column}
                           mode="channel"
@@ -12080,11 +12117,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           isFocusedPane={isFocusedPane}
                           onToggleFocus={(id) => setFocusedColumnId((current) => (current === id ? null : id))}
                         />
-                      </div>
+                      </PaneFrame>
                     );
                   case "dmWatch":
                     return (
-                      <div key={column.id} ref={setColumnRef} className={motionClassName}>
+                      <PaneFrame key={column.id} {...frameProps}>
                         <ChannelWatchColumn
                           column={column}
                           mode="dm"
@@ -12120,12 +12157,12 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           isFocusedPane={isFocusedPane}
                           onToggleFocus={(id) => setFocusedColumnId((current) => (current === id ? null : id))}
                         />
-                      </div>
+                      </PaneFrame>
                     );
                   case "search":
                   case "keywordWatch":
                     return (
-                      <div key={column.id} ref={setColumnRef} className={motionClassName}>
+                      <PaneFrame key={column.id} {...frameProps}>
                         <SearchLikeColumn
                           column={column}
                           currentUsername={state.username}
@@ -12152,11 +12189,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           isFocusedPane={isFocusedPane}
                           onToggleFocus={(id) => setFocusedColumnId((current) => (current === id ? null : id))}
                         />
-                      </div>
+                      </PaneFrame>
                     );
                   case "favorites":
                     return (
-                      <div key={column.id} ref={setColumnRef} className={motionClassName}>
+                      <PaneFrame key={column.id} {...frameProps}>
                         <FavoritesColumn
                           teams={state.teams}
                           column={column}
@@ -12182,11 +12219,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           isFocusedPane={isFocusedPane}
                           onToggleFocus={(id) => setFocusedColumnId((current) => (current === id ? null : id))}
                         />
-                      </div>
+                      </PaneFrame>
                     );
                   case "saved":
                     return (
-                      <div key={column.id} ref={setColumnRef} className={motionClassName}>
+                      <PaneFrame key={column.id} {...frameProps}>
                         <SavedPostsColumn
                           column={column}
                           currentUsername={state.username}
@@ -12211,11 +12248,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           isFocusedPane={isFocusedPane}
                           onToggleFocus={(id) => setFocusedColumnId((current) => (current === id ? null : id))}
                         />
-                      </div>
+                      </PaneFrame>
                     );
                   case "diagnostics":
                     return (
-                      <div key={column.id} ref={setColumnRef} className={motionClassName}>
+                      <PaneFrame key={column.id} {...frameProps}>
                         <DiagnosticsColumn
                           column={column}
                           wsStatus={wsStatus}
@@ -12233,7 +12270,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           isFocusedPane={isFocusedPane}
                           onToggleFocus={(id) => setFocusedColumnId((current) => (current === id ? null : id))}
                         />
-                      </div>
+                      </PaneFrame>
                   );
                 }
               })}

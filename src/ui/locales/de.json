@@ -1,5 +1,10 @@
 {
   "deck": {
+    "layoutMode": "Panel-Anordnung",
+    "layoutRow": "Eine Zeile",
+    "layoutTwoRows": "Zwei Zeilen",
+    "resizeColumn": "Panelgröße ändern",
+    "resizeColumnHint": "Zum Ändern ziehen. Doppelklick oder Pos1 setzt zurück. Pfeiltasten ändern die Breite.",
     "paneSearchOpen": "Diesen Bereich durchsuchen",
     "paneSearchPlaceholder": "Beiträge oder Autoren filtern",
     "paneSearchHint": "Nur geladene Beiträge durchsuchen",

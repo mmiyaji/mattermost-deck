@@ -1,5 +1,10 @@
 {
   "deck": {
+    "layoutMode": "Distribución de paneles",
+    "layoutRow": "Una fila",
+    "layoutTwoRows": "Dos filas",
+    "resizeColumn": "Cambiar ancho del panel",
+    "resizeColumnHint": "Arrastra para ajustar. Doble clic o Inicio para restablecer. También puedes usar las flechas.",
     "paneSearchOpen": "Buscar en este panel",
     "paneSearchPlaceholder": "Filtrar mensajes o autores",
     "paneSearchHint": "Buscar solo en mensajes cargados",

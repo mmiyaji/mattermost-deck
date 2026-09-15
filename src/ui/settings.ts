@@ -1,3 +1,5 @@
+import { DEFAULT_PREFERRED_COLUMN_WIDTH, normalisePreferredColumnWidth } from "./columnWidth";
+export { MIN_PREFERRED_COLUMN_WIDTH, MAX_PREFERRED_COLUMN_WIDTH, normalisePreferredColumnWidth } from "./columnWidth";
 import {
   encodeStoredEncryptedString,
   loadStoredEncryptedString,
@@ -95,7 +97,7 @@ export const DEFAULT_SETTINGS: DeckSettings = {
   fontScalePercent: 100,
   preferredRailWidth: 720,
   autoAdjustThreadLayout: true,
-  preferredColumnWidth: 320,
+  preferredColumnWidth: DEFAULT_PREFERRED_COLUMN_WIDTH,
   compactMode: false,
   columnColorEnabled: false,
   postClickAction: "ask",
@@ -111,8 +113,6 @@ export const MIN_FONT_SCALE_PERCENT = 80;
 export const MAX_FONT_SCALE_PERCENT = 140;
 export const MIN_PREFERRED_RAIL_WIDTH = 360;
 export const MAX_PREFERRED_RAIL_WIDTH = 1400;
-export const MIN_PREFERRED_COLUMN_WIDTH = 260;
-export const MAX_PREFERRED_COLUMN_WIDTH = 480;
 const LEGACY_DEFAULT_ALLOWED_ROUTE_KINDS = "channels,messages,pl";
 
 function isMattermostUiRoute(pathname: string): boolean {
@@ -207,14 +207,6 @@ export function normalisePreferredRailWidth(value: number | string | null): numb
   return Math.min(MAX_PREFERRED_RAIL_WIDTH, Math.max(MIN_PREFERRED_RAIL_WIDTH, Math.round(parsed)));
 }
 
-export function normalisePreferredColumnWidth(value: number | string | null): number {
-  const parsed = typeof value === "number" ? value : Number(value ?? DEFAULT_SETTINGS.preferredColumnWidth);
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_SETTINGS.preferredColumnWidth;
-  }
-
-  return Math.min(MAX_PREFERRED_COLUMN_WIDTH, Math.max(MIN_PREFERRED_COLUMN_WIDTH, Math.round(parsed)));
-}
 
 export function normaliseAllowedRouteKinds(value: string | null): string {
   const raw = value?.trim() ?? "";

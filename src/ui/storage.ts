@@ -1,3 +1,4 @@
+import { normalisePreferredColumnWidth } from "./columnWidth";
 import { createDefaultLayout, type DeckColumn } from "./layout";
 
 interface LayoutPayload {
@@ -59,6 +60,8 @@ function normaliseColumnsOrNull(value: unknown): DeckColumn[] | null {
     channelId: column.channelId,
     query: column.query,
     unreadOnly: column.unreadOnly,
+    ...(typeof column.width === "number" && Number.isFinite(column.width)
+      ? { width: normalisePreferredColumnWidth(column.width) } : {}),
   }));
 
   return columns.length > 0 ? columns : null;

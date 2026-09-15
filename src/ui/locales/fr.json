@@ -1,5 +1,10 @@
 {
   "deck": {
+    "layoutMode": "Disposition des panneaux",
+    "layoutRow": "Une rangée",
+    "layoutTwoRows": "Deux rangées",
+    "resizeColumn": "Redimensionner le panneau",
+    "resizeColumnHint": "Faites glisser pour ajuster. Double-clic ou Début pour réinitialiser. Les flèches ajustent aussi la largeur.",
     "paneSearchOpen": "Rechercher dans ce volet",
     "paneSearchPlaceholder": "Filtrer les messages ou auteurs",
     "paneSearchHint": "Rechercher parmi les messages chargés",

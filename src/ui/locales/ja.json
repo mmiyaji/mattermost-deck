@@ -1,5 +1,10 @@
 {
   "deck": {
+    "layoutMode": "ペインの配置",
+    "layoutRow": "横一列",
+    "layoutTwoRows": "上下2段",
+    "resizeColumn": "ペイン幅を変更",
+    "resizeColumnHint": "ドラッグで幅を変更。ダブルクリックまたはHomeで既定幅に戻す。左右キーでも調整できます。",
     "paneSearchOpen": "このペイン内を検索",
     "paneSearchPlaceholder": "投稿・投稿者で絞り込む",
     "paneSearchHint": "読み込み済みの投稿から検索",
