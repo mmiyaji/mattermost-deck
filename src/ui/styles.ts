@@ -2711,6 +2711,10 @@ export const railCssText = `
 .deck-layout-tip-dismiss { width: 28px; flex-shrink: 0; }
 .deck-layout-tip button:hover { background: var(--deck-panel-2); }
 
+/* Keep the title focus outline clear; opacity preserves Tab access to tools. */
+.deck-column-header:has(.deck-column-heading h2:focus) > .deck-column-actions {
+  opacity: 0; pointer-events: none;
+}
 /* Editing owns the header interaction until its dialog closes. */
 .deck-column:has(.deck-rename-dialog[open]) > .deck-column-header > .deck-column-actions {
   visibility: hidden; opacity: 0; pointer-events: none;

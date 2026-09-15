@@ -14,11 +14,11 @@ Validated locally on Windows on 2026-09-15.
 
 ## Final artifacts
 
-- mattermost-deck-v1.2.0.zip: 697,490 bytes, 23 files.
+- mattermost-deck-v1.2.0.zip: 697,544 bytes, 23 files.
 - mattermost-deck-v1.2.0.zip.sha256
-- SHA-256: fa114ed34d2320e864f2f62336d445cf166c747d3492d215a1bdd9f5970098c9
-- Store build: 3,620,767 uncompressed bytes; STORE_BUILD=true and EXT_VERSION=v1.2.0.
-- Extracted to .tmp-store-candidate-1.2.0-final2; every extracted file was hash-compared with dist. Manifest at ZIP root; no source maps or development-only scripts.
+- SHA-256: d691d5b842b57067dc902f8ce9c0b7e333ab69be4c658ed6c28e327fc4349b26
+- Store build: 3,620,966 uncompressed bytes; STORE_BUILD=true and EXT_VERSION=v1.2.0.
+- Extracted to .tmp-store-candidate-1.2.0-title-focus; every extracted file was hash-compared with dist. Manifest at ZIP root; no source maps or development-only scripts.
 
 ## Passed checks
 
@@ -26,7 +26,7 @@ Validated locally on Windows on 2026-09-15.
 - Unit tests: 389 passed in 40 files.
 - Runtime E2E: 16 passed (test-results/v1.2.0-final-runtime). Covers settings, all nine release-note locales, pane sizes/placement/reordering/aliases, the one-time discovery shortcut and its dismissal persistence, plus Docker Mattermost 9.5.11 responsive and thread layouts.
 - After the final title-editor CSS change, the complete pane-layout E2E passed again, including explicit hidden/restored header tool assertions (test-results/v1.2.0-title-editor-final).
-- Exact final ZIP smoke: 1 passed against Docker Mattermost 9.5.11 (test-results/v1.2.0-final-archive), covering initial ungranted state and safe permission denial.
+- Exact final ZIP smoke: 1 passed against Docker Mattermost 9.5.11 (test-results/v1.2.0-title-focus-archive), covering initial ungranted state and safe permission denial.
 - Website browser checks: Japanese and English at 1440 px and 390 px, no horizontal overflow or script errors; screenshots visually reviewed (test-results/v1.2.0-site).
 - Screenshots captured from the local Docker showcase, including all nine interface languages; the routine showcase suppresses the dismissible discovery hint.
 
@@ -35,3 +35,7 @@ An initial compact-menu order assertion used an outdated English label; correcte
 ## Publication and limits
 
 This is a local release package and website source update. No tag pushed, GitHub Release created, Cloudflare production deployment or Chrome Web Store upload performed. The repository's existing main-branch workflow deploys website changes after integration. The full cross-version matrix, full E2E suite, long-running soak and monkey tests were not repeated in this packaging run. Native permission approval remains a manual publication check; the archive smoke checks denial rather than granting that native dialog.
+
+## Title focus follow-up
+
+The reported overlap referred to the title focus outline, not only the open editor. Header tools now become transparent while the title has focus, preserving their Tab order. Moving keyboard focus to Search makes them visible and operable. The full pane-layout E2E including this interaction passed (test-results/v1.2.0-title-focus). The ZIP was rebuilt, hash-compared and smoke-tested again; artifact details above identify this latest candidate.

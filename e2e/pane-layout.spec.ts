@@ -95,6 +95,15 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await expect.poll(async () => !!(await inspect('[data-pane-id="watch"]'))).toBe(true);
     expect(await inspect('.deck-layout-tip')).toBeNull();
     expect(await inspect('.deck-columns--two-rows')).toBeNull();
+    // A focused title must not share its outline with the hover tools.
+    await inspect('[data-pane-id="watch"] h2', 'focus');
+    await expect.poll(async () => (await inspect('[data-pane-id="watch"] .deck-column-actions'))?.opacity).toBe('0');
+    await page.screenshot({path:testInfo.outputPath('title-focus-without-tools.png')});
+    await page.keyboard.press('Tab');
+    await expect.poll(async () => (await inspect('[data-pane-id="watch"] .deck-column-actions'))?.opacity).toBe('1');
+    await page.keyboard.press('Enter');
+    await expect.poll(async () => (await inspect('[data-pane-id="watch"] .deck-pane-search-toggle'))?.expanded).toBe('true');
+    await page.keyboard.press('Escape');
     // Rename through real pointer/keyboard input, without fetching posts again.
     await expect.poll(async () => (await inspect('[data-pane-id="watch"] h2'))?.text).toContain(channel.display_name);
     await page.waitForTimeout(600);

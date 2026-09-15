@@ -28,7 +28,7 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Hid pane header search and collapse tools while editing the pane title.
+- Hid pane header search and collapse tools while the title is focused or its editor is open, keeping the title outline clear and preserving keyboard access to the tools.
 
 - Moved Views, layout controls and saved sets above pane additions in the compact hamburger menu.
 
