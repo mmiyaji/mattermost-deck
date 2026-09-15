@@ -60,6 +60,7 @@ function normaliseColumnsOrNull(value: unknown): DeckColumn[] | null {
     channelId: column.channelId,
     query: column.query,
     unreadOnly: column.unreadOnly,
+    ...(column.row === 0 || column.row === 1 ? { row: column.row } : {}),
     ...(typeof column.width === "number" && Number.isFinite(column.width)
       ? { width: normalisePreferredColumnWidth(column.width) } : {}),
   }));

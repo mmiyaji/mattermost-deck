@@ -109,3 +109,11 @@ describe("session-only storage", () => {
     expect(localStorage.setItem).not.toHaveBeenCalled();
   });
 });
+
+it("retains valid pane rows and ignores invalid imported row assignments", () => {
+  const result = normaliseColumns([
+    {id:'top',type:'favorites',row:0}, {id:'bottom',type:'saved',row:1},
+    {id:'invalid',type:'search',row:2}, {id:'legacy',type:'mentions'},
+  ]);
+  expect(result.map(column => column.row)).toEqual([0,1,undefined,undefined]);
+});

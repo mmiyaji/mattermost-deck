@@ -1,5 +1,6 @@
 {
   "deck": {
+    "balanceRows": "Gleichmäßig auf Zeilen verteilen",
     "resizeRows": "Zeilenhöhen ändern",
     "resizeRowsHint": "Zum Ändern ziehen. Doppelklick oder Pos1 stellt gleiche Höhen wieder her. Auch mit Auf-/Ab-Pfeiltasten einstellbar.",
     "rowHeightRatio": "Oben {{top}}%, unten {{bottom}}%",

@@ -2552,6 +2552,7 @@ export const railCssText = `
 
   .deck-columns { width: max-content; }
   .deck-pane-frame { position: relative; container-type: inline-size; }
+  .deck-columns:not(.deck-columns--two-rows):not(.deck-columns--focus) .deck-column-row:nth-child(2) { display: none; }
   .deck-column-row { display: flex; gap: 12px; flex: none; width: max-content; height: 100%; min-height: 0; }
   .deck-columns--focus .deck-column-row { flex: 1 1 auto; width: 100%; min-width: 0; }
   .deck-columns--focus .deck-column-row:not(:has(.deck-column-motion--focused)) { display: none; }

@@ -1,6 +1,6 @@
 import { preservePaneScroll } from "./paneScroll";
 import { usePaneReorder } from "./usePaneReorder";
-import { movePaneRelative } from "./paneOrder";
+import { movePaneRelative, paneRow, initialisePaneRows, balancePaneRows } from "./paneOrder";
 import { RowSplitter } from "./RowSplitter";
 import { normaliseRowSplit } from "./rowSplit";
 import { PaneFrame } from "./PaneFrame";
@@ -481,9 +481,9 @@ declare global {
       };
       addColumn: (
         type: DeckColumnType,
-        defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>,
+        defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>,
       ) => string;
-      updateColumn: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>) => void;
+      updateColumn: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>) => void;
       moveColumn: (id: string, direction: "left" | "right") => void;
       removeColumn: (id: string) => void;
     };
@@ -575,6 +575,9 @@ function useColumnPolling(
   },
 ): void {
   const runQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const intervalRef = useRef(intervalMs);
+  intervalRef.current = intervalMs;
+  const rescheduleRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -601,7 +604,7 @@ function useColumnPolling(
       }
       timer = window.setTimeout(() => {
         void execute();
-      }, Math.max(1, intervalMs));
+      }, Math.max(1, intervalRef.current));
     };
     const execute = async () => {
       if (cancelled || running) {
@@ -634,9 +637,11 @@ function useColumnPolling(
         schedule();
       }
     };
+    rescheduleRef.current = handleVisibility;
     document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
+      if (rescheduleRef.current === handleVisibility) rescheduleRef.current = null;
       cancelled = true;
       if (timer !== null) {
         window.clearTimeout(timer);
@@ -644,6 +649,7 @@ function useColumnPolling(
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, dependencies);
+  useEffect(() => { rescheduleRef.current?.(); }, [intervalMs]);
 }
 
 interface OpenPostTarget {
@@ -2381,12 +2387,12 @@ function buildDiagnosticsLogEntries(logs: SyncLogEntry[], limit = 5): Diagnostic
 
 function useDeckLayout(): [
   DeckColumn[] | null,
-  (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>) => string,
+  (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>, groupRows?: boolean) => string,
   (id: string) => void,
-  (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>) => void,
+  (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>) => void,
   (id: string, direction: "left" | "right") => void,
   (nextColumns: DeckColumn[]) => void,
-  (source: string, target: string, after: boolean) => void,
+  (source: string, target: string | null, after: boolean, row?: 0 | 1) => void,
 ] {
   const [columns, setColumns] = useState<DeckColumn[] | null>(null);
 
@@ -2424,10 +2430,14 @@ function useDeckLayout(): [
   const addColumn = useCallback(
     (
       type: DeckColumnType,
-      defaults: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">> = {},
+      defaults: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">> = {},
+      groupRows = false,
     ): string => {
       const nextColumn = createColumn(type, defaults);
-      persistFromCurrent((current) => [...current, nextColumn]);
+      persistFromCurrent((current) => {
+        const next = [...current, nextColumn];
+        return groupRows ? next.sort((a, b) => (a.row ?? 0) - (b.row ?? 0)) : next;
+      });
       return nextColumn.id;
     },
     [persistFromCurrent],
@@ -2440,7 +2450,7 @@ function useDeckLayout(): [
     });
   }, [persistFromCurrent]);
 
-  const updateColumn = useCallback((id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>): void => {
+  const updateColumn = useCallback((id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>): void => {
     persistFromCurrent((current) =>
       current.map((column) =>
         column.id === id
@@ -2472,8 +2482,8 @@ function useDeckLayout(): [
     });
   }, [persistFromCurrent]);
 
-  const reorderColumn = useCallback((source: string, target: string, after: boolean) => {
-    persistFromCurrent(current => movePaneRelative(current, source, target, after));
+  const reorderColumn = useCallback((source: string, target: string | null, after: boolean, row?: 0 | 1) => {
+    persistFromCurrent(current => movePaneRelative(current, source, target, after, row));
   }, [persistFromCurrent]);
   return [columns, addColumn, removeColumn, updateColumn, moveColumn, persist, reorderColumn];
 }
@@ -4725,7 +4735,7 @@ function MentionsColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
@@ -6604,7 +6614,6 @@ function MentionsColumn({
         finishRefresh,
         loadUnreadChannelMentionPosts,
         loadUnreadThreadMentionPosts,
-        mentionPollingIntervalMs,
         mentionCacheContext,
         mentionCacheEntryId,
         mentionSearchTerms,
@@ -7580,9 +7589,9 @@ function ChannelWatchColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onAddColumn: (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>) => string;
+  onAddColumn: (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>) => string;
   onRememberTarget: (target: RecentChannelTarget) => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
@@ -7896,7 +7905,6 @@ function ChannelWatchColumn({
         finishRefresh();
       },
       dependencies: [
-        channelPostPollingIntervalMs,
         column.channelId,
         column.teamId,
         deletedPostIds,
@@ -8456,7 +8464,7 @@ function SearchLikeColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
@@ -8676,7 +8684,6 @@ function SearchLikeColumn({
         ready,
         reconnectNonce,
         refreshNonce,
-        searchPollingIntervalMs,
       ],
     },
   );
@@ -9206,7 +9213,6 @@ function SavedPostsColumn({
         paused,
         reconnectNonce,
         refreshNonce,
-        savedPollingIntervalMs,
       ],
     },
   );
@@ -9714,7 +9720,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     });
   }, [state.userId]);
   const [mentionsLastReadAt, setMentionsLastReadAt] = useMentionsLastReadAt();
-  const [columns, addColumn, removeColumn, updateColumn, moveColumn, replaceColumns, reorderColumn] = useDeckLayout();
+  const [columns, addColumn, removeColumn, updateColumn, moveColumnInOrder, replaceColumns, reorderColumn] = useDeckLayout();
   const [layoutMode, setLayoutMode] = useState<"row" | "twoRows">("row");
   const [layoutModeReady, setLayoutModeReady] = useState(false);
   const [rowSplit, setRowSplit] = useState(50);
@@ -9725,6 +9731,19 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     });
     return () => { cancelled = true; };
   }, []);
+  useEffect(() => {
+    if (layoutModeReady && layoutMode === "twoRows" && columns?.some(column => column.row === undefined)) {
+      replaceColumns(initialisePaneRows(columns));
+    }
+  }, [layoutModeReady, layoutMode, columns, replaceColumns]);
+  const moveColumn = (id: string, direction: "left" | "right") => {
+    if (layoutMode === "row") { moveColumnInOrder(id, direction); return; }
+    const source = columns?.find(column => column.id === id);
+    if (!source) return;
+    const siblings = (columns ?? []).filter(column => column.row === source.row);
+    const neighbor = siblings[siblings.indexOf(source) + (direction === "left" ? -1 : 1)];
+    if (neighbor) reorderColumn(id, neighbor.id, direction === "right", source.row);
+  };
   const changeLayoutMode = (mode: "row" | "twoRows") => {
     setLayoutMode(mode);
     void saveStoredJson("mattermostDeck.layoutMode.v1", mode);
@@ -9734,11 +9753,14 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     setRowSplit(next);
     void saveStoredJson("mattermostDeck.rowSplit.v1", next);
   };
-  const layoutModeControls = <div className="deck-layout-mode" role="group" aria-label={i18n.t("deck.layoutMode")}>
+  const layoutModeControls = <><div className="deck-layout-mode" role="group" aria-label={i18n.t("deck.layoutMode")}>
     {(["row", "twoRows"] as const).map(mode => <button key={mode} type="button"
       className="deck-add-item" disabled={!layoutModeReady} aria-pressed={layoutMode === mode}
       onClick={() => changeLayoutMode(mode)}>{i18n.t(mode === "row" ? "deck.layoutRow" : "deck.layoutTwoRows")}</button>)}
-  </div>;
+  </div>
+    {layoutMode === "twoRows" && <button type="button" className="deck-add-item deck-balance-rows" disabled={!columns?.length || !layoutModeReady}
+      onClick={() => replaceColumns(balancePaneRows(columns ?? []))}>{i18n.t("deck.balanceRows")}</button>}
+  </>;
 
   realtimeMentionScopeRef.current = {
     hasAllMentionsColumn: (columns ?? []).some(
@@ -9812,7 +9834,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const threadScrollLeftRef = useRef<number | null>(null);
   const wasThreadConstrainedRef = useRef(false);
   const deckContentHadFocusRef = useRef(false);
-  const paneOrderKey = JSON.stringify((columns ?? []).map(column => column.id));
+  const paneOrderKey = JSON.stringify([layoutMode, (columns ?? []).map(column => [column.id, column.row])]);
   const paneRows = useRef<Array<HTMLDivElement | null>>([]);
   const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const previousColumnRectsRef = useRef<Record<string, DOMRect>>({});
@@ -10188,7 +10210,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     if (!root) return;
     const restoreScroll = preservePaneScroll(root);
     (columns ?? []).forEach((column, index) => {
-      const row = paneRows.current[index < Math.ceil((columns?.length ?? 0) / 2) ? 0 : 1];
+      const row = paneRows.current[layoutMode === "twoRows" ? paneRow(column, index, columns?.length ?? 0) : 0];
       const frame = columnRefs.current[column.id];
       if (row && frame) row.insertBefore(frame, row.querySelector(".deck-column-tail"));
     });
@@ -10814,9 +10836,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
   const handleAddColumn = (
     type: DeckColumnType,
-    defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>,
+    defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>,
   ): string => {
-    const nextId = addColumn(type, defaults);
+    const row = layoutMode === "twoRows" || columns?.some(column => column.row !== undefined)
+      ? (showRailAddMenu && railAddButtonRef.current?.dataset.addRow === "1" ? 1 : 0) : undefined;
+    const nextId = addColumn(type, { row, ...defaults }, layoutMode === "twoRows");
     setPendingScrollColumnId(nextId);
     setShowAddMenu(false);
     setShowViewsMenu(false);
@@ -11215,12 +11239,12 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       } else if (action === "addColumn") {
         result = handleAddColumn(
           payload.type as DeckColumnType,
-          payload.defaults as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">> | undefined,
+          payload.defaults as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">> | undefined,
         );
       } else if (action === "updateColumn") {
         updateColumn(
           payload.id as string,
-          payload.patch as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>,
+          payload.patch as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">>,
         );
       } else if (action === "moveColumn") {
         moveColumn(payload.id as string, payload.direction as "left" | "right");
@@ -12072,7 +12096,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
               {[0, 1].map(rowIndex => <div key={rowIndex} className="deck-column-row">
                 <div className="deck-row-scroll" ref={element => { paneRows.current[rowIndex] = element; }}>
 
-              {(layoutMode === "twoRows" || rowIndex === 1) && (
+              {(layoutMode === "twoRows" || rowIndex === 0) && (
                 <div className="deck-column-tail">
                   <button
                     type="button"
@@ -12107,6 +12131,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
               </div>)}
                 {(columns ?? []).map((column, index) => {
                 const allColumns = columns ?? [];
+                const siblings = layoutMode === "twoRows" ? allColumns.filter(pane => pane.row === column.row) : allColumns;
+                const siblingIndex = siblings.indexOf(column);
                 const setColumnRef = (element: HTMLDivElement | null) => {
                   columnRefs.current[column.id] = element;
                 };
@@ -12115,7 +12141,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                 const motionClassName = `deck-column-motion${isFocusedPane ? " deck-column-motion--focused" : ""}${isHiddenByFocus ? " deck-column-motion--hidden" : ""}`;
                 const frameProps = {
                   paneId: column.id,
-                  getContainer: () => paneRows.current[index < Math.ceil(allColumns.length / 2) ? 0 : 1],
+                  getContainer: () => paneRows.current[layoutMode === "twoRows" ? paneRow(column, index, allColumns.length) : 0],
                   frameRef: setColumnRef,
                   className: motionClassName,
                   width: normalisePreferredColumnWidth(column.width ?? deckSettings.preferredColumnWidth),
@@ -12149,8 +12175,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           readRefreshNonce={mentionReadRefreshNonce}
                           realtimeReadMarkers={realtimeReadMarkers}
                           pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
-                          canMoveLeft={index > 0}
-                          canMoveRight={index < allColumns.length - 1}
+                          canMoveLeft={siblingIndex > 0}
+                          canMoveRight={siblingIndex < siblings.length - 1}
                           onMove={moveColumn}
                           onUpdate={updateColumn}
                           onRemove={removeColumn}
@@ -12187,8 +12213,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           deletedPostIds={deletedPostIds}
                           reconnectNonce={reconnectNonce}
                           pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
-                          canMoveLeft={index > 0}
-                          canMoveRight={index < allColumns.length - 1}
+                          canMoveLeft={siblingIndex > 0}
+                          canMoveRight={siblingIndex < siblings.length - 1}
                           onMove={moveColumn}
                           onAddColumn={handleAddColumn}
                           onRememberTarget={rememberRecentTarget}
@@ -12227,8 +12253,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           deletedPostIds={deletedPostIds}
                           reconnectNonce={reconnectNonce}
                           pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
-                          canMoveLeft={index > 0}
-                          canMoveRight={index < allColumns.length - 1}
+                          canMoveLeft={siblingIndex > 0}
+                          canMoveRight={siblingIndex < siblings.length - 1}
                           onMove={moveColumn}
                           onAddColumn={handleAddColumn}
                           onRememberTarget={rememberRecentTarget}
@@ -12261,8 +12287,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           deletedPostIds={deletedPostIds}
                           pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
                           reconnectNonce={reconnectNonce}
-                          canMoveLeft={index > 0}
-                          canMoveRight={index < allColumns.length - 1}
+                          canMoveLeft={siblingIndex > 0}
+                          canMoveRight={siblingIndex < siblings.length - 1}
                           onMove={moveColumn}
                           onUpdate={updateColumn}
                           onRemove={removeColumn}
@@ -12292,8 +12318,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           deletedPostIds={deletedPostIds}
                           pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
                           reconnectNonce={reconnectNonce}
-                          canMoveLeft={index > 0}
-                          canMoveRight={index < allColumns.length - 1}
+                          canMoveLeft={siblingIndex > 0}
+                          canMoveRight={siblingIndex < siblings.length - 1}
                           onMove={moveColumn}
                           onRemove={removeColumn}
                           onOpenPost={handleOpenPost}
@@ -12321,8 +12347,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           deletedPostIds={deletedPostIds}
                           pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
                           reconnectNonce={reconnectNonce}
-                          canMoveLeft={index > 0}
-                          canMoveRight={index < allColumns.length - 1}
+                          canMoveLeft={siblingIndex > 0}
+                          canMoveRight={siblingIndex < siblings.length - 1}
                           onMove={moveColumn}
                           onRemove={removeColumn}
                           onOpenPost={handleOpenPost}
@@ -12348,8 +12374,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           apiHealthStatus={apiHealthStatus}
                           realtimeEnabled={effectiveRealtimeEnabled}
                           runtimeMetrics={runtimeMetrics}
-                          canMoveLeft={index > 0}
-                          canMoveRight={index < allColumns.length - 1}
+                          canMoveLeft={siblingIndex > 0}
+                          canMoveRight={siblingIndex < siblings.length - 1}
                           onMove={moveColumn}
                           onRemove={removeColumn}
                           onOpenSettings={handleOpenSettings}

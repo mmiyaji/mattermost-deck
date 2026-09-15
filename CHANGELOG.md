@@ -9,6 +9,8 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added persistent independent top/bottom pane placement, row-specific additions, empty-row drop targets, and an explicit Distribute evenly between rows action.
+
 - Added pane reordering by dragging titles, including cross-row moves, dashed destination placeholders, cursor-following title previews, edge scrolling, and cancellation.
 
 - Added independent horizontal scrolling for the upper and lower pane rows, while keeping the height divider stationary.

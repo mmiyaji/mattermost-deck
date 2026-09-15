@@ -16,6 +16,7 @@ export interface DeckColumn {
   query?: string;
   unreadOnly?: boolean;
   width?: number;
+  row?: 0 | 1;
 }
 
 export const STORAGE_KEY = "mattermostDeck.layout.v1";
@@ -29,7 +30,7 @@ export function createDefaultLayout(): DeckColumn[] {
 
 export function createColumn(
   type: DeckColumnType,
-  defaults: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">> = {},
+  defaults: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row">> = {},
 ): DeckColumn {
   return {
     id: `${type}-${crypto.randomUUID()}`,

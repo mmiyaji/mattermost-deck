@@ -1,11 +1,12 @@
 import { preservePaneScroll } from "./paneScroll";
 import { useEffect, useRef, type HTMLAttributes } from "react";
 
-export function usePaneReorder(enabled: boolean, onMove: (source: string, target: string, after: boolean) => void): HTMLAttributes<HTMLDivElement> {
+export function usePaneReorder(enabled: boolean, onMove: (source: string, target: string | null, after: boolean, row?: 0 | 1) => void): HTMLAttributes<HTMLDivElement> {
   const drag = useRef<{
     root: HTMLDivElement; source: HTMLElement; id: number; x: number; y: number;
     placeholder: HTMLElement | null; ghost: HTMLElement | null;
     restoreScroll: () => void;
+    destination: 0 | 1 | null;
     rows: HTMLElement[]; panes: HTMLElement[][];
     startX: number; startY: number; active: boolean; target: HTMLElement | null; after: boolean;
   } | null>(null);
@@ -62,22 +63,16 @@ export function usePaneReorder(enabled: boolean, onMove: (source: string, target
       if (current.placeholder!.parentElement === row && current.x >= slot.left && current.x <= slot.right) break;
       const panes = [...row.querySelectorAll<HTMLElement>(".deck-pane-frame")].filter(pane => pane !== current.source);
       const target = panes.find(pane => current.x < pane.getBoundingClientRect().right) ?? panes.at(-1);
-      if (!target) break;
-      const bounds = target.getBoundingClientRect();
-      const after = current.x >= bounds.left + bounds.width / 2;
-      if (current.target === target && current.after === after) break;
+      const bounds = target?.getBoundingClientRect();
+      const after = bounds ? current.x >= bounds.left + bounds.width / 2 : true;
+      const destination = current.rows.indexOf(row) as 0 | 1;
+      if (current.target === target && current.after === after && current.destination === destination) break;
       current.target?.removeAttribute("data-drop-side");
-      current.target = target;
+      current.target = target ?? null;
       current.after = after;
-      target.dataset.dropSide = current.after ? "after" : "before";
-      const ordered = current.panes.flat().filter(pane => pane !== current.source);
-      ordered.splice(ordered.indexOf(target) + Number(current.after), 0, current.source);
-      const split = Math.ceil(ordered.length / 2);
-      // Preview the same balanced rows that the saved layout will use on release.
-      ordered.forEach((pane, index) => {
-        const destination = current.rows[index < split ? 0 : 1];
-        destination.insertBefore(pane === current.source ? current.placeholder! : pane, destination.querySelector(".deck-column-tail"));
-      });
+      current.destination = destination;
+      if (target) target.dataset.dropSide = after ? "after" : "before";
+      row.insertBefore(current.placeholder!, target ? (after ? target.nextSibling : target) : row.querySelector(".deck-column-tail"));
       break;
     }
     current.ghost!.classList.toggle("deck-drag-ghost--outside", !inside);
@@ -96,7 +91,7 @@ export function usePaneReorder(enabled: boolean, onMove: (source: string, target
       event.currentTarget.focus({ preventScroll: true });
       event.currentTarget.setPointerCapture(event.pointerId);
       const rows = [...event.currentTarget.querySelectorAll<HTMLElement>(".deck-row-scroll")];
-      drag.current = { restoreScroll: preservePaneScroll(event.currentTarget), rows, panes: rows.map(row => [...row.querySelectorAll<HTMLElement>(".deck-pane-frame")]), root: event.currentTarget, source, id: event.pointerId, x: event.clientX, y: event.clientY,
+      drag.current = { destination: null, restoreScroll: preservePaneScroll(event.currentTarget), rows, panes: rows.map(row => [...row.querySelectorAll<HTMLElement>(".deck-pane-frame")]), root: event.currentTarget, source, id: event.pointerId, x: event.clientX, y: event.clientY,
         startX: event.clientX, startY: event.clientY, active: false, target: null, after: false, placeholder: null, ghost: null };
     },
     onPointerMove: event => {
@@ -136,7 +131,9 @@ export function usePaneReorder(enabled: boolean, onMove: (source: string, target
       const target = current.active && !current.ghost?.classList.contains("deck-drag-ghost--outside") ? current.target?.dataset.paneId : undefined;
       const after = current.after;
       clear();
-      if (target) onMove(source, target, after);
+      if (current.active && !current.ghost?.classList.contains("deck-drag-ghost--outside") && current.destination !== null) {
+        onMove(source, target ?? null, after, current.root.classList.contains("deck-columns--two-rows") ? current.destination : undefined);
+      }
     },
     onPointerCancel: clear,
     onLostPointerCapture: clear,

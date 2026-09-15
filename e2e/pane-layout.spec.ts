@@ -63,7 +63,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
       const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (selector, click) => {
         const host = document.getElementById("mattermost-deck-root");
         const root = host && (chrome as any).dom.openOrClosedShadowRoot(host);
-        const el = (click === "text" ? [...root.querySelectorAll("button")].find((button: HTMLElement) => button.textContent?.trim() === selector) : root?.querySelector(selector)) as HTMLElement | null;
+        const el = (click === "text" ? [...root.querySelectorAll("button")].find((button: HTMLElement) => button.textContent?.trim() === selector || button.firstElementChild?.textContent === selector) : root?.querySelector(selector)) as HTMLElement | null;
         if (click === "focus") el?.focus();
         else if (click === "compose-start" || click === "compose-end") el?.dispatchEvent(new CompositionEvent(click === "compose-start" ? "compositionstart" : "compositionend", { bubbles: true }));
         else if (click) el?.click();
@@ -344,6 +344,13 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await expect.poll(async () => (await rowScroll()).rows[1].left).toBeGreaterThan(0);
     expect((await rowScroll()).rows[0].left).toBe(0);
 
+    const rowLayout = () => sw.evaluate(async origin => {
+      const tab = (await chrome.tabs.query({})).find(t => t.url?.startsWith(origin));
+      const [result] = await chrome.scripting.executeScript({target:{tabId:tab!.id!},func:() => {
+        const root = (chrome as any).dom.openOrClosedShadowRoot(document.getElementById('mattermost-deck-root'));
+        return [...root.querySelectorAll('.deck-row-scroll')].map((row:any) => [...row.querySelectorAll('.deck-pane-frame')].map((pane:any) => pane.dataset.paneId));
+      }}); return result.result as string[][];
+    },origin);
     const order = () => sw.evaluate(async () => {
       const data = await chrome.storage.local.get('mattermostDeck.layout.v1');
       const raw = data['mattermostDeck.layout.v1'];
@@ -401,6 +408,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await expect.poll(async () => (await inspect('.deck-shell[data-theme="light"]'))?.width).toBeGreaterThan(0);
     await page.mouse.up();
     await expect.poll(order).toEqual(['favorites', 'watch2', 'watch', 'saved']);
+    expect(await rowLayout()).toEqual([['favorites'], ['watch2', 'watch', 'saved']]);
     expect(await paneIdentity(false)).toBe(true);
     expect((await inspect('[data-pane-id="watch"] .deck-column-body'))!.scrollTop).toBe(scrollBeforeMove);
     expect((await inspect('[data-pane-id="watch"] .deck-pane-search input'))!.inputValue).toBe('Favorite');
@@ -485,6 +493,10 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await expect.poll(async () => await inspect('.deck-add-menu--tail')).toBeNull();
     await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
     await inspect('.deck-layout-mode button:last-child', true);
+    expect(await rowLayout()).toEqual([['favorites'], ['watch2', 'watch', 'saved']]);
+    await page.screenshot({path: testInfo.outputPath('independent-row-counts.png')});
+    await inspect('.deck-balance-rows', true);
+    await expect.poll(rowLayout).toEqual([['favorites', 'watch2'], ['watch', 'saved']]);
     await rowScroll('reset');
     expect((await inspect('.deck-columns--two-rows'))!.paddingRight).toBe('0px');
     for (const row of [1, 2]) {
@@ -507,6 +519,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     expect((await inspect('.deck-column-row:nth-child(2) .deck-column-add-button'))!.expanded).toBe('true');
     await inspect('.deck-add-menu--tail .deck-add-item', true);
     await expect.poll(async () => (await order()).length).toBe(5);
+    expect((await rowLayout()).map(row => row.length)).toEqual([2, 3]);
     await page.setViewportSize({width: 1100, height: 900});
     await inspect('.deck-actions-wrap > button', true);
     await expect.poll(async () => (await inspect('.deck-add-menu--compact'))?.width).toBeGreaterThan(0);
@@ -526,6 +539,50 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     expect(overlap.height).toBeGreaterThan(0);
     expect(overlap.menuReceivesPointer).toBe(true);
     await page.screenshot({path:testInfo.outputPath('menu-over-row-divider.png')});
+    await inspect('.deck-actions-wrap > button', true);
+    await page.setViewportSize({width:1600,height:900});
+    const dragToRow = async (id: string, row: number, cancel = false) => {
+      await rowScroll('reset');
+      const title = (await inspect('[data-pane-id="' + id + '"] h2'))!;
+      const destination = (await inspect('.deck-column-row:nth-child(' + (row + 1) + ') .deck-row-scroll'))!;
+      await page.mouse.move(title.left + 30, title.top + 8);
+      await page.mouse.down();
+      await page.mouse.move(destination.left + 50, destination.top + 35, {steps:10});
+      if (cancel) await page.keyboard.press('Escape');
+      await page.mouse.up();
+      await expect.poll(async () => await inspect('.deck-pane-frame[style*="translate"]')).toBeNull();
+    };
+    await dragToRow('favorites', 1);
+    await expect.poll(async () => (await rowLayout()).map(row => row.length)).toEqual([1,4]);
+    await dragToRow('watch2', 1);
+    await expect.poll(async () => (await rowLayout()).map(row => row.length)).toEqual([0,5]);
+    await dragToRow('watch2', 0, true);
+    expect((await rowLayout()).map(row => row.length)).toEqual([0,5]);
+    await dragToRow('watch2', 0);
+    await expect.poll(async () => (await rowLayout()).map(row => row.length)).toEqual([1,4]);
+    await page.reload();
+    await expect.poll(async () => (await rowLayout())?.map(row => row.length)).toEqual([1,4]);
+    await page.screenshot({path:testInfo.outputPath('row-placement-restored.png')});
+    await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
+    page.once('dialog', dialog => dialog.accept('Uneven rows'));
+    await inspect('Save current set', 'text');
+    await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
+    await inspect('.deck-balance-rows', true);
+    await expect.poll(async () => (await rowLayout()).map(row => row.length)).toEqual([3,2]);
+    await inspect('Uneven rows', 'text');
+    await expect.poll(async () => (await rowLayout()).map(row => row.length)).toEqual([1,4]);
+    await rowScroll('reset');
+    await inspect('[data-pane-id="favorites"] .deck-column-actions > button:last-child', true);
+    await inspect('[data-pane-id="favorites"] [aria-label="Focus pane"]', true);
+    await expect.poll(async () => (await inspect('[data-pane-id="favorites"]'))?.width).toBeGreaterThan(800);
+    await inspect('[data-pane-id="favorites"] .deck-column-header [aria-label="Exit focus"]', true);
+    await expect.poll(async () => (await rowLayout()).map(row => row.length)).toEqual([1,4]);
+    await rowScroll('end');
+    await inspect('.deck-column-row:first-child .deck-column-add-button', true);
+    await inspect('.deck-add-menu--tail .deck-add-item', true);
+    await expect.poll(async () => (await rowLayout()).map(row => row.length)).toEqual([2,4]);
+    const finalRows = await rowLayout();
+    expect(await order()).toEqual(finalRows.flat());
   } finally {
     await context.close();
     await new Promise<void>(resolve => server.close(() => resolve()));

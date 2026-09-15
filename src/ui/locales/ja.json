@@ -1,5 +1,6 @@
 {
   "deck": {
+    "balanceRows": "上下に均等配置",
     "resizeRows": "上下の高さを変更",
     "resizeRowsHint": "境界をドラッグして高さを調整。ダブルクリックまたはHomeで均等に戻します。上下キーでも調整できます。",
     "rowHeightRatio": "上段 {{top}}%、下段 {{bottom}}%",
