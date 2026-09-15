@@ -1,5 +1,8 @@
 {
   "deck": {
+    "tryTwoRows": "上下2段を試す",
+    "tryTwoRowsHelp": "ビューからいつでも横一列に戻せます。",
+    "dismissTwoRowsHint": "上下2段の案内を閉じる",
     "renamePane": "ペインの別名を設定",
     "renamePaneHint": "ダブルクリック・右クリック、または F2 で別名を設定",
     "renamePaneHelp": "空欄で保存すると元のタイトルに戻ります。",
@@ -460,6 +463,11 @@
     "releaseNotesTitle": "v{{version}} \u306b\u66f4\u65b0\u3057\u307e\u3057\u305f",
     "releaseNotesFromBody": "v{{previousVersion}} \u304b\u3089 v{{version}} \u306b\u66f4\u65b0\u3057\u307e\u3057\u305f\u3002\u8a2d\u5b9a\u3092\u5909\u66f4\u3059\u308b\u524d\u306b\u6700\u65b0\u306e\u5909\u66f4\u70b9\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
     "releaseNotesBody": "\u8a2d\u5b9a\u3092\u5909\u66f4\u3059\u308b\u524d\u306b\u6700\u65b0\u306e\u5909\u66f4\u70b9\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+    "releaseNote120Discover": "ペイン上部に初回だけ「上下2段を試す」を表示します。試した後や閉じた後は再表示しません。",
+    "releaseNote120Layout": "横一列／上下2段を切り替え、幅・高さの調整とタイトルのドラッグによる並べ替えに対応しました。",
+    "releaseNote120Titles": "ペインに別名を設定でき、名前と上下の配置を保存セットに保持します。",
+    "releaseNote120Tools": "狭いヘッダーを省スペース化し、操作アイコンはホバーで表示。コンパクトメニューはビューを先頭にし、追加ボタンはスクロール末尾に配置しました。",
+    "releaseNote120State": "ペイン移動時の投稿再取得を抑え、投稿・検索条件・スクロール位置を維持します。",
     "releaseNote110Favorites": "ローカルキャッシュと控えめな星ボタンを備えた個人用のお気に入りを追加しました。",
     "releaseNote110Search": "各ペインの読み込み済み投稿をその場で検索できるようになりました。",
     "releaseNote110Typing": "検索中の入力がMattermostの投稿欄へ移る問題を修正しました。",

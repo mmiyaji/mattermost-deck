@@ -10,10 +10,6 @@ Mattermost Deck は、Mattermost Web の右側に監視向けのマルチペイ�
 
 Mattermost Deck の紹介ページと法務ページは Cloudflare Pages で公開しています。
 
-- ペインのタイトルをドラッグして位置を入れ替えられます。上下の段をまたいで移動でき、挿入位置の線を確認して離すと保存されます。Escでキャンセルできます。
-- 上下2段では、上段と下段をそれぞれ独立して左右スクロールできます。高さ調整の境界は動きません。
-- 上下2段では境界をドラッグして高さ配分を変更できます（20〜80%）。ダブルクリックまたはHomeで均等に戻り、上下キーでも調整できます。配分は保存済みセットやレイアウトの書き出しにも含まれます。
-- 各ペインの右端をドラッグして幅を変更できます（260〜480px）。境界のダブルクリックまたはHomeキーで既定幅へ戻り、左右キーでも調整できます。「ビュー」で横一列／上下2段を切り替えられ、保存済みセットとレイアウトの書き出しにも幅・配置が含まれます。
 - 紹介ページ: https://mattermost-deck.ruhenheim.org/
 - プライバシーポリシー: https://mattermost-deck.ruhenheim.org/privacy/
 - 利用規約: https://mattermost-deck.ruhenheim.org/terms/
@@ -34,7 +30,19 @@ Cloudflare Pages 編集権限だけを持つ `CLOUDFLARE_API_TOKEN` が必要で
 
 ![Mattermost Deck overview dark](./docs/assets/readme-overview-dark.png)
 
+上下2段と別名タイトル:
+
+![Two-row pane layout](./docs/assets/layout-two-rows.png)
+
 ## 主な機能
+
+- 初回はペイン上部の「上下2段を試す」から直接切り替えられます。試した後や閉じた後は再表示せず、「ビュー」からいつでも横一列に戻せます。
+- 各ペインに別名を設定できます。タイトルをダブルクリック／右クリック、またはフォーカスしてF2で編集し、空欄で保存すると元に戻ります。別名は保存セットとレイアウトの書き出しにも保持されます。
+- 上下の配置数と並び順を維持します。初回の上下2段への切り替えだけ自動配分し、その後は「上下に均等配置」で明示的に整列できます。
+- ペインのタイトルをドラッグして位置を入れ替えられます。上下の段をまたいで移動でき、色付きの点線枠で移動先を確認して離すと保存されます。Escでキャンセルできます。
+- 上下2段では、上段と下段をそれぞれ独立して左右スクロールできます。高さ調整の境界は動きません。
+- 上下2段では境界をドラッグして高さ配分を変更できます（20〜80%）。ダブルクリックまたはHomeで均等に戻り、上下キーでも調整できます。配分は保存済みセットやレイアウトの書き出しにも含まれます。
+- 各ペインの右端をドラッグして幅を変更できます（260〜480px）。境界のダブルクリックまたはHomeキーで既定幅へ戻り、左右キーでも調整できます。「ビュー」で横一列／上下2段を切り替えられ、保存済みセットとレイアウトの書き出しにも幅・配置が含まれます。
 
 - Mattermost の右ペイン（スレッド、検索結果、ピン留め投稿など）の実測幅分だけ Deck を縮小して開く前のメイン表示幅を維持し、残り幅が 280 px 未満なら 52 px へ折り畳み、終了後に指定幅とスクロール位置へ戻る右側 Deck レイアウト。明示的な手動リサイズでは Mattermost を最低 320 px 残す範囲まで Deck を拡大でき、設定値による自動幅では 720 px を確保します。
 - ペイン種別:
@@ -43,6 +51,7 @@ Cloudflare Pages 編集権限だけを持つ `CLOUDFLARE_API_TOKEN` が必要で
   - `dmWatch`
   - `keywordWatch`（旧レイアウトimportとの互換用。新しいキーワード監視はsearchペインと強調表示を使用）
   - `search`
+  - `favorites`
   - `saved`
   - `diagnostics`
 - 投稿の☆から追加・解除する個人用「お気に入り」ペイン。Mattermostの保存済み投稿・共有ピン留めとは独立し、サーバーとアカウントごとに最大100件をこのブラウザーに保存します。本文キャッシュを先に表示し、ペインを開いている間は5分ごとにまとめて更新します。更新ボタンで即時確認でき、一時停止も可能です。7日を超えたキャッシュは次回読み込み時に本文を破棄し、登録自体は解除するまで保持します。
@@ -198,7 +207,7 @@ npm run capture:readme
 
 ## リリース
 
-`v1.1.0` のような `v` 形式タグを push すると GitHub Actions が動作します。パッケージ、manifest、アプリ内表示、公式サイト、CHANGELOGの版番号とタグが一致しない場合、リリースジョブは停止します。
+`v1.2.0` のような `v` 形式タグを push すると GitHub Actions が動作します。パッケージ、manifest、アプリ内表示、公式サイト、CHANGELOGの版番号とタグが一致しない場合、リリースジョブは停止します。
 
 - 型チェック、単体テスト、Mattermost 9.5.4でのPlaywright全テスト、9.5.11・10.11.22・11.8.2でのリリース互換性テストを実行
 - `STORE_BUILD=true`でChrome Web Store用ZIPを生成し、そのZIPを展開した実物から未許可の初回状態と、Chrome標準の権限確認を自動承認できない場合の安全な拒否処理をスモークテスト
@@ -215,12 +224,12 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.1.0"
+$env:EXT_VERSION = "v1.2.0"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.1.0.zip -Force
-$releaseHash = (Get-FileHash mattermost-deck-v1.1.0.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-"$releaseHash  mattermost-deck-v1.1.0.zip" | Set-Content mattermost-deck-v1.1.0.zip.sha256 -Encoding ascii
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.2.0.zip -Force
+$releaseHash = (Get-FileHash mattermost-deck-v1.2.0.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+"$releaseHash  mattermost-deck-v1.2.0.zip" | Set-Content mattermost-deck-v1.2.0.zip.sha256 -Encoding ascii
 ```
 
 ZIP直下に `manifest.json` が配置されていることを確認してください。Web Store用ビルドではlocalhost専用の静的content scriptを意図的に除外し、E2Eテスト用の通常ビルドでは残します。

@@ -1,5 +1,8 @@
 {
   "deck": {
+    "tryTwoRows": "Probar dos filas",
+    "tryTwoRowsHelp": "Vuelve a una fila desde Vistas cuando quieras.",
+    "dismissTwoRowsHint": "Cerrar sugerencia de dos filas",
     "renamePane": "Renombrar panel",
     "renamePaneHint": "Doble clic, clic derecho o F2 para renombrar",
     "renamePaneHelp": "Deja el campo vacío para usar el título original.",
@@ -470,6 +473,11 @@
     "releaseNotesTitle": "Actualizado a la v{{version}}",
     "releaseNotesFromBody": "Actualizado de la v{{previousVersion}} a la v{{version}}. Revisa los últimos cambios antes de ajustar tu configuración.",
     "releaseNotesBody": "Revisa los últimos cambios antes de ajustar tu configuración.",
+    "releaseNote120Discover": "Un aviso inicial sobre los paneles permite probar dos filas. Tras probarlo o cerrarlo, no vuelve a aparecer.",
+    "releaseNote120Layout": "Organiza paneles en una o dos filas, ajusta anchos y alturas y arrastra títulos para reordenar.",
+    "releaseNote120Titles": "Asigna títulos personalizados; los conjuntos guardados conservan nombres y posiciones.",
+    "releaseNote120Tools": "Las cabeceras compactas muestran controles al pasar el cursor. Vistas aparece primero en el menú compacto y añadir al final del desplazamiento.",
+    "releaseNote120State": "Al mover paneles se conservan publicaciones, filtros y posiciones sin volver a solicitar publicaciones.",
     "releaseNote110Favorites": "Se añadieron favoritos personales con caché local y estrellas discretas.",
     "releaseNote110Search": "Se añadió búsqueda bajo demanda entre las publicaciones cargadas en cada panel.",
     "releaseNote110Typing": "La escritura permanece en el buscador y no pasa al editor de Mattermost.",

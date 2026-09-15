@@ -1,5 +1,8 @@
 {
   "deck": {
+    "tryTwoRows": "Try two rows",
+    "tryTwoRowsHelp": "Switch back anytime from Views.",
+    "dismissTwoRowsHint": "Dismiss the two-row layout hint",
     "renamePane": "Rename pane",
     "renamePaneHint": "Double-click, right-click or press F2 to rename",
     "renamePaneHelp": "Leave blank to use the original title.",
@@ -465,6 +468,11 @@
     "releaseNotesTitle": "Updated to v{{version}}",
     "releaseNotesFromBody": "Updated from v{{previousVersion}} to v{{version}}. Review the latest changes before adjusting your settings.",
     "releaseNotesBody": "Review the latest changes before adjusting your settings.",
+    "releaseNote120Discover": "A one-time shortcut above the panes lets you try two rows immediately; trying or closing it hides it on later visits.",
+    "releaseNote120Layout": "Arrange panes in one or two rows, resize widths and heights, and drag titles to reorder.",
+    "releaseNote120Titles": "Set custom pane titles; saved sets retain names and row placement.",
+    "releaseNote120Tools": "Compact headers reveal tools on hover. Views appear first in the compact menu; add buttons sit at scroll ends.",
+    "releaseNote120State": "Pane moves preserve posts, search state and scroll positions without extra post fetches.",
     "releaseNote110Favorites": "Added personal favorites with a local cache and subtle star controls.",
     "releaseNote110Search": "Added on-demand search within loaded posts in each pane.",
     "releaseNote110Typing": "Kept search typing in the search field instead of the Mattermost composer.",

@@ -41,7 +41,7 @@
     <meta property="og:image:height" content="560">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="https://mattermost-deck.ruhenheim.org/assets/webstore/marquee-promo-tile-1400x560.png">
-    <link rel="stylesheet" href="./assets/styles.css?v=1.1.0">
+    <link rel="stylesheet" href="./assets/styles.css?v=1.2.0">
     <script src="./assets/site.js" defer></script>
   </head>
   <body>
@@ -103,9 +103,9 @@
               <strong>Mattermost Deck</strong>
               <span
                 class="version-note"
-                data-i18n-ja="Chrome 拡張 ・ v1.1.0"
-                data-i18n-en="Chrome extension · v1.1.0"
-              >Chrome 拡張 ・ v1.1.0</span>
+                data-i18n-ja="Chrome 拡張 ・ v1.2.0"
+                data-i18n-en="Chrome extension · v1.2.0"
+              >Chrome 拡張 ・ v1.2.0</span>
             </div>
           </div>
           <div
@@ -148,7 +148,7 @@
             <span class="meta-dot" aria-hidden="true"></span>
             <span data-i18n-ja="第三者トラッキングなし" data-i18n-en="No third-party tracking">第三者トラッキングなし</span>
             <span class="meta-dot" aria-hidden="true"></span>
-            <span data-i18n-ja="5言語対応" data-i18n-en="5 UI languages">5言語対応</span>
+            <span data-i18n-ja="9言語対応" data-i18n-en="9 UI languages">9言語対応</span>
           </div>
         </div>
 
@@ -183,12 +183,12 @@
         data-i18n-aria-en="Mattermost Deck highlights"
       >
         <div class="metric">
-          <strong data-i18n-ja="追加できる6種のペイン" data-i18n-en="6 addable pane types">追加できる6種のペイン</strong>
+          <strong data-i18n-ja="追加できる7種のペイン" data-i18n-en="7 addable pane types">追加できる7種のペイン</strong>
           <span data-i18n-ja="会話と運用状況を用途別に並べる" data-i18n-en="Arrange conversations and operations by purpose">会話と運用状況を用途別に並べる</span>
         </div>
         <div class="metric">
-          <strong data-i18n-ja="5言語のUI" data-i18n-en="5 UI languages">5言語のUI</strong>
-          <span data-i18n-ja="日本語・英語・独語・仏語・簡体字中国語" data-i18n-en="Japanese, English, German, French, and Simplified Chinese">日本語・英語・独語・仏語・簡体字中国語</span>
+          <strong data-i18n-ja="9言語のUI" data-i18n-en="9 UI languages">9言語のUI</strong>
+          <span data-i18n-ja="日本語・英語ほか全9言語" data-i18n-en="Japanese, English, German, French, Simplified Chinese, Russian, Ukrainian, Spanish, and Korean">日本語・英語ほか全9言語</span>
         </div>
         <div class="metric">
           <strong data-i18n-ja="既存セッションを利用" data-i18n-en="Uses your current session">既存セッションを利用</strong>
@@ -237,9 +237,9 @@
             <p data-i18n-ja="検索結果を保存して追跡し、指定語や特別メンションを視覚的に強調します。" data-i18n-en="Keep search results visible and highlight selected terms or special mentions.">検索結果を保存して追跡し、指定語や特別メンションを視覚的に強調します。</p>
           </article>
           <article class="feature-card">
-            <span class="feature-card-number">04 / SAVED</span>
+            <span class="feature-card-number">04 / SAVED &amp; FAVORITES</span>
             <h3 data-i18n-ja="保存済み投稿をすぐ確認" data-i18n-en="Keep saved posts close">保存済み投稿をすぐ確認</h3>
-            <p data-i18n-ja="あとで読むために保存した投稿を、現在の作業を離れずに参照できます。" data-i18n-en="Reference posts saved for later without leaving your current work.">あとで読むために保存した投稿を、現在の作業を離れずに参照できます。</p>
+            <p data-i18n-ja="保存済み投稿と個人用のお気に入りを一覧に。お気に入りは本文キャッシュですぐ表示し、各投稿ペイン内では追加通信なしで絞り込めます。" data-i18n-en="Keep saved posts and personal favorites close. Favorites show cached content immediately; filter loaded posts in each pane without extra requests.">保存済み投稿と個人用のお気に入りを一覧に。お気に入りは本文キャッシュですぐ表示し、各投稿ペイン内では追加通信なしで絞り込めます。</p>
           </article>
           <article class="feature-card">
             <span class="feature-card-number">05 / VIEWS &amp; PROFILES</span>
@@ -251,6 +251,20 @@
             <h3 data-i18n-ja="状態と性能を確認" data-i18n-en="Inspect health and performance">状態と性能を確認</h3>
             <p data-i18n-ja="接続状態、API集計、最近のトレースを確認し、必要ならJSONLで書き出せます。" data-i18n-en="Review connection health, API summaries, and recent traces, then export JSONL when needed.">接続状態、API集計、最近のトレースを確認し、必要ならJSONLで書き出せます。</p>
           </article>
+        </div>
+      </section>
+
+      <section id="release" class="section">
+        <div class="section-heading">
+          <div><span class="eyebrow">NEW IN v1.2.0</span>
+          <h2 data-i18n-ja="画面に合わせて、ペインを自由に。" data-i18n-en="Arrange panes to fit your screen.">画面に合わせて、ペインを自由に。</h2></div>
+          <p data-i18n-ja="初回の「上下2段を試す」から、すぐに切り替え。必要な情報に広さと名前を割り当て、いつもの配置を保存できます。" data-i18n-en="Start with the one-time “Try two rows” shortcut. Give each stream the space and name it needs, then save your arrangement.">初回の「上下2段を試す」から、すぐに切り替え。必要な情報に広さと名前を割り当て、いつもの配置を保存できます。</p>
+        </div>
+        <div class="screen-card release-layout-image"><button type="button" data-image-dialog="./assets/layout-two-rows.png" aria-label="上下2段の画面を拡大" data-i18n-aria-ja="上下2段の画面を拡大" data-i18n-aria-en="Enlarge the two-row layout"><img src="./assets/layout-two-rows.png" width="1720" height="948" loading="lazy" alt="幅とタイトルを調整した上下2段のペイン" data-i18n-alt-ja="幅とタイトルを調整した上下2段のペイン" data-i18n-alt-en="Two rows of panes with custom widths and titles"></button></div>
+        <div class="feature-grid">
+          <article class="feature-card"><h3 data-i18n-ja="幅・高さ・配置を調整" data-i18n-en="Adjust width, height and placement">幅・高さ・配置を調整</h3><p data-i18n-ja="個別ペインの幅と上下の高さをドラッグで変更。上下は独立して左右にスクロールし、配置数も維持します。" data-i18n-en="Drag to resize individual panes and row heights. Rows scroll independently and keep their own pane counts.">個別ペインの幅と上下の高さをドラッグで変更。上下は独立して左右にスクロールし、配置数も維持します。</p></article>
+          <article class="feature-card"><h3 data-i18n-ja="ドラッグで並べ替え" data-i18n-en="Drag to reorder">ドラッグで並べ替え</h3><p data-i18n-ja="タイトルをつかみ、色付きの点線枠へ移動。Escでキャンセルでき、投稿・検索条件・スクロール位置を保ちます。" data-i18n-en="Drag a title to the filled, dashed destination. Escape cancels; posts, filters and scroll positions stay intact.">タイトルをつかみ、色付きの点線枠へ移動。Escでキャンセルでき、投稿・検索条件・スクロール位置を保ちます。</p></article>
+          <article class="feature-card"><h3 data-i18n-ja="自分にわかるタイトル" data-i18n-en="Titles that mean something to you">自分にわかるタイトル</h3><p data-i18n-ja="ダブルクリック・右クリック・F2で別名を設定。空欄で元に戻せ、別名も保存セットに保持します。" data-i18n-en="Double-click, right-click or press F2 to set an alias. Leave it blank to restore the original; saved sets retain aliases.">ダブルクリック・右クリック・F2で別名を設定。空欄で元に戻せ、別名も保存セットに保持します。</p></article>
         </div>
       </section>
 
@@ -415,8 +429,8 @@
                 data-i18n-alt-en="Mattermost Deck localized interface"
               >
             </button>
-            <h3 data-i18n-ja="5言語対応" data-i18n-en="5 UI languages">5言語対応</h3>
-            <p data-i18n-ja="日本語、英語、ドイツ語、フランス語、簡体字中国語。" data-i18n-en="Japanese, English, German, French, and Simplified Chinese.">日本語、英語、ドイツ語、フランス語、簡体字中国語。</p>
+            <h3 data-i18n-ja="9言語対応" data-i18n-en="9 UI languages">9言語対応</h3>
+            <p data-i18n-ja="日本語、英語、ドイツ語、フランス語、簡体字中国語、ロシア語、ウクライナ語、スペイン語、韓国語。" data-i18n-en="Japanese, English, German, French, Simplified Chinese, Russian, Ukrainian, Spanish, and Korean.">日本語、英語、ドイツ語、フランス語、簡体字中国語、ロシア語、ウクライナ語、スペイン語、韓国語。</p>
           </article>
         </div>
       </section>
@@ -545,7 +559,7 @@
       <section class="section">
         <div class="final-cta">
           <div>
-            <div class="eyebrow">Mattermost Deck v1.1.0</div>
+            <div class="eyebrow">Mattermost Deck v1.2.0</div>
             <h2 data-i18n-ja="会話の流れを、見渡せる場所へ。" data-i18n-en="Give every important stream a place in view.">会話の流れを、見渡せる場所へ。</h2>
             <p data-i18n-ja="Chrome ウェブストアから無料でインストールできます。" data-i18n-en="Install it free from the Chrome Web Store.">Chrome ウェブストアから無料でインストールできます。</p>
           </div>

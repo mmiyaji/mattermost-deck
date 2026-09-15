@@ -7,7 +7,11 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-15
+
 ### Added
+
+- Added a dismissible one-time Try two rows shortcut above the panes; trying or dismissing it keeps it hidden on later visits.
 
 - Added per-pane custom titles, editable by double-click, right-click or F2, with persistence in layouts and saved sets and localized editing in all nine languages.
 
@@ -23,6 +27,10 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added single-row and two-row pane layouts in Views, with saved-view and layout import/export support.
 
 ### Fixed
+
+- Hid pane header search and collapse tools while editing the pane title.
+
+- Moved Views, layout controls and saved sets above pane additions in the compact hamburger menu.
 
 - Kept popup menus above pane resize handles so row dividers cannot draw over menus or intercept their pointer input.
 

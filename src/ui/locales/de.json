@@ -1,5 +1,8 @@
 {
   "deck": {
+    "tryTwoRows": "Zwei Zeilen ausprobieren",
+    "tryTwoRowsHelp": "Über Ansichten jederzeit zurückwechseln.",
+    "dismissTwoRowsHint": "Hinweis auf zwei Zeilen schließen",
     "renamePane": "Bereich umbenennen",
     "renamePaneHint": "Doppelklick, Rechtsklick oder F2 zum Umbenennen",
     "renamePaneHelp": "Leer lassen, um den ursprünglichen Titel zu verwenden.",
@@ -465,6 +468,11 @@
     "releaseNotesTitle": "Auf v{{version}} aktualisiert",
     "releaseNotesFromBody": "Von v{{previousVersion}} auf v{{version}} aktualisiert. Prüfen Sie die neuesten Änderungen, bevor Sie Einstellungen anpassen.",
     "releaseNotesBody": "Prüfen Sie die neuesten Änderungen, bevor Sie Einstellungen anpassen.",
+    "releaseNote120Discover": "Ein einmaliger Hinweis über den Bereichen ermöglicht den direkten Wechsel zu zwei Zeilen. Nach Nutzung oder Schließen bleibt er ausgeblendet.",
+    "releaseNote120Layout": "Bereiche in einer oder zwei Zeilen anordnen, Breiten und Höhen ändern und Titel zum Sortieren ziehen.",
+    "releaseNote120Titles": "Eigene Bereichstitel festlegen; gespeicherte Sets behalten Namen und Zeilenpositionen.",
+    "releaseNote120Tools": "Kompakte Kopfzeilen zeigen Werkzeuge beim Darüberfahren. Ansichten stehen im kompakten Menü zuerst; Hinzufügen steht am Scrollende.",
+    "releaseNote120State": "Beim Verschieben bleiben Beiträge, Suchfilter und Scrollpositionen ohne zusätzliche Beitragsabfragen erhalten.",
     "releaseNote110Favorites": "Persönliche Favoriten mit lokalem Cache und dezenten Stern-Schaltflächen hinzugefügt.",
     "releaseNote110Search": "Suche in geladenen Beiträgen jedes Panels bei Bedarf verfügbar.",
     "releaseNote110Typing": "Sucheingaben bleiben im Suchfeld statt im Mattermost-Nachrichtenfeld.",

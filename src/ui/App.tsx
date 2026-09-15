@@ -1,3 +1,4 @@
+import { TwoRowHint } from "./TwoRowHint";
 import { preservePaneScroll } from "./paneScroll";
 import { usePaneReorder } from "./usePaneReorder";
 import { movePaneRelative, paneRow, initialisePaneRows, balancePaneRows } from "./paneOrder";
@@ -11918,6 +11919,45 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                     <div className="deck-add-menu-title">{statusText}</div>
                     {isCompactHeader ? (
                       <>
+                        <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.viewsLabel}</div>
+                        {layoutModeControls}
+                        {(columns ?? []).map((column, index) => {
+                          const meta = getColumnViewMeta(column);
+                          return (
+                            <div key={column.id} className="deck-menu-row deck-menu-row--view">
+                              <button type="button" className="deck-add-item" onClick={() => handleFocusColumn(column.id)}>
+                                <ColumnViewTarget type={column.type} title={`${index + 1}. ${meta.title}`} subtitle={meta.subtitle} />
+                              </button>
+                              <button
+                                type="button"
+                                className="deck-icon-button deck-icon-button--ghost"
+                                onClick={() => handleCloseColumnFromMenu(column.id)}
+                                aria-label={text.closeView(meta.title)}
+                              >
+                                <CloseIcon />
+                              </button>
+                            </div>
+                          );
+                        })}
+                        <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.savedSetsLabel}</div>
+                        <button type="button" className="deck-add-item" onClick={handleSaveCurrentView}>
+                          {text.saveCurrentSet}
+                        </button>
+                        {savedViews.length > 0 ? (
+                          <>
+                            {savedViews.map((view) => (
+                              <div key={view.id} className="deck-menu-row">
+                                <button type="button" className="deck-add-item deck-add-item--recent" onClick={() => handleLoadSavedView(view.id)}>
+                                  <span>{view.name}</span>
+                                  <small>{text.savedColumns(view.columns.length)}</small>
+                                </button>
+                                <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => removeView(view.id)} aria-label={text.removeSavedView(view.name)}>
+                                  <CloseIcon />
+                                </button>
+                              </div>
+                            ))}
+                          </>
+                        ) : null}
                         <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.choosePane}</div>
                         <button type="button" className="deck-add-item" onClick={() => handleAddColumn("mentions")}>
                           <ColumnMenuLabel type="mentions" label={text.addMentions} />
@@ -11967,45 +12007,6 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                             ))}
                           </>
                         ) : null}
-                        <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.viewsLabel}</div>
-                        {layoutModeControls}
-                        {(columns ?? []).map((column, index) => {
-                          const meta = getColumnViewMeta(column);
-                          return (
-                            <div key={column.id} className="deck-menu-row deck-menu-row--view">
-                              <button type="button" className="deck-add-item" onClick={() => handleFocusColumn(column.id)}>
-                                <ColumnViewTarget type={column.type} title={`${index + 1}. ${meta.title}`} subtitle={meta.subtitle} />
-                              </button>
-                              <button
-                                type="button"
-                                className="deck-icon-button deck-icon-button--ghost"
-                                onClick={() => handleCloseColumnFromMenu(column.id)}
-                                aria-label={text.closeView(meta.title)}
-                              >
-                                <CloseIcon />
-                              </button>
-                            </div>
-                          );
-                        })}
-                        <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.savedSetsLabel}</div>
-                        <button type="button" className="deck-add-item" onClick={handleSaveCurrentView}>
-                          {text.saveCurrentSet}
-                        </button>
-                        {savedViews.length > 0 ? (
-                          <>
-                            {savedViews.map((view) => (
-                              <div key={view.id} className="deck-menu-row">
-                                <button type="button" className="deck-add-item deck-add-item--recent" onClick={() => handleLoadSavedView(view.id)}>
-                                  <span>{view.name}</span>
-                                  <small>{text.savedColumns(view.columns.length)}</small>
-                                </button>
-                                <button type="button" className="deck-icon-button deck-icon-button--ghost" onClick={() => removeView(view.id)} aria-label={text.removeSavedView(view.name)}>
-                                  <CloseIcon />
-                                </button>
-                              </div>
-                            ))}
-                          </>
-                        ) : null}
                       </>
                     ) : null}
                     <div className="deck-add-menu-title deck-add-menu-title--secondary">{text.menuLabel}</div>
@@ -12032,6 +12033,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
             </div>
           </header>
 
+          {layoutModeReady && !isInitialLoading && !shouldSafeStop && !focusedColumnId && (columns?.length ?? 0) >= 2 && (
+            <TwoRowHint mode={layoutMode} onTry={() => changeLayoutMode("twoRows")} />
+          )}
           <div
             ref={scrollWrapRef}
             className="deck-scroll-wrap"

@@ -340,6 +340,7 @@ async function configureExtension(page, extensionId, baseUrl, team, showcaseChan
         "mattermostDeck.allowedRouteKinds.v1": "channels,messages",
         "mattermostDeck.healthCheckPath.v1": "/api/v4/users/me",
         "mattermostDeck.theme.v1": "mattermost",
+        "mattermostDeck.twoRowHintDismissed.v1": true,
         "mattermostDeck.language.v1": "en",
         "mattermostDeck.pollingIntervalSeconds.v1": "45",
         "mattermostDeck.fontScalePercent.v1": "100",
@@ -514,6 +515,23 @@ async function captureShowcase() {
       },
     });
 
+    // Capture the released two-row layout, then restore the showcase layout.
+    const worker = context.serviceWorkers()[0];
+    const originalLayout = await worker.evaluate(async () => (await chrome.storage.local.get("mattermostDeck.layout.v1"))["mattermostDeck.layout.v1"]);
+    const setShowcaseLayout = async (twoRows) => worker.evaluate(async ({ originalLayout, twoRows, profileId }) => {
+      const layout = twoRows ? [
+        ...originalLayout.map((column, index) => ({ ...column, row: index < 2 ? 0 : 1, width: 400,
+          ...(index === 1 ? { customTitle: "Release watch" } : {}) })),
+        { id: "showcase-favorites", type: "favorites", row: 1, width: 400, customTitle: "Follow up" },
+      ] : originalLayout;
+      const settings = { "mattermostDeck.layout.v1": layout, "mattermostDeck.layoutMode.v1": twoRows ? "twoRows" : "row" };
+      await chrome.storage.local.set({ ...settings, ...Object.fromEntries(Object.entries(settings).map(([key, value]) => [key + ".profile." + profileId, value])) });
+    }, { originalLayout, twoRows, profileId: captureProfileId });
+    await setShowcaseLayout(true);
+    await page.reload({ waitUntil: "networkidle", timeout: 60_000 });
+    await prepareDeckView(page);
+    await page.screenshot({ path: path.join(docsAssetsDir, "layout-two-rows.png"), clip: { x: 0, y: 0, width: 1720, height: 948 } });
+    await setShowcaseLayout(false);
     await fs.mkdir(localeScreenshotsDir, { recursive: true });
     // Locale shots document the translated UI, so Deck takes about half of the
     // 1280 px viewport and leaves the Mattermost main content readable.

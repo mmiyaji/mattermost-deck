@@ -1265,3 +1265,5 @@ p {
     transition-duration: 0.01ms !important;
   }
 }
+
+.release-layout-image { display: block; width: 100%; height: auto; border-radius: 16px; margin-bottom: 24px; }

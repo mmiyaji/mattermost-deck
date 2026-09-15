@@ -1,5 +1,8 @@
 {
   "deck": {
+    "tryTwoRows": "위아래 두 줄로 보기",
+    "tryTwoRowsHelp": "보기에서 언제든 한 줄로 돌아갈 수 있습니다.",
+    "dismissTwoRowsHint": "두 줄 배치 안내 닫기",
     "renamePane": "패널 이름 변경",
     "renamePaneHint": "두 번 클릭, 오른쪽 클릭 또는 F2로 이름 변경",
     "renamePaneHelp": "비워 두고 저장하면 원래 제목으로 돌아갑니다.",
@@ -460,6 +463,11 @@
     "releaseNotesTitle": "v{{version}}으로 업데이트됨",
     "releaseNotesFromBody": "v{{previousVersion}}에서 v{{version}}으로 업데이트되었습니다. 설정을 변경하기 전에 최신 변경 사항을 확인하세요.",
     "releaseNotesBody": "설정을 변경하기 전에 최신 변경 사항을 확인하세요.",
+    "releaseNote120Discover": "패널 위에 처음 한 번 두 줄 배치 안내를 표시합니다. 사용하거나 닫으면 다시 표시하지 않습니다.",
+    "releaseNote120Layout": "패널을 한 줄 또는 두 줄로 배치하고 너비와 높이를 조절하며 제목을 드래그해 순서를 변경할 수 있습니다.",
+    "releaseNote120Titles": "패널 별명을 설정하고 저장한 세트에 이름과 행 배치를 유지합니다.",
+    "releaseNote120Tools": "간결한 헤더는 마우스를 올리면 도구를 표시합니다. 간편 메뉴 상단에 보기를, 스크롤 끝에 추가 버튼을 배치했습니다.",
+    "releaseNote120State": "패널 이동 시 게시물을 다시 요청하지 않고 게시물, 검색 조건과 스크롤 위치를 유지합니다.",
     "releaseNote110Favorites": "로컬 캐시와 은은한 별 버튼을 갖춘 개인 즐겨찾기를 추가했습니다.",
     "releaseNote110Search": "각 패널에 로드된 게시물을 필요할 때 검색할 수 있습니다.",
     "releaseNote110Typing": "검색 입력이 Mattermost 작성란으로 이동하는 문제를 수정했습니다.",

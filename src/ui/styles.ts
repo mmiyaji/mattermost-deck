@@ -2702,4 +2702,17 @@ export const railCssText = `
 .deck-rename-dialog form > div { display: flex; justify-content: flex-end; gap: 8px; }
 .deck-rename-dialog button { padding: 6px 12px; font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--deck-border-strong); background: var(--deck-panel-2); color: var(--deck-text); }
 .deck-rename-dialog button[type="submit"] { background: var(--deck-accent); color: var(--deck-panel); }
+
+.deck-layout-tip { display: flex; align-items: center; flex: 0 0 auto; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--deck-border); background: color-mix(in srgb, var(--deck-accent) 8%, var(--deck-panel)); }
+.deck-layout-tip button { border: 0; background: transparent; color: var(--deck-text); font: inherit; cursor: pointer; min-height: 28px; border-radius: 4px; }
+.deck-layout-tip-try { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; text-align: left; font-size: 12px !important; }
+.deck-layout-tip-try span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck-layout-tip-try svg { flex-shrink: 0; }
+.deck-layout-tip-dismiss { width: 28px; flex-shrink: 0; }
+.deck-layout-tip button:hover { background: var(--deck-panel-2); }
+
+/* Editing owns the header interaction until its dialog closes. */
+.deck-column:has(.deck-rename-dialog[open]) > .deck-column-header > .deck-column-actions {
+  visibility: hidden; opacity: 0; pointer-events: none;
+}
 `;

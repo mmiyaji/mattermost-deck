@@ -1,5 +1,8 @@
 {
   "deck": {
+    "tryTwoRows": "试用上下两行",
+    "tryTwoRowsHelp": "随时可从视图切回单行。",
+    "dismissTwoRowsHint": "关闭两行布局提示",
     "renamePane": "设置面板别名",
     "renamePaneHint": "双击、右键点击或按 F2 设置别名",
     "renamePaneHelp": "留空保存可恢复原标题。",
@@ -460,6 +463,11 @@
     "releaseNotesTitle": "已更新到 v{{version}}",
     "releaseNotesFromBody": "已从 v{{previousVersion}} 更新到 v{{version}}。调整设置前，请查看最新更改。",
     "releaseNotesBody": "调整设置前，请查看最新更改。",
+    "releaseNote120Discover": "首次在面板上方显示上下两行的试用入口，试用或关闭后不再显示。",
+    "releaseNote120Layout": "支持单行或上下两行布局，调整宽度和高度，并拖动标题重新排序。",
+    "releaseNote120Titles": "可设置面板别名，保存的组合会保留名称和上下位置。",
+    "releaseNote120Tools": "紧凑标题栏在悬停时显示工具。视图移到紧凑菜单顶部，添加按钮位于滚动末尾。",
+    "releaseNote120State": "移动面板时保留帖子、筛选条件和滚动位置，不额外重新获取帖子。",
     "releaseNote110Favorites": "新增个人收藏，支持本地缓存和低调的星标按钮。",
     "releaseNote110Search": "新增按需搜索，可筛选各面板中已加载的帖子。",
     "releaseNote110Typing": "修复搜索输入被转移到 Mattermost 发帖框的问题。",

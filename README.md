@@ -10,10 +10,6 @@ Mattermost Deck is a Chrome extension that adds a monitoring-oriented multi-pane
 
 The Mattermost Deck introduction and legal pages are published with Cloudflare Pages:
 
-- Drag a pane title to change its position, including between rows. The insertion line shows the destination; release to save, or press Escape to cancel.
-- In two-row mode, each row scrolls horizontally independently; the height divider stays in place.
-- In two-row mode, drag the boundary to adjust the height split (20–80%). Double-click or Home restores equal heights; up/down keys adjust it. Saved sets and layout exports retain the split.
-- Resize each pane by dragging its right edge (260–480 px). Double-click or press Home on the resize handle to restore the default width; arrow keys adjust it. Views switches between a single row and two rows. Saved sets and layout exports retain the widths and arrangement.
 - Website: https://mattermost-deck.ruhenheim.org/
 - Privacy Policy: https://mattermost-deck.ruhenheim.org/privacy/
 - Terms of Use: https://mattermost-deck.ruhenheim.org/terms/
@@ -34,7 +30,19 @@ Dark theme:
 
 ![Mattermost Deck overview dark](./docs/assets/readme-overview-dark.png)
 
+Two-row layout with custom pane titles:
+
+![Two-row pane layout](./docs/assets/layout-two-rows.png)
+
 ## Features
+
+- A one-time “Try two rows” shortcut appears above the panes. Trying or dismissing it keeps it hidden; Views always lets you switch back.
+- Give each pane a custom title: double-click or right-click its title, or focus it and press F2. Save an empty title to restore the original. Aliases are retained in saved sets and layout exports.
+- Each row keeps its own pane count and order. Only the first switch to two rows distributes panes automatically; use “Distribute evenly between rows” to rebalance explicitly.
+- Drag a pane title to change its position, including between rows. A filled, dashed placeholder shows the destination; release to save, or press Escape to cancel.
+- In two-row mode, each row scrolls horizontally independently; the height divider stays in place.
+- In two-row mode, drag the boundary to adjust the height split (20–80%). Double-click or Home restores equal heights; up/down keys adjust it. Saved sets and layout exports retain the split.
+- Resize each pane by dragging its right edge (260–480 px). Double-click or press Home on the resize handle to restore the default width; arrow keys adjust it. Views switches between a single row and two rows. Saved sets and layout exports retain the widths and arrangement.
 
 - Resizable right-side deck that gives a Mattermost right pane, such as a thread, search results, or pinned posts, its full measured width by shrinking Deck by the same amount; it collapses to a 52 px rail when less than 280 px would remain, then restores the requested width and scroll position. An explicit manual resize may expand Deck while keeping at least 320 px of Mattermost visible; automatic preferred sizing reserves 720 px.
 - Pane types:
@@ -43,6 +51,7 @@ Dark theme:
   - `dmWatch`
   - `keywordWatch` (legacy layout-import compatibility; new keyword workflows use a search pane plus highlighting)
   - `search`
+  - `favorites`
   - `saved`
   - `diagnostics`
 - Personal Favorites pane with add/remove star controls on Deck posts, independent of Mattermost saved posts and shared pins. Keeps up to 100 favorites per server/account in this browser, displays cached posts first, and refreshes in a batch every five minutes while the pane is open. Includes manual refresh and pause. Cached bodies older than seven days are discarded on the next load; favorite membership remains until removed.
@@ -190,7 +199,7 @@ npm run capture:readme
 
 ## Release
 
-Push a tag in `v` format, such as `v1.1.0`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
+Push a tag in `v` format, such as `v1.2.0`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
 
 - Runs type checks, unit tests, the full Mattermost 9.5.4 Playwright suite, and the release compatibility matrix for 9.5.11, 10.11.22, and 11.8.2
 - Builds the Chrome Web Store archive with `STORE_BUILD=true`, extracts that exact archive, and smoke-tests its ungranted first-run state and safe handling when Chrome cannot approve the native permission prompt
@@ -207,12 +216,12 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.1.0"
+$env:EXT_VERSION = "v1.2.0"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.1.0.zip -Force
-$releaseHash = (Get-FileHash mattermost-deck-v1.1.0.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-"$releaseHash  mattermost-deck-v1.1.0.zip" | Set-Content mattermost-deck-v1.1.0.zip.sha256 -Encoding ascii
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.2.0.zip -Force
+$releaseHash = (Get-FileHash mattermost-deck-v1.2.0.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+"$releaseHash  mattermost-deck-v1.2.0.zip" | Set-Content mattermost-deck-v1.2.0.zip.sha256 -Encoding ascii
 ```
 
 The archive must contain `manifest.json` at its root. Store builds intentionally omit the localhost-only static content script; local development builds retain it for E2E testing.

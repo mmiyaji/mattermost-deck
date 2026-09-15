@@ -1,5 +1,8 @@
 {
   "deck": {
+    "tryTwoRows": "Essayer deux lignes",
+    "tryTwoRowsHelp": "Revenez à une ligne à tout moment dans Vues.",
+    "dismissTwoRowsHint": "Fermer le conseil sur les deux lignes",
     "renamePane": "Renommer le panneau",
     "renamePaneHint": "Double-clic, clic droit ou F2 pour renommer",
     "renamePaneHelp": "Laissez vide pour utiliser le titre d’origine.",
@@ -470,6 +473,11 @@
     "releaseNotesTitle": "Mise à jour vers v{{version}}",
     "releaseNotesFromBody": "Mise à jour de v{{previousVersion}} vers v{{version}}. Consultez les dernières modifications avant d’ajuster vos paramètres.",
     "releaseNotesBody": "Consultez les dernières modifications avant d’ajuster vos paramètres.",
+    "releaseNote120Discover": "Un conseil initial au-dessus des panneaux permet d’essayer deux lignes. Il ne revient plus après utilisation ou fermeture.",
+    "releaseNote120Layout": "Disposez les panneaux sur une ou deux lignes, ajustez largeur et hauteur et faites glisser les titres pour les réordonner.",
+    "releaseNote120Titles": "Personnalisez les titres ; les ensembles enregistrés conservent noms et positions.",
+    "releaseNote120Tools": "Les en-têtes compacts affichent les outils au survol. Les vues passent en tête du menu compact et l’ajout en fin de défilement.",
+    "releaseNote120State": "Le déplacement conserve les publications, filtres et positions de défilement sans requêtes supplémentaires.",
     "releaseNote110Favorites": "Ajout de favoris personnels avec cache local et étoiles discrètes.",
     "releaseNote110Search": "Ajout de la recherche à la demande dans les publications chargées de chaque panneau.",
     "releaseNote110Typing": "La saisie reste dans la recherche au lieu de passer à la rédaction Mattermost.",

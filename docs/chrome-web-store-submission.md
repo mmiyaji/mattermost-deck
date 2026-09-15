@@ -39,6 +39,14 @@ Mattermost Deck añade paneles de seguimiento a la derecha de Mattermost Web. Pu
 
 Mattermost Deck은 Mattermost Web 오른쪽에 모니터링용 패널을 추가합니다. 멘션, 채널, 다이렉트 메시지, 키워드가 강조된 검색 결과, 저장한 게시물을 나란히 배치할 수 있습니다. 로그인, 게시, 편집, 팀 이동, 스레드 보기 등 주요 작업은 계속 Mattermost 본체에서 이루어집니다.
 
+## v1.2.0 release notes
+
+- Discover two-row mode through a dismissible one-time shortcut above the panes.
+- Arrange panes in one or two rows, with independent scrolling and persistent row placement.
+- Resize individual panes and row heights, drag titles to reorder with clear destinations and Escape cancellation, and assign custom titles.
+- Keep narrow headers compact, reveal tools on hover, and add panes at each row’s scroll end.
+- Preserve post data, search state, and scroll positions during pane moves.
+
 ## v1.1.0 release notes
 
 - Added personal favorites with a local cache and subtle star controls.

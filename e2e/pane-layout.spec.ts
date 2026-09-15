@@ -67,7 +67,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
         if (click === "focus") el?.focus();
         else if (click === "compose-start" || click === "compose-end") el?.dispatchEvent(new CompositionEvent(click === "compose-start" ? "compositionstart" : "compositionend", { bubbles: true }));
         else if (click) el?.click();
-        return el ? { inputValue: (el as HTMLInputElement).value, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, text: el.textContent, pressed: el.getAttribute("aria-pressed"), value: el.getAttribute("aria-valuenow"), expanded: el.getAttribute("aria-expanded"), borderStyle: getComputedStyle(el).borderTopStyle, opacity: getComputedStyle(el).opacity, paddingLeft: getComputedStyle(el).paddingLeft, paddingRight: getComputedStyle(el).paddingRight, bottom: el.getBoundingClientRect().bottom, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
+        return el ? { inputValue: (el as HTMLInputElement).value, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, text: el.textContent, pressed: el.getAttribute("aria-pressed"), value: el.getAttribute("aria-valuenow"), expanded: el.getAttribute("aria-expanded"), borderStyle: getComputedStyle(el).borderTopStyle, opacity: getComputedStyle(el).opacity, visibility: getComputedStyle(el).visibility, paddingLeft: getComputedStyle(el).paddingLeft, paddingRight: getComputedStyle(el).paddingRight, bottom: el.getBoundingClientRect().bottom, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
       }, args: [selector, click] });
       return result.result;
     }, { origin, selector, click });
@@ -75,6 +75,26 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     const pane = '.deck-column--channel';
     const handle = '.deck-column-motion .deck-column-resize';
     await expect.poll(async () => (await inspect(pane))?.width).toBe(260);
+    await expect.poll(async () => (await inspect('.deck-layout-tip-try'))?.text).toContain('Try two rows');
+    await page.screenshot({path:testInfo.outputPath('try-two-rows.png')});
+    await inspect('.deck-layout-tip-try', true);
+    await expect.poll(async () => !!(await inspect('.deck-columns--two-rows'))).toBe(true);
+    expect(await inspect('.deck-layout-tip')).toBeNull();
+    await page.reload();
+    await expect.poll(async () => !!(await inspect('.deck-columns--two-rows'))).toBe(true);
+    await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
+    await inspect('Single row', 'text');
+    await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
+    expect(await inspect('.deck-layout-tip')).toBeNull();
+    // The close button also persists without changing the layout.
+    await sw.evaluate(async () => chrome.storage.local.remove('mattermostDeck.twoRowHintDismissed.v1'));
+    await page.reload();
+    await expect.poll(async () => !!(await inspect('.deck-layout-tip-dismiss'))).toBe(true);
+    await inspect('.deck-layout-tip-dismiss', true);
+    await page.reload();
+    await expect.poll(async () => !!(await inspect('[data-pane-id="watch"]'))).toBe(true);
+    expect(await inspect('.deck-layout-tip')).toBeNull();
+    expect(await inspect('.deck-columns--two-rows')).toBeNull();
     // Rename through real pointer/keyboard input, without fetching posts again.
     await expect.poll(async () => (await inspect('[data-pane-id="watch"] h2'))?.text).toContain(channel.display_name);
     await page.waitForTimeout(600);
@@ -82,11 +102,13 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     const titleBounds = (await inspect('[data-pane-id="watch"] h2'))!;
     await page.mouse.dblclick(titleBounds.left + 35, titleBounds.top + 8);
     await expect.poll(async () => (await inspect('.deck-rename-dialog[open]'))?.text).toContain('Rename pane');
+    expect((await inspect('[data-pane-id="watch"] .deck-column-actions'))?.visibility).toBe('hidden');
     await page.keyboard.insertText('  リリース確認  ');
     await page.screenshot({ path: testInfo.outputPath('rename-pane-dialog.png') });
     await page.keyboard.press('Enter');
     await expect.poll(async () => (await inspect('[data-pane-id="watch"] h2'))?.text).toContain('リリース確認');
     await page.waitForTimeout(400);
+    expect((await inspect('[data-pane-id="watch"] .deck-column-actions'))?.visibility).toBe('visible');
     expect(postReads).toBe(readsBeforeRename);
     await page.reload();
     await expect.poll(async () => (await inspect('[data-pane-id="watch"] h2'))?.text).toContain('リリース確認');
@@ -567,6 +589,8 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     expect(overlap.width).toBeGreaterThan(0);
     expect(overlap.height).toBeGreaterThan(0);
     expect(overlap.menuReceivesPointer).toBe(true);
+    const compactMenuText = (await inspect('.deck-add-menu--compact'))!.text!;
+    expect(compactMenuText.indexOf('Views')).toBeLessThan(compactMenuText.indexOf('Add pane'));
     await page.screenshot({path:testInfo.outputPath('menu-over-row-divider.png')});
     await inspect('.deck-actions-wrap > button', true);
     await page.setViewportSize({width:1600,height:900});
