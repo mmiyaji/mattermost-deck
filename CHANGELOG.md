@@ -20,6 +20,8 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Made drag destinations easier to distinguish with a stronger filled background and diagonal hatching in light and dark themes.
+
 - Revealed pane header tools on hover or keyboard focus without reserving title width, while keeping search-active and touch controls available.
 
 - Moved pane-add buttons into the scroll ends, reclaiming the permanently reserved right strip in two-row layouts.

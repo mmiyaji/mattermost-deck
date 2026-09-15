@@ -334,6 +334,11 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     expect((await inspect('.deck-drop-placeholder'))!.left).toBe(slot.left);
     expect((await inspect('.deck-drop-placeholder'))!.top).toBe(slot.top);
     await page.screenshot({path: testInfo.outputPath('drag-between-rows.png')});
+    await sw.evaluate(() => chrome.storage.local.set({'mattermostDeck.theme.v1': 'dark'}));
+    await expect.poll(async () => (await inspect('.deck-shell[data-theme="dark"]'))?.width).toBeGreaterThan(0);
+    await page.screenshot({path: testInfo.outputPath('drag-between-rows-dark.png')});
+    await sw.evaluate(() => chrome.storage.local.set({'mattermostDeck.theme.v1': 'light'}));
+    await expect.poll(async () => (await inspect('.deck-shell[data-theme="light"]'))?.width).toBeGreaterThan(0);
     await page.mouse.up();
     await expect.poll(order).toEqual(['favorites', 'watch2', 'watch', 'saved']);
     await expect.poll(async () => await inspect('.deck-pane-frame[style*="translate"]')).toBeNull();

@@ -2633,8 +2633,9 @@ export const railCssText = `
   .deck-drop-placeholder {
     flex: none; height: 100%; box-sizing: border-box; min-width: 0;
     border: 2px dashed var(--deck-accent); border-radius: 12px;
-    background: color-mix(in srgb, var(--deck-accent) 8%, transparent);
-    color: var(--deck-accent); padding: 18px; overflow: hidden;
+    background-color: color-mix(in srgb, var(--deck-accent) 24%, var(--deck-panel));
+    background-image: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--deck-accent) 10%, transparent) 10px 20px);
+    color: var(--deck-text); padding: 18px; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; pointer-events: none;
   }
   .deck-drop-placeholder--outside { opacity: 0.35; }
