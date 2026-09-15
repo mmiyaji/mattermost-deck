@@ -64,7 +64,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
         if (click === "focus") el?.focus();
         else if (click === "compose-start" || click === "compose-end") el?.dispatchEvent(new CompositionEvent(click === "compose-start" ? "compositionstart" : "compositionend", { bubbles: true }));
         else if (click) el?.click();
-        return el ? { text: el.textContent, pressed: el.getAttribute("aria-pressed"), value: el.getAttribute("aria-valuenow"), expanded: el.getAttribute("aria-expanded"), borderStyle: getComputedStyle(el).borderTopStyle, opacity: getComputedStyle(el).opacity, paddingLeft: getComputedStyle(el).paddingLeft, paddingRight: getComputedStyle(el).paddingRight, bottom: el.getBoundingClientRect().bottom, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
+        return el ? { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, text: el.textContent, pressed: el.getAttribute("aria-pressed"), value: el.getAttribute("aria-valuenow"), expanded: el.getAttribute("aria-expanded"), borderStyle: getComputedStyle(el).borderTopStyle, opacity: getComputedStyle(el).opacity, paddingLeft: getComputedStyle(el).paddingLeft, paddingRight: getComputedStyle(el).paddingRight, bottom: el.getBoundingClientRect().bottom, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
       }, args: [selector, click] });
       return result.result;
     }, { origin, selector, click });
@@ -213,6 +213,36 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await expect.poll(async () => (await inspect(pane + ' .deck-card--post'))?.text).toContain(post.message);
     await expect.poll(async () => (await inspect('.deck-column--saved .deck-card--post'))?.text).toContain(post.message);
     await page.screenshot({path: testInfo.outputPath('two-rows.png')});
+    // Expanding a short pane scrolls its body, never moves the toggle under the pointer.
+    const collapseToggle = '[data-pane-id="watch2"] .deck-column-actions > button:last-child';
+    const bodySelector = '[data-pane-id="watch2"] .deck-column-body';
+    const closedToggle = (await inspect(collapseToggle))!;
+    expect(closedToggle.expanded).toBe('false');
+    await page.mouse.move(closedToggle.left + 14, closedToggle.top + 14);
+    for (let cycle = 0; cycle < 3; cycle++) {
+      await page.mouse.down(); await page.mouse.up();
+      await expect.poll(async () => (await inspect(collapseToggle))?.expanded).toBe('true');
+      expect((await inspect(collapseToggle))!.left).toBe(closedToggle.left);
+      expect((await inspect(collapseToggle))!.top).toBe(closedToggle.top);
+      const body = (await inspect(bodySelector))!;
+      expect(body.scrollHeight).toBeGreaterThan(body.clientHeight);
+      await page.mouse.down(); await page.mouse.up();
+      await expect.poll(async () => (await inspect(collapseToggle))?.expanded).toBe('false');
+      expect((await inspect(collapseToggle))!.left).toBe(closedToggle.left);
+      expect((await inspect(collapseToggle))!.top).toBe(closedToggle.top);
+    }
+    await page.mouse.down(); await page.mouse.up();
+    await expect.poll(async () => (await inspect(collapseToggle))?.expanded).toBe('true');
+    const scrollBody = (await inspect(bodySelector))!;
+    await page.mouse.move(scrollBody.left + 60, scrollBody.top + 60);
+    await page.mouse.wheel(0, 350);
+    await expect.poll(async () => (await inspect(bodySelector))?.scrollTop).toBeGreaterThan(0);
+    expect((await inspect(collapseToggle))!.left).toBe(closedToggle.left);
+    expect((await inspect(collapseToggle))!.top).toBe(closedToggle.top);
+    expect((await inspect('[data-pane-id="watch2"] .deck-column'))!.scrollTop).toBe(0);
+    await page.screenshot({path: testInfo.outputPath('fixed-collapse-header.png')});
+    await page.mouse.click(closedToggle.left + 14, closedToggle.top + 14);
+    await expect.poll(async () => (await inspect(collapseToggle))?.expanded).toBe('false');
     // The lower row can be resized independently, and cancellation never saves.
     const lowerHandle = '.deck-column-row:nth-child(2) .deck-column-resize';
     const low = (await inspect(lowerHandle))!;

@@ -7290,6 +7290,7 @@ function MentionsColumn({
           </button>
         </div>
       </header>
+      <div className="deck-column-body">
       <PaneSearchField search={paneSearch} icon={<SearchIcon />} closeIcon={<CloseIcon />} />
 
       {showControls ? (
@@ -7467,6 +7468,7 @@ function MentionsColumn({
           ) : null}
         </>
       )}
+      </div>
     </section>
   );
 }
@@ -8085,6 +8087,7 @@ function ChannelWatchColumn({
           </button>
         </div>
       </header>
+      <div className="deck-column-body">
       <PaneSearchField search={paneSearch} icon={<SearchIcon />} closeIcon={<CloseIcon />} />
 
       {showControls ? (
@@ -8273,6 +8276,7 @@ function ChannelWatchColumn({
           newPostsLabel={text.newPosts}
         />
       )}
+      </div>
     </section>
   );
 }
@@ -8792,6 +8796,7 @@ function SearchLikeColumn({
           </button>
         </div>
       </header>
+      <div className="deck-column-body">
       <PaneSearchField search={paneSearch} icon={<SearchIcon />} closeIcon={<CloseIcon />} />
 
       {showControls ? (
@@ -8964,6 +8969,7 @@ function SearchLikeColumn({
           currentUserId={currentUserId}
         />
       )}
+      </div>
     </section>
   );
 }
@@ -9028,6 +9034,7 @@ function FavoritesColumn(props: React.ComponentProps<typeof SavedPostsColumn> & 
         </button>
       </div>
     </header>
+      <div className="deck-column-body">
       <PaneSearchField search={paneSearch} icon={<SearchIcon />} closeIcon={<CloseIcon />} />
     {showControls ? <div id={controlsId} className="deck-stack deck-stack--controls">
     <div className="deck-inline-actions">
@@ -9055,6 +9062,7 @@ function FavoritesColumn(props: React.ComponentProps<typeof SavedPostsColumn> & 
       renderMeta={post => channels[post.channel_id]?.display_name ?? null}
       language={language} currentUserId={currentUserId} reversedPostOrder={props.reversedPostOrder}
       highlightTerms={resolveHighlightTerms(props.highlightKeywords, props.currentUsername)} suppressNewPostNotifications /> : null}
+    </div>
   </section>;
 }
 
@@ -9343,6 +9351,7 @@ function SavedPostsColumn({
           </button>
         </div>
       </header>
+      <div className="deck-column-body">
       <PaneSearchField search={paneSearch} icon={<SearchIcon />} closeIcon={<CloseIcon />} />
       {showControls ? (
         <div
@@ -9431,6 +9440,7 @@ function SavedPostsColumn({
           currentUserId={currentUserId}
         />
       )}
+      </div>
     </section>
   );
 }
@@ -9543,6 +9553,7 @@ function DiagnosticsColumn({
           </button>
         </div>
       </header>
+      <div className="deck-column-body">
       {showControls ? (
         <div
           id={`mattermost-deck-diagnostics-controls-${column.id}`}
@@ -9627,6 +9638,7 @@ function DiagnosticsColumn({
           </ul>
           <p className="deck-card-caption">{text.diagnosticsPerformanceHint}</p>
         </article>
+      </div>
       </div>
     </section>
   );

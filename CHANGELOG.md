@@ -20,6 +20,8 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Kept pane header controls stationary when expanding settings in short two-row panes by scrolling only the body below the header.
+
 - Made drag destinations easier to distinguish with a stronger filled background and diagonal hatching in light and dark themes.
 
 - Revealed pane header tools on hover or keyboard focus without reserving title width, while keeping search-active and touch controls available.
