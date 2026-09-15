@@ -7263,11 +7263,11 @@ function MentionsColumn({
             </p>
           )}
         </div>
+        <div className="deck-badge" title={text.mentionBadge(mentionCount, Boolean(column.teamId))}>
+          {mentionCount}
+        </div>
         <div className="deck-column-actions">
           <PaneSearchToggle search={paneSearch} icon={<SearchIcon />} />
-          <div className="deck-badge" title={text.mentionBadge(mentionCount, Boolean(column.teamId))}>
-            {mentionCount}
-          </div>
           {isFocusedPane ? (
             <button
               type="button"

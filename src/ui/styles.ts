@@ -2647,4 +2647,34 @@ export const railCssText = `
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22); font-weight: 600;
   }
   .deck-drag-ghost--outside { opacity: 0.5; }
+
+  /* Overlay header tools without reserving title space on hover-capable pointers. */
+  @media (hover: hover) and (pointer: fine) {
+    .deck-column-header { position: relative; flex-wrap: nowrap; min-height: 36px; }
+    .deck-column-heading { flex: 1 1 0; }
+    .deck-column-heading .deck-title-with-icon { max-width: 100%; }
+    .deck-column-heading .deck-title-with-icon > span:last-child:not(:first-child) {
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .deck-column-actions {
+      position: absolute; top: 0; right: 0; z-index: 2;
+      flex-wrap: nowrap; width: auto; max-width: 100%;
+      opacity: 0; pointer-events: none; background: var(--deck-panel);
+    }
+    .deck-column-actions::before {
+      content: ""; position: absolute; top: 0; bottom: 0; right: 100%; width: 16px;
+      background: linear-gradient(to right, transparent, var(--deck-panel));
+      pointer-events: none;
+    }
+    .deck-column:hover > .deck-column-header > .deck-column-actions,
+    .deck-column:focus-within > .deck-column-header > .deck-column-actions,
+    .deck-column-actions:has(.deck-pane-search-toggle[aria-expanded="true"]),
+    .deck-column-actions:has(.deck-icon-button--active) {
+      opacity: 1; pointer-events: auto;
+    }
+    .deck-column-header > .deck-badge { flex: none; }
+    @container (max-width: 330px) {
+      .deck-column-header { min-height: 28px; }
+    }
+  }
 `;

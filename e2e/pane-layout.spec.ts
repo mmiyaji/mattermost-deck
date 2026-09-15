@@ -105,7 +105,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
         return { headerHeight:pane.querySelector('.deck-column-header').getBoundingClientRect().height,
           controlHeight:pane.querySelector('.deck-stack--controls > .deck-inline-actions').getBoundingClientRect().height,
           sameHeaderRow:Math.abs(heading.top-actions.top)<2,
-          titleContained:heading.right <= actions.left, titleTooltip:pane.querySelector("h2").title, buttonRows:new Set(buttons.map((b:any)=>Math.round(b.top))).size,
+          titleContained:heading.right <= pane.querySelector(".deck-column-header").getBoundingClientRect().right, titleTooltip:pane.querySelector("h2").title, buttonRows:new Set(buttons.map((b:any)=>Math.round(b.top))).size,
           buttonCount:buttons.length, minButtonWidth:Math.min(...buttons.map((b:any)=>b.width)) };
       }}); return result.result!;
     }, origin);
@@ -117,6 +117,41 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     expect(compactHeader.buttonRows).toBe(1);
     expect(compactHeader.minButtonWidth).toBeGreaterThanOrEqual(28);
     await page.screenshot({path: testInfo.outputPath('minimum-width.png')});
+    const headerActions = '[data-pane-id="watch"] .deck-column-actions';
+    const headerHeading = '[data-pane-id="watch"] .deck-column-heading';
+    await page.mouse.click(30, 30);
+    await expect.poll(async () => (await inspect(headerActions))?.opacity).toBe('0');
+    const quietHeading = (await inspect(headerHeading))!;
+    const headerBounds = (await inspect('[data-pane-id="watch"] .deck-column-header'))!;
+    expect(quietHeading.right).toBe(headerBounds.right);
+    await page.screenshot({path: testInfo.outputPath('header-quiet.png')});
+    await page.mouse.move(quietHeading.left + 40, quietHeading.top + 100);
+    await expect.poll(async () => (await inspect(headerActions))?.opacity).toBe('1');
+    expect((await inspect(headerHeading))!.width).toBe(quietHeading.width);
+    await page.screenshot({path: testInfo.outputPath('header-hover.png')});
+    const searchToggle = (await inspect('[data-pane-id="watch"] .deck-pane-search-toggle'))!;
+    await page.mouse.click(searchToggle.left + 14, searchToggle.top + 14);
+    await expect.poll(async () => (await inspect('[data-pane-id="watch"] .deck-pane-search input'))?.width).toBeGreaterThan(0);
+    await page.mouse.click(30, 30);
+    expect((await inspect(headerActions))!.opacity).toBe('1');
+    await inspect('[data-pane-id="watch"] .deck-pane-search input', 'focus');
+    await page.keyboard.press('Escape');
+    await page.mouse.move(30, 30);
+    expect((await inspect(headerActions))!.opacity).toBe('1'); // keyboard focus remains on the toggle
+    await page.keyboard.press('Tab');
+    expect((await inspect(headerActions))!.opacity).toBe('1');
+    await page.keyboard.press('Enter'); // fold controls by keyboard
+    await expect.poll(async () => (await inspect('[data-pane-id="watch"] .deck-column-actions > button:last-child'))?.expanded).toBe('false');
+    await page.keyboard.press('Enter');
+    await expect.poll(async () => (await inspect('[data-pane-id="watch"] .deck-column-actions > button:last-child'))?.expanded).toBe('true');
+    await page.mouse.click(30, 30);
+    expect((await inspect(headerActions))!.opacity).toBe('0');
+    const touch = await context.newCDPSession(page);
+    await touch.send('Emulation.setTouchEmulationEnabled', {enabled: true, maxTouchPoints: 1});
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+    expect((await inspect(headerActions))!.opacity).toBe('1');
+    await touch.send('Emulation.setTouchEmulationEnabled', {enabled: false});
+    await touch.detach();
     const before = await inspect(handle);
     await page.mouse.move(before!.right - 6, before!.top + 100);
     await page.mouse.down();
