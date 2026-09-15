@@ -207,6 +207,47 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await inspect('.deck-add-menu--views .deck-add-item--recent', true);
     await expect.poll(async () => (await inspect(divider))?.value).toBe('60');
     await expect.poll(async () => (await inspect('.deck-columns--two-rows'))?.width).toBeGreaterThan(0);
+
+    // Both rows overflow: native horizontal wheel input must affect only the hovered row.
+    for (let row = 1; row <= 2; row++) {
+      for (let column = 1; column <= 2; column++) {
+        await inspect('.deck-column-row:nth-child(' + row + ') .deck-pane-frame:nth-child(' + column + ') .deck-column-resize', 'focus');
+        await page.keyboard.press('End');
+      }
+    }
+    const rowScroll = (action = '') => sw.evaluate(async ({origin, action}) => {
+      const tab = (await chrome.tabs.query({})).find(t => t.url?.startsWith(origin));
+      const [result] = await chrome.scripting.executeScript({target:{tabId:tab!.id!},func:(action) => {
+        const root = (chrome as any).dom.openOrClosedShadowRoot(document.getElementById('mattermost-deck-root'));
+        const scrollers = [...root.querySelectorAll('.deck-row-scroll')] as HTMLElement[];
+        if (action === 'reset') scrollers.forEach(row => { row.scrollLeft = 0; });
+        if (action === 'lastView') (root.querySelectorAll('.deck-menu-row--view .deck-add-item')[3] as HTMLElement)?.click();
+        return { outer: root.querySelector('.deck-scroll-wrap').scrollLeft, rows: scrollers.map(row => ({
+          left: row.scrollLeft, max: row.scrollWidth - row.clientWidth, x: row.getBoundingClientRect().left, y: row.getBoundingClientRect().top,
+        })) };
+      }, args:[action]});
+      return result.result!;
+    }, {origin, action});
+    const scroll = await rowScroll('reset');
+    expect(scroll.rows.every(row => row.max > 0)).toBe(true);
+    const fixedBoundary = (await inspect(divider))!;
+    await page.mouse.move(scroll.rows[0].x + 100, scroll.rows[0].y + 80);
+    await page.mouse.wheel(180, 0);
+    await expect.poll(async () => (await rowScroll()).rows[0].left).toBeGreaterThan(0);
+    expect((await rowScroll()).rows[1].left).toBe(0);
+    const topLeft = (await rowScroll()).rows[0].left;
+    await page.mouse.move(scroll.rows[1].x + 100, scroll.rows[1].y + 80);
+    await page.mouse.wheel(140, 0);
+    await expect.poll(async () => (await rowScroll()).rows[1].left).toBeGreaterThan(0);
+    expect((await rowScroll()).rows[0].left).toBe(topLeft);
+    expect((await rowScroll()).outer).toBe(0);
+    expect((await inspect(divider))!.left).toBe(fixedBoundary.left);
+    await page.screenshot({path:testInfo.outputPath('independent-scroll.png')});
+    await rowScroll('reset');
+    await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
+    await rowScroll('lastView');
+    await expect.poll(async () => (await rowScroll()).rows[1].left).toBeGreaterThan(0);
+    expect((await rowScroll()).rows[0].left).toBe(0);
   } finally {
     await context.close();
     await new Promise<void>(resolve => server.close(() => resolve()));

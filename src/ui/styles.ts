@@ -2551,7 +2551,8 @@ export const railCssText = `
   .deck-columns { width: max-content; }
   .deck-pane-frame { position: relative; container-type: inline-size; }
   .deck-column-row { display: flex; gap: 12px; flex: none; width: max-content; height: 100%; min-height: 0; }
-  .deck-columns--focus .deck-column-row { display: contents; }
+  .deck-columns--focus .deck-column-row { flex: 1 1 auto; width: 100%; min-width: 0; }
+  .deck-columns--focus .deck-column-row:not(:has(.deck-column-motion--focused)) { display: none; }
   .deck-columns--two-rows {
     flex-direction: column;
     position: relative;
@@ -2604,4 +2605,15 @@ export const railCssText = `
   .deck-row-resize span { width: 40px; height: 3px; border-radius: 3px; background: var(--deck-border-strong); }
   .deck-row-resize:hover, .deck-row-resize:focus-visible { background: color-mix(in srgb, var(--deck-accent) 15%, transparent); outline: none; }
   .deck-row-resize:hover span, .deck-row-resize:focus-visible span { background: var(--deck-accent); }
+
+  .deck-row-scroll { display: flex; gap: 12px; flex: none; width: max-content; height: 100%; min-height: 0; }
+  .deck-columns--focus .deck-row-scroll { flex: 1 1 auto; width: 100%; min-width: 0; }
+  .deck-columns--two-rows { width: 100%; max-width: 100%; }
+  .deck-columns--two-rows .deck-column-row { width: 100%; min-width: 0; }
+  .deck-columns--two-rows .deck-row-scroll {
+    display: flex; gap: 12px; flex: 1 1 auto; min-width: 0; height: 100%;
+    overflow-x: auto; overflow-y: hidden; padding-right: 8px;
+    overscroll-behavior-x: contain;
+    scrollbar-color: rgba(143, 164, 193, 0.45) transparent;
+  }
 `;

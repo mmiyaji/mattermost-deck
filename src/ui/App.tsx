@@ -12029,6 +12029,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                 (columns ?? []).slice(0, Math.ceil((columns?.length ?? 0) / 2)),
                 (columns ?? []).slice(Math.ceil((columns?.length ?? 0) / 2)),
               ].map((rowColumns, rowIndex) => <div key={rowIndex} className="deck-column-row">
+                <div className="deck-row-scroll">
                 {rowColumns.map((column, rowColumnIndex) => {
                 const allColumns = columns ?? [];
                 const index = rowColumnIndex + (rowIndex === 0 ? 0 : Math.ceil(allColumns.length / 2));
@@ -12284,7 +12285,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                       </PaneFrame>
                   );
                 }
-              })}
+              })}</div>
                 {rowIndex === 0 && layoutMode === "twoRows" && !focusedColumnId && layoutModeReady
                   ? <RowSplitter value={rowSplit} onChange={changeRowSplit} /> : null}
               </div>)}
