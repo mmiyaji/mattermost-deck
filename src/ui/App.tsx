@@ -1,3 +1,5 @@
+import { RowSplitter } from "./RowSplitter";
+import { normaliseRowSplit } from "./rowSplit";
 import { PaneFrame } from "./PaneFrame";
 import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
@@ -668,6 +670,7 @@ type PostListEntry =
     };
 
 interface SavedDeckView {
+  rowSplit?: number;
   layoutMode?: "row" | "twoRows";
   id: string;
   name: string;
@@ -2527,7 +2530,7 @@ function isSavedView(value: unknown): value is SavedDeckView {
 
 function useSavedViews(): [
   SavedDeckView[],
-  (name: string, columns: DeckColumn[], layoutMode: "row" | "twoRows") => void,
+  (name: string, columns: DeckColumn[], layoutMode: "row" | "twoRows", rowSplit: number) => void,
   (id: string) => void,
   (id: string) => SavedDeckView | undefined,
 ] {
@@ -2549,7 +2552,7 @@ function useSavedViews(): [
     };
   }, []);
 
-  const saveView = useCallback((name: string, columns: DeckColumn[], layoutMode: "row" | "twoRows") => {
+  const saveView = useCallback((name: string, columns: DeckColumn[], layoutMode: "row" | "twoRows", rowSplit: number) => {
     const normalized = name.trim();
     if (!normalized) {
       return;
@@ -2558,8 +2561,8 @@ function useSavedViews(): [
     setViews((current) => {
       const existing = current.find((entry) => entry.name.toLowerCase() === normalized.toLowerCase());
       const nextEntry: SavedDeckView = existing
-        ? { ...existing, columns, layoutMode }
-        : { id: crypto.randomUUID(), name: normalized, columns, layoutMode };
+        ? { ...existing, columns, layoutMode, rowSplit }
+        : { id: crypto.randomUUID(), name: normalized, columns, layoutMode, rowSplit };
       const next = [nextEntry, ...current.filter((entry) => entry.id !== nextEntry.id)].slice(0, MAX_SAVED_VIEWS);
       void saveStoredJson(SAVED_VIEWS_STORAGE_KEY, next);
       return next;
@@ -9695,16 +9698,22 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const [columns, addColumn, removeColumn, updateColumn, moveColumn, replaceColumns] = useDeckLayout();
   const [layoutMode, setLayoutMode] = useState<"row" | "twoRows">("row");
   const [layoutModeReady, setLayoutModeReady] = useState(false);
+  const [rowSplit, setRowSplit] = useState(50);
   useEffect(() => {
     let cancelled = false;
-    void loadStoredJson("mattermostDeck.layoutMode.v1", "row").then(mode => {
-      if (!cancelled) { setLayoutMode(mode === "twoRows" ? "twoRows" : "row"); setLayoutModeReady(true); }
+    void Promise.all([loadStoredJson("mattermostDeck.layoutMode.v1", "row"), loadStoredJson("mattermostDeck.rowSplit.v1", 50)]).then(([mode, split]) => {
+      if (!cancelled) { setLayoutMode(mode === "twoRows" ? "twoRows" : "row"); setRowSplit(normaliseRowSplit(split)); setLayoutModeReady(true); }
     });
     return () => { cancelled = true; };
   }, []);
   const changeLayoutMode = (mode: "row" | "twoRows") => {
     setLayoutMode(mode);
     void saveStoredJson("mattermostDeck.layoutMode.v1", mode);
+  };
+  const changeRowSplit = (value: number) => {
+    const next = normaliseRowSplit(value);
+    setRowSplit(next);
+    void saveStoredJson("mattermostDeck.rowSplit.v1", next);
   };
   const layoutModeControls = <div className="deck-layout-mode" role="group" aria-label={i18n.t("deck.layoutMode")}>
     {(["row", "twoRows"] as const).map(mode => <button key={mode} type="button"
@@ -10914,7 +10923,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       return;
     }
 
-    saveView(name, currentColumns, layoutMode);
+    saveView(name, currentColumns, layoutMode, rowSplit);
     setShowViewsMenu(false);
     setShowActionsMenu(false);
     setShowRailAddMenu(false);
@@ -10928,6 +10937,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
     replaceColumns(normaliseColumns(view.columns));
     changeLayoutMode(view.layoutMode === "twoRows" ? "twoRows" : "row");
+    changeRowSplit(normaliseRowSplit(view.rowSplit));
     setShowViewsMenu(false);
     setShowActionsMenu(false);
     setShowRailAddMenu(false);
@@ -10998,7 +11008,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   }, [showViewsMenu, viewReorderMode]);
 
   const handleExportLayout = () => {
-    const payload = JSON.stringify({ columns: columns ?? [], layoutMode }, null, 2);
+    const payload = JSON.stringify({ columns: columns ?? [], layoutMode, rowSplit }, null, 2);
     const blob = new Blob([payload], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -11025,12 +11035,13 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
     try {
       const raw = await file.text();
-      const parsed = JSON.parse(raw) as { columns?: DeckColumn[]; layoutMode?: unknown };
+      const parsed = JSON.parse(raw) as { columns?: DeckColumn[]; layoutMode?: unknown; rowSplit?: unknown };
       if (!Array.isArray(parsed.columns)) {
         return;
       }
       replaceColumns(normaliseColumns(parsed.columns));
       changeLayoutMode(parsed.layoutMode === "twoRows" ? "twoRows" : "row");
+      changeRowSplit(normaliseRowSplit(parsed.rowSplit));
       setShowActionsMenu(false);
       setShowRailAddMenu(false);
     } catch {
@@ -11965,7 +11976,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
           >
             <div
               className={`deck-columns${focusedColumnId ? " deck-columns--focus" : layoutMode === "twoRows" && !isInitialLoading && !shouldSafeStop ? " deck-columns--two-rows" : ""}`}
-              style={{ minWidth: "100%" }}
+              style={{ minWidth: "100%", "--deck-top-row-grow": rowSplit, "--deck-bottom-row-grow": 100 - rowSplit } as React.CSSProperties}
             >
               {isInitialLoading ? (
                 <div className="deck-column-motion">
@@ -12273,7 +12284,10 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                       </PaneFrame>
                   );
                 }
-              })}</div>)}
+              })}
+                {rowIndex === 0 && layoutMode === "twoRows" && !focusedColumnId && layoutModeReady
+                  ? <RowSplitter value={rowSplit} onChange={changeRowSplit} /> : null}
+              </div>)}
               <div className="deck-column-tail" ref={railAddMenuRef}>
                 <button
                   ref={railAddButtonRef}

@@ -1,5 +1,8 @@
 {
   "deck": {
+    "resizeRows": "Resize row heights",
+    "resizeRowsHint": "Drag to adjust heights. Double-click or Home restores equal heights. Up/down keys also adjust the split.",
+    "rowHeightRatio": "Top {{top}}%, bottom {{bottom}}%",
     "layoutMode": "Pane layout",
     "layoutRow": "Single row",
     "layoutTwoRows": "Two rows",

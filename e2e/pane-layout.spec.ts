@@ -64,7 +64,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
         if (click === "focus") el?.focus();
         else if (click === "compose-start" || click === "compose-end") el?.dispatchEvent(new CompositionEvent(click === "compose-start" ? "compositionstart" : "compositionend", { bubbles: true }));
         else if (click) el?.click();
-        return el ? { text: el.textContent, pressed: el.getAttribute("aria-pressed"), expanded: el.getAttribute("aria-expanded"), opacity: getComputedStyle(el).opacity, paddingLeft: getComputedStyle(el).paddingLeft, paddingRight: getComputedStyle(el).paddingRight, bottom: el.getBoundingClientRect().bottom, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
+        return el ? { text: el.textContent, pressed: el.getAttribute("aria-pressed"), value: el.getAttribute("aria-valuenow"), expanded: el.getAttribute("aria-expanded"), opacity: getComputedStyle(el).opacity, paddingLeft: getComputedStyle(el).paddingLeft, paddingRight: getComputedStyle(el).paddingRight, bottom: el.getBoundingClientRect().bottom, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
       }, args: [selector, click] });
       return result.result;
     }, { origin, selector, click });
@@ -117,9 +117,40 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     expect(grid[2].y).toBe(grid[3].y);
     expect(Math.abs(grid[0].height - grid[2].height)).toBeLessThan(2);
     expect(grid.every(p => p.contained)).toBe(true);
+    // Resize the row boundary with a real pointer and retain the ratio after reload.
+    const divider = '.deck-row-resize';
+    const boundary = (await inspect(divider))!;
+    const dragX = boundary.left + 40;
+    const dragY = boundary.top + 6;
+    await page.mouse.move(dragX, dragY);
+    await page.mouse.down();
+    await page.mouse.move(dragX, dragY + (grid[0].height + grid[2].height) * 0.15, {steps: 8});
+    await page.mouse.up();
+    await expect.poll(async () => (await inspect(divider))?.value).toBe('65');
+    const resized = await geometry();
+    expect(resized[0].height / (resized[0].height + resized[2].height)).toBeCloseTo(0.65, 2);
+
     await page.reload();
     await expect.poll(async () => (await inspect('.deck-columns--two-rows'))?.width).toBeGreaterThan(0);
     await expect.poll(async () => (await geometry()).length).toBe(4);
+    await expect.poll(async () => (await inspect(divider))?.value).toBe('65');
+    await inspect(divider, 'focus');
+    await page.keyboard.press('ArrowUp');
+    await expect.poll(async () => (await inspect(divider))?.value).toBe('63');
+    const resetBoundary = (await inspect(divider))!;
+    await page.mouse.dblclick(resetBoundary.left + 40, resetBoundary.top + 6);
+    await expect.poll(async () => (await inspect(divider))?.value).toBe('50');
+    const equalBoundary = (await inspect(divider))!;
+    await page.mouse.move(equalBoundary.left + 40, equalBoundary.top + 6);
+    await page.mouse.down();
+    await page.mouse.move(equalBoundary.left + 40, equalBoundary.top + 80);
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await expect.poll(async () => (await inspect(divider))?.value).toBe('50');
+    await inspect(divider, 'focus');
+    await page.keyboard.press('Shift+ArrowDown');
+    await expect.poll(async () => (await inspect(divider))?.value).toBe('60');
+
     await expect.poll(async () => (await inspect(pane + ' .deck-card--post'))?.text).toContain(post.message);
     await expect.poll(async () => (await inspect('.deck-column--saved .deck-card--post'))?.text).toContain(post.message);
     await page.screenshot({path: testInfo.outputPath('two-rows.png')});
@@ -159,12 +190,13 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
       const data = await sw.evaluate(() => chrome.storage.local.get('mattermostDeck.savedViews.v1'));
       const stored = data['mattermostDeck.savedViews.v1'];
       const views = typeof stored === 'string' ? JSON.parse(stored) : stored;
-      return views?.[0]?.layoutMode;
-    }).toBe('twoRows');
+      return {mode: views?.[0]?.layoutMode, split: views?.[0]?.rowSplit};
+    }).toEqual({mode: 'twoRows', split: 60});
     await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
     await inspect('.deck-layout-mode button:first-child', true);
     await expect.poll(async () => { const g = await geometry(); return g.length === 4 && g.every(p => p.y === g[0].y); }).toBe(true);
     await expect.poll(async () => (await inspect(handle))?.width).toBeGreaterThan(0);
+    expect(await inspect(divider)).toBeNull();
     const rowEdge = (await inspect(pane))!;
     await page.mouse.move(rowEdge.right - 2, (rowEdge.top + rowEdge.bottom) / 2);
     await page.mouse.down();
@@ -173,6 +205,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await expect.poll(async () => (await inspect(pane))?.width).toBe(330);
     await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
     await inspect('.deck-add-menu--views .deck-add-item--recent', true);
+    await expect.poll(async () => (await inspect(divider))?.value).toBe('60');
     await expect.poll(async () => (await inspect('.deck-columns--two-rows'))?.width).toBeGreaterThan(0);
   } finally {
     await context.close();

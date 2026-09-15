@@ -9,6 +9,8 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a draggable boundary between rows, with persistent height ratios, keyboard adjustment, cancellation, and an equal-height reset.
+
 - Added per-pane drag resizing with keyboard controls, reset to the default width, and persistence in layouts and saved views.
 - Added single-row and two-row pane layouts in Views, with saved-view and layout import/export support.
 

@@ -10,6 +10,7 @@ Mattermost Deck is a Chrome extension that adds a monitoring-oriented multi-pane
 
 The Mattermost Deck introduction and legal pages are published with Cloudflare Pages:
 
+- In two-row mode, drag the boundary to adjust the height split (20–80%). Double-click or Home restores equal heights; up/down keys adjust it. Saved sets and layout exports retain the split.
 - Resize each pane by dragging its right edge (260–480 px). Double-click or press Home on the resize handle to restore the default width; arrow keys adjust it. Views switches between a single row and two rows. Saved sets and layout exports retain the widths and arrangement.
 - Website: https://mattermost-deck.ruhenheim.org/
 - Privacy Policy: https://mattermost-deck.ruhenheim.org/privacy/

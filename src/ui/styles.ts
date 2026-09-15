@@ -2592,4 +2592,16 @@ export const railCssText = `
   .deck-columns--two-rows .deck-column { overflow-y: auto; }
   .deck-columns--two-rows .deck-post-list { min-height: 120px; }
   .deck-columns--two-rows .mm-custom-select-menu { position: relative; top: auto; margin-top: 8px; }
+
+  .deck-columns--two-rows .deck-column-row { position: relative; }
+  .deck-columns--two-rows .deck-column-row:first-child { flex-grow: var(--deck-top-row-grow, 50); }
+  .deck-columns--two-rows .deck-column-row:nth-child(2) { flex-grow: var(--deck-bottom-row-grow, 50); }
+  .deck-row-resize {
+    position: absolute; left: 0; right: 0; bottom: -12px; height: 12px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: row-resize; touch-action: none; z-index: 10;
+  }
+  .deck-row-resize span { width: 40px; height: 3px; border-radius: 3px; background: var(--deck-border-strong); }
+  .deck-row-resize:hover, .deck-row-resize:focus-visible { background: color-mix(in srgb, var(--deck-accent) 15%, transparent); outline: none; }
+  .deck-row-resize:hover span, .deck-row-resize:focus-visible span { background: var(--deck-accent); }
 `;

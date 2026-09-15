@@ -1,5 +1,8 @@
 {
   "deck": {
+    "resizeRows": "Zeilenhöhen ändern",
+    "resizeRowsHint": "Zum Ändern ziehen. Doppelklick oder Pos1 stellt gleiche Höhen wieder her. Auch mit Auf-/Ab-Pfeiltasten einstellbar.",
+    "rowHeightRatio": "Oben {{top}}%, unten {{bottom}}%",
     "layoutMode": "Panel-Anordnung",
     "layoutRow": "Eine Zeile",
     "layoutTwoRows": "Zwei Zeilen",

@@ -10,6 +10,7 @@ Mattermost Deck は、Mattermost Web の右側に監視向けのマルチペイ�
 
 Mattermost Deck の紹介ページと法務ページは Cloudflare Pages で公開しています。
 
+- 上下2段では境界をドラッグして高さ配分を変更できます（20〜80%）。ダブルクリックまたはHomeで均等に戻り、上下キーでも調整できます。配分は保存済みセットやレイアウトの書き出しにも含まれます。
 - 各ペインの右端をドラッグして幅を変更できます（260〜480px）。境界のダブルクリックまたはHomeキーで既定幅へ戻り、左右キーでも調整できます。「ビュー」で横一列／上下2段を切り替えられ、保存済みセットとレイアウトの書き出しにも幅・配置が含まれます。
 - 紹介ページ: https://mattermost-deck.ruhenheim.org/
 - プライバシーポリシー: https://mattermost-deck.ruhenheim.org/privacy/

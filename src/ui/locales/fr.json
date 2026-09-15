@@ -1,5 +1,8 @@
 {
   "deck": {
+    "resizeRows": "Ajuster la hauteur des rangées",
+    "resizeRowsHint": "Faites glisser pour ajuster. Double-clic ou Début rétablit des hauteurs égales. Les flèches haut et bas ajustent aussi la répartition.",
+    "rowHeightRatio": "Haut {{top}} %, bas {{bottom}} %",
     "layoutMode": "Disposition des panneaux",
     "layoutRow": "Une rangée",
     "layoutTwoRows": "Deux rangées",

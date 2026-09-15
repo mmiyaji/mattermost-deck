@@ -1,5 +1,8 @@
 {
   "deck": {
+    "resizeRows": "Ajustar alturas de filas",
+    "resizeRowsHint": "Arrastra para ajustar. Doble clic o Inicio restaura alturas iguales. También puedes usar las flechas arriba y abajo.",
+    "rowHeightRatio": "Arriba {{top}}%, abajo {{bottom}}%",
     "layoutMode": "Distribución de paneles",
     "layoutRow": "Una fila",
     "layoutTwoRows": "Dos filas",

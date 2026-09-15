@@ -1,5 +1,8 @@
 {
   "deck": {
+    "resizeRows": "上下の高さを変更",
+    "resizeRowsHint": "境界をドラッグして高さを調整。ダブルクリックまたはHomeで均等に戻します。上下キーでも調整できます。",
+    "rowHeightRatio": "上段 {{top}}%、下段 {{bottom}}%",
     "layoutMode": "ペインの配置",
     "layoutRow": "横一列",
     "layoutTwoRows": "上下2段",

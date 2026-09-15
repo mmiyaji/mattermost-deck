@@ -1,5 +1,8 @@
 {
   "deck": {
+    "resizeRows": "调整上下高度",
+    "resizeRowsHint": "拖动分隔线调整高度。双击或按 Home 恢复等高，也可使用上下方向键调整。",
+    "rowHeightRatio": "上方 {{top}}%，下方 {{bottom}}%",
     "layoutMode": "面板布局",
     "layoutRow": "单行",
     "layoutTwoRows": "上下两行",
