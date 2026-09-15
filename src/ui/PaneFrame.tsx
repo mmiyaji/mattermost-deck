@@ -3,7 +3,8 @@ import i18n from "./i18n";
 import { MIN_PREFERRED_COLUMN_WIDTH, MAX_PREFERRED_COLUMN_WIDTH, normalisePreferredColumnWidth } from "./columnWidth";
 
 /** Resize only this frame during a gesture; persist once when the pointer is released. */
-export function PaneFrame({ children, frameRef, className, width, focused, onResize }: {
+export function PaneFrame({ paneId, children, frameRef, className, width, focused, onResize }: {
+  paneId: string;
   children: React.ReactNode;
   frameRef: (node: HTMLDivElement | null) => void;
   className: string;
@@ -15,7 +16,7 @@ export function PaneFrame({ children, frameRef, className, width, focused, onRes
   const gesture = useRef<{ pointer: number; x: number; width: number; next: number } | null>(null);
   useEffect(() => { gesture.current = null; setPreview(null); }, [width, focused]);
   const cancel = () => { gesture.current = null; setPreview(null); };
-  return <div ref={frameRef} className={`${className} deck-pane-frame`} style={{
+  return <div data-pane-id={paneId} ref={frameRef} className={`${className} deck-pane-frame`} style={{
     "--deck-column-width": `${preview ?? width}px`,
     width: focused ? undefined : preview ?? width,
   } as React.CSSProperties}>

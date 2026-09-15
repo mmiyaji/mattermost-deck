@@ -2625,4 +2625,14 @@ export const railCssText = `
     overscroll-behavior-x: contain;
     scrollbar-color: rgba(143, 164, 193, 0.45) transparent;
   }
+
+  .deck-columns:not(.deck-columns--focus) .deck-column-heading h2 { cursor: grab; user-select: none; touch-action: none; }
+  .deck-columns--dragging, .deck-columns--dragging * { cursor: grabbing !important; user-select: none; }
+  .deck-pane-frame--dragging { opacity: 0.55; }
+  .deck-pane-frame[data-drop-side]::after {
+    content: ""; position: absolute; top: 0; bottom: 0; width: 3px;
+    border-radius: 2px; background: var(--deck-accent); z-index: 12; pointer-events: none;
+  }
+  .deck-pane-frame[data-drop-side="before"]::after { left: 0; }
+  .deck-pane-frame[data-drop-side="after"]::after { right: 0; }
 `;

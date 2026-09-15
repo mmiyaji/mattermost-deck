@@ -9,6 +9,8 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added pane reordering by dragging titles, including cross-row moves, insertion indicators, edge scrolling, and cancellation.
+
 - Added independent horizontal scrolling for the upper and lower pane rows, while keeping the height divider stationary.
 
 - Added a draggable boundary between rows, with persistent height ratios, keyboard adjustment, cancellation, and an equal-height reset.

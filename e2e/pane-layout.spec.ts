@@ -155,7 +155,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
 
     await page.reload();
     await expect.poll(async () => (await inspect('.deck-columns--two-rows'))?.width).toBeGreaterThan(0);
-    await expect.poll(async () => (await geometry()).length).toBe(4);
+    await expect.poll(async () => (await geometry())?.length ?? 0).toBe(4);
     await expect.poll(async () => (await inspect(divider))?.value).toBe('65');
     await inspect(divider, 'focus');
     await page.keyboard.press('ArrowUp');
@@ -271,6 +271,45 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await rowScroll('lastView');
     await expect.poll(async () => (await rowScroll()).rows[1].left).toBeGreaterThan(0);
     expect((await rowScroll()).rows[0].left).toBe(0);
+
+    const order = () => sw.evaluate(async () => {
+      const data = await chrome.storage.local.get('mattermostDeck.layout.v1');
+      const raw = data['mattermostDeck.layout.v1'];
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      return (Array.isArray(parsed) ? parsed : parsed.columns).map((p:any) => p.id);
+    });
+    await rowScroll('reset');
+    const sourceTitle = (await inspect('[data-pane-id="watch"] h2'))!;
+    const lowerTarget = (await inspect('[data-pane-id="watch2"]'))!;
+    await page.mouse.move(sourceTitle.left + 35, sourceTitle.top + 8);
+    await page.mouse.down();
+    await page.mouse.move(lowerTarget.left + 300, lowerTarget.top + 30, {steps: 10});
+    await expect.poll(async () => (await inspect('[data-drop-side="after"]'))?.width).toBeGreaterThan(0);
+    await page.screenshot({path: testInfo.outputPath('drag-between-rows.png')});
+    await page.mouse.up();
+    await expect.poll(order).toEqual(['favorites', 'watch2', 'watch', 'saved']);
+    await page.reload();
+    await expect.poll(async () => (await geometry())?.length ?? 0).toBe(4);
+    expect(await order()).toEqual(['favorites', 'watch2', 'watch', 'saved']);
+    await inspect('[aria-controls="mattermost-deck-views-menu"]', true);
+    await inspect('.deck-layout-mode button:first-child', true);
+    const firstTitle = (await inspect('[data-pane-id="favorites"] h2'))!;
+    const secondPane = (await inspect('[data-pane-id="watch2"]'))!;
+    await page.mouse.move(firstTitle.left + 25, firstTitle.top + 8);
+    await page.mouse.down();
+    await page.mouse.move(secondPane.left + 280, secondPane.top + 35, {steps: 10});
+    await page.mouse.up();
+    await expect.poll(order).toEqual(['watch2', 'favorites', 'watch', 'saved']);
+    await expect.poll(async () => await inspect('.deck-pane-frame[style*="translate"]')).toBeNull();
+    const cancelTitle = (await inspect('[data-pane-id="watch2"] h2'))!;
+    const cancelTarget = (await inspect('[data-pane-id="favorites"]'))!;
+    await page.mouse.move(cancelTitle.left + 30, cancelTitle.top + 8);
+    await page.mouse.down();
+    await page.mouse.move(cancelTarget.left + 270, cancelTarget.top + 30, {steps: 10});
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    expect(await order()).toEqual(['watch2', 'favorites', 'watch', 'saved']);
+    expect(await inspect('.deck-columns--dragging')).toBeNull();
   } finally {
     await context.close();
     await new Promise<void>(resolve => server.close(() => resolve()));

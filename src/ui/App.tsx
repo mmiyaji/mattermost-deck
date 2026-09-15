@@ -1,3 +1,5 @@
+import { usePaneReorder } from "./usePaneReorder";
+import { movePaneRelative } from "./paneOrder";
 import { RowSplitter } from "./RowSplitter";
 import { normaliseRowSplit } from "./rowSplit";
 import { PaneFrame } from "./PaneFrame";
@@ -2383,6 +2385,7 @@ function useDeckLayout(): [
   (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width">>) => void,
   (id: string, direction: "left" | "right") => void,
   (nextColumns: DeckColumn[]) => void,
+  (source: string, target: string, after: boolean) => void,
 ] {
   const [columns, setColumns] = useState<DeckColumn[] | null>(null);
 
@@ -2468,7 +2471,10 @@ function useDeckLayout(): [
     });
   }, [persistFromCurrent]);
 
-  return [columns, addColumn, removeColumn, updateColumn, moveColumn, persist];
+  const reorderColumn = useCallback((source: string, target: string, after: boolean) => {
+    persistFromCurrent(current => movePaneRelative(current, source, target, after));
+  }, [persistFromCurrent]);
+  return [columns, addColumn, removeColumn, updateColumn, moveColumn, persist, reorderColumn];
 }
 
 function useRecentTargets(): [RecentChannelTarget[], (target: RecentChannelTarget) => void] {
@@ -9695,7 +9701,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     });
   }, [state.userId]);
   const [mentionsLastReadAt, setMentionsLastReadAt] = useMentionsLastReadAt();
-  const [columns, addColumn, removeColumn, updateColumn, moveColumn, replaceColumns] = useDeckLayout();
+  const [columns, addColumn, removeColumn, updateColumn, moveColumn, replaceColumns, reorderColumn] = useDeckLayout();
   const [layoutMode, setLayoutMode] = useState<"row" | "twoRows">("row");
   const [layoutModeReady, setLayoutModeReady] = useState(false);
   const [rowSplit, setRowSplit] = useState(50);
@@ -9783,6 +9789,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const [railAddMenuPosition, setRailAddMenuPosition] = useState<{ top: number; right: number } | null>(null);
   const [isCompactHeader, setIsCompactHeader] = useState(false);
   const [focusedColumnId, setFocusedColumnId] = useState<string | null>(null);
+  const paneReorder = usePaneReorder(!focusedColumnId, reorderColumn);
   const [pendingScrollColumnId, setPendingScrollColumnId] = useState<string | null>(null);
   const shellRef = useRef<HTMLElement | null>(null);
   const drawerToggleRef = useRef<HTMLButtonElement | null>(null);
@@ -11975,6 +11982,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
             }}
           >
             <div
+              {...paneReorder}
               className={`deck-columns${focusedColumnId ? " deck-columns--focus" : layoutMode === "twoRows" && !isInitialLoading && !shouldSafeStop ? " deck-columns--two-rows" : ""}`}
               style={{ minWidth: "100%", "--deck-top-row-grow": rowSplit, "--deck-bottom-row-grow": 100 - rowSplit } as React.CSSProperties}
             >
@@ -12040,6 +12048,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                 const isHiddenByFocus = Boolean(focusedColumnId) && !isFocusedPane;
                 const motionClassName = `deck-column-motion${isFocusedPane ? " deck-column-motion--focused" : ""}${isHiddenByFocus ? " deck-column-motion--hidden" : ""}`;
                 const frameProps = {
+                  paneId: column.id,
                   frameRef: setColumnRef,
                   className: motionClassName,
                   width: normalisePreferredColumnWidth(column.width ?? deckSettings.preferredColumnWidth),
