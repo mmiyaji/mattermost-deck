@@ -25,7 +25,17 @@ export function useElementVisibility<T extends Element>(
       return;
     }
 
-    return observeElementVisibility(element, setIsVisible, options);
+    let hiddenTimer: ReturnType<typeof setTimeout> | undefined;
+    const stop = observeElementVisibility(element, visible => {
+      clearTimeout(hiddenTimer);
+      if (visible) setIsVisible(true);
+      // Reparenting and the 160ms pane animation can briefly clip a visible pane.
+      // Wait for layout to settle before slowing polling for a hidden pane.
+      else hiddenTimer = setTimeout(() => {
+        if (!element.closest(".deck-pane-frame--dragging")) setIsVisible(false);
+      }, 250);
+    }, options);
+    return () => { clearTimeout(hiddenTimer); stop(); };
   }, [element, options?.defaultVisible, options?.root, options?.rootMargin, options?.threshold]);
 
   return isVisible;

@@ -20,6 +20,8 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved pane components, search state and scroll positions when reordering across rows, and avoided post refreshes caused by transient drag visibility.
+
 - Made Escape cancel pane dragging even when keyboard focus leaves the pane, without committing a later mouse release.
 
 - Kept pane header controls stationary when expanding settings in short two-row panes by scrolling only the body below the header.

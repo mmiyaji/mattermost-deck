@@ -11,6 +11,8 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
   let post = { id: "p".repeat(26), user_id: user.id, channel_id: channel.id, create_at: Date.now(), message: "Favorite UI fixture" };
   let deleted = false;
   let favoritesRequests = 0;
+  let postReads = 0;
+  const postReadPaths: string[] = [];
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (!url.pathname.startsWith("/api/")) {
@@ -20,6 +22,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     }
     res.setHeader("Content-Type", "application/json");
     const p = url.pathname.replace("/api/v4", "");
+    if (p.includes("/posts")) { postReads++; postReadPaths.push(p); }
     let data: unknown = [];
     if (p === "/system/ping") data = { status: "OK" };
     else if (p === "/users/me") data = user;
@@ -64,7 +67,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
         if (click === "focus") el?.focus();
         else if (click === "compose-start" || click === "compose-end") el?.dispatchEvent(new CompositionEvent(click === "compose-start" ? "compositionstart" : "compositionend", { bubbles: true }));
         else if (click) el?.click();
-        return el ? { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, text: el.textContent, pressed: el.getAttribute("aria-pressed"), value: el.getAttribute("aria-valuenow"), expanded: el.getAttribute("aria-expanded"), borderStyle: getComputedStyle(el).borderTopStyle, opacity: getComputedStyle(el).opacity, paddingLeft: getComputedStyle(el).paddingLeft, paddingRight: getComputedStyle(el).paddingRight, bottom: el.getBoundingClientRect().bottom, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
+        return el ? { inputValue: (el as HTMLInputElement).value, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, text: el.textContent, pressed: el.getAttribute("aria-pressed"), value: el.getAttribute("aria-valuenow"), expanded: el.getAttribute("aria-expanded"), borderStyle: getComputedStyle(el).borderTopStyle, opacity: getComputedStyle(el).opacity, paddingLeft: getComputedStyle(el).paddingLeft, paddingRight: getComputedStyle(el).paddingRight, bottom: el.getBoundingClientRect().bottom, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
       }, args: [selector, click] });
       return result.result;
     }, { origin, selector, click });
@@ -348,6 +351,33 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
       return (Array.isArray(parsed) ? parsed : parsed.columns).map((p:any) => p.id);
     });
     await rowScroll('reset');
+    await inspect('[data-pane-id="watch"] .deck-pane-search-toggle', true);
+    await inspect('[data-pane-id="watch"] .deck-pane-search input', 'focus');
+    await page.keyboard.type('Favorite');
+    const paneIdentity = (save: boolean) => sw.evaluate(async ({origin, save}) => {
+      const tab = (await chrome.tabs.query({})).find(t => t.url?.startsWith(origin));
+      const [result] = await chrome.scripting.executeScript({target:{tabId:tab!.id!},func:(save) => {
+        const root = (chrome as any).dom.openOrClosedShadowRoot(document.getElementById('mattermost-deck-root'));
+        const nodes = [...root.querySelectorAll('.deck-pane-frame')].map((frame: any) => ({id: frame.dataset.paneId, frame, body: frame.querySelector('.deck-column-body')}));
+        if (save) root.__paneIdentity = nodes;
+        return root.__paneIdentity.every((old: any) => nodes.some((node: any) => node.id === old.id && node.frame === old.frame && node.body === old.body));
+      },args:[save]});
+      return result.result;
+    },{origin,save});
+    if ((await inspect('[data-pane-id="watch"] .deck-column-actions > button:last-child'))?.expanded === 'false') {
+      await inspect('[data-pane-id="watch"] .deck-column-actions > button:last-child', true);
+    }
+    await sw.evaluate(async origin => {
+      const tab = (await chrome.tabs.query({})).find(t => t.url?.startsWith(origin));
+      await chrome.scripting.executeScript({target:{tabId:tab!.id!},func:() => {
+        const root = (chrome as any).dom.openOrClosedShadowRoot(document.getElementById('mattermost-deck-root'));
+        root.querySelector('[data-pane-id="watch"] .deck-column-body').scrollTop = 30;
+      }});
+    },origin);
+    const scrollBeforeMove = (await inspect('[data-pane-id="watch"] .deck-column-body'))!.scrollTop;
+    expect(scrollBeforeMove).toBeGreaterThan(0);
+    await paneIdentity(true);
+    const readsBeforeMove = postReads;
     const sourceTitle = (await inspect('[data-pane-id="watch"] h2'))!;
     const lowerTarget = (await inspect('[data-pane-id="watch2"]'))!;
     await page.mouse.move(sourceTitle.left + 35, sourceTitle.top + 8);
@@ -371,6 +401,12 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await expect.poll(async () => (await inspect('.deck-shell[data-theme="light"]'))?.width).toBeGreaterThan(0);
     await page.mouse.up();
     await expect.poll(order).toEqual(['favorites', 'watch2', 'watch', 'saved']);
+    expect(await paneIdentity(false)).toBe(true);
+    expect((await inspect('[data-pane-id="watch"] .deck-column-body'))!.scrollTop).toBe(scrollBeforeMove);
+    expect((await inspect('[data-pane-id="watch"] .deck-pane-search input'))!.inputValue).toBe('Favorite');
+    await page.waitForTimeout(500);
+    expect(postReadPaths.slice(readsBeforeMove)).toEqual([]);
+    expect(postReads).toBe(readsBeforeMove);
     await expect.poll(async () => await inspect('.deck-pane-frame[style*="translate"]')).toBeNull();
     expect((await inspect('[data-pane-id="watch"]'))!.left).toBe(slot.left);
     expect((await inspect('[data-pane-id="watch"]'))!.top).toBe(slot.top);

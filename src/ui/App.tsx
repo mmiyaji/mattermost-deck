@@ -1,3 +1,4 @@
+import { preservePaneScroll } from "./paneScroll";
 import { usePaneReorder } from "./usePaneReorder";
 import { movePaneRelative } from "./paneOrder";
 import { RowSplitter } from "./RowSplitter";
@@ -9811,6 +9812,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const threadScrollLeftRef = useRef<number | null>(null);
   const wasThreadConstrainedRef = useRef(false);
   const deckContentHadFocusRef = useRef(false);
+  const paneOrderKey = JSON.stringify((columns ?? []).map(column => column.id));
+  const paneRows = useRef<Array<HTMLDivElement | null>>([]);
   const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const previousColumnRectsRef = useRef<Record<string, DOMRect>>({});
   const previousColumnOrderRef = useRef<string[]>([]);
@@ -10179,6 +10182,18 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       }
     };
   }, [drawerOpen]);
+
+  useLayoutEffect(() => {
+    const root = paneRows.current[0]?.closest<HTMLElement>(".deck-scroll-wrap");
+    if (!root) return;
+    const restoreScroll = preservePaneScroll(root);
+    (columns ?? []).forEach((column, index) => {
+      const row = paneRows.current[index < Math.ceil((columns?.length ?? 0) / 2) ? 0 : 1];
+      const frame = columnRefs.current[column.id];
+      if (row && frame) row.insertBefore(frame, row.querySelector(".deck-column-tail"));
+    });
+    restoreScroll();
+  }, [paneOrderKey]);
 
   useLayoutEffect(() => {
     const currentColumns = columns ?? [];
@@ -12053,14 +12068,45 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                     </article>
                   </section>
                 </div>
-              ) : [
-                (columns ?? []).slice(0, Math.ceil((columns?.length ?? 0) / 2)),
-                (columns ?? []).slice(Math.ceil((columns?.length ?? 0) / 2)),
-              ].map((rowColumns, rowIndex) => <div key={rowIndex} className="deck-column-row">
-                <div className="deck-row-scroll">
-                {rowColumns.map((column, rowColumnIndex) => {
+              ) : <>
+              {[0, 1].map(rowIndex => <div key={rowIndex} className="deck-column-row">
+                <div className="deck-row-scroll" ref={element => { paneRows.current[rowIndex] = element; }}>
+
+              {(layoutMode === "twoRows" || rowIndex === 1) && (
+                <div className="deck-column-tail">
+                  <button
+                    type="button"
+                    className="deck-column-add-button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      railAddButtonRef.current = event.currentTarget;
+                      railAddMenuRef.current = event.currentTarget.parentElement as HTMLDivElement;
+                      setShowRailAddMenu((current) => {
+                        const next = !current;
+                        if (next) {
+                          setShowAddMenu(false);
+                          setShowViewsMenu(false);
+                          setShowActionsMenu(false);
+                        }
+                        return next;
+                      });
+                    }}
+                    aria-label={text.addLabel}
+                    title={text.addLabel}
+                    data-add-row={rowIndex}
+                    aria-expanded={showRailAddMenu && railAddButtonRef.current?.dataset.addRow === String(rowIndex)}
+                    aria-controls={RAIL_ADD_MENU_ID}
+                  >
+                    <PlusIcon />
+                  </button>
+                </div>
+              )}
+              </div>
+                {rowIndex === 0 && layoutMode === "twoRows" && !focusedColumnId && layoutModeReady
+                  ? <RowSplitter value={rowSplit} onChange={changeRowSplit} /> : null}
+              </div>)}
+                {(columns ?? []).map((column, index) => {
                 const allColumns = columns ?? [];
-                const index = rowColumnIndex + (rowIndex === 0 ? 0 : Math.ceil(allColumns.length / 2));
                 const setColumnRef = (element: HTMLDivElement | null) => {
                   columnRefs.current[column.id] = element;
                 };
@@ -12069,6 +12115,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                 const motionClassName = `deck-column-motion${isFocusedPane ? " deck-column-motion--focused" : ""}${isHiddenByFocus ? " deck-column-motion--hidden" : ""}`;
                 const frameProps = {
                   paneId: column.id,
+                  getContainer: () => paneRows.current[index < Math.ceil(allColumns.length / 2) ? 0 : 1],
                   frameRef: setColumnRef,
                   className: motionClassName,
                   width: normalisePreferredColumnWidth(column.width ?? deckSettings.preferredColumnWidth),
@@ -12315,39 +12362,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                   );
                 }
               })}
-              {(layoutMode === "twoRows" || rowIndex === 1) && (
-                <div className="deck-column-tail">
-                  <button
-                    type="button"
-                    className="deck-column-add-button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      railAddButtonRef.current = event.currentTarget;
-                      railAddMenuRef.current = event.currentTarget.parentElement as HTMLDivElement;
-                      setShowRailAddMenu((current) => {
-                        const next = !current;
-                        if (next) {
-                          setShowAddMenu(false);
-                          setShowViewsMenu(false);
-                          setShowActionsMenu(false);
-                        }
-                        return next;
-                      });
-                    }}
-                    aria-label={text.addLabel}
-                    title={text.addLabel}
-                    data-add-row={rowIndex}
-                    aria-expanded={showRailAddMenu && railAddButtonRef.current?.dataset.addRow === String(rowIndex)}
-                    aria-controls={RAIL_ADD_MENU_ID}
-                  >
-                    <PlusIcon />
-                  </button>
-                </div>
-              )}
-              </div>
-                {rowIndex === 0 && layoutMode === "twoRows" && !focusedColumnId && layoutModeReady
-                  ? <RowSplitter value={rowSplit} onChange={changeRowSplit} /> : null}
-              </div>)}
+              </>}
             </div>
           </div>
           {showRailAddMenu && railAddMenuPosition ? (

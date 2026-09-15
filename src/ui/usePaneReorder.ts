@@ -1,9 +1,11 @@
+import { preservePaneScroll } from "./paneScroll";
 import { useEffect, useRef, type HTMLAttributes } from "react";
 
 export function usePaneReorder(enabled: boolean, onMove: (source: string, target: string, after: boolean) => void): HTMLAttributes<HTMLDivElement> {
   const drag = useRef<{
     root: HTMLDivElement; source: HTMLElement; id: number; x: number; y: number;
     placeholder: HTMLElement | null; ghost: HTMLElement | null;
+    restoreScroll: () => void;
     rows: HTMLElement[]; panes: HTMLElement[][];
     startX: number; startY: number; active: boolean; target: HTMLElement | null; after: boolean;
   } | null>(null);
@@ -21,6 +23,7 @@ export function usePaneReorder(enabled: boolean, onMove: (source: string, target
     current.placeholder?.remove();
     current.ghost?.remove();
     current.target?.removeAttribute("data-drop-side");
+    current.restoreScroll();
     if (current.root.hasPointerCapture(current.id)) current.root.releasePointerCapture(current.id);
   };
   useEffect(() => {
@@ -93,7 +96,7 @@ export function usePaneReorder(enabled: boolean, onMove: (source: string, target
       event.currentTarget.focus({ preventScroll: true });
       event.currentTarget.setPointerCapture(event.pointerId);
       const rows = [...event.currentTarget.querySelectorAll<HTMLElement>(".deck-row-scroll")];
-      drag.current = { rows, panes: rows.map(row => [...row.querySelectorAll<HTMLElement>(".deck-pane-frame")]), root: event.currentTarget, source, id: event.pointerId, x: event.clientX, y: event.clientY,
+      drag.current = { restoreScroll: preservePaneScroll(event.currentTarget), rows, panes: rows.map(row => [...row.querySelectorAll<HTMLElement>(".deck-pane-frame")]), root: event.currentTarget, source, id: event.pointerId, x: event.clientX, y: event.clientY,
         startX: event.clientX, startY: event.clientY, active: false, target: null, after: false, placeholder: null, ghost: null };
     },
     onPointerMove: event => {

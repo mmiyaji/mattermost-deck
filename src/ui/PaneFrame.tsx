@@ -1,25 +1,40 @@
-import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import i18n from "./i18n";
 import { MIN_PREFERRED_COLUMN_WIDTH, MAX_PREFERRED_COLUMN_WIDTH, normalisePreferredColumnWidth } from "./columnWidth";
 
 /** Resize only this frame during a gesture; persist once when the pointer is released. */
-export function PaneFrame({ paneId, children, frameRef, className, width, focused, onResize }: {
+export function PaneFrame({ paneId, getContainer, children, frameRef, className, width, focused, onResize }: {
   paneId: string;
+  getContainer: () => HTMLElement | null;
   children: React.ReactNode;
   frameRef: (node: HTMLDivElement | null) => void;
   className: string;
   width: number;
   focused: boolean;
   onResize: (width: number | undefined) => void;
-}): React.JSX.Element {
+}): React.JSX.Element | null {
   const [preview, setPreview] = useState<number | null>(null);
   const gesture = useRef<{ pointer: number; x: number; width: number; next: number } | null>(null);
   useEffect(() => { gesture.current = null; setPreview(null); }, [width, focused]);
   const cancel = () => { gesture.current = null; setPreview(null); };
-  return <div data-pane-id={paneId} ref={frameRef} className={`${className} deck-pane-frame`} style={{
-    "--deck-column-width": `${preview ?? width}px`,
-    width: focused ? undefined : preview ?? width,
-  } as React.CSSProperties}>
+  const [host] = useState(() => document.createElement("div"));
+  const [mounted, setMounted] = useState(false);
+  useLayoutEffect(() => {
+    host.dataset.paneId = paneId;
+    host.className = `${className} deck-pane-frame`;
+    host.style.setProperty("--deck-column-width", `${preview ?? width}px`);
+    host.style.width = focused ? "" : `${preview ?? width}px`;
+  }, [host, paneId, className, preview, width, focused]);
+  useLayoutEffect(() => {
+    const container = getContainer();
+    if (container) container.insertBefore(host, container.querySelector(".deck-column-tail"));
+    frameRef(host);
+    setMounted(true);
+  }, [host]);
+  useLayoutEffect(() => () => { frameRef(null); host.remove(); }, [host]);
+  // A stable portal host keeps pane state and effects alive across row boundaries.
+  return mounted ? createPortal(<>
     {children}
     {!focused && <div className="deck-column-resize" role="separator" tabIndex={0}
       aria-label={i18n.t("deck.resizeColumn")}
@@ -60,5 +75,5 @@ export function PaneFrame({ paneId, children, frameRef, className, width, focuse
         else onResize(normalisePreferredColumnWidth(width + (event.key === "ArrowRight" ? 1 : -1) * (event.shiftKey ? 40 : 10)));
       }} onKeyUp={event => event.stopPropagation()} onKeyPress={event => event.stopPropagation()}
     />}
-  </div>;
+  </>, host) : null;
 }
