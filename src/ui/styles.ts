@@ -2628,11 +2628,23 @@ export const railCssText = `
 
   .deck-columns:not(.deck-columns--focus) .deck-column-heading h2 { cursor: grab; user-select: none; touch-action: none; }
   .deck-columns--dragging, .deck-columns--dragging * { cursor: grabbing !important; user-select: none; }
-  .deck-pane-frame--dragging { opacity: 0.55; }
-  .deck-pane-frame[data-drop-side]::after {
-    content: ""; position: absolute; top: 0; bottom: 0; width: 3px;
-    border-radius: 2px; background: var(--deck-accent); z-index: 12; pointer-events: none;
+  .deck-columns--dragging:focus { outline: none; }
+  .deck-pane-frame--dragging { display: none; }
+  .deck-drop-placeholder {
+    flex: none; height: 100%; box-sizing: border-box; min-width: 0;
+    border: 2px dashed var(--deck-accent); border-radius: 12px;
+    background: color-mix(in srgb, var(--deck-accent) 8%, transparent);
+    color: var(--deck-accent); padding: 18px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; pointer-events: none;
   }
-  .deck-pane-frame[data-drop-side="before"]::after { left: 0; }
-  .deck-pane-frame[data-drop-side="after"]::after { right: 0; }
+  .deck-drop-placeholder--outside { opacity: 0.35; }
+  .deck-drag-ghost {
+    position: fixed; left: 0; top: 0; z-index: 10000; pointer-events: none;
+    width: max-content; max-width: 280px; padding: 12px 16px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    border: 1px solid var(--deck-accent); border-radius: 10px;
+    background: var(--deck-panel); color: var(--deck-text);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22); font-weight: 600;
+  }
+  .deck-drag-ghost--outside { opacity: 0.5; }
 `;

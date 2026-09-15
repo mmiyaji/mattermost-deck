@@ -64,7 +64,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
         if (click === "focus") el?.focus();
         else if (click === "compose-start" || click === "compose-end") el?.dispatchEvent(new CompositionEvent(click === "compose-start" ? "compositionstart" : "compositionend", { bubbles: true }));
         else if (click) el?.click();
-        return el ? { text: el.textContent, pressed: el.getAttribute("aria-pressed"), value: el.getAttribute("aria-valuenow"), expanded: el.getAttribute("aria-expanded"), opacity: getComputedStyle(el).opacity, paddingLeft: getComputedStyle(el).paddingLeft, paddingRight: getComputedStyle(el).paddingRight, bottom: el.getBoundingClientRect().bottom, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
+        return el ? { text: el.textContent, pressed: el.getAttribute("aria-pressed"), value: el.getAttribute("aria-valuenow"), expanded: el.getAttribute("aria-expanded"), borderStyle: getComputedStyle(el).borderTopStyle, opacity: getComputedStyle(el).opacity, paddingLeft: getComputedStyle(el).paddingLeft, paddingRight: getComputedStyle(el).paddingRight, bottom: el.getBoundingClientRect().bottom, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
       }, args: [selector, click] });
       return result.result;
     }, { origin, selector, click });
@@ -285,9 +285,23 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await page.mouse.down();
     await page.mouse.move(lowerTarget.left + 300, lowerTarget.top + 30, {steps: 10});
     await expect.poll(async () => (await inspect('[data-drop-side="after"]'))?.width).toBeGreaterThan(0);
+    const slot = (await inspect('.deck-drop-placeholder'))!;
+    expect(slot.borderStyle).toBe('dashed');
+    expect(slot.width).toBe(480);
+    expect((await inspect('.deck-drag-ghost'))!.width).toBeGreaterThan(0);
+    expect((await inspect('[data-pane-id="watch"]'))!.width).toBe(0);
+    // A stationary pointer must not make the slot oscillate between neighbours.
+    await page.waitForTimeout(250);
+    expect((await inspect('.deck-drop-placeholder'))!.left).toBe(slot.left);
+    expect((await inspect('.deck-drop-placeholder'))!.top).toBe(slot.top);
     await page.screenshot({path: testInfo.outputPath('drag-between-rows.png')});
     await page.mouse.up();
     await expect.poll(order).toEqual(['favorites', 'watch2', 'watch', 'saved']);
+    await expect.poll(async () => await inspect('.deck-pane-frame[style*="translate"]')).toBeNull();
+    expect((await inspect('[data-pane-id="watch"]'))!.left).toBe(slot.left);
+    expect((await inspect('[data-pane-id="watch"]'))!.top).toBe(slot.top);
+    expect(await inspect('.deck-drop-placeholder')).toBeNull();
+    expect(await inspect('.deck-drag-ghost')).toBeNull();
     await page.reload();
     await expect.poll(async () => (await geometry())?.length ?? 0).toBe(4);
     expect(await order()).toEqual(['favorites', 'watch2', 'watch', 'saved']);
@@ -310,6 +324,31 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await page.mouse.up();
     expect(await order()).toEqual(['watch2', 'favorites', 'watch', 'saved']);
     expect(await inspect('.deck-columns--dragging')).toBeNull();
+    expect(await inspect('.deck-drop-placeholder')).toBeNull();
+    expect(await inspect('.deck-drag-ghost')).toBeNull();
+    // Releasing outside the deck cancels instead of accepting the last hovered slot.
+    const outsideTitle = (await inspect('[data-pane-id="watch2"] h2'))!;
+    await page.mouse.move(outsideTitle.left + 30, outsideTitle.top + 8);
+    await page.mouse.down();
+    await page.mouse.move(cancelTarget.left + 270, cancelTarget.top + 30, {steps: 10});
+    await page.mouse.move(30, 30, {steps: 5});
+    await expect.poll(async () => (await inspect('.deck-drag-ghost--outside'))?.opacity).toBe('0.5');
+    await page.mouse.up();
+    expect(await order()).toEqual(['watch2', 'favorites', 'watch', 'saved']);
+    expect(await inspect('.deck-drop-placeholder')).toBeNull();
+    expect(await inspect('.deck-drag-ghost')).toBeNull();
+    expect((await inspect('[data-pane-id="watch2"]'))!.width).toBe(480);
+    // After cancellations, a reverse move still commits and leaves React's DOM usable.
+    const reverseTitle = (await inspect('[data-pane-id="favorites"] h2'))!;
+    const reverseTarget = (await inspect('[data-pane-id="watch2"]'))!;
+    await page.mouse.move(reverseTitle.left + 25, reverseTitle.top + 8);
+    await page.mouse.down();
+    await page.mouse.move(reverseTarget.left + 80, reverseTarget.top + 30, {steps: 10});
+    await page.mouse.up();
+    await expect.poll(order).toEqual(['favorites', 'watch2', 'watch', 'saved']);
+    await page.reload();
+    await expect.poll(async () => (await geometry())?.length ?? 0).toBe(4);
+    expect(await order()).toEqual(['favorites', 'watch2', 'watch', 'saved']);
   } finally {
     await context.close();
     await new Promise<void>(resolve => server.close(() => resolve()));
