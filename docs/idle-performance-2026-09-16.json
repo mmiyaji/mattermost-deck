@@ -1,0 +1,242 @@
+{
+  "before": {
+    "baseline": true,
+    "phaseMs": 30000,
+    "visibility": "simulated document state; actual IntersectionObserver for pane hiding",
+    "measurements": [
+      {
+        "phase": "visible",
+        "durationMs": 30000,
+        "samples": 15,
+        "requests": 0,
+        "taskMs": 57.974,
+        "heapDeltaBytes": 251004,
+        "nodesDelta": 0,
+        "listenersDelta": 0,
+        "before": {
+          "hidden": false,
+          "samples": 1,
+          "requests": 9,
+          "taskSeconds": 0.015871,
+          "heapBytes": 4159216,
+          "nodes": 329,
+          "listeners": 456
+        },
+        "after": {
+          "hidden": false,
+          "samples": 16,
+          "requests": 9,
+          "taskSeconds": 0.073845,
+          "heapBytes": 4410220,
+          "nodes": 329,
+          "listeners": 456
+        }
+      },
+      {
+        "phase": "hidden",
+        "durationMs": 30000,
+        "samples": 15,
+        "requests": 1,
+        "taskMs": 43.238,
+        "heapDeltaBytes": 20644,
+        "nodesDelta": 0,
+        "listenersDelta": 0,
+        "before": {
+          "hidden": true,
+          "samples": 16,
+          "requests": 9,
+          "taskSeconds": 0.082454,
+          "heapBytes": 4410724,
+          "nodes": 329,
+          "listeners": 456
+        },
+        "after": {
+          "hidden": true,
+          "samples": 31,
+          "requests": 10,
+          "taskSeconds": 0.125692,
+          "heapBytes": 4431368,
+          "nodes": 329,
+          "listeners": 456
+        }
+      },
+      {
+        "phase": "offscreen",
+        "durationMs": 30000,
+        "samples": 15,
+        "requests": 0,
+        "taskMs": 35.39599999999999,
+        "heapDeltaBytes": 11368,
+        "nodesDelta": 0,
+        "listenersDelta": 0,
+        "before": {
+          "hidden": false,
+          "samples": 32,
+          "requests": 10,
+          "taskSeconds": 0.13694,
+          "heapBytes": 4431268,
+          "nodes": 328,
+          "listeners": 456
+        },
+        "after": {
+          "hidden": false,
+          "samples": 47,
+          "requests": 10,
+          "taskSeconds": 0.172336,
+          "heapBytes": 4442636,
+          "nodes": 328,
+          "listeners": 456
+        }
+      },
+      {
+        "phase": "resumed",
+        "durationMs": 30000,
+        "samples": 15,
+        "requests": 8,
+        "taskMs": 72.18499999999997,
+        "heapDeltaBytes": 75416,
+        "nodesDelta": 0,
+        "listenersDelta": 0,
+        "before": {
+          "hidden": false,
+          "samples": 47,
+          "requests": 10,
+          "taskSeconds": 0.184256,
+          "heapBytes": 4442636,
+          "nodes": 329,
+          "listeners": 456
+        },
+        "after": {
+          "hidden": false,
+          "samples": 62,
+          "requests": 18,
+          "taskSeconds": 0.256441,
+          "heapBytes": 4518052,
+          "nodes": 329,
+          "listeners": 456
+        }
+      }
+    ],
+    "contentBundleSha256": "af600ba770a4ed2f76cf2392c5f89e3488fea92b6e3ccfaf34505ce169ea5a13"
+  },
+  "after": {
+    "baseline": false,
+    "phaseMs": 30000,
+    "visibility": "simulated document state; actual IntersectionObserver for pane hiding",
+    "measurements": [
+      {
+        "phase": "visible",
+        "durationMs": 30000,
+        "samples": 15,
+        "requests": 0,
+        "taskMs": 37.833,
+        "heapDeltaBytes": 140204,
+        "nodesDelta": 0,
+        "listenersDelta": 0,
+        "before": {
+          "hidden": false,
+          "samples": 0,
+          "requests": 8,
+          "taskSeconds": 0.016193,
+          "heapBytes": 4275164,
+          "nodes": 329,
+          "listeners": 457
+        },
+        "after": {
+          "hidden": false,
+          "samples": 15,
+          "requests": 8,
+          "taskSeconds": 0.054026,
+          "heapBytes": 4415368,
+          "nodes": 329,
+          "listeners": 457
+        }
+      },
+      {
+        "phase": "hidden",
+        "durationMs": 30000,
+        "samples": 0,
+        "requests": 1,
+        "taskMs": 11.033000000000001,
+        "heapDeltaBytes": 860,
+        "nodesDelta": 0,
+        "listenersDelta": 0,
+        "before": {
+          "hidden": true,
+          "samples": 15,
+          "requests": 8,
+          "taskSeconds": 0.063409,
+          "heapBytes": 4415840,
+          "nodes": 329,
+          "listeners": 457
+        },
+        "after": {
+          "hidden": true,
+          "samples": 15,
+          "requests": 9,
+          "taskSeconds": 0.074442,
+          "heapBytes": 4416700,
+          "nodes": 329,
+          "listeners": 457
+        }
+      },
+      {
+        "phase": "offscreen",
+        "durationMs": 30000,
+        "samples": 0,
+        "requests": 0,
+        "taskMs": 6.9289999999999905,
+        "heapDeltaBytes": 6832,
+        "nodesDelta": 0,
+        "listenersDelta": 0,
+        "before": {
+          "hidden": false,
+          "samples": 16,
+          "requests": 9,
+          "taskSeconds": 0.086971,
+          "heapBytes": 4418956,
+          "nodes": 328,
+          "listeners": 456
+        },
+        "after": {
+          "hidden": false,
+          "samples": 16,
+          "requests": 9,
+          "taskSeconds": 0.0939,
+          "heapBytes": 4425788,
+          "nodes": 328,
+          "listeners": 456
+        }
+      },
+      {
+        "phase": "resumed",
+        "durationMs": 30000,
+        "samples": 15,
+        "requests": 8,
+        "taskMs": 61.263999999999996,
+        "heapDeltaBytes": 64704,
+        "nodesDelta": 0,
+        "listenersDelta": 0,
+        "before": {
+          "hidden": false,
+          "samples": 17,
+          "requests": 9,
+          "taskSeconds": 0.106785,
+          "heapBytes": 4427812,
+          "nodes": 329,
+          "listeners": 457
+        },
+        "after": {
+          "hidden": false,
+          "samples": 32,
+          "requests": 17,
+          "taskSeconds": 0.168049,
+          "heapBytes": 4492516,
+          "nodes": 329,
+          "listeners": 457
+        }
+      }
+    ],
+    "contentBundleSha256": "f98e0452376e09fbba28c40b4040f25e0ece0338b8469125c09c23c79a284352"
+  }
+}

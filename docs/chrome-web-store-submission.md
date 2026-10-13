@@ -8,6 +8,36 @@ Use this copy when maintaining the Chrome Web Store listing and its Privacy prac
 - Privacy policy URL: https://mattermost-deck.ruhenheim.org/privacy/
 - Store screenshot (1280 x 800): `docs/assets/readme-overview-dark-store.png`
 
+## v1.2.2 release notes
+
+### Fixed
+
+- Preserved Mattermost deployment subpaths when opening posts and switching profiles.
+- Coordinated encryption seed initialization across extension contexts.
+- Preserved intentionally cleared settings and corrected saved-profile fallback behavior.
+- Added spacing below the two-row introduction banner.
+
+## v1.2.1 release notes
+
+### Added
+
+- Unsaved-change status, disabled Save when unchanged, and Discard changes.
+- Save and switch, Discard and switch, and Cancel choices when switching profiles with unsaved edits.
+- Sample post previews for font size, pane width, and colors.
+
+### Changed
+
+- Added a dedicated Settings button, explained Team Slug, and moved API paths into advanced settings.
+- Displayed the server and profile in the settings header; grouped appearance controls and separated general settings from administration and diagnostics. Renamed Realtime to Update method.
+- Replaced colored pane-top borders with colored pane type icons.
+- Expanded individual pane widths to 200–800px. New font settings default to 95%; saved values are preserved.
+- Stopped diagnostic sampling and favorites polling timers while hidden and isolated diagnostic rendering within its pane.
+
+### Fixed
+
+- Shortened post and search previews now preserve complete link destinations, including query strings and fragments.
+
+
 ## Single purpose
 
 Mattermost Deck adds a multi-pane viewing and search workspace to Mattermost Web so users can monitor mentions, channels, direct messages, search results, and saved posts in one place.

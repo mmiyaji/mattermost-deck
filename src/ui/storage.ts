@@ -9,7 +9,6 @@ interface LayoutPayload {
 const ENCRYPTION_PREFIX_V1 = "enc:v1:";
 const ENCRYPTION_PREFIX_V2 = "enc:v2:";
 const STORAGE_SALT = "mattermost-deck.local-storage.v1";
-const ENC_SEED_KEY = "mattermost-deck.enc-seed.v1";
 let cachedEncryptionKeyV1: Promise<CryptoKey> | null = null;
 let cachedEncryptionKeyV2: Promise<CryptoKey> | null = null;
 type StorageAreaName = "local" | "session";
@@ -205,23 +204,32 @@ async function deriveEncryptionKeyV1(): Promise<CryptoKey> {
 
 /** v2: Current derivation based on a random seed persisted in chrome.storage.local. */
 async function deriveEncryptionKeyV2(): Promise<CryptoKey> {
-  cachedEncryptionKeyV2 ??= (async () => {
-    let seed: Uint8Array<ArrayBuffer>;
-    try {
-      const stored = await chrome.storage.local.get(ENC_SEED_KEY);
-      const raw = stored[ENC_SEED_KEY];
-      if (typeof raw === "string" && raw.length > 0) {
-        seed = decodeBase64(raw);
-      } else {
-        seed = crypto.getRandomValues(new Uint8Array(32));
-        await chrome.storage.local.set({ [ENC_SEED_KEY]: encodeBase64(seed) });
+  if (!cachedEncryptionKeyV2) {
+    cachedEncryptionKeyV2 = (async () => {
+      const response = await chrome.runtime.sendMessage({ type: "mattermost-deck:get-encryption-seed" }) as {
+        success?: unknown;
+        seed?: unknown;
+        error?: unknown;
+      } | undefined;
+      if (response?.success !== true || typeof response.seed !== "string" || response.seed.length === 0) {
+        const reason = typeof response?.error === "string" && response.error
+          ? response.error
+          : "The extension could not initialize the encryption seed";
+        throw new Error(reason);
       }
-    } catch {
-      seed = new TextEncoder().encode(chrome.runtime?.id ?? window.location.origin) as Uint8Array<ArrayBuffer>;
+      return await pbkdf2Key(decodeBase64(response.seed));
+    })();
+  }
+
+  const keyPromise = cachedEncryptionKeyV2;
+  try {
+    return await keyPromise;
+  } catch (error) {
+    if (cachedEncryptionKeyV2 === keyPromise) {
+      cachedEncryptionKeyV2 = null;
     }
-    return await pbkdf2Key(seed);
-  })();
-  return await cachedEncryptionKeyV2;
+    throw error;
+  }
 }
 
 async function encryptString(value: string): Promise<string> {

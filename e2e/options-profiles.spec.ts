@@ -7,9 +7,7 @@ import path from "node:path";
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 
 async function openProfilesPanel(page: import("@playwright/test").Page) {
-  const navButtons = page.locator("nav button");
-  await expect(navButtons.nth(2)).toBeVisible({ timeout: 10_000 });
-  await navButtons.nth(2).click();
+  await page.getByTestId("options-nav-profiles").click();
   await expect(page.getByRole("heading", { name: /Profiles|プロファイル/i })).toBeVisible({ timeout: 10_000 });
 }
 
@@ -145,7 +143,7 @@ test("official website resources stay reachable on wide and narrow settings layo
     expect(manifestHomepage).toBe("https://mattermost-deck.ruhenheim.org/");
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/options.html`);
-    await page.locator(".options-nav-item").first().click();
+    await page.getByTestId("options-nav-guide").click();
 
     const websiteUrl = "https://mattermost-deck.ruhenheim.org/";
     const websiteCta = page.locator(".options-website-link");

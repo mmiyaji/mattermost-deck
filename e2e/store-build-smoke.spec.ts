@@ -99,12 +99,12 @@ test("store release candidate starts ungranted and handles native permission den
       }
     });
     expect(permissionDenialPatched).toBe(true);
-    await expect(optionsPage.locator("nav button").nth(1)).toBeVisible({ timeout: 10_000 });
-    await optionsPage.locator("nav button").nth(1).click();
+    await expect(optionsPage.getByTestId("options-nav-conn")).toBeVisible({ timeout: 10_000 });
+    await optionsPage.getByTestId("options-nav-conn").click();
     const serverUrlInput = optionsPage.locator('input[type="url"]');
     await expect(serverUrlInput).toBeVisible({ timeout: 10_000 });
     await serverUrlInput.fill(baseUrl);
-    await optionsPage.locator(".options-save-footer .options-button").click();
+    await optionsPage.getByTestId("options-save").click();
     const saveStatus = optionsPage.locator("#options-save-status");
     await expect(saveStatus).toHaveAttribute("role", "alert", {
       timeout: 20_000,

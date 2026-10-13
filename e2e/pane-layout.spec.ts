@@ -317,6 +317,8 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     expect((await geometry())[2].width).toBe(260);
     await inspect(lowerHandle, 'focus');
     await page.keyboard.press('End');
+    // Keep the drag fixture at 480px within the expanded range.
+    for (let step = 0; step < 8; step++) await page.keyboard.press('Shift+ArrowLeft');
     await expect.poll(async () => (await geometry())[2].width).toBe(480);
     expect((await geometry())[0].width).toBe(260);
     expect((await geometry())[1].x).toBe(grid[1].x);
@@ -365,6 +367,8 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
       for (let column = 1; column <= 2; column++) {
         await inspect('.deck-column-row:nth-child(' + row + ') .deck-pane-frame:nth-child(' + column + ') .deck-column-resize', 'focus');
         await page.keyboard.press('End');
+        // Keep the drag fixture at 480px within the expanded range.
+        for (let step = 0; step < 8; step++) await page.keyboard.press('Shift+ArrowLeft');
       }
     }
     const rowScroll = (action = '') => sw.evaluate(async ({origin, action}) => {

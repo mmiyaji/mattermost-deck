@@ -693,4 +693,42 @@ describe("background active profile settings", () => {
     expect(executeScript).toHaveBeenCalledTimes(1);
     expect(tabsReload).toHaveBeenCalledWith(9);
   });
+
+  it("serializes concurrent encryption seed requests and persists one shared seed", async () => {
+    const localValues = new Map<string, unknown>();
+    const { messageListeners, local } = await loadBackground(localValues);
+    const listener = messageListeners[0];
+    const request = () => sendBackgroundMessage(listener!, { type: "mattermost-deck:get-encryption-seed" });
+
+    const responses = await Promise.all([request(), request(), request()]) as Array<{ success: boolean; seed: string }>;
+
+    expect(responses.every((response) => response.success)).toBe(true);
+    expect(new Set(responses.map((response) => response.seed)).size).toBe(1);
+    expect(responses[0]?.seed).toMatch(/^[A-Za-z0-9+/]{43}=$/);
+    expect(local.set).toHaveBeenCalledTimes(1);
+    expect(localValues.get("mattermost-deck.enc-seed.v1")).toBe(responses[0]?.seed);
+  });
+
+  it("returns an existing encryption seed without replacing it", async () => {
+    const originalSeed = "cGVyc2lzdGVkLWVuY3J5cHRpb24tc2VlZA==";
+    const localValues = new Map<string, unknown>([["mattermost-deck.enc-seed.v1", originalSeed]]);
+    const { messageListeners, local } = await loadBackground(localValues);
+
+    await expect(sendBackgroundMessage(messageListeners[0]!, {
+      type: "mattermost-deck:get-encryption-seed",
+    })).resolves.toEqual({ success: true, seed: originalSeed });
+    expect(local.set).not.toHaveBeenCalled();
+    expect(localValues.get("mattermost-deck.enc-seed.v1")).toBe(originalSeed);
+  });
+
+  it("reports seed persistence failures so callers cannot derive a fallback key", async () => {
+    const localValues = new Map<string, unknown>();
+    const { messageListeners, local } = await loadBackground(localValues);
+    local.set.mockRejectedValueOnce(new Error("storage unavailable"));
+
+    await expect(sendBackgroundMessage(messageListeners[0]!, {
+      type: "mattermost-deck:get-encryption-seed",
+    })).resolves.toEqual({ success: false, error: "storage unavailable" });
+    expect(localValues.has("mattermost-deck.enc-seed.v1")).toBe(false);
+  });
 });

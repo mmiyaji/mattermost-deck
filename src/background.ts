@@ -9,9 +9,33 @@ const INSTALL_SCRIPT_IDS = [INSTALL_CONFIG_SCRIPT_ID, INSTALL_SCRIPT_ID];
 const RELEASE_NOTICE_STORAGE_KEY = "mattermostDeck.releaseNotice.v1";
 const INSTALL_TAB_STORAGE_KEY = "mattermostDeck.pwaInstallTab.v1";
 const INSTALL_CLEANUP_ALARM = "mattermost-deck-pwa-install-cleanup";
+const ENC_SEED_KEY = "mattermost-deck.enc-seed.v1";
 let contentScriptSyncQueue: Promise<void> = Promise.resolve();
+let encryptionSeedInitializationQueue: Promise<void> = Promise.resolve();
 let contentScriptSyncRevision = 0;
 let pendingContentScriptUpdateRefresh = false;
+
+function encodeBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function getEncryptionSeed(): Promise<string> {
+  const request = encryptionSeedInitializationQueue.then(async () => {
+    const stored = await chrome.storage.local.get(ENC_SEED_KEY);
+    const existing = stored[ENC_SEED_KEY];
+    if (typeof existing === "string" && existing.length > 0) {
+      return existing;
+    }
+
+    const seed = encodeBase64(crypto.getRandomValues(new Uint8Array(32)));
+    await chrome.storage.local.set({ [ENC_SEED_KEY]: seed });
+    return seed;
+  });
+  encryptionSeedInitializationQueue = request.then(() => undefined, () => undefined);
+  return request;
+}
 
 async function configureSessionStorageAccess(): Promise<void> {
   try {
@@ -403,6 +427,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message?.type === "mattermost-deck:get-server-url") {
         const [url, language] = await Promise.all([getConfiguredServerUrl(), getConfiguredLanguage()]);
         sendResponse({ success: true, url, language });
+        return;
+      }
+
+      if (message?.type === "mattermost-deck:get-encryption-seed") {
+        const seed = await getEncryptionSeed();
+        sendResponse({ success: true, seed });
         return;
       }
 

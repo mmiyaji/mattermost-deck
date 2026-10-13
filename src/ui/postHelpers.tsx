@@ -1,7 +1,7 @@
 import React from "react";
 import { getMattermostUrl, type MattermostPost, type MattermostUser } from "../mattermost/api";
 import i18n from "./i18n";
-import { extractHighlightKeywords, tokenizePostText } from "./postText";
+import { extractHighlightKeywords, tokenizePostText, truncateDisplayToken, type PostTextToken } from "./postText";
 
 const COMPACT_AUTHOR_COLORS = [
   "#57c7ff",
@@ -199,9 +199,45 @@ function renderTextHighlights(text: string, terms: string[]): React.ReactNode {
 }
 
 export function renderHighlightedTextFromTerms(text: string, terms: string[]): React.ReactNode {
+  return renderHighlightedTokens(tokenizePostText(text), terms);
+}
+
+/** Determine links from the complete message before shortening their labels. */
+export function renderPostSnippet(message: string, terms: string[], query?: string): React.ReactNode {
+  const normalized = message.replace(/\s+/g, " ").trim();
+  if (!normalized) return "(empty message)";
+  const limit = query === undefined ? 120 : 160;
+  let start = 0;
+  let end = normalized.length > limit ? limit - 3 : normalized.length;
+  if (query !== undefined && normalized.length > limit) {
+    const lower = normalized.toLowerCase();
+    const positions = extractSearchTerms(query).map(term => lower.indexOf(term.toLowerCase())).filter(index => index >= 0);
+    if (positions.length) {
+      start = Math.max(0, Math.min(...positions) - Math.floor(limit * 0.35));
+      end = Math.min(normalized.length, start + limit);
+      start = Math.max(0, end - limit);
+    }
+  }
+  const visible: PostTextToken[] = [];
+  if (start > 0) visible.push({ type: "text", raw: "...", display: "..." });
+  let offset = 0;
+  for (const token of tokenizePostText(normalized)) {
+    const tokenStart = offset;
+    offset += token.raw.length;
+    if (offset <= start || tokenStart >= end) continue;
+    const label = token.raw.slice(Math.max(0, start - tokenStart), Math.min(token.raw.length, end - tokenStart));
+    visible.push(token.type === "url"
+      ? { ...token, display: truncateDisplayToken(label) }
+      : { ...token, raw: label, display: truncateDisplayToken(label) });
+  }
+  if (end < normalized.length) visible.push({ type: "text", raw: "...", display: "..." });
+  return renderHighlightedTokens(visible, terms);
+}
+
+function renderHighlightedTokens(tokens: PostTextToken[], terms: string[]): React.ReactNode {
   const nodes: React.ReactNode[] = [];
   let index = 0;
-  for (const token of tokenizePostText(text)) {
+  for (const token of tokens) {
     if (token.type === "url" && token.href) {
       nodes.push(
         <a
@@ -225,7 +261,7 @@ export function renderHighlightedTextFromTerms(text: string, terms: string[]): R
     }
     index += 1;
   }
-  return nodes.length > 0 ? nodes : renderTextHighlights(text, terms);
+  return nodes;
 }
 
 export function getUserLabel(user: MattermostUser | undefined, fallbackId: string): string {

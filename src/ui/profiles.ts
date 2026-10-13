@@ -17,6 +17,7 @@ interface DeckProfileRegistry {
 }
 
 export const PROFILES_STORAGE_KEY = "mattermostDeck.profiles.v1";
+export const PROFILE_SETTINGS_INITIALIZED_KEY = "mattermostDeck.profileSettingsInitialized.v1";
 const DEFAULT_PROFILE_NAME = "Default";
 const DEFAULT_PROFILE_ORIGIN = "default";
 const SERVER_URL_STORAGE_KEY = "mattermostDeck.serverUrl.v1";
@@ -43,7 +44,8 @@ const PROFILE_SCOPED_STORAGE_KEYS = [
   "mattermostDeck.columnColors.v1",
   "mattermostDeck.showImagePreviews.v1",
   "mattermostDeck.highZIndex.v1",
-  "mattermostDeck.reversedPostOrder.v1"
+  "mattermostDeck.reversedPostOrder.v1",
+  PROFILE_SETTINGS_INITIALIZED_KEY,
 ] as const;
 
 function normaliseServerOrigin(value: string | null | undefined): string {

@@ -1,3 +1,5 @@
+import { startVisiblePolling } from "./visiblePolling";
+import { ColumnTypeIcon } from "./ColumnTypeIcon";
 import { TwoRowHint } from "./TwoRowHint";
 import { preservePaneScroll } from "./paneScroll";
 import { usePaneReorder } from "./usePaneReorder";
@@ -108,7 +110,7 @@ import {
   getUserAvatarUrl,
   getUserLabel,
   mergePosts,
-  renderHighlightedTextFromTerms,
+  renderPostSnippet,
   resolveHighlightTerms,
   summarisePost,
   uniqueTerms,
@@ -902,9 +904,10 @@ function getApiHealthLabel(status: ApiHealthStatus): string {
 
 function openMattermostThread(teamName: string, target: OpenThreadTarget, channelName?: string | null): void {
   const isReply = Boolean(target.rootId?.trim());
-  const nextPath = !isReply && channelName
+  const nextRoute = !isReply && channelName
     ? `/${teamName}/channels/${channelName}/${target.postId}`
     : `/${teamName}/pl/${target.postId}`;
+  const nextPath = new URL(getMattermostUrl(nextRoute)).pathname;
   debugLog("app.open-thread", {
     currentPath: window.location.pathname,
     nextPath,
@@ -1173,60 +1176,6 @@ function Sparkline({
   );
 }
 
-function ColumnTypeIcon({ type }: { type: DeckColumnType }): React.JSX.Element {
-  switch (type) {
-    case "mentions":
-      return (
-        <span className="deck-type-glyph" aria-hidden="true">
-          @
-        </span>
-      );
-    case "channelWatch":
-      return (
-        <svg className="deck-type-icon" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M5.1 2.5L3.9 13.5" />
-          <path d="M10.5 2.5L9.3 13.5" />
-          <path d="M2.3 6.1H12.9" />
-          <path d="M1.7 9.9H12.3" />
-        </svg>
-      );
-    case "dmWatch":
-      return (
-        <svg className="deck-type-icon" viewBox="0 0 16 16" aria-hidden="true">
-          <circle cx="6" cy="5.2" r="2.1" />
-          <path d="M2.9 11.9C3.4 9.9 5 8.8 6 8.8s2.6 1.1 3.1 3.1" />
-          <circle cx="11.2" cy="6.3" r="1.5" />
-          <path d="M9.5 11.4C9.8 10.2 10.8 9.4 11.5 9.4c.7 0 1.7.8 2 2" />
-        </svg>
-      );
-    case "keywordWatch":
-    case "search":
-      return (
-        <svg className="deck-type-icon" viewBox="0 0 16 16" aria-hidden="true">
-          <circle cx="7" cy="7" r="4.2" />
-          <path d="M10.2 10.2L13.4 13.4" />
-        </svg>
-      );
-    case "favorites":
-      return <svg className="deck-type-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m8 1.5 2 4.2 4.5.6-3.2 3.2.8 4.5L8 11.9 3.9 14l.8-4.5L1.5 6.3l4.5-.6Z" /></svg>;
-    case "saved":
-      return (
-        <svg className="deck-type-icon" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M4 2.7h8a1 1 0 0 1 1 1v9.6l-5-2.6-5 2.6V3.7a1 1 0 0 1 1-1Z" />
-        </svg>
-      );
-    case "diagnostics":
-      return (
-        <svg className="deck-type-icon" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M2.7 11.8h10.6" />
-          <path d="M4.2 10.3V7.8" />
-          <path d="M7.1 10.3V5.7" />
-          <path d="M10 10.3V3.8" />
-          <path d="M12.9 10.3V6.6" />
-        </svg>
-      );
-  }
-}
 
 function ColumnViewTarget({ type, title, subtitle }: { type: DeckColumnType; title: string; subtitle?: string }): React.JSX.Element {
   return (
@@ -4193,7 +4142,7 @@ function PostListItem({
   const hasFiles = (post.file_ids?.length ?? 0) > 0;
   const body = renderBody
     ? renderBody(post, { isVisible })
-    : (isVisible ? renderHighlightedTextFromTerms(summarisePost(post.message), highlightTerms) : summarisePost(post.message));
+    : (isVisible ? renderPostSnippet(post.message, highlightTerms) : summarisePost(post.message));
   const isEmpty = !renderBody && !post.message.trim();
   const canOpenPost = Boolean(onOpenPost && postClickAction !== "none");
   const activatePost = () => {
@@ -4389,7 +4338,7 @@ function PostList({
   const filteredHighlightTerms = useMemo(() => filterQuery ? [...highlightTerms, filterQuery] : highlightTerms, [highlightTerms, filterQuery]);
   const filteredRenderBody = useCallback((post: MattermostPost, { isVisible }: { isVisible: boolean }) => {
     const snippet = buildSearchSnippet(post.message, filterQuery);
-    return isVisible ? renderHighlightedTextFromTerms(snippet, filteredHighlightTerms) : snippet;
+    return isVisible ? renderPostSnippet(post.message, filteredHighlightTerms, filterQuery) : snippet;
   }, [filterQuery, filteredHighlightTerms]);
   const resolvedUnreadSeparatorLabel =
     unreadSeparatorLabel ?? text.unreadSeparatorLabel;
@@ -7529,9 +7478,7 @@ function useRuntimePerformanceSnapshot(
       });
     };
 
-    collect();
-    const timer = window.setInterval(collect, 2_000);
-    return () => window.clearInterval(timer);
+    return startVisiblePolling(collect, 2_000);
   }, [enabled]);
 
   return snapshot;
@@ -8965,7 +8912,7 @@ function SearchLikeColumn({
           renderMeta={() => (selectedTeam ? selectedTeam.display_name || selectedTeam.name : null)}
           renderBody={(post, { isVisible }) => {
             const snippet = buildSearchSnippet(post.message, query);
-            return isVisible ? renderHighlightedTextFromTerms(snippet, highlightTerms) : snippet;
+            return isVisible ? renderPostSnippet(post.message, highlightTerms, query) : snippet;
           }}
           onOpenPost={(post) => onOpenPost(post, {
             teamName: selectedTeam?.name,
@@ -9008,16 +8955,7 @@ function FavoritesColumn(props: React.ComponentProps<typeof SavedPostsColumn> & 
   }, [posts, channels]);
   useEffect(() => {
     if (paused) return;
-    void favorites.refresh();
-    const timer = setInterval(() => { void favorites.refresh(); }, FAVORITES_REFRESH_MS);
-    const resume = () => { void favorites.refresh(); };
-    document.addEventListener("visibilitychange", resume);
-    window.addEventListener("online", resume);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", resume);
-      window.removeEventListener("online", resume);
-    };
+    return startVisiblePolling(() => favorites.refresh(), FAVORITES_REFRESH_MS, { refreshOnOnline: true });
   }, [favorites.refresh, paused, props.reconnectNonce]);
   useEffect(() => {
     if (props.deletedPostIds.some(id => favorites.entries.some(f => f.id === id && f.post))) void favorites.refresh(true);
@@ -9460,7 +9398,6 @@ function DiagnosticsColumn({
   syncLogStore,
   apiHealthStatus,
   realtimeEnabled,
-  runtimeMetrics,
   canMoveLeft,
   canMoveRight,
   onMove,
@@ -9476,7 +9413,6 @@ function DiagnosticsColumn({
   syncLogStore: SyncLogStore;
   apiHealthStatus: ApiHealthStatus;
   realtimeEnabled: boolean;
-  runtimeMetrics: RuntimePerformanceSnapshot;
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
@@ -9487,6 +9423,9 @@ function DiagnosticsColumn({
   isFocusedPane: boolean;
   onToggleFocus: (id: string) => void;
 }): React.JSX.Element {
+  const [sectionNode, setSectionNode] = useState<HTMLElement | null>(null);
+  const isVisible = useElementVisibility(sectionNode, { defaultVisible: false });
+  const runtimeMetrics = useRuntimePerformanceSnapshot(isVisible);
   const text = useAppText();
   const [showControls, setShowControls] = useState(false);
   const syncLogs = useSyncLogs(syncLogStore);
@@ -9523,7 +9462,7 @@ function DiagnosticsColumn({
   }, [isFocusedPane]);
 
   return (
-    <section className={`deck-column deck-column--diagnostics${isFocusedPane ? " deck-column--pane-focused" : ""}`} style={getColumnAccentStyle(column.type, columnColors)}>
+    <section ref={setSectionNode} className={`deck-column deck-column--diagnostics${isFocusedPane ? " deck-column--pane-focused" : ""}`} style={getColumnAccentStyle(column.type, columnColors)}>
       <header className="deck-column-header">
         <div className="deck-column-heading">
           <PaneTitle><span className="deck-title-with-icon"><ColumnTypeBadge type="diagnostics" /><span>{text.diagnosticsTitle}</span></span></PaneTitle>
@@ -9862,9 +9801,6 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const pendingWidthRef = useRef<number | null>(null);
   const wsStatus = useWebSocketStatus();
   const syncLogStore = useSyncLogStore();
-  const runtimeMetrics = useRuntimePerformanceSnapshot(
-    (columns ?? []).some((column) => column.type === "diagnostics"),
-  );
   const mattermostThemeState = useMattermostThemeStyle(deckSettings.theme);
   const mattermostThemeStyle = mattermostThemeState.style;
   const apiHealthStatus = useApiHealth(state.status, deckSettings.healthCheckPath, deckSettings.pollingIntervalSeconds);
@@ -11684,33 +11620,28 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
               </p>
             </div>
             <div className="deck-topbar-actions">
-              {effectiveRealtimeEnabled ? (
-                <div
-                  className={`deck-status-badge deck-status-badge--${apiHealthStatus}${isCompactHeader ? " deck-status-badge--compact" : ""}`}
-                  title={syncStatusLabel}
-                  aria-label={syncStatusLabel}
-                >
-                  <span className="deck-status-badge-copy">
-                    <HealthStatusIcon status={apiHealthStatus} />
-                    {!isCompactHeader ? <span>{healthStatusLabel}</span> : null}
-                    <StatusModeIcon realtimeEnabled={effectiveRealtimeEnabled} />
-                  </span>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className={`deck-status-badge deck-status-badge--${apiHealthStatus} deck-status-badge--action${isCompactHeader ? " deck-status-badge--compact" : ""}`}
-                  onClick={handleOpenSettings}
-                  title={`${text.settingsHint} (${syncStatusLabel})`}
-                  aria-label={`${text.settingsHint} (${syncStatusLabel})`}
-                >
-                  <span className="deck-status-badge-copy">
-                    <HealthStatusIcon status={apiHealthStatus} />
-                    {!isCompactHeader ? <span>{healthStatusLabel}</span> : null}
-                    <StatusModeIcon realtimeEnabled={effectiveRealtimeEnabled} />
-                  </span>
-                </button>
-              )}
+              <div
+                className={`deck-status-badge deck-status-badge--${apiHealthStatus}${isCompactHeader ? " deck-status-badge--compact" : ""}`}
+                role="status"
+                title={syncStatusLabel}
+                aria-label={syncStatusLabel}
+              >
+                <span className="deck-status-badge-copy">
+                  <HealthStatusIcon status={apiHealthStatus} />
+                  {!isCompactHeader ? <span>{healthStatusLabel}</span> : null}
+                  <StatusModeIcon realtimeEnabled={effectiveRealtimeEnabled} />
+                </span>
+              </div>
+              <button
+                type="button"
+                className="deck-button deck-button--secondary deck-topbar-button deck-settings-button"
+                onClick={handleOpenSettings}
+                title={text.settingsHint}
+                aria-label={text.settingsHint}
+              >
+                <SettingsIcon />
+                <span className="deck-button-label">{text.settingsLabel}</span>
+              </button>
               <div className="deck-add-wrap deck-views-wrap" ref={viewsMenuRef}>
                 <button
                   type="button"
@@ -12380,7 +12311,6 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           syncLogStore={syncLogStore}
                           apiHealthStatus={apiHealthStatus}
                           realtimeEnabled={effectiveRealtimeEnabled}
-                          runtimeMetrics={runtimeMetrics}
                           canMoveLeft={siblingIndex > 0}
                           canMoveRight={siblingIndex < siblings.length - 1}
                           onMove={moveColumn}

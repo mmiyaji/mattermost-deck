@@ -41,6 +41,9 @@ import {
 } from "../ui/profiles";
 import { clearTraceEntries, getTraceEntries, isTraceCaptureEnabled, setTraceCaptureEnabled, subscribeTraceEntries, type TraceLogEntry } from "../traceLog";
 import { localizePerformancePurpose } from "./performancePurpose";
+import { hasSettingsChanges } from "./settingsDraft";
+import { AppearancePreview, WidthDiagram } from "./AppearancePreview";
+import { settingsExperienceCss } from "./settingsExperienceStyles";
 
 const PRODUCT_SITE_URL = "https://mattermost-deck.ruhenheim.org/";
 const REPO_URL = "https://github.com/mmiyaji/mattermost-deck";
@@ -904,7 +907,39 @@ const pageCss = `
   }
 
   .options-grid--target {
-    grid-template-columns: 1fr 200px;
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .options-team-input {
+    max-width: 360px;
+  }
+
+  .options-connection-advanced {
+    border: 1px solid rgba(123, 178, 255, 0.2);
+    border-radius: 10px;
+    padding: 0 16px;
+  }
+
+  .options-connection-advanced > summary {
+    padding: 16px 0;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .options-connection-advanced > summary:focus-visible {
+    outline: 2px solid #1f9dff;
+    outline-offset: 4px;
+    border-radius: 4px;
+  }
+
+  .options-connection-advanced > .options-subsection {
+    padding-bottom: 16px;
+  }
+
+  .options-connection-advanced .options-copy {
+    margin-top: 0;
   }
 
   /* Field */
@@ -1921,6 +1956,19 @@ async function markReleaseNoticeSeen(currentVersion: string): Promise<void> {
 
 function OptionsApp(): React.JSX.Element {
   const [settings, setSettings] = useState<DeckSettings>(DEFAULT_SETTINGS);
+  const [savedSettings, setSavedSettings] = useState<DeckSettings>(DEFAULT_SETTINGS);
+  const [pendingProfile, setPendingProfile] = useState<DeckProfileSummary | null>(null);
+  const [tokenSettingsOpen, setTokenSettingsOpen] = useState(false);
+  const [previewColumnType, setPreviewColumnType] = useState<ColumnColorKey>("mentions");
+  const operationRef = useRef(false);
+  const switchDialogRef = useRef<HTMLDialogElement>(null);
+  const switchTriggerRef = useRef<HTMLElement | null>(null);
+  const acceptSettings = (next: DeckSettings) => {
+    setSettings(next);
+    setSavedSettings(next);
+    setShowPat(false);
+    setTokenSettingsOpen(Boolean(next.wsPat.trim()));
+  };
   const [initialServerUrl, setInitialServerUrl] = useState("");
   const [profileOrigin, setProfileOrigin] = useState("");
   const [profiles, setProfiles] = useState<DeckProfileSummary[]>([]);
@@ -1994,7 +2042,7 @@ function OptionsApp(): React.JSX.Element {
 
   useEffect(() => {
     const style = document.createElement("style");
-    style.textContent = pageCss;
+    style.textContent = pageCss + settingsExperienceCss;
     document.head.append(style);
     return () => { style.remove(); };
   }, []);
@@ -2005,15 +2053,15 @@ function OptionsApp(): React.JSX.Element {
       const next = await loadDeckSettings();
       const pendingReleaseNotice = await loadReleaseNotice();
       if (!cancelled) {
-        setSettings(next);
+        acceptSettings(next);
         setInitialServerUrl(next.serverUrl);
         setProfileOrigin(next.serverUrl);
         setReleaseNotice(pendingReleaseNotice);
-        setLoaded(true);
         const profileSnapshot = await loadDeckProfiles(next.serverUrl || undefined);
         if (!cancelled) {
           setProfiles(profileSnapshot.profiles);
           setActiveProfileId(profileSnapshot.activeProfileId);
+          setLoaded(true);
         }
       }
     };
@@ -2036,6 +2084,49 @@ function OptionsApp(): React.JSX.Element {
   const { t } = useTranslation();
   useEffect(() => { void i18n.changeLanguage(settings.language); }, [settings.language]);
   const text = useOptionsText();
+  const hasUnsavedChanges = loaded && hasSettingsChanges(settings, savedSettings);
+  const resetDraft = () => {
+    setSettings(savedSettings);
+    setShowPat(false);
+    setTokenSettingsOpen(Boolean(savedSettings.wsPat.trim()));
+    setSaveError(null);
+    setSavedNotice(false);
+  };
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const preventLoss = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", preventLoss);
+    return () => window.removeEventListener("beforeunload", preventLoss);
+  }, [hasUnsavedChanges]);
+  useEffect(() => {
+    const dialog = switchDialogRef.current;
+    if (pendingProfile && dialog && !dialog.open) dialog.showModal();
+  }, [pendingProfile]);
+  const closeSwitchDialog = () => {
+    if (operationRef.current) return;
+    switchDialogRef.current?.close();
+    setPendingProfile(null);
+    window.requestAnimationFrame(() => switchTriggerRef.current?.focus());
+  };
+  const runOperation = async (action: () => Promise<boolean | void>): Promise<boolean> => {
+    if (operationRef.current) return false;
+    operationRef.current = true;
+    setSaving(true);
+    setSaveError(null);
+    setSavedNotice(false);
+    try {
+      return (await action()) !== false;
+    } catch {
+      setSaveError(text.saveFailed);
+      return false;
+    } finally {
+      operationRef.current = false;
+      setSaving(false);
+    }
+  };
   const formatProfileName = useCallback(
     (profile: DeckProfileSummary) => (
       profile.isBuiltInDefault && profile.name === "Default"
@@ -2243,28 +2334,27 @@ function OptionsApp(): React.JSX.Element {
     ? text.invalidServerUrl
     : (serverUrlMissing ? t("options.serverUrlRequiredHint") : null);
 
-  const handleSave = async () => {
+  const persistDraft = async (): Promise<boolean> => {
     const normalizedServerUrl = normaliseServerUrl(settings.serverUrl);
     if (!normalizedServerUrl) {
       setSaveError(text.invalidServerUrl);
-      return;
+      return false;
     }
 
     const isFirstSave = !initialServerUrl;
-    setSaving(true);
     setSavedNotice(false);
     setSaveError(null);
     try {
       const requestedOrigin = originToPermissionPattern(normalizedServerUrl);
       if (!requestedOrigin) {
         setSaveError(text.invalidServerUrl);
-        return;
+        return false;
       }
 
       const granted = await chrome.permissions.request({ origins: [requestedOrigin] });
       if (!granted) {
         setSaveError(text.permissionDenied);
-        return;
+        return false;
       }
 
       const previousOrigin = originToPermissionPattern(initialServerUrl);
@@ -2277,28 +2367,30 @@ function OptionsApp(): React.JSX.Element {
         await chrome.permissions.remove({ origins: [previousOrigin] }).catch(() => undefined);
       }
       await chrome.runtime.sendMessage({ type: "mattermost-deck:sync-content-script" }).catch(() => undefined);
+      acceptSettings(await loadDeckSettings(normalizedServerUrl));
       setInitialServerUrl(normalizedServerUrl);
       await refreshProfiles(normalizedServerUrl);
       setSavedNotice(true);
       if (isFirstSave) setShowInstallBanner(true);
       window.setTimeout(() => setSavedNotice(false), 2500);
+      return true;
     } catch (error) {
-      console.error("[Mattermost Deck] Failed to save settings", error);
       setSaveError(text.saveFailed);
-    } finally {
-      setSaving(false);
+      return false;
     }
   };
 
-  const navItems: { id: ActivePanel; icon: React.JSX.Element; label: string }[] = [
-    { id: "guide",      icon: <NavIconGuide />,       label: text.guideTitle },
-    { id: "conn",       icon: <NavIconConn />,        label: text.connTitle },
-    { id: "profiles",   icon: <NavIconProfiles />,    label: text.profilesTitle },
-    { id: "realtime",   icon: <NavIconRealtime />,    label: text.realtimeTitle },
-    { id: "appearance", icon: <NavIconAppearance />,  label: text.appearanceTitle },
-    { id: "behavior",   icon: <NavIconBehavior />,    label: text.behaviorTitle },
-    { id: "performance", icon: <NavIconPerformance />, label: text.performanceTitle },
-    { id: "security",   icon: <NavIconSecurity />,    label: text.securityTitle },
+  const handleSave = () => hasUnsavedChanges ? runOperation(persistDraft) : Promise.resolve(false);
+
+  const navItems: { id: ActivePanel; icon: React.JSX.Element; label: string; group: "general" | "management" }[] = [
+    { id: "appearance", icon: <NavIconAppearance />, label: text.appearanceTitle, group: "general" },
+    { id: "behavior", icon: <NavIconBehavior />, label: text.behaviorTitle, group: "general" },
+    { id: "conn", icon: <NavIconConn />, label: text.connTitle, group: "general" },
+    { id: "realtime", icon: <NavIconRealtime />, label: text.realtimeTitle, group: "general" },
+    { id: "guide", icon: <NavIconGuide />, label: text.guideTitle, group: "general" },
+    { id: "profiles", icon: <NavIconProfiles />, label: text.profilesTitle, group: "management" },
+    { id: "performance", icon: <NavIconPerformance />, label: text.performanceTitle, group: "management" },
+    { id: "security", icon: <NavIconSecurity />, label: text.securityTitle, group: "management" },
   ];
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? null;
   // Profile actions belong to the last saved connection. An edited Server URL
@@ -2316,15 +2408,41 @@ function OptionsApp(): React.JSX.Element {
     [formatProfileName, profiles],
   );
 
+  const switchToProfile = async (profile: DeckProfileSummary) => {
+    const previousId = activeProfileId;
+    await switchDeckProfile(profile.id);
+    try {
+      const next = await loadDeckSettings(profile.origin);
+      await refreshProfiles(profile.origin);
+      acceptSettings(next);
+      setInitialServerUrl(next.serverUrl);
+      setSavedNotice(false);
+    } catch (error) {
+      if (previousId) await switchDeckProfile(previousId);
+      throw error;
+    }
+  };
   const handleSwitchProfile = async (profileId: string) => {
-    if (!profileId || !targetProfileOrigin) {
+    if (operationRef.current || profileId === activeProfileId) return;
+    const profile = profiles.find((candidate) => candidate.id === profileId);
+    if (!profile || !targetProfileOrigin) return;
+    if (hasUnsavedChanges) {
+      switchTriggerRef.current = document.querySelector<HTMLElement>('[aria-labelledby="current-profile-label"]');
+      setSaveError(null);
+      setPendingProfile(profile);
       return;
     }
-    await switchDeckProfile(profileId);
-    const next = await loadDeckSettings(targetProfileOrigin);
-    setSettings(next);
-    setInitialServerUrl(next.serverUrl);
-    await refreshProfiles(targetProfileOrigin);
+    await runOperation(() => switchToProfile(profile));
+  };
+  const resolveProfileSwitch = async (save: boolean) => {
+    const target = pendingProfile;
+    if (!target) return;
+    const completed = await runOperation(async () => {
+      if (save && !(await persistDraft())) return false;
+      await switchToProfile(target);
+      return true;
+    });
+    if (completed) closeSwitchDialog();
   };
 
   const handleCreateProfile = async () => {
@@ -2342,11 +2460,11 @@ function OptionsApp(): React.JSX.Element {
     await switchDeckProfile(profile.id);
     await saveDeckSettings({
       ...settings,
-      serverUrl: targetProfileOrigin,
+      serverUrl: initialServerUrl,
       healthCheckPath: normaliseHealthCheckPath(settings.healthCheckPath),
     }, targetProfileOrigin);
     const next = await loadDeckSettings(targetProfileOrigin);
-    setSettings(next);
+    acceptSettings(next);
     setInitialServerUrl(next.serverUrl);
     setNewProfileName("");
     await refreshProfiles(targetProfileOrigin);
@@ -2386,11 +2504,11 @@ function OptionsApp(): React.JSX.Element {
     await switchDeckProfile(duplicate.id);
     await saveDeckSettings({
       ...settings,
-      serverUrl: targetProfileOrigin,
+      serverUrl: initialServerUrl,
       healthCheckPath: normaliseHealthCheckPath(settings.healthCheckPath),
     }, targetProfileOrigin);
     const next = await loadDeckSettings(targetProfileOrigin);
-    setSettings(next);
+    acceptSettings(next);
     setInitialServerUrl(next.serverUrl);
     await refreshProfiles(targetProfileOrigin);
     setSavedNotice(true);
@@ -2419,7 +2537,7 @@ function OptionsApp(): React.JSX.Element {
       await switchDeckProfile(result.nextActiveProfileId);
     }
     const next = await loadDeckSettings(targetProfileOrigin);
-    setSettings(next);
+    acceptSettings(next);
     setInitialServerUrl(next.serverUrl);
     await refreshProfiles(targetProfileOrigin);
     setSavedNotice(true);
@@ -2484,6 +2602,9 @@ function OptionsApp(): React.JSX.Element {
   };
   const currentReleaseNotes = useMemo(() => {
     if (!releaseNotice) return null;
+    if (releaseNotice.version === "1.2.1") {
+      return { title: "v1.2.1", added: [], changed: [t("options.releaseNote121Settings"), t("options.releaseNote121Appearance"), t("options.releaseNote121Idle")], fixed: [t("options.releaseNote121Links")] };
+    }
     if (releaseNotice.version === "1.2.0") {
       return {
         title: "v1.2.0",
@@ -2656,7 +2777,7 @@ function OptionsApp(): React.JSX.Element {
   }, [releaseNotice, t]);
 
   return (
-    <div className="options-app">
+    <div className="options-app" data-loaded={loaded}>
 
       {/* Topbar */}
       <header className="options-topbar">
@@ -2665,15 +2786,23 @@ function OptionsApp(): React.JSX.Element {
           <h1>{text.title}</h1>
           <span className="options-version">{text.version} {version}</span>
         </div>
+        <div className="options-editing-target" aria-label={t("options.editingTarget")}>
+          <span>{t("options.editingTarget")}</span>
+          <strong title={initialServerUrl}>{initialServerUrl || t("options.noServerConfigured")}</strong>
+          <span>{activeProfile ? formatProfileName(activeProfile) : text.profilesDefaultName}</span>
+        </div>
       </header>
 
       {/* Body */}
       <div className="options-body">
 
         {/* Sidebar */}
-        <nav className="options-sidebar">
+        <nav className="options-sidebar" inert={saving}>
           <div className="options-sidebar-nav">
-            {navItems.map(({ id, icon, label }) => (
+            {(["general", "management"] as const).map((group) => (
+              <section key={group} className="options-nav-group" aria-label={t(group === "general" ? "options.generalGroup" : "options.managementGroup")}>
+                <h2>{t(group === "general" ? "options.generalGroup" : "options.managementGroup")}</h2>
+            {navItems.filter((item) => item.group === group).map(({ id, icon, label }) => (
               <button
                 key={id}
                 type="button"
@@ -2686,6 +2815,8 @@ function OptionsApp(): React.JSX.Element {
                 <span className="options-nav-icon">{icon}</span>
                 <span>{label}</span>
               </button>
+            ))}
+              </section>
             ))}
           </div>
           <div className="options-sidebar-footer">
@@ -2713,8 +2844,8 @@ function OptionsApp(): React.JSX.Element {
         </nav>
 
         {/* Content */}
-        <main className="options-content">
-          <div className="options-panel-scroll">
+        <main className="options-content" aria-busy={saving}>
+          <div className="options-panel-scroll" inert={saving}>
 
           {(releaseNotice || showInstallBanner) && (
             <div className="options-banner-stack">
@@ -3020,17 +3151,19 @@ function OptionsApp(): React.JSX.Element {
                   )}
                 </label>
                 <label className="options-field">
-                  <span className="options-label">{text.teamSlugLabel}</span>
+                  <span id="mattermost-team-label" className="options-label">{text.teamSlugLabel}</span>
                   <input
-                    className="options-input"
+                    className="options-input options-team-input"
                     type="text"
+                    aria-labelledby="mattermost-team-label"
+                    aria-describedby="mattermost-team-hint"
                     placeholder={text.teamSlugPlaceholder}
                     value={settings.teamSlug}
                     onChange={(e) => setSettings((s) => ({ ...s, teamSlug: e.target.value }))}
                     autoComplete="off"
                     spellCheck={false}
                   />
-                  <span className="options-hint">{text.teamSlugHint}</span>
+                  <span id="mattermost-team-hint" className="options-hint">{text.teamSlugHint}</span>
                 </label>
               </div>
 
@@ -3043,37 +3176,38 @@ function OptionsApp(): React.JSX.Element {
                 </p>
               </div>
 
-              <div className="options-divider" />
-
-              <div className="options-subsection">
-                <span className="options-subsection-label">{text.advanced}</span>
-                <div className="options-grid">
-                  <label className="options-field">
-                    <span className="options-label">{text.routeKindsLabel}</span>
-                    <input
-                      className="options-input"
-                      type="text"
-                      value={settings.allowedRouteKinds}
-                      onChange={(e) => setSettings((s) => ({ ...s, allowedRouteKinds: e.target.value }))}
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                    <span className="options-hint">{text.routeKindsHint}</span>
-                  </label>
-                  <label className="options-field">
-                    <span className="options-label">{text.healthCheckLabel}</span>
-                    <input
-                      className="options-input"
-                      type="text"
-                      value={settings.healthCheckPath}
-                      onChange={(e) => setSettings((s) => ({ ...s, healthCheckPath: e.target.value }))}
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                    <span className="options-hint">{text.healthCheckHint}</span>
-                  </label>
+              <details className="options-connection-advanced">
+                <summary>{text.advanced}</summary>
+                <div className="options-subsection">
+                  <p className="options-copy">{t("options.connectionAdvancedHint")}</p>
+                  <div className="options-grid">
+                    <label className="options-field">
+                      <span className="options-label">{text.routeKindsLabel}</span>
+                      <input
+                        className="options-input"
+                        type="text"
+                        value={settings.allowedRouteKinds}
+                        onChange={(e) => setSettings((s) => ({ ...s, allowedRouteKinds: e.target.value }))}
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <span className="options-hint">{text.routeKindsHint}</span>
+                    </label>
+                    <label className="options-field">
+                      <span className="options-label">{text.healthCheckLabel}</span>
+                      <input
+                        className="options-input"
+                        type="text"
+                        value={settings.healthCheckPath}
+                        onChange={(e) => setSettings((s) => ({ ...s, healthCheckPath: e.target.value }))}
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <span className="options-hint">{text.healthCheckHint}</span>
+                    </label>
+                  </div>
                 </div>
-              </div>
+              </details>
             </div>
           )}
 
@@ -3138,7 +3272,7 @@ function OptionsApp(): React.JSX.Element {
                       <button
                         type="button"
                         className="options-button"
-                        onClick={() => void handleCreateProfile()}
+                        onClick={() => void runOperation(handleCreateProfile)}
                         disabled={!newProfileName.trim()}
                       >
                         {text.createProfileButton}
@@ -3164,7 +3298,7 @@ function OptionsApp(): React.JSX.Element {
                       <button
                         type="button"
                         className="options-button options-button--ghost"
-                        onClick={() => void handleRenameProfile()}
+                        onClick={() => void runOperation(handleRenameProfile)}
                         disabled={
                           !activeProfile ||
                           !renameProfileName.trim() ||
@@ -3178,7 +3312,7 @@ function OptionsApp(): React.JSX.Element {
                       <button
                         type="button"
                         className="options-button options-button--ghost"
-                        onClick={() => void handleDuplicateProfile()}
+                        onClick={() => void runOperation(handleDuplicateProfile)}
                         disabled={!activeProfile}
                       >
                         {text.duplicateProfileButton}
@@ -3186,7 +3320,7 @@ function OptionsApp(): React.JSX.Element {
                       <button
                         type="button"
                         className="options-button options-button--ghost"
-                        onClick={() => void handleDeleteProfile()}
+                        onClick={() => void runOperation(handleDeleteProfile)}
                         disabled={!canDeleteProfile}
                       >
                         {text.deleteProfileButton}
@@ -3207,6 +3341,30 @@ function OptionsApp(): React.JSX.Element {
                 <p>{text.realtimeDesc}</p>
               </div>
 
+              <div className="options-callout options-method-status" role="status">
+                <span>{t("options.currentUpdateMethod")}</span>
+                <strong>{savedSettings.wsPat.trim() ? t("options.realtimeModeTitle") : t("options.pollingModeTitle")}</strong>
+                {!savedSettings.wsPat.trim() && <span>{savedSettings.pollingIntervalSeconds}s</span>}
+              </div>
+              <p className="options-hint">{t("options.updateDraftHint")}</p>
+                <label className="options-field">
+                  <span className="options-label">{text.pollingLabel}</span>
+                  <input
+                    className="options-input"
+                    type="number"
+                    min={MIN_POLLING_INTERVAL_SECONDS}
+                    max={300}
+                    step={1}
+                    value={settings.pollingIntervalSeconds}
+                    onChange={(e) =>
+                      setSettings((s) => ({
+                        ...s,
+                        pollingIntervalSeconds: normalisePollingIntervalSeconds(e.target.value),
+                      }))
+                    }
+                  />
+                  <span className="options-hint">{text.pollingHint}</span>
+                </label>
               {/* Polling vs Realtime comparison */}
               <div className="options-grid">
                 <div className="options-callout" role="note">
@@ -3227,6 +3385,10 @@ function OptionsApp(): React.JSX.Element {
                 </div>
               </div>
 
+              <details className="options-connection-advanced options-realtime-details" open={tokenSettingsOpen}
+                onToggle={(event) => setTokenSettingsOpen(event.currentTarget.open)}>
+                <summary>{t("options.configureRealtime")}</summary>
+                <div className="options-subsection">
               <div className="options-inline-links">
                 <a href={PAT_ENABLE_URL} target="_blank" rel="noreferrer">{text.patEnableLink}</a>
                 <a href={PAT_GUIDE_URL} target="_blank" rel="noreferrer">{text.patGuideLink}</a>
@@ -3277,41 +3439,30 @@ function OptionsApp(): React.JSX.Element {
                   </div>
                   <span id="pat-storage-hint" className="options-hint">{patStorageHint}</span>
                 </div>
-                <label className="options-field">
-                  <span className="options-label">{text.pollingLabel}</span>
-                  <input
-                    className="options-input"
-                    type="number"
-                    min={MIN_POLLING_INTERVAL_SECONDS}
-                    max={300}
-                    step={1}
-                    value={settings.pollingIntervalSeconds}
-                    onChange={(e) =>
-                      setSettings((s) => ({
-                        ...s,
-                        pollingIntervalSeconds: normalisePollingIntervalSeconds(e.target.value),
-                      }))
-                    }
-                  />
-                  <span className="options-hint">{text.pollingHint}</span>
-                </label>
+
               </div>
 
               <div className="options-callout" role="note">
                 <strong>{t("options.getPatTitle")}</strong>
                 <p>{text.patHelp}</p>
               </div>
+                </div>
+              </details>
             </div>
           )}
 
           {/* Panel: Appearance */}
           {activePanel === "appearance" && (
-            <div className="options-panel">
+            <div className="options-panel options-panel--appearance">
               <div className="options-panel-header">
                 <h2>{text.appearanceTitle}</h2>
                 <p>{text.appearanceDesc}</p>
               </div>
 
+              <div className="options-appearance-body">
+              <div className="options-appearance-controls">
+              <section className="options-appearance-group" aria-labelledby="appearance-theme-group">
+                <h3 id="appearance-theme-group">{t("options.appearanceThemeGroup")}</h3>
               <div className="options-grid">
                 <div className="options-field">
                   <span id="theme-label" className="options-label">{text.themeLabel}</span>
@@ -3335,6 +3486,12 @@ function OptionsApp(): React.JSX.Element {
                     onChange={(v) => setSettings((s) => ({ ...s, language: v as DeckLanguage }))}
                   />
                 </div>
+              </div>
+              </section>
+              <section className="options-appearance-group" aria-labelledby="appearance-layout-group">
+                <h3 id="appearance-layout-group">{t("options.appearanceLayoutGroup")}</h3>
+                <WidthDiagram settings={settings} />
+              <div className="options-grid">
                 <label className="options-field">
                   <span className="options-label">{text.fontScaleLabel}</span>
                   <input
@@ -3410,6 +3567,11 @@ function OptionsApp(): React.JSX.Element {
                   />
                   <span className="options-hint">{text.columnWidthHint}</span>
                 </label>
+              </div>
+              </section>
+              <section className="options-appearance-group" aria-labelledby="appearance-posts-group">
+                <h3 id="appearance-posts-group">{t("options.appearancePostsGroup")}</h3>
+              <div className="options-grid">
                 <div className="options-field">
                   <span id="compact-mode-label" className="options-label">{text.compactModeLabel}</span>
                   <label className="options-choice">
@@ -3457,17 +3619,23 @@ function OptionsApp(): React.JSX.Element {
                       <input
                         type="color"
                         value={settings.columnColors[key]}
-                        onChange={(e) =>
+                        onFocus={() => setPreviewColumnType(key)}
+                        onChange={(e) => {
+                          setPreviewColumnType(key);
                           setSettings((s) => ({
                             ...s,
                             columnColors: { ...s.columnColors, [key]: e.target.value },
-                          }))
-                        }
+                          }));
+                        }}
                       />
                       <span>{paneColorLabels[key]}</span>
                     </label>
                   ))}
                 </div>
+              </div>
+              </section>
+              </div>
+              <AppearancePreview settings={settings} columnType={previewColumnType} />
               </div>
             </div>
           )}
@@ -3907,22 +4075,42 @@ function OptionsApp(): React.JSX.Element {
                           : undefined
                 }
               >
-                {loaded ? saveError ?? (savedNotice ? text.saved : "") : text.saving}
+                {loaded ? saveError ?? (hasUnsavedChanges ? t("options.unsavedChanges") : savedNotice ? text.saved : t("options.noUnsavedChanges")) : text.saving}
               </span>
+              <div className="options-save-actions">
+              <button type="button" className="options-button options-button--ghost"
+                disabled={!hasUnsavedChanges || saving} onClick={resetDraft}>
+                {t("options.discardChanges")}
+              </button>
               <button
                 type="button"
+                data-testid="options-save"
                 className="options-button"
                 onClick={() => void handleSave()}
-                disabled={!loaded || saving}
+                disabled={!loaded || saving || !hasUnsavedChanges}
                 aria-describedby="options-save-status"
               >
                 {saving ? text.saving : text.save}
               </button>
+              </div>
             </div>
           </footer>
 
         </main>
       </div>
+
+      {pendingProfile && <dialog ref={switchDialogRef} className="options-switch-dialog"
+        aria-labelledby="switch-dialog-title" aria-describedby="switch-dialog-description"
+        onCancel={(event) => { event.preventDefault(); closeSwitchDialog(); }}>
+        <h2 id="switch-dialog-title">{t("options.switchUnsavedTitle")}</h2>
+        <p id="switch-dialog-description">{t("options.switchUnsavedDescription", { name: formatProfileName(pendingProfile) })}</p>
+        {saveError && <p role="alert" className="options-status options-status--error">{saveError}</p>}
+        <div className="options-switch-actions">
+          <button type="button" className="options-button options-button--ghost" disabled={saving} autoFocus onClick={closeSwitchDialog}>{t("options.cancelSwitch")}</button>
+          <button type="button" className="options-button options-button--ghost" disabled={saving} onClick={() => void resolveProfileSwitch(false)}>{t("options.discardAndSwitch")}</button>
+          <button type="button" className="options-button" disabled={saving} onClick={() => void resolveProfileSwitch(true)}>{saving ? text.saving : t("options.saveAndSwitch")}</button>
+        </div>
+      </dialog>}
 
       {showReleaseNotesModal && currentReleaseNotes ? (
         <div className="options-modal-backdrop" role="presentation" onClick={closeReleaseNotesModal}>

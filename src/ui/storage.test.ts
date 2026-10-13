@@ -36,7 +36,7 @@ describe("normaliseColumns", () => {
     const widths = [360, 100, 9999, NaN, "400", undefined];
     const result = normaliseColumns(widths.map((width, index) => ({ id: String(index), type: "favorites", width })));
     expect(result).toHaveLength(6);
-    expect(result.map(column => column.width)).toEqual([360, 260, 480, undefined, undefined, undefined]);
+    expect(result.map(column => column.width)).toEqual([360, 200, 800, undefined, undefined, undefined]);
   });
 
   it("accepts legacy layout payload objects", () => {

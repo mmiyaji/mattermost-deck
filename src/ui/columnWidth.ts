@@ -1,5 +1,5 @@
-export const MIN_PREFERRED_COLUMN_WIDTH = 260;
-export const MAX_PREFERRED_COLUMN_WIDTH = 480;
+export const MIN_PREFERRED_COLUMN_WIDTH = 200;
+export const MAX_PREFERRED_COLUMN_WIDTH = 800;
 export const DEFAULT_PREFERRED_COLUMN_WIDTH = 320;
 
 export function normalisePreferredColumnWidth(value: number | string | null): number {

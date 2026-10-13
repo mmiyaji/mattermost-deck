@@ -7,7 +7,13 @@ import {
   saveStoredStrings,
   hasStoredValue,
 } from "./storage";
-import { getProfileStorageKey, loadCurrentDeckProfile, PROFILES_STORAGE_KEY } from "./profiles";
+import {
+  getProfileStorageKey,
+  loadCurrentDeckProfile,
+  PROFILE_SETTINGS_INITIALIZED_KEY,
+  PROFILES_STORAGE_KEY,
+  switchDeckProfile,
+} from "./profiles";
 import { resolveDeckLanguage, type DeckLanguage } from "./language";
 
 export type DeckTheme = "system" | "dark" | "light" | "mattermost";
@@ -94,7 +100,7 @@ export const DEFAULT_SETTINGS: DeckSettings = {
   healthCheckPath: "/api/v4/users/me",
   theme: "mattermost",
   language: resolveDeckLanguage(),
-  fontScalePercent: 100,
+  fontScalePercent: 95,
   preferredRailWidth: 720,
   autoAdjustThreadLayout: true,
   preferredColumnWidth: DEFAULT_PREFERRED_COLUMN_WIDTH,
@@ -334,6 +340,13 @@ async function loadScopedStoredString(baseKey: string, area: "local" | "session"
     return await loadStoredString(profileKey, area);
   }
 
+  // An initialized profile may intentionally have cleared a value. Storage
+  // removes empty strings, so the profile marker prevents that from reviving
+  // a legacy global value on the next load.
+  if (await hasStoredValue(getProfileStorageKey(profile.id, PROFILE_SETTINGS_INITIALIZED_KEY), "local")) {
+    return null;
+  }
+
   return await loadStoredString(baseKey, area);
 }
 
@@ -342,6 +355,17 @@ async function loadScopedStoredEncryptedString(baseKey: string, area: "local" | 
   const profileKey = getProfileStorageKey(profile.id, baseKey);
   if (await hasStoredValue(profileKey, area)) {
     return await loadStoredEncryptedString(profileKey, area);
+  }
+
+  if (await hasStoredValue(getProfileStorageKey(profile.id, PROFILE_SETTINGS_INITIALIZED_KEY), "local")) {
+    return null;
+  }
+
+  // A legacy credential belongs to the server saved beside it. Do not offer
+  // it to a newly configured server when that legacy server is known.
+  const legacyServerUrl = normaliseServerUrl(await loadStoredString(SETTINGS_KEYS.serverUrl, "local"));
+  if (legacyServerUrl && profile.origin !== "default" && profile.origin !== new URL(legacyServerUrl).origin) {
+    return null;
   }
 
   return await loadStoredEncryptedString(baseKey, area);
@@ -499,8 +523,13 @@ export async function saveDeckSettings(settings: DeckSettings, origin?: string):
       [profileKey(SETTINGS_KEYS.showImagePreviews)]: settings.showImagePreviews ? "true" : "false",
       [profileKey(SETTINGS_KEYS.highZIndex)]: settings.highZIndex ? "true" : "false",
       [profileKey(SETTINGS_KEYS.reversedPostOrder)]: settings.reversedPostOrder ? "true" : "false",
+      [profileKey(PROFILE_SETTINGS_INITIALIZED_KEY)]: "true",
     }),
   ]);
+
+  // Saving a connection is also selecting it. Keep the registry's last-active
+  // profile aligned with the settings just written for background readers.
+  await switchDeckProfile(profile.id);
 }
 
 function isSettingsChangeKey(key: string): boolean {

@@ -12,6 +12,7 @@ import {
   createDeckProfile,
   getProfileStorageKey,
   loadDeckProfiles,
+  PROFILE_SETTINGS_INITIALIZED_KEY,
   PROFILES_STORAGE_KEY,
   switchDeckProfile,
 } from "./profiles";
@@ -118,6 +119,19 @@ describe("profile-aware settings", () => {
     });
   });
 
+  it("defaults new font settings to 95 percent and preserves saved legacy and profile values", async () => {
+    const origin = "https://mattermost.example.test";
+    expect((await loadDeckSettings(origin)).fontScalePercent).toBe(95);
+
+    localValues.set(SETTINGS_KEYS.fontScalePercent, "100");
+    expect((await loadDeckSettings(origin)).fontScalePercent).toBe(100);
+
+    for (const fontScalePercent of [90, 100, 120]) {
+      await saveDeckSettings({ ...DEFAULT_SETTINGS, serverUrl: origin, fontScalePercent }, origin);
+      expect((await loadDeckSettings(origin)).fontScalePercent).toBe(fontScalePercent);
+    }
+  });
+
   it("distinguishes the generated default profile from a user profile with the same name", async () => {
     const serverUrl = "https://mattermost.example.test";
     const generated = (await loadDeckProfiles(serverUrl)).profiles[0];
@@ -176,6 +190,69 @@ describe("profile-aware settings", () => {
     expect(stored[SETTINGS_KEYS.serverUrl]).toBe(serverUrl);
     expect(Object.keys(stored)).toContainEqual(expect.stringMatching(/^mattermostDeck\.serverUrl\.v1\.profile\./));
     await expect(loadDeckSettings()).resolves.toMatchObject({ serverUrl, compactMode: true });
+  });
+
+  it.each([
+    ["persistent", "local", true],
+    ["session-only", "session", false],
+  ] as const)("keeps a cleared migrated %s PAT empty", async (_kind, area, persistPat) => {
+    const origin = "https://mattermost.example.test";
+    (area === "local" ? localValues : sessionValues).set(SETTINGS_KEYS.wsPat, "legacy-secret-token");
+    localValues.set(SETTINGS_KEYS.persistPat, persistPat ? "true" : "false");
+
+    const migrated = await loadDeckSettings(origin);
+    expect(migrated.wsPat).toBe("legacy-secret-token");
+    await saveDeckSettings({ ...migrated, serverUrl: origin, wsPat: "" }, origin);
+
+    await expect(loadDeckSettings(origin)).resolves.toMatchObject({ wsPat: "", persistPat });
+    const { activeProfileId } = await loadDeckProfiles(origin);
+    expect(localValues.get(getProfileStorageKey(activeProfileId, PROFILE_SETTINGS_INITIALIZED_KEY))).toBe("true");
+  });
+
+  it("keeps cleared team and keyword values empty after migrating legacy text settings", async () => {
+    const origin = "https://mattermost.example.test";
+    localValues.set(SETTINGS_KEYS.teamSlug, "old-team");
+    localValues.set(SETTINGS_KEYS.highlightKeywords, "old keyword");
+
+    const migrated = await loadDeckSettings(origin);
+    expect(migrated).toMatchObject({ teamSlug: "old-team", highlightKeywords: "old keyword" });
+    await saveDeckSettings({ ...migrated, serverUrl: origin, teamSlug: "", highlightKeywords: "" }, origin);
+
+    await expect(loadDeckSettings(origin)).resolves.toMatchObject({ teamSlug: "", highlightKeywords: "" });
+  });
+
+  it("does not fall back to a known legacy PAT on another server", async () => {
+    localValues.set(SETTINGS_KEYS.serverUrl, "https://legacy.example.test");
+    localValues.set(SETTINGS_KEYS.wsPat, "legacy-secret-token");
+    localValues.set(SETTINGS_KEYS.persistPat, "true");
+
+    await expect(loadDeckSettings("https://new.example.test")).resolves.toMatchObject({ wsPat: "" });
+  });
+
+  it("does not write profile settings when session credential storage fails", async () => {
+    const origin = "https://mattermost.example.test";
+    const { activeProfileId } = await loadDeckProfiles(origin);
+    vi.mocked(chrome.storage.session.remove).mockRejectedValueOnce(new Error("session unavailable"));
+
+    await expect(saveDeckSettings({ ...DEFAULT_SETTINGS, serverUrl: origin }, origin)).rejects.toThrow("session unavailable");
+    expect(localValues.has(getProfileStorageKey(activeProfileId, PROFILE_SETTINGS_INITIALIZED_KEY))).toBe(false);
+  });
+
+  it("makes the last explicitly saved connection profile authoritative after A/B/A", async () => {
+    const urls = ["https://a.example.test", "https://b.example.test", "https://a.example.test"];
+
+    for (const serverUrl of urls) {
+      await saveDeckSettings({ ...DEFAULT_SETTINGS, serverUrl }, serverUrl);
+    }
+
+    const registry = localValues.get(PROFILES_STORAGE_KEY) as {
+      profiles: Array<{ id: string; origin: string }>;
+      lastActiveProfileId: string;
+    };
+    const lastActive = registry.profiles.find((profile) => profile.id === registry.lastActiveProfileId);
+    expect(lastActive?.origin).toBe("https://a.example.test");
+    expect(localValues.get(getProfileStorageKey(lastActive!.id, SETTINGS_KEYS.serverUrl))).toBe("https://a.example.test");
+    expect(localValues.get(SETTINGS_KEYS.serverUrl)).toBe("https://a.example.test");
   });
 
   it("uses the Chrome UI language for empty storage before navigator language", async () => {

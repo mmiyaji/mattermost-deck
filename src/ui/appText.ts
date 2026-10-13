@@ -9,6 +9,7 @@ export function useAppText() {
     usingSession: t("deck.usingSession"),
     realtimeOff: t("deck.realtimeOff"),
     settingsHint: t("deck.settingsHint"),
+    settingsLabel: t("deck.settingsLabel"),
     settingsButton: t("deck.settingsButton"),
     connectionLog: t("deck.connectionLog"),
     recentLabel: t("deck.recentLabel"),

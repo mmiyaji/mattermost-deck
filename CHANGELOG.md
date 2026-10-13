@@ -7,6 +7,36 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-10-13
+
+### Fixed
+
+- Preserved Mattermost deployment subpaths when navigating to posts and using profile actions.
+- Coordinated encryption seed initialization across extension contexts.
+- Preserved intentionally cleared settings and repaired fallback behavior for saved profiles.
+- Added spacing below the two-row introduction banner.
+
+## [1.2.1] - 2026-09-25
+
+### Added
+
+- Unsaved-change status, disabled Save when unchanged, and Discard changes.
+- Save and switch, Discard and switch, and Cancel choices when switching profiles with unsaved edits.
+- Sample post previews for font size, pane width, and colors.
+
+### Changed
+
+- Added a dedicated Settings button, explained Team Slug, and moved API paths into advanced settings.
+- Displayed the server and profile in the settings header; grouped appearance controls and separated general settings from administration and diagnostics. Renamed Realtime to Update method.
+- Replaced colored pane-top borders with colored pane type icons.
+- Expanded individual pane widths to 200–800px. New font settings default to 95%; saved values are preserved.
+- Stopped diagnostic sampling and favorites polling timers while hidden and isolated diagnostic rendering within its pane.
+
+### Fixed
+
+- Shortened post and search previews now preserve complete link destinations, including query strings and fragments.
+
+
 ## [1.2.0] - 2026-09-15
 
 ### Added
