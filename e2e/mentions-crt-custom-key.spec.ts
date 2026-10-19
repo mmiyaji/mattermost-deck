@@ -552,6 +552,45 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
       mentionUpdatePending?: boolean;
       mentionPendingUpdateCount?: number;
     } | null>(page, "getColumnState", { id: "mentions-non-crt-root-reply" });
+    type MentionColumnState = NonNullable<Awaited<ReturnType<typeof getColumnState>>>;
+    const waitForPollingUpdate = async (
+      isTargetVisible: (column: MentionColumnState) => boolean,
+      expectedMentionCount: number,
+      baselinePostIds: string[],
+      timeout: number,
+    ) => {
+      // A completed refresh queues additions when visible rows must stay stable;
+      // an empty feed can publish the new row immediately.
+      let queued = false;
+      await expect.poll(async () => {
+        const column = await getColumnState();
+        if (!column) return false;
+        const targetVisible = isTargetVisible(column);
+        queued = Boolean(
+          column.mentionUpdatePending === true &&
+          (column.mentionPendingUpdateCount ?? 0) > 0 &&
+          !targetVisible,
+        );
+        return column.mentionCount === expectedMentionCount &&
+          (targetVisible || queued);
+      }, { timeout }).toBe(true);
+
+      if (queued) {
+        expect((await getColumnState())?.visiblePostIds ?? []).toEqual(baselinePostIds);
+        expect(await debugRequest<boolean>(page, "applyMentionUpdates", {
+          id: "mentions-non-crt-root-reply",
+        })).toBe(true);
+      }
+
+      await expect.poll(async () => {
+        const column = await getColumnState();
+        return Boolean(
+          column &&
+          isTargetVisible(column) &&
+          column.mentionCount === expectedMentionCount,
+        );
+      }, { timeout: 15_000 }).toBe(true);
+    };
     await expect.poll(async () => {
       const column = await getColumnState();
       return column?.visiblePostMessages?.some(
@@ -573,7 +612,9 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
         (message) => message.includes(marker),
       ) ?? false;
     }, { timeout: 35_000 }).toBe(false);
-    const baselineMentionCount = (await getColumnState())?.mentionCount ?? 0;
+    const afterReadState = await getColumnState();
+    const baselineMentionCount = afterReadState?.mentionCount ?? 0;
+    const baselinePostIds = afterReadState?.visiblePostIds ?? [];
 
     const pollingMarker = `non-crt-polling-delete-${timestamp}`;
     const pollingReply = await apiRequest<{ id: string }>(adminToken, "POST", "/posts", {
@@ -582,32 +623,14 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
       message: `polling reply to delete without an at-token ${pollingMarker}`,
     });
     pollingReplyId = pollingReply.id;
-    // Completed refreshes queue additions until the user applies the feed update.
-    await expect.poll(async () => {
-      const column = await getColumnState();
-      return Boolean(
-        column?.mentionUpdatePending === true &&
-        (column.mentionPendingUpdateCount ?? 0) > 0 &&
-        column.mentionCount === baselineMentionCount + 1 &&
-        !column.visiblePostMessages?.some((message) => message.includes(pollingMarker)),
-      );
-    }, { timeout: 35_000 }).toBe(true);
-    expect(await debugRequest<boolean>(page, "applyMentionUpdates", {
-      id: "mentions-non-crt-root-reply",
-    })).toBe(true);
-    await expect.poll(async () => {
-      const column = await getColumnState();
-      return {
-        hasReply:
-          column?.visiblePostMessages?.some(
-            (message) => message.includes(pollingMarker),
-          ) ?? false,
-        mentionCount: column?.mentionCount ?? 0,
-      };
-    }, { timeout: 15_000 }).toEqual({
-      hasReply: true,
-      mentionCount: baselineMentionCount + 1,
-    });
+    await waitForPollingUpdate(
+      (column) =>
+        column.visiblePostMessages?.some((message) => message.includes(pollingMarker)) ??
+        false,
+      baselineMentionCount + 1,
+      baselinePostIds,
+      35_000,
+    );
 
     await bestEffortDelete(adminToken, `/posts/${pollingReplyId}`);
     pollingReplyId = null;
@@ -626,6 +649,7 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
     });
 
     const pollingEditableMarker = `polling-editable-mention-${timestamp}`;
+    const beforeEditablePostIds = (await getColumnState())?.visiblePostIds ?? [];
     const pollingEditableMention = await apiRequest<{ id: string }>(
       adminToken,
       "POST",
@@ -637,36 +661,17 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
     );
     pollingEditedMentionId = pollingEditableMention.id;
     // The stored 5-second value is normalized to the 15-second product
-    // minimum. Under the full one-worker suite a mention scan can overlap the
-    // first tick, so allow enough time for multiple complete polling cycles.
-    await expect.poll(async () => {
-      const column = await getColumnState();
-      return Boolean(
-        column?.mentionUpdatePending === true &&
-        (column.mentionPendingUpdateCount ?? 0) > 0 &&
-        column.mentionCount === baselineMentionCount + 1 &&
-        !column.visiblePostIds?.includes(pollingEditableMention.id),
-      );
-    }, { timeout: 60_000 }).toBe(true);
-    expect(await debugRequest<boolean>(page, "applyMentionUpdates", {
-      id: "mentions-non-crt-root-reply",
-    })).toBe(true);
-    await expect.poll(async () => {
-      const column = await getColumnState();
-      return {
-        postVisible:
-          column?.visiblePostIds?.includes(pollingEditableMention.id) ?? false,
-        markerVisible:
-          column?.visiblePostMessages?.some(
-            (message) => message.includes(pollingEditableMarker),
-          ) ?? false,
-        mentionCount: column?.mentionCount ?? 0,
-      };
-    }, { timeout: 15_000 }).toEqual({
-      postVisible: true,
-      markerVisible: true,
-      mentionCount: baselineMentionCount + 1,
-    });
+    // minimum. Under the full one-worker suite allow multiple polling cycles.
+    await waitForPollingUpdate(
+      (column) =>
+        column.visiblePostIds?.includes(pollingEditableMention.id) === true &&
+        column.visiblePostMessages?.some(
+          (message) => message.includes(pollingEditableMarker),
+        ) === true,
+      baselineMentionCount + 1,
+      beforeEditablePostIds,
+      60_000,
+    );
     await apiRequest(
       adminToken,
       "PUT",
