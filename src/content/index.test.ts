@@ -65,7 +65,12 @@ describe("content runtime lifecycle", () => {
       replaceState: originalReplaceState,
     } as History;
     const classList = { add: vi.fn(), remove: vi.fn() };
-    const body = { classList } as unknown as HTMLBodyElement;
+    const body = {
+      classList,
+      childElementCount: 0,
+      matches: vi.fn(() => false),
+      querySelectorAll: vi.fn(() => []),
+    } as unknown as HTMLBodyElement;
     const documentElement = { append: vi.fn() };
     const fakeDocument = {
       readyState: "complete",

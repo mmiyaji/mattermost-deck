@@ -776,6 +776,22 @@ async function collectSample(
   };
 }
 
+async function submitNativeSearch(page: Page, query: string): Promise<void> {
+  const legacySearch = page.locator("#searchBox");
+  const usesLegacySearch = await legacySearch.isVisible().catch(() => false);
+  if (!usesLegacySearch) {
+    const launcher = page.locator("#searchFormContainer");
+    await expect(launcher).toBeVisible({ timeout: 10_000 });
+    await launcher.click();
+  }
+  const search = usesLegacySearch
+    ? legacySearch
+    : page.getByRole("searchbox", { name: /search messages/i });
+  await expect(search).toBeVisible({ timeout: 10_000 });
+  await search.fill(query);
+  await search.press("Enter");
+}
+
 async function stabilizeForMemorySample(
   page: Page,
   canonicalSearchToken: string,
@@ -802,9 +818,7 @@ async function stabilizeForMemorySample(
         timeout: 10_000,
       });
     }
-    const searchBox = page.locator("#searchBox");
-    await searchBox.fill(canonicalSearchToken);
-    await searchBox.press("Enter");
+    await submitNativeSearch(page, canonicalSearchToken);
     await expect(openRhs).toBeVisible({ timeout: 10_000 });
     await expect(openRhs).toContainText(canonicalSearchToken, {
       timeout: 10_000,
@@ -844,9 +858,7 @@ async function runWorkloadStep(
       });
     }
     const alternateQuery = searchTokens[1];
-    const searchBox = page.locator("#searchBox");
-    await searchBox.fill(alternateQuery);
-    await searchBox.press("Enter");
+    await submitNativeSearch(page, alternateQuery);
     const openRhs = page.locator("#sidebar-right.is-open");
     await expect(openRhs).toBeVisible({ timeout: 10_000 });
     await expect(openRhs).toContainText(alternateQuery, {
@@ -863,7 +875,17 @@ async function runWorkloadStep(
         timeout: 10_000,
       });
     }
-    await page.locator("#channelHeaderPinButton").click({ timeout: 10_000 });
+    const legacyPinButton = page.locator("#channelHeaderPinButton");
+    if (await legacyPinButton.isVisible().catch(() => false)) {
+      await legacyPinButton.click({ timeout: 10_000 });
+    } else {
+      // Mattermost 11 exposes pinned messages inside the channel Info pane.
+      await page.locator("#channel-info-btn").click({ timeout: 10_000 });
+      const infoPane = page.locator("#sidebar-right.is-open");
+      await expect(infoPane).toBeVisible({ timeout: 10_000 });
+      await infoPane.getByRole("button", { name: "Pinned messages", exact: true })
+        .click({ timeout: 10_000 });
+    }
     await expect(page.locator("#sidebar-right.is-open")).toBeVisible({
       timeout: 10_000,
     });
@@ -1044,6 +1066,7 @@ test("large Mattermost data and RHS churn remain memory-bounded", async ({}, tes
       createdPostIds,
     );
     report.createdPostCount = createdPostIds.length;
+    console.log(`[soak] fixture ready: ${createdPostIds.length} posts, mode=${soakMode}`);
 
     const extensionArguments = deckExtensionEnabled
       ? [
@@ -1062,6 +1085,13 @@ test("large Mattermost data and RHS churn remain memory-bounded", async ({}, tes
         contextClosedUnexpectedly = true;
       }
     });
+
+    context.setDefaultTimeout(15_000);
+    context.setDefaultNavigationTimeout(30_000);
+    // Keep a host tab present before closing install-time options. Closing the
+    // last tab of a persistent Chrome profile can also close its browser.
+    const page = await context.newPage();
+    console.log("[soak] host tab ready");
 
     if (deckExtensionEnabled) {
       const [existingServiceWorker] = context.serviceWorkers();
@@ -1095,7 +1125,6 @@ test("large Mattermost data and RHS churn remain memory-bounded", async ({}, tes
       });
     }
 
-    const page = await context.newPage();
     page.on("crash", () => {
       pageCrash = "Chromium renderer crashed";
     });
@@ -1123,6 +1152,7 @@ test("large Mattermost data and RHS churn remain memory-bounded", async ({}, tes
       });
     }
     await login(page, state.memberUser.username, state.memberUser.password);
+    console.log("[soak] authenticated");
     await page.goto(`${baseUrl}/${state.team.name}/channels/town-square`);
     await dismissOfflineStatusModal(page);
     await dismissFirstRunOverlays(page);
@@ -1159,6 +1189,7 @@ test("large Mattermost data and RHS churn remain memory-bounded", async ({}, tes
     cdp = await context.newCDPSession(page);
     await cdp.send("Performance.enable");
     await cdp.send("HeapProfiler.enable");
+    console.log("[soak] starting timed workload");
     startedAt = Date.now();
     const deadline = startedAt + soakDurationMs;
     let nextSampleAt = startedAt;
@@ -1272,7 +1303,9 @@ test("large Mattermost data and RHS churn remain memory-bounded", async ({}, tes
       analysis.thresholds.userTimingMeasureSlopePerMinute,
     );
     expect(analysis.userTimingMeasures.runaway).toBe(false);
-    if (autoAdjustEnabled) {
+    // Both Deck modes observe the host to keep its center usable. Disabling
+    // automatic thread adjustment changes sizing, not this safety monitoring.
+    if (deckExtensionEnabled) {
       expect(analysis.hostLayoutMeasurementDelta).toBeLessThanOrEqual(
         analysis.allowedHostLayoutMeasurementDelta,
       );

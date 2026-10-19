@@ -7,6 +7,21 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-10-19
+
+### Changed
+
+- Pause API health polling and route fallback timers while the page is hidden, and reconcile when it becomes visible.
+- Ignore unrelated host DOM mutations when monitoring blocking dialogs.
+
+### Fixed
+
+- Keep a usable Mattermost center visible during manual Deck resizing, including when a thread is open or automatic adjustment is disabled; prevent native center width from exceeding the available resize budget.
+- Track native thread resizing while it is in progress and preserve requested widths for later restoration.
+- Allow compact Deck widths to shrink continuously and avoid repeated collapse/recovery near the width boundary.
+- Keep compact header controls and their menus inside narrow Deck panels.
+- Keep cached mention posts clickable and open saved posts with cross-team-safe Mattermost permalinks.
+
 ## [1.2.2] - 2026-10-13
 
 ### Fixed

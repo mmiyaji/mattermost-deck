@@ -1,13 +1,33 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateThreadAwareRailLayout,
+  calculateHostConstrainedRailLayout,
+  clampUserRailWidth,
   COLLAPSED_RESPONSIVE_RAIL_WIDTH,
   calculateResponsiveRailWidth,
   MAX_RESPONSIVE_RAIL_SHARE,
   MIN_MANUAL_MATTERMOST_WIDTH,
   MIN_MATTERMOST_WIDTH,
   MIN_RESPONSIVE_RAIL_WIDTH,
+  MIN_USABLE_COMPACT_RAIL_WIDTH,
+  measureMattermostHostInsets,
 } from "./railLayout";
+
+describe("measureMattermostHostInsets", () => {
+  it("uses the visible left and right gaps when the center overflows the root", () => {
+    expect(measureMattermostHostInsets(
+      { left: 0, right: 641, width: 641 },
+      { left: 305, right: 690, width: 385 },
+    )).toEqual({ baseChromeWidth: 305, minimumCenterWidth: 385 });
+  });
+
+  it("does not treat a normal flexible center width as its minimum", () => {
+    expect(measureMattermostHostInsets(
+      { left: 0, right: 1_024, width: 1_024 },
+      { left: 305, right: 700, width: 395 },
+    )).toEqual({ baseChromeWidth: 629 });
+  });
+});
 
 describe("calculateResponsiveRailWidth", () => {
   it("keeps the requested width when Mattermost has enough room", () => {
@@ -134,16 +154,13 @@ describe("calculateThreadAwareRailLayout", () => {
     });
   });
 
-  it("collapses instead of leaving a partial Deck below the usable boundary", () => {
+  it("keeps a slightly narrower compact Deck near the collapse boundary", () => {
     expect(calculateThreadAwareRailLayout(779, 2_200, {
       mattermostWidth: 1_421,
       centerWidth: 632,
       rightSidebarWidth: 500,
       baseChromeWidth: 289,
-    })).toEqual({
-      width: COLLAPSED_RESPONSIVE_RAIL_WIDTH,
-      mode: "collapsed",
-    });
+    })).toEqual({ width: 279, mode: "compact" });
   });
 
   it("collapses at 1800px instead of reducing the original Mattermost center", () => {
@@ -260,6 +277,7 @@ describe("calculateThreadAwareRailLayout", () => {
         mattermostWidth: 540,
         centerWidth: 140,
         rightSidebarWidth: 400,
+        baseChromeWidth: 0,
       },
       MIN_MANUAL_MATTERMOST_WIDTH,
     )).toEqual({
@@ -281,7 +299,7 @@ describe("calculateThreadAwareRailLayout", () => {
     expect(widths).toEqual([...widths].sort((left, right) => right - left));
   });
 
-  it("never returns a partial Deck between the collapsed and usable widths", () => {
+  it("never returns a partial Deck below the compact safety floor", () => {
     for (const requestedWidth of [360, 480, 560, 720, 900, 1_400]) {
       for (const viewportWidth of [1_200, 1_600, 1_800, 2_200, 2_400]) {
         for (const rightSidebarWidth of [320, 400, 500, 600]) {
@@ -306,12 +324,152 @@ describe("calculateThreadAwareRailLayout", () => {
             );
           } else {
             expect(layout.width).toBeGreaterThanOrEqual(
-              MIN_RESPONSIVE_RAIL_WIDTH,
+              MIN_USABLE_COMPACT_RAIL_WIDTH,
             );
           }
         }
       }
     }
+  });
+
+  it("keeps at least 320px of center visible for manual width overrides", () => {
+    const layout = calculateHostConstrainedRailLayout(480, 1_200, {
+      mattermostWidth: 800,
+      centerWidth: 0,
+      rightSidebarWidth: 400,
+      baseChromeWidth: 289,
+    }, MIN_MANUAL_MATTERMOST_WIDTH);
+
+    expect(layout).toEqual({ width: COLLAPSED_RESPONSIVE_RAIL_WIDTH, mode: "collapsed" });
+    expect(1_200 - layout.width - 289 - 400).toBeGreaterThanOrEqual(320);
+
+    expect(calculateHostConstrainedRailLayout(480, 1_200, {
+      mattermostWidth: 800,
+      centerWidth: 500,
+      rightSidebarWidth: 0,
+      baseChromeWidth: 289,
+    }, MIN_MANUAL_MATTERMOST_WIDTH)).toEqual({ width: 480, mode: "normal" });
+  });
+
+  it("reserves the center-content inset at the maximum manual width with an open RHS", () => {
+    const layout = calculateHostConstrainedRailLayout(1_400, 1_920, {
+      mattermostWidth: 1_120,
+      centerWidth: 0,
+      rightSidebarWidth: 500,
+      baseChromeWidth: 289,
+    }, MIN_MANUAL_MATTERMOST_WIDTH);
+    const measuredCenterWidth = 1_920 - layout.width - 289 - 500;
+
+    expect(layout).toEqual({ width: 795, mode: "compact" });
+    expect(measuredCenterWidth).toBe(336);
+    expect(measuredCenterWidth - 16).toBeGreaterThanOrEqual(320);
+  });
+
+  it("reserves an overflowing native center minimum during a manual resize", () => {
+    const hostLayout = {
+      mattermostWidth: 641,
+      centerWidth: 385,
+      minimumCenterWidth: 385,
+      rightSidebarWidth: 0,
+      baseChromeWidth: 305,
+    };
+    const layout = calculateHostConstrainedRailLayout(
+      900,
+      1_024,
+      hostLayout,
+      MIN_MANUAL_MATTERMOST_WIDTH,
+    );
+
+    expect(layout).toEqual({ width: 334, mode: "compact" });
+    expect(1_024 - layout.width - 305).toBe(385);
+  });
+
+  it("restores the requested manual width when the same host has more viewport room", () => {
+    const hostLayout = {
+      mattermostWidth: 641,
+      centerWidth: 385,
+      minimumCenterWidth: 385,
+      rightSidebarWidth: 0,
+      baseChromeWidth: 305,
+    };
+    const widths = [1_024, 1_800].map((viewportWidth) => (
+      calculateHostConstrainedRailLayout(
+        900,
+        viewportWidth,
+        hostLayout,
+        MIN_MANUAL_MATTERMOST_WIDTH,
+      ).width
+    ));
+
+    expect(widths).toEqual([334, 900]);
+  });
+
+  it("keeps the learned center minimum while the RHS is open", () => {
+    const layout = calculateHostConstrainedRailLayout(900, 1_800, {
+      mattermostWidth: 1_195,
+      centerWidth: 385,
+      minimumCenterWidth: 385,
+      rightSidebarWidth: 300,
+      baseChromeWidth: 305,
+    }, MIN_MANUAL_MATTERMOST_WIDTH);
+    const centerWidth = 1_800 - layout.width - 305 - 300;
+
+    expect(layout).toEqual({ width: 810, mode: "compact" });
+    expect(centerWidth).toBe(385);
+  });
+
+  it("uses a conservative chrome reserve when the initial open RHS clips the center", () => {
+    const layout = calculateHostConstrainedRailLayout(900, 1_600, {
+      mattermostWidth: 900,
+      centerWidth: 0,
+      rightSidebarWidth: 400,
+    });
+
+    expect(layout).toEqual({ width: 480, mode: "compact" });
+    expect(1_600 - layout.width - 320 - 400).toBe(400);
+  });
+
+  it("keeps the 1400 to 1399px boundary continuous with an open RHS", () => {
+    const hostLayout = {
+      mattermostWidth: 800,
+      centerWidth: 0,
+      rightSidebarWidth: 400,
+      baseChromeWidth: 289,
+    };
+    const widths = [1_400, 1_399].map((viewportWidth) => (
+      calculateThreadAwareRailLayout(720, viewportWidth, hostLayout).width
+    ));
+
+    expect(widths).toEqual([280, 279]);
+  });
+
+  it("keeps interactive compact widths continuous around 280px", () => {
+    expect([275, 248].map((width) => clampUserRailWidth(width, 400))).toEqual([
+      275,
+      248,
+    ]);
+  });
+
+  it("uses hysteresis when recovering from a collapsed pane layout", () => {
+    const host = (rightSidebarWidth: number) => ({
+      mattermostWidth: 1_200,
+      centerWidth: 0,
+      rightSidebarWidth,
+      baseChromeWidth: 0,
+    });
+
+    expect(calculateThreadAwareRailLayout(720, 1_200, host(241))).toEqual({
+      width: COLLAPSED_RESPONSIVE_RAIL_WIDTH,
+      mode: "collapsed",
+    });
+    expect(calculateThreadAwareRailLayout(720, 1_200, host(220), 720, "collapsed")).toEqual({
+      width: COLLAPSED_RESPONSIVE_RAIL_WIDTH,
+      mode: "collapsed",
+    });
+    expect(calculateThreadAwareRailLayout(720, 1_200, host(208), 720, "collapsed")).toEqual({
+      width: 272,
+      mode: "compact",
+    });
   });
 
   it("restores the exact normal width after the pane closes", () => {

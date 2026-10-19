@@ -120,6 +120,7 @@ import { shouldSuppressPostActivation } from "./postActivation";
 import {
   focusMattermostPost,
   getDeckRoutePath,
+  resolvePostChannelName,
   resolveDeckCurrentRoute,
 } from "./mattermostNavigation";
 import { dedupeRecentTargets, type RecentChannelTarget } from "./recentTargets";
@@ -129,10 +130,13 @@ import { useElementVisibility } from "./useElementVisibility";
 import { useSyncLogStore, useSyncLogs, type SyncLogEntry, type SyncLogStore } from "./syncLogs";
 import { reuseUnchangedPostState, type PostState } from "./postState";
 import {
-  calculateResponsiveRailWidth,
+  calculateHostConstrainedRailLayout,
   calculateThreadAwareRailLayout,
+  clampUserRailWidth,
+  measureMattermostHostInsets,
   MIN_MANUAL_MATTERMOST_WIDTH,
   MIN_MATTERMOST_WIDTH,
+  MIN_USABLE_COMPACT_RAIL_WIDTH,
   type MattermostHostLayout,
   type ResponsiveRailMode,
 } from "./railLayout";
@@ -2723,13 +2727,10 @@ function useApiHealth(
       }
     };
 
-    const timer = window.setInterval(() => {
-      void run();
-    }, intervalMs);
-
+    const stopPolling = startVisiblePolling(run, intervalMs);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, [healthCheckPath, pollingIntervalSeconds]);
 
@@ -2829,6 +2830,7 @@ function readMattermostHostLayout(): MattermostHostLayout {
   const mattermostRect = mattermostRoot.getBoundingClientRect();
   const rootReportsRhsOpen = mattermostRoot.classList.contains("rhs-open");
   let rightSidebarWidth = 0;
+  let rightSidebarRect: DOMRect | null = null;
   let rightSidebarOpen = rootReportsRhsOpen;
 
   for (const rightSidebar of findMattermostRightSidebars(mattermostRoot)) {
@@ -2852,21 +2854,47 @@ function readMattermostHostLayout(): MattermostHostLayout {
       rightSidebarWidth = Math.max(
         rightSidebarWidth,
         // The RHS enters with a horizontal transform in Mattermost. Its box
-        // width is already final while only part of it intersects #root.
-        // Intersection width is therefore useful for visibility, but using it
-        // as the sizing input makes Deck chase the opening animation.
-        Math.min(rect.width, mattermostRect.width),
+        // width is already final while only part of it intersects #root, so
+        // retain its natural width instead of its current intersection.
+        rect.width,
       );
+      if (rect.width >= (rightSidebarRect?.width ?? 0)) {
+        rightSidebarRect = rect;
+      }
     }
   }
 
   const renderedCenter = findLargestRenderedHostElement(
     findMattermostCenterTargets(mattermostRoot),
   );
+  const centerInsets = renderedCenter
+    ? measureMattermostHostInsets(mattermostRect, renderedCenter.rect)
+    : null;
+  const baseChromeWidth = centerInsets === null
+    ? undefined
+    : Math.max(
+        rightSidebarWidth > 0 ? 320 : 0,
+        rightSidebarWidth > 0
+          ? Math.round(
+              Math.max(
+                0,
+                (renderedCenter?.rect.left ?? mattermostRect.left) -
+                  mattermostRect.left,
+              ) +
+                (rightSidebarRect
+                  ? Math.max(0, mattermostRect.right - rightSidebarRect.right)
+                  : 320),
+            )
+          : centerInsets.baseChromeWidth,
+      );
 
   return {
     mattermostWidth: Math.max(0, Math.round(mattermostRect.width)),
     centerWidth: Math.max(0, Math.round(renderedCenter?.rect.width ?? 0)),
+    baseChromeWidth,
+    minimumCenterWidth: !rightSidebarOpen
+      ? centerInsets?.minimumCenterWidth
+      : undefined,
     rightSidebarWidth: Math.max(0, Math.round(rightSidebarWidth)),
     rightSidebarOpen,
     rootReportsRightSidebarOpen: rootReportsRhsOpen,
@@ -2892,24 +2920,44 @@ function hostLayoutsAreEquivalent(
   }
   if (!currentRhsOpen) {
     // Mattermost navigation and channel changes may resize its internal
-    // content. None of those measurements affect Deck while the RHS is closed.
-    return true;
+    // content. Its stable chrome width still sets the visible-center budget.
+    return Math.abs(
+      (current.baseChromeWidth ?? 0) - (next.baseChromeWidth ?? 0),
+    ) <= HOST_LAYOUT_JITTER_TOLERANCE_PX &&
+      Math.abs(
+        (current.minimumCenterWidth ?? 0) - (next.minimumCenterWidth ?? 0),
+      ) <= HOST_LAYOUT_JITTER_TOLERANCE_PX;
   }
-  // Automatic width is derived only from the RHS natural box. Center and
-  // chrome measurements remain diagnostic values and must never feed layout
-  // reflow back into Deck sizing.
-  return Math.abs(current.rightSidebarWidth - next.rightSidebarWidth) <=
-    HOST_LAYOUT_JITTER_TOLERANCE_PX;
+  return (
+    Math.abs(current.rightSidebarWidth - next.rightSidebarWidth) <=
+      HOST_LAYOUT_JITTER_TOLERANCE_PX &&
+    Math.abs(
+      (current.baseChromeWidth ?? 0) - (next.baseChromeWidth ?? 0),
+    ) <= HOST_LAYOUT_JITTER_TOLERANCE_PX &&
+    Math.abs(
+      (current.minimumCenterWidth ?? 0) - (next.minimumCenterWidth ?? 0),
+    ) <= HOST_LAYOUT_JITTER_TOLERANCE_PX
+  );
 }
 
 function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
   const stableBaseChromeWidthRef = useRef<number | null>(null);
   const stableRightSidebarWidthRef = useRef<number | null>(null);
+  const stableMinimumCenterWidthRef = useRef<number | null>(null);
+  const minimumCenterViewportWidthRef = useRef(window.innerWidth);
   const rootRhsStateSeenRef = useRef(false);
   const stabiliseMeasurement = (
     raw: MattermostHostLayout,
     settled: boolean,
+    immediateRhsResize = false,
   ): MattermostHostLayout => {
+    if (minimumCenterViewportWidthRef.current !== window.innerWidth) {
+      // A responsive breakpoint can change Mattermost's intrinsic center
+      // minimum. Relearn it at the new viewport instead of carrying a stale
+      // lower bound across widths.
+      minimumCenterViewportWidthRef.current = window.innerWidth;
+      stableMinimumCenterWidthRef.current = null;
+    }
     if (raw.rootReportsRightSidebarOpen === true) {
       rootRhsStateSeenRef.current = true;
     }
@@ -2921,14 +2969,27 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
       : 0;
     if (!rightSidebarOpen) {
       if (
+        raw.minimumCenterWidth !== undefined &&
+        Number.isFinite(raw.minimumCenterWidth) &&
+        raw.minimumCenterWidth > 0
+      ) {
+        // The first correction can remove the overflow before the settled
+        // follow-up measurement. Latch this direct overflow evidence now so
+        // that correction does not immediately release its own constraint.
+        stableMinimumCenterWidthRef.current = Math.max(
+          stableMinimumCenterWidthRef.current ?? 0,
+          raw.minimumCenterWidth,
+        );
+      }
+      if (
         settled &&
         raw.mattermostWidth > 0 &&
         raw.centerWidth > 0
       ) {
-        stableBaseChromeWidthRef.current = Math.max(
-          0,
-          raw.mattermostWidth - raw.centerWidth,
-        );
+        const measuredChromeWidth = raw.baseChromeWidth;
+        if (measuredChromeWidth !== undefined) {
+          stableBaseChromeWidthRef.current = measuredChromeWidth;
+        }
       }
       if (settled) {
         stableRightSidebarWidthRef.current = null;
@@ -2938,6 +2999,7 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
         naturalRightSidebarWidth > 0 &&
         (
           stableRightSidebarWidthRef.current === null ||
+          immediateRhsResize ||
           settled
         )
       ) {
@@ -2954,12 +3016,9 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
         // the existing settled window; normal opening still uses the closed
         // baseline immediately and therefore never chases transitional boxes.
         stableRightSidebarWidthRef.current = naturalRightSidebarWidth;
-        stableBaseChromeWidthRef.current = Math.max(
-          0,
-          raw.mattermostWidth -
-            raw.centerWidth -
-            naturalRightSidebarWidth,
-        );
+        if (raw.baseChromeWidth !== undefined) {
+          stableBaseChromeWidthRef.current = raw.baseChromeWidth;
+        }
       }
     }
 
@@ -2968,7 +3027,10 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
       rightSidebarWidth: rightSidebarOpen
         ? stableRightSidebarWidthRef.current ?? naturalRightSidebarWidth
         : 0,
-      baseChromeWidth: stableBaseChromeWidthRef.current ?? undefined,
+      baseChromeWidth:
+        stableBaseChromeWidthRef.current ?? raw.baseChromeWidth,
+      minimumCenterWidth:
+        stableMinimumCenterWidthRef.current ?? raw.minimumCenterWidth,
       rightSidebarOpen,
     };
   };
@@ -2985,10 +3047,13 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
     if (!enabled) {
       stableBaseChromeWidthRef.current = null;
       stableRightSidebarWidthRef.current = null;
+      stableMinimumCenterWidthRef.current = null;
+      minimumCenterViewportWidthRef.current = window.innerWidth;
       setLayout((current) => (
         current.mattermostWidth === 0 &&
         current.centerWidth === 0 &&
-        current.rightSidebarWidth === 0
+        current.rightSidebarWidth === 0 &&
+        current.minimumCenterWidth === undefined
           ? current
           : EMPTY_MATTERMOST_HOST_LAYOUT
       ));
@@ -2998,6 +3063,7 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
     let frame: number | null = null;
     let settleTimer: number | null = null;
     let frameIncludesSettledMeasurement = false;
+    let frameIncludesImmediateRhsResize = false;
     let observationTargetsDirty = true;
     let observedRootRhsOpen = (
       document.querySelector<HTMLElement>("#root")
@@ -3012,10 +3078,13 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
         syncObservationTargets();
       }
       const settled = frameIncludesSettledMeasurement;
+      const immediateRhsResize = frameIncludesImmediateRhsResize;
       frameIncludesSettledMeasurement = false;
+      frameIncludesImmediateRhsResize = false;
       const next = stabiliseMeasurement(
         readMattermostHostLayout(),
         settled,
+        immediateRhsResize,
       );
       setLayout((current) => (
         hostLayoutsAreEquivalent(current, next)
@@ -3024,8 +3093,9 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
       ));
     };
 
-    const requestMeasurement = (settled = false) => {
+    const requestMeasurement = (settled = false, immediateRhsResize = false) => {
       frameIncludesSettledMeasurement ||= settled;
+      frameIncludesImmediateRhsResize ||= immediateRhsResize;
       if (frame === null) {
         frame = window.requestAnimationFrame(commitMeasurement);
       }
@@ -3037,6 +3107,11 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
         frame = null;
       }
       frameIncludesSettledMeasurement = false;
+      frameIncludesImmediateRhsResize = false;
+      if (observationTargetsDirty) {
+        observationTargetsDirty = false;
+        syncObservationTargets();
+      }
       const next = stabiliseMeasurement(
         readMattermostHostLayout(),
         false,
@@ -3068,7 +3143,26 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
       scheduleSettledMeasurement();
     };
 
-    const resizeObserver = new ResizeObserver(scheduleSettledMeasurement);
+    const resizeObserver = new ResizeObserver((entries) => {
+      const rhsResized = entries.some((entry) => (
+        entry.target instanceof HTMLElement &&
+        entry.target.matches(MATTERMOST_RHS_SELECTOR) &&
+        !entry.target.classList.contains("sidebar--right--width-holder")
+      ));
+      if (rhsResized) {
+        // Mattermost may animate or let the user resize the native pane. Read
+        // its natural box once per frame so Deck tracks that motion directly;
+        // stable chrome promotion still waits for the settled measurement.
+        requestMeasurement(false, true);
+      } else {
+        // Catch center overflow in the next frame so Deck can constrain itself
+        // before a delayed settled measurement leaves the composer covered.
+        // Repeated observations are coalesced by requestMeasurement, while
+        // only the settled pass promotes the stable chrome baseline.
+        requestMeasurement();
+        scheduleSettledMeasurement();
+      }
+    });
     const attributeObserver = new MutationObserver((records) => {
       const rootClassChanged = records.some((record) => (
         record.attributeName === "class" &&
@@ -3087,6 +3181,10 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
       );
       observedRootRhsOpen = nextRootRhsOpen;
       if (rootRhsStateChanged) {
+        // Mattermost may mount the RHS only after setting this class. Attach
+        // its ResizeObserver before the first open-pane measurement so later
+        // native width changes are tracked without waiting for pointerup.
+        observationTargetsDirty = true;
         commitRootStateMeasurement();
         scheduleSettledMeasurement();
         return;
@@ -3108,6 +3206,9 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
       const nextResizeTargets = new Set<HTMLElement>();
       if (mattermostRoot) {
         nextResizeTargets.add(mattermostRoot);
+        for (const centerTarget of findMattermostCenterTargets(mattermostRoot)) {
+          nextResizeTargets.add(centerTarget);
+        }
       }
       for (const rightSidebar of rightSidebars) {
         nextResizeTargets.add(rightSidebar);
@@ -3145,6 +3246,9 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
       if (document.body) {
         structureTargets.add(document.body);
       }
+      if (mattermostRoot) {
+        structureTargets.add(mattermostRoot);
+      }
       const addAncestorPath = (target: HTMLElement | null) => {
         let ancestor = target?.parentElement ?? null;
         while (ancestor) {
@@ -3156,6 +3260,11 @@ function useMattermostHostLayout(enabled: boolean): MattermostHostLayout {
         }
       };
       addAncestorPath(mattermostRoot);
+      if (mattermostRoot) {
+        for (const centerTarget of findMattermostCenterTargets(mattermostRoot)) {
+          addAncestorPath(centerTarget);
+        }
+      }
       for (const rightSidebar of rightSidebars) {
         addAncestorPath(rightSidebar);
       }
@@ -3208,6 +3317,7 @@ function useRailWidth(
     width: number;
     mode: ResponsiveRailMode;
   } | null>(null);
+  const previousLayoutModeRef = useRef<ResponsiveRailMode>("normal");
   const requestedRailWidthRef = useRef(normalizedPreferredRailWidth);
   const preferredRailWidthRef = useRef(normalizedPreferredRailWidth);
   const hasManualOverrideRef = useRef(false);
@@ -3229,32 +3339,46 @@ function useRailWidth(
       viewportWidth,
       hostLayout,
       minimumMattermostWidth,
+      previousLayoutModeRef.current,
     ),
     [
       hostLayout.rightSidebarWidth,
+      hostLayout.baseChromeWidth,
+      hostLayout.minimumCenterWidth,
+      hostLayout.mattermostWidth,
       minimumMattermostWidth,
       requestedRailWidth,
       viewportWidth,
     ],
   );
   const calculatedRailWidth = suppressThreadAdjustment
-    ? calculateResponsiveRailWidth(
+    ? calculateHostConstrainedRailLayout(
         requestedRailWidth,
         viewportWidth,
+        hostLayout,
         minimumMattermostWidth,
-      )
+        previousLayoutModeRef.current,
+      ).width
     : threadLayout.width;
   const calculatedThreadLayoutMode = suppressThreadAdjustment
-    ? "normal"
+    ? calculateHostConstrainedRailLayout(
+        requestedRailWidth,
+        viewportWidth,
+        hostLayout,
+        minimumMattermostWidth,
+        previousLayoutModeRef.current,
+      ).mode
     : threadLayout.mode;
   const railWidth = viewportResizeOverride?.width ?? calculatedRailWidth;
   const threadLayoutMode =
     viewportResizeOverride?.mode ?? calculatedThreadLayoutMode;
-  const interactiveMaximumRailWidth = calculateResponsiveRailWidth(
+  previousLayoutModeRef.current = threadLayoutMode;
+  const interactiveMaximumRailWidth = calculateHostConstrainedRailLayout(
     MAX_RAIL_WIDTH,
     viewportWidth,
+    hostLayout,
     MIN_MANUAL_MATTERMOST_WIDTH,
-  );
+  ).width;
   const resizeInputsRef = useRef({
     drawerOpen,
     hostLayout,
@@ -3286,7 +3410,7 @@ function useRailWidth(
       if (stored !== null) {
         hasManualOverrideRef.current = true;
         setHasManualOverride(true);
-        const normalizedStoredWidth = clampRailWidth(stored);
+        const normalizedStoredWidth = clampUserRailWidth(stored, MAX_RAIL_WIDTH);
         requestedRailWidthRef.current = normalizedStoredWidth;
         setRequestedRailWidth(normalizedStoredWidth);
       } else {
@@ -3367,7 +3491,6 @@ function useRailWidth(
       const nextViewportWidth = window.innerWidth;
       const resizeInputs = resizeInputsRef.current;
       const syncOpenRightPane = (
-        !resizeInputs.suppressThreadAdjustment &&
         resizeInputs.hostLayout.rightSidebarWidth > 0
       );
       document.body.classList.add(VIEWPORT_RESIZING_CLASS);
@@ -3388,17 +3511,19 @@ function useRailWidth(
         nextViewportWidth,
         liveHostLayout,
         resizeInputs.minimumMattermostWidth,
+        resizeInputs.threadLayoutMode,
       );
-      const nextRailWidth = resizeInputs.suppressThreadAdjustment
-        ? calculateResponsiveRailWidth(
+      const constrainedLayout = resizeInputs.suppressThreadAdjustment
+        ? calculateHostConstrainedRailLayout(
             resizeInputs.requestedRailWidth,
             nextViewportWidth,
+            liveHostLayout,
             resizeInputs.minimumMattermostWidth,
+            resizeInputs.threadLayoutMode,
           )
-        : nextThreadLayout.width;
-      const nextThreadLayoutMode = resizeInputs.suppressThreadAdjustment
-        ? "normal"
-        : nextThreadLayout.mode;
+        : nextThreadLayout;
+      const nextRailWidth = constrainedLayout.width;
+      const nextThreadLayoutMode = constrainedLayout.mode;
       setViewportResizeOverride(
         syncOpenRightPane
           ? {
@@ -3453,15 +3578,10 @@ function useRailWidth(
   }, []);
 
   const clampInteractiveRailWidth = useCallback((nextWidth: number) => {
-    const normalizedWidth = clampRailWidth(nextWidth);
-    const maximumWidth = calculateResponsiveRailWidth(
-      MAX_RAIL_WIDTH,
-      window.innerWidth,
-      MIN_MANUAL_MATTERMOST_WIDTH,
-    );
-    return maximumWidth < MIN_RAIL_WIDTH
-      ? MIN_RAIL_WIDTH
-      : Math.min(normalizedWidth, maximumWidth);
+    // Store the user's intended width even when today's host geometry forces
+    // a narrower render; the requested size can return when the RHS closes or
+    // the viewport grows.
+    return clampUserRailWidth(nextWidth, MAX_RAIL_WIDTH);
   }, []);
 
   const updateRailWidth = useCallback((nextWidth: number) => {
@@ -4541,7 +4661,7 @@ function PostList({
         compactMode={compactMode}
         renderMeta={renderMeta}
         renderBody={filterQuery ? filteredRenderBody : renderBody}
-        onOpenPost={deferRemoteContent ? undefined : onOpenPost}
+        onOpenPost={onOpenPost}
         postClickAction={postClickAction}
         showImagePreviews={showImagePreviews}
         highlightTerms={filteredHighlightTerms}
@@ -9377,7 +9497,8 @@ function SavedPostsColumn({
           loadingMore={postState.loadingMore}
           onLoadMore={handleLoadMore}
           onOpenPost={(post) => onOpenPost(post, {
-            channelName: savedChannelDirectory[post.channel_id]?.name,
+            // Saved posts can belong to another team, so use the permanent post permalink.
+            channelName: "",
           })}
           postClickAction={postClickAction}
           showImagePreviews={showImagePreviews}
@@ -9722,7 +9843,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     deckSettings.loaded &&
     deckSettings.autoAdjustThreadLayout
   );
-  const hostLayout = useMattermostHostLayout(automaticThreadLayoutEnabled);
+  // Keep measuring Mattermost chrome and the native RHS even when automatic
+  // pane adjustment is off: manual widths still need the center safety limit.
+  const hostLayout = useMattermostHostLayout(true);
   const [threadLayoutOverride, setThreadLayoutOverride] = useState(false);
   const [
     railWidth,
@@ -9739,8 +9862,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   );
   const autoCollapsed = (
     drawerOpen &&
-    threadLayoutMode === "collapsed" &&
-    !threadLayoutOverride
+    threadLayoutMode === "collapsed"
   );
   const effectiveDrawerOpen = drawerOpen && !autoCollapsed;
   const threadLayoutConstrained = (
@@ -10047,7 +10169,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       if (!targetTeam) {
         return;
       }
-      openMattermostThread(targetTeam, { postId: post.id, rootId: post.root_id }, target?.channelName ?? currentRoute.channelName);
+      openMattermostThread(
+        targetTeam,
+        { postId: post.id, rootId: post.root_id },
+        resolvePostChannelName(target, currentRoute.channelName),
+      );
     },
     [currentRoute.channelName, currentRoute.teamName],
   );
@@ -10620,17 +10746,16 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
           const dragDistance = Math.abs(
             resizeState.startClientX - event.clientX,
           );
-          const normalizedNextWidth = clampRailWidth(nextWidth);
+          const normalizedNextWidth = clampUserRailWidth(
+            nextWidth,
+            maximumInteractiveRailWidth,
+          );
           const renderedDelta = normalizedNextWidth - resizeState.startRailWidth;
           const pointerDelta = nextWidth - resizeState.startRailWidth;
           if (
             dragDistance < RAIL_RESIZE_DRAG_THRESHOLD_PX ||
             renderedDelta === 0 ||
-            Math.sign(renderedDelta) !== Math.sign(pointerDelta) ||
-            (
-              resizeState.startRailWidth < MIN_RAIL_WIDTH &&
-              nextWidth < MIN_RAIL_WIDTH
-            )
+            Math.sign(renderedDelta) !== Math.sign(pointerDelta)
           ) {
             return;
           }
@@ -10700,7 +10825,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       }
       pendingWidthRef.current = null;
     };
-  }, [persistRailWidth, setRailWidth]);
+  }, [maximumInteractiveRailWidth, persistRailWidth, setRailWidth]);
 
   useEffect(() => {
     const root = document.getElementById(DECK_ROOT_ID);
@@ -10734,14 +10859,6 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
     const step = event.shiftKey ? 80 : 32;
     const nextWidth = railWidth + (event.key === "ArrowLeft" ? step : -step);
-    if (
-      threadLayoutConstrained &&
-      event.key === "ArrowRight" &&
-      nextWidth < MIN_RAIL_WIDTH
-    ) {
-      event.preventDefault();
-      return;
-    }
     if (threadLayoutConstrained) {
       setThreadLayoutOverride(true);
     }
@@ -11086,7 +11203,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         autoAdjustThreadLayout: deckSettings.autoAdjustThreadLayout,
         canResizeRail,
         threadLayoutMode: (
-          threadLayoutOverride && hostLayout.rightSidebarWidth > 0
+          threadLayoutOverride &&
+          hostLayout.rightSidebarWidth > 0 &&
+          threadLayoutMode !== "collapsed"
             ? "override"
             : threadLayoutMode
         ),
@@ -11543,7 +11662,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       data-theme={deckSettings.theme === "mattermost" ? "mattermost" : resolveTheme(deckSettings.theme)}
       data-column-color-enabled={deckSettings.columnColorEnabled ? "true" : "false"}
       data-thread-layout-mode={
-        threadLayoutOverride && hostLayout.rightSidebarWidth > 0
+        threadLayoutOverride &&
+        hostLayout.rightSidebarWidth > 0 &&
+        threadLayoutMode !== "collapsed"
           ? "override"
           : threadLayoutMode
       }
@@ -11567,7 +11688,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         disabled={!canResizeRail}
         role="separator"
         aria-orientation="vertical"
-        aria-valuemin={Math.min(MIN_RAIL_WIDTH, railWidth)}
+        aria-valuemin={Math.min(MIN_USABLE_COMPACT_RAIL_WIDTH, railWidth)}
         aria-valuemax={Math.max(railWidth, maximumInteractiveRailWidth)}
         aria-valuenow={railWidth}
         aria-label={text.resizeLabel}

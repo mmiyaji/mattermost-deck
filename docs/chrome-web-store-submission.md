@@ -8,6 +8,17 @@ Use this copy when maintaining the Chrome Web Store listing and its Privacy prac
 - Privacy policy URL: https://mattermost-deck.ruhenheim.org/privacy/
 - Store screenshot (1280 x 800): `docs/assets/readme-overview-dark-store.png`
 
+## v1.2.3 release notes
+
+### Changed
+
+- Reduced background monitoring work while the Mattermost page is hidden.
+
+### Fixed
+
+- Preserved a usable Mattermost center while resizing Deck, including with an open thread or automatic adjustment disabled.
+- Kept cached mention posts clickable and opened saved posts with cross-team-safe permalinks.
+
 ## v1.2.2 release notes
 
 ### Fixed

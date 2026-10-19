@@ -24,7 +24,9 @@ const monkeyEnabled = process.env.MM_DECK_RUN_MONKEY === "1";
 const stateFile =
   process.env.MM95_STATE_FILE ??
   path.resolve("e2e/mm95-state.json");
-const extensionPath = path.resolve("./dist");
+const extensionPath = path.resolve(
+  process.env.MM_DECK_EXTENSION_PATH ?? "./dist",
+);
 const seedValue = Number.parseInt(
   process.env.MM_DECK_MONKEY_SEED ?? "20260729",
   10,
@@ -185,12 +187,72 @@ interface MonkeyActionLog {
   error?: string;
 }
 
+interface LayoutHitSnapshot {
+  rect: {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+    width: number;
+    height: number;
+  };
+  point: { x: number; y: number };
+  hitTag: string | null;
+  hitId: string | null;
+  hitClass: string | null;
+  hitsTarget: boolean;
+  pointCoveredByDeck: boolean;
+}
+
+interface LayoutInteractionHitTests {
+  composerCandidates: Array<{
+    center: LayoutHitSnapshot | null;
+    rightEdge: LayoutHitSnapshot | null;
+  }>;
+  composerButtons: Array<{
+    id: string | null;
+    ariaLabel: string | null;
+    label: string;
+    center: LayoutHitSnapshot | null;
+    rightEdge: LayoutHitSnapshot | null;
+  }>;
+  post: LayoutHitSnapshot | null;
+}
+
+interface LayoutInteractionCheck {
+  step: number;
+  action: string;
+  viewport: number;
+  mattermostWidth: number;
+  appContentWidth: number;
+  centerLeft: number;
+  centerRight: number;
+  centerWidth: number;
+  deckLeft: number;
+  deckRight: number;
+  deckWidth: number;
+  boundaryGap: number;
+  innerOverflow: number;
+  interactionHitTests: LayoutInteractionHitTests;
+  composerRightEdgePointerFocus: boolean;
+  emojiButtonPointerClick: boolean;
+  emojiPopupClosedAfterEscape: boolean | null;
+  sendButtonCenterHitsTarget: boolean;
+}
+
 interface CoreInvariantSnapshot {
   state: DeckState;
   mention: DeckColumnDebugState | null;
   presentation: MentionPresentationState | null;
   layout: {
     viewport: number;
+    mattermostWidth: number;
+    appContentWidth: number;
+    centerLeft: number;
+    centerRight: number;
+    centerWidth: number;
+    rhsWidth: number;
+    rhsLeft: number;
     deck: number;
     overlap: number;
     innerOverflow: number;
@@ -809,6 +871,13 @@ async function inspectCoreInvariants(
       );
       return {
         viewport: window.innerWidth,
+        mattermostWidth: Math.round(mattermostRect.width),
+        appContentWidth: Math.round(appContentRect.width),
+        centerLeft: Math.round(centerRect.left),
+        centerRight: Math.round(centerRect.right),
+        centerWidth: Math.round(centerRect.width),
+        rhsWidth: Math.round(rhsRect?.width ?? 0),
+        rhsLeft: Math.round(rhsRect?.left ?? 0),
         deck: Math.round(deckRect.width),
         overlap: Math.round(
           Math.max(
@@ -982,14 +1051,34 @@ test(
     const ignoredRequestAborts: string[] = [];
     const runtimeFailures: string[] = [];
     const ignoredRuntimeFailures: string[] = [];
+    const deckViewportRecoveries: Array<{
+      action?: string;
+      fromViewport: number;
+      toViewport: number;
+      threadLayoutMode?: string;
+      effectiveDrawerOpen?: boolean;
+      canResizeRail?: boolean;
+    }> = [];
     const layoutWarnings: Array<{
       step: number;
       action: string;
       viewport: number;
+      mattermostWidth: number;
+      appContentWidth: number;
+      centerLeft: number;
+      centerRight: number;
+      centerWidth: number;
+      rhsLeft: number;
+      rhsWidth: number;
       deckWidth: number;
+      maximumInteractiveRailWidth: number | null;
+      interactionHitTests: LayoutInteractionHitTests;
       innerOverflow: number;
       threadLayoutMode: string | null;
     }> = [];
+    const layoutInteractionChecks: LayoutInteractionCheck[] = [];
+    const layoutInteractionRecordOnly =
+      process.env.UI_MONKEY_LAYOUT_RECORD_ONLY === "1";
     const actionFailures: string[] = [];
     const checkpointSteps = new Set([
       0,
@@ -1413,7 +1502,9 @@ test(
         "temporary-remove",
       ];
 
-      const ensureDeckOpen = async (): Promise<DeckState> => {
+      const ensureDeckOpen = async (
+        action?: string,
+      ): Promise<DeckState> => {
         let current =
           await debugRequest<DeckState>(
             page!,
@@ -1424,6 +1515,30 @@ test(
           current.canResizeRail
         ) {
           return current;
+        }
+        // The Deck intentionally collapses below its resize breakpoint. Only
+        // widen when an action needs an open drawer and the current layout has
+        // actually collapsed it.
+        const viewportWidth =
+          page!.viewportSize()?.width ?? 0;
+        const isCollapsed =
+          current.threadLayoutMode === "collapsed" ||
+          !current.canResizeRail;
+        if (viewportWidth < 1_280 && isCollapsed) {
+          await page!.setViewportSize({
+            width: 1_440,
+            height: 900,
+          });
+          deckViewportRecoveries.push({
+            action,
+            fromViewport: viewportWidth,
+            toViewport: 1_440,
+            threadLayoutMode:
+              current.threadLayoutMode,
+            effectiveDrawerOpen:
+              current.effectiveDrawerOpen,
+            canResizeRail: current.canResizeRail,
+          });
         }
         await debugRequest(
           page!,
@@ -1548,7 +1663,7 @@ test(
                 height: 900,
               });
             }
-            await ensureDeckOpen();
+            await ensureDeckOpen(actionName);
             const targetWidth =
               360 +
               Math.floor(randomValue * 440);
@@ -1600,7 +1715,7 @@ test(
             };
           }
           case "mention-scroll": {
-            await ensureDeckOpen();
+            await ensureDeckOpen(actionName);
             const value =
               randomValue > 0.5 ? 10_000 : 0;
             return {
@@ -1648,7 +1763,7 @@ test(
           case "mention-refresh":
           case "mention-pause-cycle":
           case "mention-focus-cycle": {
-            await ensureDeckOpen();
+            await ensureDeckOpen(actionName);
             const control =
               actionName === "mention-refresh"
                 ? "refresh"
@@ -2090,26 +2205,510 @@ test(
                   !markerInitialized,
                 );
                 markerInitialized = true;
-                if (
+                const hasLayoutOverflow =
                   invariantSnapshot.layout
-                    .innerOverflow > 2
+                    .innerOverflow > 2;
+                const shouldCheckInteractionTargets =
+                  step.stepIndex === 22 ||
+                  step.stepIndex === 23;
+                if (
+                  hasLayoutOverflow ||
+                  shouldCheckInteractionTargets
                 ) {
-                  layoutWarnings.push({
-                    step: step.stepIndex,
-                    action: actionName,
-                    viewport:
-                      invariantSnapshot.layout
-                        .viewport,
-                    deckWidth:
-                      invariantSnapshot.layout.deck,
-                    innerOverflow:
-                      invariantSnapshot.layout
-                        .innerOverflow,
-                    threadLayoutMode:
-                      invariantSnapshot.state
-                        .threadLayoutMode ??
-                      null,
-                  });
+                  const interactionHitTests =
+                    await page!.evaluate(
+                      ({ postId }) => {
+                        const describeHit = (
+                          element: Element | null,
+                          testPoint?: { x: number; y: number },
+                        ) => {
+                          if (!element) {
+                            return null;
+                          }
+                          const rect =
+                            element.getBoundingClientRect();
+                          const x = Math.round(
+                            testPoint?.x ??
+                              rect.left + rect.width / 2,
+                          );
+                          const y = Math.round(
+                            testPoint?.y ??
+                              rect.top + rect.height / 2,
+                          );
+                          const hit =
+                            document.elementFromPoint(x, y);
+                          const deck =
+                            document.querySelector<HTMLElement>(
+                              "#mattermost-deck-root",
+                            );
+                          const deckRect =
+                            deck?.getBoundingClientRect();
+                          return {
+                            rect: {
+                              left: Math.round(rect.left),
+                              right: Math.round(rect.right),
+                              top: Math.round(rect.top),
+                              bottom: Math.round(rect.bottom),
+                              width: Math.round(rect.width),
+                              height: Math.round(rect.height),
+                            },
+                            point: { x, y },
+                            hitTag:
+                              hit?.tagName.toLowerCase() ?? null,
+                            hitId:
+                              hit instanceof HTMLElement
+                                ? hit.id || null
+                                : null,
+                            hitClass:
+                              hit instanceof HTMLElement &&
+                              typeof hit.className === "string"
+                                ? hit.className.slice(0, 100)
+                                : null,
+                            hitsTarget:
+                              Boolean(
+                                hit &&
+                                (hit === element ||
+                                  element.contains(hit)),
+                              ),
+                            pointCoveredByDeck:
+                              Boolean(
+                                deckRect &&
+                                x >= deckRect.left &&
+                                x <= deckRect.right &&
+                                y >= deckRect.top &&
+                                y <= deckRect.bottom,
+                              ),
+                          };
+                        };
+                        const editors = Array.from(
+                          document.querySelectorAll<HTMLElement>(
+                            '#root textarea, #root input, #root [contenteditable], #root [role="textbox"]',
+                          ),
+                        ).filter((element) => {
+                          const rect =
+                            element.getBoundingClientRect();
+                          return rect.width > 0 && rect.height > 0;
+                        });
+                        const post = document.querySelector(
+                          `#post_${postId}`,
+                        );
+                        return {
+                          composerCandidates: editors
+                            .filter((element) =>
+                              element.closest(
+                                "#channel_view, .center-channel",
+                              ),
+                            )
+                            .map((element) => {
+                              const rect =
+                                element.getBoundingClientRect();
+                              return {
+                                center: describeHit(element),
+                                rightEdge: describeHit(
+                                  element,
+                                  {
+                                    x: rect.right - 8,
+                                    y: rect.top + rect.height / 2,
+                                  },
+                                ),
+                              };
+                            }),
+                          composerButtons: Array.from(
+                            document.querySelectorAll<HTMLElement>(
+                              '#channel_view button, .center-channel button',
+                            ),
+                          )
+                            .filter((element) => {
+                              const rect =
+                                element.getBoundingClientRect();
+                              return rect.width > 0 &&
+                                rect.height > 0 &&
+                                Boolean(
+                                  element.closest(
+                                    ".post-create__container, #post-create, .post-create",
+                                  ),
+                                );
+                            })
+                            .map((element) => {
+                              const rect =
+                                element.getBoundingClientRect();
+                              return {
+                                id: element.id || null,
+                                ariaLabel:
+                                  element.getAttribute("aria-label"),
+                                label: (
+                                  element.innerText ||
+                                  element.textContent ||
+                                  ""
+                                ).trim().replace(/\s+/g, " "),
+                                center: describeHit(element),
+                                rightEdge: describeHit(
+                                  element,
+                                  {
+                                    x: rect.right - 4,
+                                    y: rect.top + rect.height / 2,
+                                  },
+                                ),
+                              };
+                            }),
+                          post: describeHit(post),
+                        };
+                      },
+                      { postId: rootPost.id },
+                    );
+                  if (shouldCheckInteractionTargets) {
+                    const composerRightEdge =
+                      interactionHitTests
+                        .composerCandidates[0]?.rightEdge;
+                    let composerRightEdgePointerFocus =
+                      false;
+                    if (composerRightEdge) {
+                      await page!.mouse.click(
+                        composerRightEdge.point.x,
+                        composerRightEdge.point.y,
+                      );
+                      composerRightEdgePointerFocus =
+                        await page!.evaluate(() => {
+                          const editor = Array.from(
+                            document.querySelectorAll<HTMLElement>(
+                              '#root textarea, #root input, #root [contenteditable], #root [role="textbox"]',
+                            ),
+                          ).find((element) =>
+                            Boolean(
+                              element.closest(
+                                "#channel_view, .center-channel",
+                              ),
+                            ),
+                          );
+                          return Boolean(
+                            editor &&
+                              (document.activeElement === editor ||
+                                editor.contains(
+                                  document.activeElement,
+                                )),
+                          );
+                        });
+                    }
+
+                    const emojiButton =
+                      interactionHitTests.composerButtons.find(
+                        (button) =>
+                          button.id === "emojiPickerButton",
+                      );
+                    let emojiButtonPointerClick = false;
+                    let emojiPopupClosedAfterEscape:
+                      boolean | null = null;
+                    if (emojiButton?.center) {
+                      const emojiPopupCountBefore =
+                        await page!.evaluate(() => {
+                          const isVisible = (element: Element) => {
+                            const rect =
+                              element.getBoundingClientRect();
+                            const style = getComputedStyle(element);
+                            return rect.width > 0 &&
+                              rect.height > 0 &&
+                              style.visibility !== "hidden" &&
+                              style.display !== "none";
+                          };
+                          return Array.from(
+                            document.querySelectorAll(
+                              '[role="dialog"], [role="listbox"], [role="menu"], [class*="emoji-picker"], [class*="emojiPicker"], [id*="emojiPicker"]',
+                            ),
+                          ).filter(
+                            (element) =>
+                              element.id !== "emojiPickerButton" &&
+                              isVisible(element),
+                          ).length;
+                        });
+                      await page!.evaluate(() => {
+                        const button = document.getElementById(
+                          "emojiPickerButton",
+                        );
+                        if (!button) return;
+                        button.dataset.uiMonkeyClickCount = "0";
+                        const listener = () => {
+                          button.dataset.uiMonkeyClickCount =
+                            String(
+                              Number(
+                                button.dataset
+                                  .uiMonkeyClickCount ?? "0",
+                              ) + 1,
+                            );
+                        };
+                        Reflect.set(
+                          button,
+                          "__uiMonkeyClickListener",
+                          listener,
+                        );
+                        button.addEventListener(
+                          "click",
+                          listener,
+                        );
+                      });
+                      try {
+                        await page!.mouse.click(
+                          emojiButton.center.point.x,
+                          emojiButton.center.point.y,
+                        );
+                        const afterClick =
+                          await page!.evaluate(() => {
+                            const button = document.getElementById(
+                              "emojiPickerButton",
+                            );
+                            const controls =
+                              button?.getAttribute("aria-controls");
+                            const controlled = controls
+                              ? document.getElementById(controls)
+                              : null;
+                            return {
+                              reached:
+                                button?.dataset
+                                  .uiMonkeyClickCount === "1",
+                              ariaExpanded:
+                                button?.getAttribute("aria-expanded") ??
+                                null,
+                              controlledPopupVisible: Boolean(
+                                controlled &&
+                                  controlled.getBoundingClientRect()
+                                    .width > 0 &&
+                                  controlled.getBoundingClientRect()
+                                    .height > 0 &&
+                                  getComputedStyle(controlled)
+                                    .visibility !== "hidden" &&
+                                  getComputedStyle(controlled)
+                                    .display !== "none",
+                              ),
+                              visibleEmojiPopupCount: Array.from(
+                                document.querySelectorAll(
+                                  '[role="dialog"], [role="listbox"], [role="menu"], [class*="emoji-picker"], [class*="emojiPicker"], [id*="emojiPicker"]',
+                                ),
+                              ).filter((element) => {
+                                const rect =
+                                  element.getBoundingClientRect();
+                                const style =
+                                  getComputedStyle(element);
+                                return element.id !==
+                                    "emojiPickerButton" &&
+                                  rect.width > 0 &&
+                                  rect.height > 0 &&
+                                  style.visibility !== "hidden" &&
+                                  style.display !== "none";
+                              }).length,
+                            };
+                          });
+                        emojiButtonPointerClick =
+                          afterClick.reached;
+                        await page!.keyboard
+                          .press("Escape")
+                          .catch(() => undefined);
+                        await page!.waitForTimeout(100);
+                        const afterEscape = await page!.evaluate(
+                          () => {
+                            const button = document.getElementById(
+                              "emojiPickerButton",
+                            );
+                            const controls =
+                              button?.getAttribute("aria-controls");
+                            const controlled = controls
+                              ? document.getElementById(controls)
+                              : null;
+                            return {
+                              ariaExpanded:
+                                button?.getAttribute("aria-expanded") ??
+                                null,
+                              controlledPopupVisible: Boolean(
+                                controlled &&
+                                  controlled.getBoundingClientRect()
+                                    .width > 0 &&
+                                  controlled.getBoundingClientRect()
+                                    .height > 0 &&
+                                  getComputedStyle(controlled)
+                                    .visibility !== "hidden" &&
+                                  getComputedStyle(controlled)
+                                    .display !== "none",
+                              ),
+                              visibleEmojiPopupCount: Array.from(
+                                document.querySelectorAll(
+                                  '[role="dialog"], [role="listbox"], [role="menu"], [class*="emoji-picker"], [class*="emojiPicker"], [id*="emojiPicker"]',
+                                ),
+                              ).filter((element) => {
+                                const rect =
+                                  element.getBoundingClientRect();
+                                const style =
+                                  getComputedStyle(element);
+                                return element.id !==
+                                    "emojiPickerButton" &&
+                                  rect.width > 0 &&
+                                  rect.height > 0 &&
+                                  style.visibility !== "hidden" &&
+                                  style.display !== "none";
+                              }).length,
+                            };
+                          },
+                        );
+                        if (
+                          afterClick.ariaExpanded === "true"
+                        ) {
+                          emojiPopupClosedAfterEscape =
+                            afterEscape.ariaExpanded === "false";
+                        } else if (
+                          afterClick.controlledPopupVisible
+                        ) {
+                          emojiPopupClosedAfterEscape =
+                            !afterEscape.controlledPopupVisible;
+                        } else if (
+                          afterClick.visibleEmojiPopupCount >
+                          emojiPopupCountBefore
+                        ) {
+                          emojiPopupClosedAfterEscape =
+                            afterEscape.visibleEmojiPopupCount <=
+                            emojiPopupCountBefore;
+                        }
+                      } finally {
+                        await page!.evaluate(() => {
+                          const button = document.getElementById(
+                            "emojiPickerButton",
+                          );
+                          const listener = Reflect.get(
+                            button ?? {},
+                            "__uiMonkeyClickListener",
+                          );
+                          if (
+                            button &&
+                            typeof listener === "function"
+                          ) {
+                            button.removeEventListener(
+                              "click",
+                              listener as EventListener,
+                            );
+                          }
+                          button?.removeAttribute(
+                            "data-ui-monkey-click-count",
+                          );
+                          if (button) {
+                            Reflect.deleteProperty(
+                              button,
+                              "__uiMonkeyClickListener",
+                            );
+                          }
+                        });
+                      }
+                    }
+                    const sendButton =
+                      interactionHitTests.composerButtons.find(
+                        (button) =>
+                          /^(Send Now|Send a message)\b/i.test(
+                            button.label || button.ariaLabel || "",
+                          ),
+                      );
+                    const sendButtonCenterHitsTarget =
+                      Boolean(
+                        sendButton?.center?.hitsTarget &&
+                          !sendButton.center.pointCoveredByDeck,
+                      );
+                    const interactionCheck: LayoutInteractionCheck = {
+                      step: step.stepIndex,
+                      action: actionName,
+                      viewport:
+                        invariantSnapshot.layout.viewport,
+                      mattermostWidth:
+                        invariantSnapshot.layout.mattermostWidth,
+                      appContentWidth:
+                        invariantSnapshot.layout.appContentWidth,
+                      centerLeft:
+                        invariantSnapshot.layout.centerLeft,
+                      centerRight:
+                        invariantSnapshot.layout.centerRight,
+                      centerWidth:
+                        invariantSnapshot.layout.centerWidth,
+                      deckLeft:
+                        invariantSnapshot.layout.deckLeft,
+                      deckRight:
+                        invariantSnapshot.layout.deckRight,
+                      deckWidth:
+                        invariantSnapshot.layout.deck,
+                      boundaryGap:
+                        invariantSnapshot.layout.boundaryGap,
+                      innerOverflow:
+                        invariantSnapshot.layout.innerOverflow,
+                      interactionHitTests,
+                      composerRightEdgePointerFocus,
+                      emojiButtonPointerClick,
+                      emojiPopupClosedAfterEscape,
+                      sendButtonCenterHitsTarget,
+                    };
+                    layoutInteractionChecks.push(
+                      interactionCheck,
+                    );
+                  }
+                  if (hasLayoutOverflow) {
+                    layoutWarnings.push({
+                      step: step.stepIndex,
+                      action: actionName,
+                      viewport:
+                        invariantSnapshot.layout.viewport,
+                      mattermostWidth:
+                        invariantSnapshot.layout.mattermostWidth,
+                      appContentWidth:
+                        invariantSnapshot.layout.appContentWidth,
+                      centerLeft:
+                        invariantSnapshot.layout.centerLeft,
+                      centerRight:
+                        invariantSnapshot.layout.centerRight,
+                      centerWidth:
+                        invariantSnapshot.layout.centerWidth,
+                      rhsLeft:
+                        invariantSnapshot.layout.rhsLeft,
+                      rhsWidth:
+                        invariantSnapshot.layout.rhsWidth,
+                      deckWidth: invariantSnapshot.layout.deck,
+                      maximumInteractiveRailWidth:
+                        invariantSnapshot.state
+                          .maximumInteractiveRailWidth ?? null,
+                      interactionHitTests,
+                      innerOverflow:
+                        invariantSnapshot.layout.innerOverflow,
+                      threadLayoutMode:
+                        invariantSnapshot.state
+                          .threadLayoutMode ?? null,
+                    });
+                  }
+                  await capture(
+                    page!,
+                    testInfo,
+                    `ui-monkey-layout-${
+                      hasLayoutOverflow ? "warning" : "check"
+                    }-${String(step.stepIndex).padStart(3, "0")}.png`,
+                  );
+                  if (
+                    shouldCheckInteractionTargets &&
+                    !layoutInteractionRecordOnly
+                  ) {
+                    const check =
+                      layoutInteractionChecks[
+                        layoutInteractionChecks.length - 1
+                      ];
+                    expect(
+                      check.composerRightEdgePointerFocus,
+                      `Composer right-edge click did not focus the editor at step ${step.stepIndex}`,
+                    ).toBe(true);
+                    expect(
+                      check.emojiButtonPointerClick,
+                      `Emoji button did not receive a real pointer click at step ${step.stepIndex}`,
+                    ).toBe(true);
+                    if (
+                      check.emojiPopupClosedAfterEscape !== null
+                    ) {
+                      expect(
+                        check.emojiPopupClosedAfterEscape,
+                        `Emoji picker did not close after Escape at step ${step.stepIndex}`,
+                      ).toBe(true);
+                    }
+                    expect(
+                      check.sendButtonCenterHitsTarget,
+                      `Send button center was not hit-testable outside Deck at step ${step.stepIndex}`,
+                    ).toBe(true);
+                  }
                 }
                 if (
                   checkpointSteps.has(
@@ -2404,6 +3003,12 @@ test(
             runtimeFailures,
             ignoredRuntimeFailures,
             layoutWarnings,
+            layoutInteractionChecks,
+            layoutInteractionAssertionMode:
+              layoutInteractionRecordOnly
+                ? "record-only"
+                : "assert",
+            deckViewportRecoveries,
             crashed,
             contextClosedUnexpectedly,
             memorySamples,

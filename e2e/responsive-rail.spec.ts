@@ -20,6 +20,15 @@ interface LayoutWidths {
   overlap: number;
 }
 
+interface CenterSafety {
+  centerWidth: number;
+  visibleCenterWidth: number;
+  rootOverflow: number;
+  rootLeftOverflow: number;
+  innerOverflow: number;
+  sendButtonCenterHitsTarget: boolean;
+}
+
 interface ResizeFrame extends LayoutWidths {
   gap: number;
 }
@@ -111,6 +120,72 @@ async function getLayoutWidths(page: Page): Promise<LayoutWidths> {
       mattermost: Math.round(mattermostRect.width),
       deck: Math.round(deckRect.width),
       overlap: Math.round(Math.max(0, mattermostRect.right - deckRect.left)),
+    };
+  });
+}
+
+async function getCenterSafety(page: Page): Promise<CenterSafety | null> {
+  return await page.evaluate(() => {
+    const root = document.querySelector<HTMLElement>("#root");
+    const deck = document.querySelector<HTMLElement>("#mattermost-deck-root");
+    if (!root || !deck) {
+      return null;
+    }
+
+    const center = [
+      "#root .app__content",
+      "#root #channel_view",
+      "#root .product-wrapper",
+    ]
+      .map((selector) => document.querySelector<HTMLElement>(selector))
+      .filter((element): element is HTMLElement => {
+        if (!element) {
+          return false;
+        }
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.display !== "none" && style.visibility !== "hidden" &&
+          rect.width > 1 && rect.height > 1;
+      })
+      .map((element) => element.getBoundingClientRect())
+      .sort((left, right) => right.width - left.width)[0];
+    if (!center) {
+      return null;
+    }
+
+    const rootRect = root.getBoundingClientRect();
+    const deckRect = deck.getBoundingClientRect();
+    const visibleRight = Math.min(center.right, rootRect.right, deckRect.left);
+    const visibleLeft = Math.max(center.left, rootRect.left);
+    const visibleCenterWidth = Math.max(0, visibleRight - visibleLeft);
+    const sendButton = Array.from(
+      root.querySelectorAll<HTMLElement>("button, [role='button']"),
+    ).find((button) => {
+      const label = [
+        button.getAttribute("aria-label"),
+        button.getAttribute("title"),
+        button.innerText,
+      ].filter(Boolean).join(" ");
+      return /^(Send Now|Send a message)\b/i.test(label.trim());
+    });
+    let sendButtonCenterHitsTarget = false;
+    if (sendButton) {
+      const sendRect = sendButton.getBoundingClientRect();
+      const x = sendRect.left + sendRect.width / 2;
+      const y = sendRect.top + sendRect.height / 2;
+      const hitTarget = document.elementFromPoint(x, y);
+      sendButtonCenterHitsTarget = x < deckRect.left && Boolean(
+        hitTarget && (hitTarget === sendButton || sendButton.contains(hitTarget)),
+      );
+    }
+
+    return {
+      centerWidth: Math.round(center.width),
+      visibleCenterWidth: Math.round(visibleCenterWidth),
+      rootOverflow: Math.round(Math.max(0, center.right - rootRect.right)),
+      rootLeftOverflow: Math.round(Math.max(0, rootRect.left - center.left)),
+      innerOverflow: Math.round(Math.max(0, center.right - Math.min(rootRect.right, deckRect.left))),
+      sendButtonCenterHitsTarget,
     };
   });
 }
@@ -340,9 +415,8 @@ test("applies preferred width changes until the user creates a manual override",
       overlap: 0,
     });
 
-    // A manual override is an explicit choice and must retain the legacy
-    // 320px Mattermost safety area rather than the automatic 720px work-area
-    // target. Otherwise a 1440px window silently caps every drag at 720px.
+    // A manual drag can exceed the automatic 720px preference, while the
+    // rendered Deck width must still leave the native center usable.
     await page.setViewportSize({ width: 1_440, height: 900 });
     await expect.poll(() => getLayoutWidths(page), { timeout: 10_000 }).toEqual({
       viewport: 1_440,
@@ -363,32 +437,70 @@ test("applies preferred width changes until the user creates a manual override",
     await page.mouse.down();
     await page.mouse.move(expandedTargetX, 450, { steps: 6 });
     await page.mouse.up();
-    await expect.poll(() => getLayoutWidths(page), { timeout: 10_000 }).toEqual({
-      viewport: 1_440,
-      mattermost: 1_440 - expandedTargetRailWidth,
-      deck: expandedTargetRailWidth,
-      overlap: 0,
-    });
-    await expect.poll(async () => await sw.evaluate(async (railKey) => {
+    await expect.poll(async () => {
+      const layout = await getLayoutWidths(page);
+      return layout.viewport === 1_440 && layout.deck > 720 &&
+        layout.deck < expandedTargetRailWidth && layout.overlap <= 0.5;
+    }, { timeout: 10_000 }).toBe(true);
+    await expect.poll(async () => Number(await sw.evaluate(async (railKey) => {
       const stored = await chrome.storage.local.get(railKey);
       return stored[railKey];
-    }, RAIL_WIDTH_STORAGE_KEY), { timeout: 10_000 }).toBe(expandedTargetRailWidth);
+    }, RAIL_WIDTH_STORAGE_KEY)), { timeout: 10_000 }).toBeGreaterThan(720);
+    const storedManualWidth = await sw.evaluate(async (railKey) => {
+      const stored = await chrome.storage.local.get(railKey);
+      return stored[railKey];
+    }, RAIL_WIDTH_STORAGE_KEY);
+    const requestedManualWidth = Number(storedManualWidth);
+    expect(requestedManualWidth).toBeGreaterThan(720);
+    expect(requestedManualWidth).toBe(expandedTargetRailWidth);
+    const widthAtManualViewport = await getLayoutWidths(page);
+    expect(widthAtManualViewport.deck).toBeGreaterThan(720);
+    expect(widthAtManualViewport.deck).toBeLessThan(expandedTargetRailWidth);
+    expect(widthAtManualViewport.overlap).toBeLessThanOrEqual(0.5);
+    const clampedManualDeckWidth = widthAtManualViewport.deck;
+
+    const assertCenterRemainsUsable = async () => {
+      await expect.poll(async () => {
+        const safety = await getCenterSafety(page);
+        const failedChecks = safety === null
+          ? ["missing center geometry"]
+          : [
+              ...(safety.visibleCenterWidth < 336 ? ["visible center below 336px"] : []),
+              ...(safety.rootOverflow > 2 ? ["center overflows #root"] : []),
+              ...(safety.rootLeftOverflow > 2 ? ["center starts outside #root"] : []),
+              ...(safety.innerOverflow > 2 ? ["center overlaps Deck"] : []),
+              ...(!safety.sendButtonCenterHitsTarget ? ["send button center is covered"] : []),
+            ];
+        return {
+          failedChecks,
+          ...safety,
+        };
+      }, { timeout: 10_000 }).toMatchObject({ failedChecks: [] });
+    };
+    await assertCenterRemainsUsable();
 
     await page.setViewportSize({ width: 1_000, height: 900 });
-    await expect.poll(() => getLayoutWidths(page), { timeout: 10_000 }).toEqual({
-      viewport: 1_000,
-      mattermost: 320,
-      deck: 680,
-      overlap: 0,
-    });
+    await expect.poll(async () => {
+      const layout = await getLayoutWidths(page);
+      return layout.viewport === 1_000 && layout.overlap <= 0.5;
+    }, { timeout: 10_000 }).toBe(true);
+    await assertCenterRemainsUsable();
 
     await page.setViewportSize({ width: 1_440, height: 900 });
-    await expect.poll(() => getLayoutWidths(page), { timeout: 10_000 }).toEqual({
-      viewport: 1_440,
-      mattermost: 1_440 - expandedTargetRailWidth,
-      deck: expandedTargetRailWidth,
-      overlap: 0,
-    });
+    await expect.poll(async () => {
+      const layout = await getLayoutWidths(page);
+      return layout.viewport === 1_440 && layout.deck === clampedManualDeckWidth &&
+        layout.overlap <= 0.5;
+    }, { timeout: 10_000 }).toBe(true);
+    await assertCenterRemainsUsable();
+
+    await page.setViewportSize({ width: 1_800, height: 900 });
+    await expect.poll(async () => {
+      const layout = await getLayoutWidths(page);
+      return layout.viewport === 1_800 && layout.deck === requestedManualWidth &&
+        layout.overlap <= 0.5;
+    }, { timeout: 10_000 }).toBe(true);
+    await assertCenterRemainsUsable();
   } finally {
     await context.close();
     await fs.rm(userDataDir, { recursive: true, force: true });

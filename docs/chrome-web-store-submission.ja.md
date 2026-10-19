@@ -9,6 +9,17 @@ Chrome Web Store の「プライバシーへの取り組み」タブで使用す
 - プライバシーポリシーURL: https://mattermost-deck.ruhenheim.org/privacy/
 - ストア用スクリーンショット（1280 x 800）: `docs/assets/readme-overview-dark-store.png`
 
+## v1.2.3 リリースノート
+
+### 改善
+
+- Mattermostのページが非表示の間、バックグラウンドでの監視処理を削減。
+
+### 修正
+
+- スレッド表示中や自動調整を無効にした状態でも、Deckのサイズ変更中にMattermostの中央領域を使いやすい幅に維持。
+- キャッシュ済みのメンション投稿をクリック可能にし、保存済み投稿をチームをまたいでも正しく開けるリンクに修正。
+
 ## v1.2.2 リリースノート
 
 ### 修正

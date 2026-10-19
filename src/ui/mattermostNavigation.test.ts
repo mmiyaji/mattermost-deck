@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getDeckRoutePath,
   getMattermostPostSelectors,
+  resolvePostChannelName,
   resolveDeckCurrentRoute,
 } from "./mattermostNavigation";
 
@@ -56,5 +57,19 @@ describe("resolveDeckCurrentRoute", () => {
         { teamName: null, channelName: null },
       ),
     ).toEqual({ teamName: "team", channelName: null });
+  });
+});
+
+describe("resolvePostChannelName", () => {
+  it("uses a supplied channel when the post's channel metadata is known", () => {
+    expect(resolvePostChannelName({ channelName: "town-square" }, "current-channel")).toBe("town-square");
+  });
+
+  it("does not send an explicitly targeted post to the current channel when its metadata is unknown", () => {
+    expect(resolvePostChannelName({}, "current-channel")).toBeUndefined();
+  });
+
+  it("uses the current channel when no explicit post target was supplied", () => {
+    expect(resolvePostChannelName(undefined, "current-channel")).toBe("current-channel");
   });
 });

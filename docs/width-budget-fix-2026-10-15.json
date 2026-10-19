@@ -1,0 +1,360 @@
+{
+  "reportDate": "2026-10-15",
+  "productionCommit": "e4035cd",
+  "build": {
+    "fixedDistSha256": "9DBBC654884C1C31EE61CD6DD93A58EC2B36B4FAD01773274C8A83EBD3AE4CCC",
+    "beforeDistSha256": "64C025384A6AB93037B09B9B6C4214A2C00F9626E112EE9CAC20960517F9D880"
+  },
+  "testHarness": {
+    "file": "e2e/ui-monkey.spec.ts",
+    "targetSteps": [22, 23],
+    "targetChecks": [
+      "composer-right-edge-pointer-focus",
+      "emoji-button-real-pointer-click",
+      "emoji-picker-closes-on-escape",
+      "send-button-center-hit-test"
+    ],
+    "sendButtonIsNotClicked": true,
+    "layoutWarningsRemainEnabled": true,
+    "recordOnlyEnv": "UI_MONKEY_LAYOUT_RECORD_ONLY=1"
+  },
+  "implementationSummary": "Closed-RHS chrome width now uses center left/right insets instead of rootWidth minus centerWidth, which underestimated chrome when the native center overflowed the root. A center width observed during actual overflow is retained as a lower bound, relearned after viewport changes; root/center ResizeObserver changes apply next frame while stable chrome promotion remains on settled measurement.",
+  "matchedBeforeAfter": {
+    "mattermostVersion": "9.5.11",
+    "baseUrl": "http://127.0.0.1:8066",
+    "seed": 20261015,
+    "before": {
+      "artifact": ".tmp-review/width-budget-fix-20261015/before-mm95-final/ui-monkey-seeded-Mattermost-Deck-UI-monkey-remains-stable/ui-monkey-report.json",
+      "requestedActions": 24,
+      "completedActions": 24,
+      "playwrightOutcome": "passed-record-only",
+      "assertionMode": "record-only",
+      "actionFailures": 0,
+      "responseFailures": 0,
+      "requestFailures": 0,
+      "runtimeFailures": 0,
+      "steps": [
+        {
+          "step": 22,
+          "action": "temporary-add",
+          "viewport": 1024,
+          "rootWidth": 641,
+          "center": {
+            "left": 305,
+            "right": 690,
+            "width": 385
+          },
+          "deckWidth": 383,
+          "innerOverflow": 49,
+          "composerRightEdgeCoveredByDeck": true,
+          "composerRightEdgePointerFocus": false,
+          "emojiButtonPointerClick": true,
+          "emojiPickerClosedAfterEscape": true,
+          "sendButtonCenterHitOutsideDeck": true
+        },
+        {
+          "step": 23,
+          "action": "mention-scope",
+          "viewport": 1024,
+          "rootWidth": 592,
+          "center": {
+            "left": 282,
+            "right": 667,
+            "width": 385
+          },
+          "deckWidth": 432,
+          "innerOverflow": 75,
+          "composerRightEdgeCoveredByDeck": true,
+          "composerRightEdgePointerFocus": false,
+          "emojiButtonPointerClick": true,
+          "emojiPickerClosedAfterEscape": true,
+          "sendButtonCenterHitOutsideDeck": false
+        }
+      ]
+    },
+    "afterFirst24": {
+      "artifact": ".tmp-review/width-budget-fix-20261015/after-mm95-first24-final/ui-monkey-seeded-Mattermost-Deck-UI-monkey-remains-stable/ui-monkey-report.json",
+      "requestedActions": 24,
+      "completedActions": 24,
+      "playwrightOutcome": "passed",
+      "assertionMode": "assert",
+      "actionFailures": 0,
+      "responseFailures": 0,
+      "requestFailures": 0,
+      "runtimeFailures": 0,
+      "layoutWarnings": 0,
+      "steps": [
+        {
+          "step": 22,
+          "action": "temporary-add",
+          "viewport": 1024,
+          "rootWidth": 690,
+          "center": {
+            "left": 305,
+            "right": 690,
+            "width": 385
+          },
+          "deck": {
+            "left": 690,
+            "right": 1024,
+            "width": 334
+          },
+          "innerOverflow": 0,
+          "composerRightEdgePointerFocus": true,
+          "emojiButtonPointerClick": true,
+          "emojiPickerClosedAfterEscape": true,
+          "sendButtonCenterHitOutsideDeck": true
+        },
+        {
+          "step": 23,
+          "action": "mention-scope",
+          "viewport": 1024,
+          "rootWidth": 690,
+          "center": {
+            "left": 305,
+            "right": 690,
+            "width": 385
+          },
+          "deck": {
+            "left": 690,
+            "right": 1024,
+            "width": 334
+          },
+          "innerOverflow": 0,
+          "composerRightEdgePointerFocus": true,
+          "emojiButtonPointerClick": true,
+          "emojiPickerClosedAfterEscape": true,
+          "sendButtonCenterHitOutsideDeck": true
+        }
+      ]
+    },
+    "afterFull120": {
+      "artifact": ".tmp-review/width-budget-fix-20261015/after-mm95-full120-final/ui-monkey-seeded-Mattermost-Deck-UI-monkey-remains-stable/ui-monkey-report.json",
+      "requestedActions": 120,
+      "completedActions": 120,
+      "playwrightOutcome": "passed",
+      "assertionMode": "assert",
+      "actionFailures": 0,
+      "responseFailures": 0,
+      "requestFailures": 0,
+      "runtimeFailures": 0,
+      "unexpectedChaosErrors": 0,
+      "layoutWarnings": 0,
+      "shortRunMemory": {
+        "heapGrowthMiB": -2.44,
+        "nodeGrowth": -303,
+        "documentGrowth": 0,
+        "eventListenerGrowth": 186,
+        "interpretation": "Below test thresholds for this short run; not evidence that long-term leaks are absent."
+      },
+      "steps": [
+        {
+          "step": 22,
+          "viewport": 1024,
+          "innerOverflow": 0,
+          "composerRightEdgePointerFocus": true,
+          "emojiButtonPointerClick": true,
+          "emojiPickerClosedAfterEscape": true,
+          "sendButtonCenterHitOutsideDeck": true
+        },
+        {
+          "step": 23,
+          "viewport": 1024,
+          "innerOverflow": 0,
+          "composerRightEdgePointerFocus": true,
+          "emojiButtonPointerClick": true,
+          "emojiPickerClosedAfterEscape": true,
+          "sendButtonCenterHitOutsideDeck": true
+        }
+      ]
+    }
+  },
+  "crossVersion": {
+    "mattermostVersion": "11.11.1",
+    "baseUrl": "http://127.0.0.1:8069",
+    "seed": 20261015,
+    "artifact": ".tmp-review/width-budget-fix-20261015/after-mm1111-first24/ui-monkey-seeded-Mattermost-Deck-UI-monkey-remains-stable/ui-monkey-report.json",
+    "requestedActions": 24,
+    "completedActions": 24,
+    "playwrightOutcome": "failed-unclassified-http-responses",
+    "actionFailures": 0,
+    "requestFailures": 0,
+    "runtimeFailures": 0,
+    "unexpectedChaosErrors": 1,
+    "httpResponseFailures": {
+      "GET 404 /api/v4/users/username/ai": 3,
+      "GET 401 /plugins/mattermost-ai/ai_bots": 2
+    },
+    "httpResponsesWereIgnored": false,
+    "steps": [
+      {
+        "step": 22,
+        "viewport": 1024,
+        "rootWidth": 760,
+        "center": {
+          "left": 330,
+          "right": 715,
+          "width": 385
+        },
+        "deck": {
+          "left": 760,
+          "right": 1024,
+          "width": 264
+        },
+        "innerOverflow": 0,
+        "composerRightEdgePointerFocus": true,
+        "emojiButtonPointerClick": true,
+        "emojiPickerClosedAfterEscape": true,
+        "sendButtonCenterHitOutsideDeck": true
+      },
+      {
+        "step": 23,
+        "viewport": 1024,
+        "rootWidth": 760,
+        "center": {
+          "left": 330,
+          "right": 715,
+          "width": 385
+        },
+        "deck": {
+          "left": 760,
+          "right": 1024,
+          "width": 264
+        },
+        "innerOverflow": 0,
+        "composerRightEdgePointerFocus": true,
+        "emojiButtonPointerClick": true,
+        "emojiPickerClosedAfterEscape": true,
+        "sendButtonCenterHitOutsideDeck": true
+      }
+    ]
+  },
+  "nativeRhsMm117": {
+    "mattermostVersion": "11.7.12",
+    "artifact": ".tmp-review/width-budget-fix-20261015/native-rhs-mm117-final/live-audit.json",
+    "viewports": [
+      {
+        "viewport": 1000,
+        "rhsLimits": [304, 400],
+        "maxWidthCenterOverlap": 136,
+        "minWidthCenterOverlap": 40,
+        "maxWidthVisibleCenter": 219,
+        "minWidthVisibleCenter": 315,
+        "deckBoundaryGap": 0
+      },
+      {
+        "viewport": 1200,
+        "rhsLimits": [304, 400],
+        "maxWidthCenterOverlap": 81,
+        "minWidthCenterOverlap": 0,
+        "maxWidthVisibleCenter": 419,
+        "minWidthVisibleCenter": 500,
+        "deckBoundaryGap": 0
+      },
+      {
+        "viewport": 1440,
+        "rhsLimits": [304, 464],
+        "maxWidthCenterOverlap": 0,
+        "minWidthCenterOverlap": 0,
+        "deckBoundaryGap": 0
+      },
+      {
+        "viewport": 1920,
+        "rhsLimits": [304, 776],
+        "maxWidthCenterOverlap": 0,
+        "minWidthCenterOverlap": 0,
+        "deckBoundaryGap": 0
+      }
+    ],
+    "continuityChecks": 9,
+    "rootCountStable": 1,
+    "documentRequestsDuringContinuity": 0,
+    "scopeNote": "Native RHS-open narrow-width overlap is separate from the closed-RHS Deck width-budget fix. No no-extension comparison was run."
+  },
+  "responsiveRailVerification": {
+    "status": "passed",
+    "tests": 2,
+    "command": "npx playwright test e2e/responsive-rail.spec.ts --workers=1",
+    "additionalCheck": "npm run check passed",
+    "requestedWidthPx": 900,
+    "verifiedBehavior": [
+      "Requested width 900px persists in storage.",
+      "At 1440px, the rendered width safely clamps below 900px and above 720px.",
+      "At 1000px, visible center width remains at least 336px, root/Deck overflow stays within 2px, and Send is hit-test reachable.",
+      "Returning to 1440px retains the clamped width; at 1800px, the requested 900px width is restored."
+    ],
+    "initialFalsePositive": "An early focus check targeted a hidden textarea while native composer preview mode was active. The final responsive test removes this invalid check and verifies actual center visibility, overlap and send-button hit testing. The independent monkey test retains composer right-edge pointer checks.",
+    "artifact": ".tmp-review/responsive-rail-composer-edge/geometry.json"
+  },
+  "historicalMemoryRuns": {
+    "note": "These were prior builds/runs, not long-soak retests of commit e4035cd.",
+    "mattermost95Control10min": {
+      "status": "pass",
+      "heapStartMiB": 69.36,
+      "heapEndMiB": 74.76,
+      "heapGrowthMiB": 5.4,
+      "eventListenerStart": 116874,
+      "eventListenerEnd": 116218,
+      "eventListenerSlopePerMinute": 0,
+      "nodeStart": 10578,
+      "nodeEnd": 10537
+    },
+    "mattermost95IsolatedDeck10min": {
+      "status": "pass",
+      "heapStartMiB": 81.53,
+      "heapEndMiB": 91.38,
+      "heapGrowthMiB": 9.84,
+      "heapSlopeMiBPerMinute": 1,
+      "eventListenerStart": 152243,
+      "eventListenerEnd": 155556,
+      "eventListenerSlopePerMinute": 0.32,
+      "nodeStart": 13349,
+      "nodeEnd": 13743,
+      "nodeSlopePerMinute": 3.09,
+      "documentStart": 3,
+      "documentEnd": 3,
+      "deckRailWidthSamples": "collapsed at 52px throughout; Deck body mounted but hidden",
+      "cleanupFailures": 0
+    },
+    "mattermost95ConcurrentDeckRun": {
+      "status": "fail-listener-slope",
+      "eventListenerStart": 152920,
+      "eventListenerEnd": 156615,
+      "eventListenerGrowth": 3695,
+      "eventListenerSlopePerMinute": 121,
+      "note": "Preserve as a separate failed run; early-cache effects are possible but unconfirmed."
+    },
+    "mattermost117VisibleDeck10min": {
+      "status": "pass",
+      "note": "Separate prior-version visible-Deck soak; not a long soak of the fixed build."
+    },
+    "interpretation": "Passing short or isolated thresholds does not prove absence of leaks; the failed concurrent run is not erased by other passes."
+  },
+  "historicalUnmatchedLayoutObservation": {
+    "mattermostVersion": "9.5.11",
+    "step": 23,
+    "previouslyObservedOverflowPx": 98,
+    "note": "Different earlier run; matched same-harness before value is 75px and is the comparator used above."
+  },
+  "intermediateAfterBuildAttempt": {
+    "distSha256": "C5F312A65967561F9D3F9D362A47D3A6E9945F67087A31DAF6FBCE4846C4C17D",
+    "artifact": ".tmp-review/width-budget-fix-20261015/after-mm95-full120/ui-monkey-seeded-Mattermost-Deck-UI-monkey-remains-stable/ui-monkey-report.json",
+    "status": "failed-at-step22-composer-right-edge-still-covered",
+    "actionsCompleted": 120,
+    "step22InnerOverflow": 49,
+    "step22ComposerRightEdgePointerFocus": false,
+    "step23InnerOverflow": 0,
+    "step23ComposerRightEdgePointerFocus": true,
+    "interpretation": "A transient narrow-state clipping remained on this intermediate build. It is preserved as a failed iteration; the final fixed build 9DBBC... is the result compared above."
+  },
+  "pending": {
+    "fixedBuildLongSoak": "Not run as part of this width-budget verification."
+  },
+  "validation": {
+    "unitTests": "426 passed",
+    "build": "passed",
+    "sourceTypeCheck": "passed",
+    "monkeyHarnessTypeCheck": "passed",
+    "diffCheck": "passed"
+  }
+}

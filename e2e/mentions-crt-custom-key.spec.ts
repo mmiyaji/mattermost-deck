@@ -549,6 +549,8 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
       visiblePostIds?: string[];
       visiblePostMessages?: string[];
       mentionCount?: number;
+      mentionUpdatePending?: boolean;
+      mentionPendingUpdateCount?: number;
     } | null>(page, "getColumnState", { id: "mentions-non-crt-root-reply" });
     await expect.poll(async () => {
       const column = await getColumnState();
@@ -580,6 +582,19 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
       message: `polling reply to delete without an at-token ${pollingMarker}`,
     });
     pollingReplyId = pollingReply.id;
+    // Completed refreshes queue additions until the user applies the feed update.
+    await expect.poll(async () => {
+      const column = await getColumnState();
+      return Boolean(
+        column?.mentionUpdatePending === true &&
+        (column.mentionPendingUpdateCount ?? 0) > 0 &&
+        column.mentionCount === baselineMentionCount + 1 &&
+        !column.visiblePostMessages?.some((message) => message.includes(pollingMarker)),
+      );
+    }, { timeout: 35_000 }).toBe(true);
+    expect(await debugRequest<boolean>(page, "applyMentionUpdates", {
+      id: "mentions-non-crt-root-reply",
+    })).toBe(true);
     await expect.poll(async () => {
       const column = await getColumnState();
       return {
@@ -589,7 +604,7 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
           ) ?? false,
         mentionCount: column?.mentionCount ?? 0,
       };
-    }, { timeout: 35_000 }).toEqual({
+    }, { timeout: 15_000 }).toEqual({
       hasReply: true,
       mentionCount: baselineMentionCount + 1,
     });
@@ -621,6 +636,21 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
       },
     );
     pollingEditedMentionId = pollingEditableMention.id;
+    // The stored 5-second value is normalized to the 15-second product
+    // minimum. Under the full one-worker suite a mention scan can overlap the
+    // first tick, so allow enough time for multiple complete polling cycles.
+    await expect.poll(async () => {
+      const column = await getColumnState();
+      return Boolean(
+        column?.mentionUpdatePending === true &&
+        (column.mentionPendingUpdateCount ?? 0) > 0 &&
+        column.mentionCount === baselineMentionCount + 1 &&
+        !column.visiblePostIds?.includes(pollingEditableMention.id),
+      );
+    }, { timeout: 60_000 }).toBe(true);
+    expect(await debugRequest<boolean>(page, "applyMentionUpdates", {
+      id: "mentions-non-crt-root-reply",
+    })).toBe(true);
     await expect.poll(async () => {
       const column = await getColumnState();
       return {
@@ -632,10 +662,7 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
           ) ?? false,
         mentionCount: column?.mentionCount ?? 0,
       };
-    // The stored 5-second value is normalized to the 15-second product
-    // minimum. Under the full one-worker suite a mention scan can overlap the
-    // first tick, so allow enough time for multiple complete polling cycles.
-    }, { timeout: 60_000 }).toEqual({
+    }, { timeout: 15_000 }).toEqual({
       postVisible: true,
       markerVisible: true,
       mentionCount: baselineMentionCount + 1,

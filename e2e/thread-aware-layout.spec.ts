@@ -7,7 +7,6 @@ import {
   type TestInfo,
 } from "@playwright/test";
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
@@ -540,7 +539,6 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
 
   const state = await readState();
   const extensionPath = path.resolve("./dist");
-  const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-thread-layout-"));
   let rootPostId: string | null = null;
   let replyPostId: string | null = null;
   let context: BrowserContext | null = null;
@@ -573,7 +571,7 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     );
     replyPostId = replyPost.id;
 
-    context = await chromium.launchPersistentContext(userDataDir, {
+    context = await chromium.launchPersistentContext("", {
       channel: "chromium",
       headless: true,
       viewport: { width: 2_400, height: 900 },
@@ -794,8 +792,8 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     expect(narrowCompactLayoutTrace.maxMattermostDeckOverlap).toBeLessThanOrEqual(1);
     expect(narrowCompactLayoutTrace.maxBoundaryGap).toBeLessThanOrEqual(1);
 
-    // At a compact width below the persisted 360px minimum, one keyboard
-    // expansion reaches that usable minimum and creates a manual override.
+    // Keyboard resizing continues in 32px steps from the compact width instead
+    // of jumping to the 360px preferred-width floor.
     const narrowCompactDeckBox = await page
       .locator("#mattermost-deck-root")
       .boundingBox();
@@ -811,10 +809,18 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
       async () => await debugRequest<DeckDebugState>(page, "getState"),
       { timeout: 20_000 },
     ).toMatchObject({
-      railWidth: 360,
-      requestedRailWidth: 360,
+      requestedRailWidth: 352,
       threadLayoutMode: "override",
     });
+    // Retain the 32px keyboard request while honoring the native center budget.
+    // Mattermost's measured chrome can constrain the rendered width by 1–2px.
+    const keyboardOverride = await debugRequest<DeckDebugState>(page, "getState");
+    expect(keyboardOverride.railWidth).toBeGreaterThanOrEqual(350);
+    expect(keyboardOverride.railWidth).toBeLessThanOrEqual(352);
+    const keyboardLayout = await getLayoutSnapshot(page);
+    expect(keyboardLayout.appContent).toBeGreaterThanOrEqual(320);
+    expect(keyboardLayout.overlap).toBeLessThanOrEqual(MAX_HOST_CENTER_RHS_CHROME_OVERLAP);
+    expect(keyboardLayout.boundaryGap).toBeLessThanOrEqual(1);
     await page.locator("#rhsCloseButton").click({ timeout: 10_000 });
     await expect(page.locator("#root")).not.toHaveClass(/rhs-open/, { timeout: 20_000 });
     await dragDeckToWidth(page, REQUESTED_RAIL_WIDTH);
@@ -822,19 +828,25 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
       async () => await debugRequest<DeckDebugState>(page, "getState"),
       { timeout: 20_000 },
     ).toMatchObject({
-      railWidth: REQUESTED_RAIL_WIDTH,
       requestedRailWidth: REQUESTED_RAIL_WIDTH,
-      threadLayoutMode: "normal",
+      threadLayoutMode: "compact",
     });
+    const constrainedClosedWidth = (await debugRequest<DeckDebugState>(page, "getState")).railWidth;
+    expect(constrainedClosedWidth).toBeLessThan(REQUESTED_RAIL_WIDTH);
+    expect((await getLayoutSnapshot(page)).appContent).toBeGreaterThanOrEqual(320);
     await openThread();
     await expect.poll(
       async () => await debugRequest<DeckDebugState>(page, "getState"),
       { timeout: 20_000 },
     ).toMatchObject({
-      railWidth: 500,
       requestedRailWidth: REQUESTED_RAIL_WIDTH,
       threadLayoutMode: "compact",
     });
+
+    const reopenedNarrowWidth = (await debugRequest<DeckDebugState>(page, "getState")).railWidth;
+    expect(reopenedNarrowWidth).toBeGreaterThanOrEqual(240);
+    expect(reopenedNarrowWidth).toBeLessThanOrEqual(500);
+    expect((await getLayoutSnapshot(page)).appContent).toBeGreaterThanOrEqual(320);
 
     await startDeckTargetWidthTrace(page);
     await page.setViewportSize({ width: 2_400, height: 900 });
@@ -848,7 +860,7 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     });
     await page.waitForTimeout(500);
     expect((await stopDeckTargetWidthTrace(page)).widths).toEqual([
-      500,
+      reopenedNarrowWidth,
       autoCompactRailWidth,
     ]);
 
@@ -1055,7 +1067,7 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     await expect(autoAdjustToggle).toBeVisible({ timeout: 10_000 });
     await expect(autoAdjustToggle).toBeChecked();
     await autoAdjustToggle.uncheck();
-    await optionsPage.locator(".options-save-footer .options-button").click();
+    await optionsPage.getByTestId("options-save").click();
 
     await expect.poll(
       async () => await debugRequest<DeckDebugState>(page, "getState"),
@@ -1063,18 +1075,23 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     ).toMatchObject({
       autoAdjustThreadLayout: false,
       drawerOpen: true,
-      effectiveDrawerOpen: true,
-      railWidth: MANUAL_OVERRIDE_RAIL_WIDTH,
+      effectiveDrawerOpen: false,
+      railWidth: 52,
       requestedRailWidth: MANUAL_OVERRIDE_RAIL_WIDTH,
-      canResizeRail: true,
-      threadLayoutMode: "normal",
+      canResizeRail: false,
+      threadLayoutMode: "collapsed",
     });
-    await expect.poll(() => getLayoutSnapshot(page), { timeout: 20_000 }).toMatchObject({
+    await expect.poll(
+      () => getLayoutSnapshot(page),
+      { timeout: 20_000 },
+    ).toMatchObject({
       viewport: 1_280,
-      mattermost: 800,
-      deck: MANUAL_OVERRIDE_RAIL_WIDTH,
+      mattermost: 1_228,
+      deck: 52,
       overlap: 0,
     });
+    const autoAdjustOffLayout = await getLayoutSnapshot(page);
+    expect(autoAdjustOffLayout.center).toBeGreaterThanOrEqual(320);
     await expect(page.locator("#root")).toHaveClass(/rhs-open/);
     await expect(page.locator(`#rhsPost_${replyPost.id}`)).toBeVisible();
     await capture(page, testInfo, "04-auto-adjust-off.png");
@@ -1085,8 +1102,11 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     await expect(reloadedAutoAdjustToggle).not.toBeChecked();
     await startDeckTargetWidthTrace(page);
     await startDeckWidthTrace(page);
+    // The safety limit already collapsed Deck while auto-adjustment was off,
+    // so enabling it must not create a second resize or reveal the 480px
+    // request beside the open RHS.
     await reloadedAutoAdjustToggle.check();
-    await optionsPage.locator(".options-save-footer .options-button").click();
+    await optionsPage.getByTestId("options-save").click();
 
     await expect.poll(
       async () => await debugRequest<DeckDebugState>(page, "getState"),
@@ -1102,10 +1122,7 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     await page.waitForTimeout(500);
     const enabledWhileOpenTargetTrace = await stopDeckTargetWidthTrace(page);
     const enabledWhileOpenRenderedTrace = await stopDeckWidthTrace(page);
-    expect(enabledWhileOpenTargetTrace.widths).toEqual([
-      MANUAL_OVERRIDE_RAIL_WIDTH,
-      52,
-    ]);
+    expect(enabledWhileOpenTargetTrace.widths).toEqual([52]);
     expect(enabledWhileOpenRenderedTrace.overflow).toBe(false);
     expect(enabledWhileOpenRenderedTrace.widths.every((width, index, widths) => (
       index === 0 || width <= widths[index - 1] + 2
@@ -1443,8 +1460,8 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
       "- `00-wide-normal.png`: 2400px viewport before opening a Mattermost right pane; Deck uses the requested 900px width.",
       "- `01-wide-compact.png`: the 500px Mattermost thread pane opens at 2400px; Deck yields exactly 500px (900px to 400px) while the main content keeps its pre-open width.",
       "- `02-manual-override.png`: dragging the compacted Deck changes it to a persisted 480px manual override while the thread remains open.",
-      "- `03-narrow-collapsed.png`: when less than 280px would remain after reopening the thread and resizing to 1280px, Deck collapses to the 52px rail.",
-      "- `04-auto-adjust-off.png`: automatic adjustment is saved off through Options; the open thread keeps the requested 480px Deck width.",
+      "- `03-narrow-collapsed.png`: when less than 240px would remain after reopening the thread and resizing to 1280px, Deck collapses to the 52px rail.",
+      "- `04-auto-adjust-off.png`: automatic adjustment is saved off through Options; the safety limit still keeps at least 320px of Mattermost center visible beside the open thread.",
       "- `05-restored.png`: automatic adjustment is saved back on, the thread closes, and Deck restores its persisted 480px width and horizontal scroll position.",
       "- `06-search-rhs-adjusted.png`: Mattermost search opens the same 500px canonical right pane and applies the same exact 900px-to-400px width transfer.",
     ].join("\n"), "utf8");
@@ -1454,7 +1471,6 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
     });
   } finally {
     await context?.close().catch(() => undefined);
-    await fs.rm(userDataDir, { recursive: true, force: true });
     if (replyPostId) {
       await apiCall<void>(state.memberUser.token, "DELETE", `/posts/${replyPostId}`).catch(() => undefined);
     }

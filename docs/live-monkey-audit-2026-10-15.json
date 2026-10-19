@@ -1,0 +1,1997 @@
+{
+  "measuredOn": "2026-10-15",
+  "auditedRevision": "640096e",
+  "contentJsSha256": "64C025384A6AB93037B09B9B6C4214A2C00F9626E112EE9CAC20960517F9D880",
+  "seed": 20261015,
+  "notes": [
+    "Memory measurements cover the page renderer, not the MV3 worker or browser RSS.",
+    "Initial MM9.5 extension run overlapped monkey fixture creation/deletion; its result is retained separately.",
+    "The isolated MM9.5 run excludes other tests on that server. MM11.7 uses a different server and renderer.",
+    "Review checks preserve memory thresholds; both Deck modes use bounded host monitoring for safety.",
+    "The initial MM11.7 long test timed out waiting for the legacy search selector. Its 384 fixture posts were removed separately; the old temporary profile remains because deletion was rejected by policy. A bounded retry identified the selector mismatch before the final test."
+  ],
+  "runs": {
+    "mm95Concurrent": {
+      "originalOutcome": "failed",
+      "originalFailure": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeLessThanOrEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: <= \u001b[32m10\u001b[39m\nReceived:    \u001b[31m121.29449005176548\u001b[39m\n    at C:\\Users\\mail\\Documents\\git\\mattermost-deck\\e2e\\layout-memory-soak.spec.ts:1264:52",
+      "mode": "deck",
+      "mattermostVersion": "9.5.11",
+      "actualDurationMs": 601176,
+      "workloadSteps": 344,
+      "rhsMutationOperations": 32400,
+      "createdPostCount": 384,
+      "cleanupFailureCount": 0,
+      "sampleCount": 36,
+      "sampledRailWidths": [
+        52
+      ],
+      "sampledLayoutModes": [
+        "collapsed"
+      ],
+      "pageCrash": null,
+      "oomSignals": [],
+      "pageErrorMessages": [
+        "O: Not authorized",
+        "TypeError: Cannot read properties of undefined (reading 'type')"
+      ],
+      "analysis": {
+        "analyzedSampleCount": 32,
+        "warmupMs": 60000,
+        "heap": {
+          "firstMedian": 87791144,
+          "lastMedian": 98143864,
+          "retainedGrowth": 10352720,
+          "slopePerMinute": 861651.0685409638,
+          "monotonicIncreaseRatio": 0.12903225806451613,
+          "runaway": false,
+          "minimum": 77555224,
+          "maximum": 98508352
+        },
+        "embedderHeap": {
+          "firstMedian": 44355520,
+          "lastMedian": 47162512,
+          "retainedGrowth": 2806992,
+          "slopePerMinute": 159411.55314262048,
+          "monotonicIncreaseRatio": 0.0967741935483871,
+          "runaway": false,
+          "minimum": 36145336,
+          "maximum": 47168120
+        },
+        "backingStorage": {
+          "firstMedian": 23141001,
+          "lastMedian": 23165097,
+          "retainedGrowth": 24096,
+          "slopePerMinute": 807.1906593943131,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 23137610,
+          "maximum": 23428411
+        },
+        "nodes": {
+          "firstMedian": 13487,
+          "lastMedian": 13852,
+          "retainedGrowth": 365,
+          "slopePerMinute": 12.090714285264713,
+          "monotonicIncreaseRatio": 0.0967741935483871,
+          "runaway": false,
+          "minimum": 10971,
+          "maximum": 13855
+        },
+        "documents": {
+          "firstMedian": 3,
+          "lastMedian": 3,
+          "retainedGrowth": 0,
+          "slopePerMinute": 0,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 3,
+          "maximum": 3
+        },
+        "eventListeners": {
+          "firstMedian": 152920,
+          "lastMedian": 156615,
+          "retainedGrowth": 3695,
+          "slopePerMinute": 121.29449005176548,
+          "monotonicIncreaseRatio": 0.22580645161290322,
+          "runaway": false,
+          "minimum": 117370,
+          "maximum": 156743
+        },
+        "userTimingMeasures": {
+          "firstMedian": 0,
+          "lastMedian": 0,
+          "retainedGrowth": 0,
+          "slopePerMinute": 0,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 0,
+          "maximum": 0
+        },
+        "hostLayoutMeasurements": {
+          "firstMedian": 127,
+          "lastMedian": 825,
+          "retainedGrowth": 698,
+          "slopePerMinute": 82.40424606870278,
+          "monotonicIncreaseRatio": 1,
+          "runaway": false,
+          "minimum": 108,
+          "maximum": 833
+        },
+        "hostLayoutMeasurementDelta": 725,
+        "workloadStepDelta": 303,
+        "allowedHostLayoutMeasurementDelta": 1828,
+        "thresholds": {
+          "heapGrowthBytes": 25165824,
+          "heapSlopeBytesPerMinute": 2097152,
+          "nodeGrowth": 674.35,
+          "nodeSlopePerMinute": 50,
+          "documentGrowth": 1,
+          "documentSlopePerMinute": 0.2,
+          "eventListenerGrowth": 7646,
+          "eventListenerSlopePerMinute": 10,
+          "userTimingMeasureGrowth": 20,
+          "userTimingMeasureSlopePerMinute": 2,
+          "hostLayoutMeasurementsPerWorkloadStep": 6,
+          "hostLayoutMeasurementAllowance": 10
+        }
+      },
+      "reviewChecks": [
+        {
+          "metric": "heap",
+          "passed": true
+        },
+        {
+          "metric": "nodes",
+          "passed": true
+        },
+        {
+          "metric": "documents",
+          "passed": true
+        },
+        {
+          "metric": "eventListeners",
+          "passed": false
+        },
+        {
+          "metric": "userTimingMeasures",
+          "passed": true
+        },
+        {
+          "metric": "hostLayoutMeasurements",
+          "passed": true
+        }
+      ],
+      "samples": [
+        {
+          "elapsedMs": 1719,
+          "jsHeapUsedBytes": 82636792,
+          "nodes": 11052,
+          "documents": 3,
+          "eventListeners": 121939,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 18693,
+          "jsHeapUsedBytes": 83382488,
+          "nodes": 11059,
+          "documents": 3,
+          "eventListeners": 121943,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 36019,
+          "jsHeapUsedBytes": 76197248,
+          "nodes": 10978,
+          "documents": 3,
+          "eventListeners": 117247,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 53070,
+          "jsHeapUsedBytes": 76539232,
+          "nodes": 10983,
+          "documents": 3,
+          "eventListeners": 117249,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 70854,
+          "jsHeapUsedBytes": 77555224,
+          "nodes": 10971,
+          "documents": 3,
+          "eventListeners": 117370,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 87860,
+          "jsHeapUsedBytes": 87791144,
+          "nodes": 13491,
+          "documents": 3,
+          "eventListeners": 152920,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 105406,
+          "jsHeapUsedBytes": 88031804,
+          "nodes": 13487,
+          "documents": 3,
+          "eventListeners": 152920,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 123186,
+          "jsHeapUsedBytes": 94788364,
+          "nodes": 13234,
+          "documents": 3,
+          "eventListeners": 152264,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 141010,
+          "jsHeapUsedBytes": 91460468,
+          "nodes": 13443,
+          "documents": 3,
+          "eventListeners": 152905,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 158195,
+          "jsHeapUsedBytes": 91666980,
+          "nodes": 13444,
+          "documents": 3,
+          "eventListeners": 152906,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 175662,
+          "jsHeapUsedBytes": 92621208,
+          "nodes": 13790,
+          "documents": 3,
+          "eventListeners": 156214,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 192412,
+          "jsHeapUsedBytes": 92725408,
+          "nodes": 13793,
+          "documents": 3,
+          "eventListeners": 156215,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 210578,
+          "jsHeapUsedBytes": 93638084,
+          "nodes": 13791,
+          "documents": 3,
+          "eventListeners": 156214,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 227605,
+          "jsHeapUsedBytes": 93849700,
+          "nodes": 13794,
+          "documents": 3,
+          "eventListeners": 156215,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 245118,
+          "jsHeapUsedBytes": 93836824,
+          "nodes": 13787,
+          "documents": 3,
+          "eventListeners": 156214,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 261837,
+          "jsHeapUsedBytes": 93962844,
+          "nodes": 13737,
+          "documents": 3,
+          "eventListeners": 155559,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 280420,
+          "jsHeapUsedBytes": 95126912,
+          "nodes": 13794,
+          "documents": 3,
+          "eventListeners": 156214,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 297509,
+          "jsHeapUsedBytes": 95152492,
+          "nodes": 13797,
+          "documents": 3,
+          "eventListeners": 156215,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 314989,
+          "jsHeapUsedBytes": 95453264,
+          "nodes": 13795,
+          "documents": 3,
+          "eventListeners": 156214,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 331716,
+          "jsHeapUsedBytes": 95377092,
+          "nodes": 13798,
+          "documents": 3,
+          "eventListeners": 156215,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 350015,
+          "jsHeapUsedBytes": 96167588,
+          "nodes": 13796,
+          "documents": 3,
+          "eventListeners": 156220,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 367071,
+          "jsHeapUsedBytes": 95662532,
+          "nodes": 13799,
+          "documents": 3,
+          "eventListeners": 156215,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 384520,
+          "jsHeapUsedBytes": 95303068,
+          "nodes": 13736,
+          "documents": 3,
+          "eventListeners": 155557,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 401294,
+          "jsHeapUsedBytes": 95354996,
+          "nodes": 13739,
+          "documents": 3,
+          "eventListeners": 155558,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 419603,
+          "jsHeapUsedBytes": 97589364,
+          "nodes": 13799,
+          "documents": 3,
+          "eventListeners": 156223,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 436611,
+          "jsHeapUsedBytes": 97454120,
+          "nodes": 13802,
+          "documents": 3,
+          "eventListeners": 156215,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 454131,
+          "jsHeapUsedBytes": 97083532,
+          "nodes": 13739,
+          "documents": 3,
+          "eventListeners": 155557,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 470849,
+          "jsHeapUsedBytes": 96737556,
+          "nodes": 13742,
+          "documents": 3,
+          "eventListeners": 155558,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 488974,
+          "jsHeapUsedBytes": 97298192,
+          "nodes": 13828,
+          "documents": 3,
+          "eventListeners": 156742,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 506115,
+          "jsHeapUsedBytes": 97402308,
+          "nodes": 13831,
+          "documents": 3,
+          "eventListeners": 156743,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 523668,
+          "jsHeapUsedBytes": 97436096,
+          "nodes": 13824,
+          "documents": 3,
+          "eventListeners": 156742,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 540430,
+          "jsHeapUsedBytes": 97382920,
+          "nodes": 13798,
+          "documents": 3,
+          "eventListeners": 155960,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 558702,
+          "jsHeapUsedBytes": 97785560,
+          "nodes": 13794,
+          "documents": 3,
+          "eventListeners": 155961,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 575790,
+          "jsHeapUsedBytes": 97418372,
+          "nodes": 13797,
+          "documents": 3,
+          "eventListeners": 155959,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 593398,
+          "jsHeapUsedBytes": 98143864,
+          "nodes": 13852,
+          "documents": 3,
+          "eventListeners": 156615,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 601163,
+          "jsHeapUsedBytes": 98508352,
+          "nodes": 13855,
+          "documents": 3,
+          "eventListeners": 156616,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        }
+      ],
+      "lateTrends": {
+        "jsHeapUsedBytes": {
+          "sampleCount": 18,
+          "first": 95453264,
+          "last": 98508352,
+          "slopePerMinute": 576624.8550648255
+        },
+        "nodes": {
+          "sampleCount": 18,
+          "first": 13795,
+          "last": 13855,
+          "slopePerMinute": 10.761045017038322
+        },
+        "eventListeners": {
+          "sampleCount": 18,
+          "first": 156214,
+          "last": 156616,
+          "slopePerMinute": 5.461558592283273
+        }
+      },
+      "rawReport": ".tmp-review/live-monkey-20261015/soak-deck/layout-memory-soak-large-M-cb5b1-churn-remain-memory-bounded/layout-memory-soak.json"
+    },
+    "mm95Control": {
+      "originalOutcome": "passed",
+      "originalFailure": null,
+      "mode": "control",
+      "mattermostVersion": "9.5.11",
+      "actualDurationMs": 600030,
+      "workloadSteps": 351,
+      "rhsMutationOperations": 32400,
+      "createdPostCount": 384,
+      "cleanupFailureCount": 0,
+      "sampleCount": 36,
+      "sampledRailWidths": [
+        0
+      ],
+      "sampledLayoutModes": [
+        "control"
+      ],
+      "pageCrash": null,
+      "oomSignals": [],
+      "pageErrorMessages": [
+        "O: Not authorized",
+        "TypeError: Cannot read properties of undefined (reading 'type')"
+      ],
+      "analysis": {
+        "analyzedSampleCount": 32,
+        "warmupMs": 60000,
+        "heap": {
+          "firstMedian": 72725592,
+          "lastMedian": 78389404,
+          "retainedGrowth": 5663812,
+          "slopePerMinute": 654302.9752321129,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 72644876,
+          "maximum": 78407692
+        },
+        "embedderHeap": {
+          "firstMedian": 35770136,
+          "lastMedian": 36234056,
+          "retainedGrowth": 463920,
+          "slopePerMinute": 53632.6957072019,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 35693784,
+          "maximum": 36730472
+        },
+        "backingStorage": {
+          "firstMedian": 20905945,
+          "lastMedian": 20903250,
+          "retainedGrowth": -2695,
+          "slopePerMinute": 44.66142476607993,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 20902440,
+          "maximum": 21030151
+        },
+        "nodes": {
+          "firstMedian": 10578,
+          "lastMedian": 10537,
+          "retainedGrowth": -41,
+          "slopePerMinute": 1.7514020298450452,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 10520,
+          "maximum": 10581
+        },
+        "documents": {
+          "firstMedian": 3,
+          "lastMedian": 3,
+          "retainedGrowth": 0,
+          "slopePerMinute": 0,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 3,
+          "maximum": 3
+        },
+        "eventListeners": {
+          "firstMedian": 116874,
+          "lastMedian": 116218,
+          "retainedGrowth": -656,
+          "slopePerMinute": 0,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 116217,
+          "maximum": 116875
+        },
+        "userTimingMeasures": {
+          "firstMedian": 0,
+          "lastMedian": 0,
+          "retainedGrowth": 0,
+          "slopePerMinute": 0,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 0,
+          "maximum": 0
+        },
+        "hostLayoutMeasurements": {
+          "firstMedian": 0,
+          "lastMedian": 0,
+          "retainedGrowth": 0,
+          "slopePerMinute": 0,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 0,
+          "maximum": 0
+        },
+        "hostLayoutMeasurementDelta": 0,
+        "workloadStepDelta": 310,
+        "allowedHostLayoutMeasurementDelta": 1870,
+        "thresholds": {
+          "heapGrowthBytes": 25165824,
+          "heapSlopeBytesPerMinute": 2097152,
+          "nodeGrowth": 528.9,
+          "nodeSlopePerMinute": 50,
+          "documentGrowth": 1,
+          "documentSlopePerMinute": 0.2,
+          "eventListenerGrowth": 5843.700000000001,
+          "eventListenerSlopePerMinute": 10,
+          "userTimingMeasureGrowth": 20,
+          "userTimingMeasureSlopePerMinute": 2,
+          "hostLayoutMeasurementsPerWorkloadStep": 6,
+          "hostLayoutMeasurementAllowance": 10
+        }
+      },
+      "reviewChecks": [
+        {
+          "metric": "heap",
+          "passed": true
+        },
+        {
+          "metric": "nodes",
+          "passed": true
+        },
+        {
+          "metric": "documents",
+          "passed": true
+        },
+        {
+          "metric": "eventListeners",
+          "passed": true
+        },
+        {
+          "metric": "userTimingMeasures",
+          "passed": true
+        },
+        {
+          "metric": "hostLayoutMeasurements",
+          "passed": true
+        }
+      ],
+      "samples": [
+        {
+          "elapsedMs": 2063,
+          "jsHeapUsedBytes": 75779544,
+          "nodes": 10643,
+          "documents": 3,
+          "eventListeners": 122093,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 19030,
+          "jsHeapUsedBytes": 78478312,
+          "nodes": 10724,
+          "documents": 3,
+          "eventListeners": 122759,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 36068,
+          "jsHeapUsedBytes": 70659212,
+          "nodes": 10631,
+          "documents": 3,
+          "eventListeners": 117281,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 52880,
+          "jsHeapUsedBytes": 70709652,
+          "nodes": 10634,
+          "documents": 3,
+          "eventListeners": 117282,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 70639,
+          "jsHeapUsedBytes": 72644876,
+          "nodes": 10578,
+          "documents": 3,
+          "eventListeners": 116874,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 87482,
+          "jsHeapUsedBytes": 72725592,
+          "nodes": 10581,
+          "documents": 3,
+          "eventListeners": 116875,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 104475,
+          "jsHeapUsedBytes": 73529944,
+          "nodes": 10574,
+          "documents": 3,
+          "eventListeners": 116874,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 121245,
+          "jsHeapUsedBytes": 73601948,
+          "nodes": 10577,
+          "documents": 3,
+          "eventListeners": 116875,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 139177,
+          "jsHeapUsedBytes": 73984876,
+          "nodes": 10520,
+          "documents": 3,
+          "eventListeners": 116217,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 155952,
+          "jsHeapUsedBytes": 74092896,
+          "nodes": 10523,
+          "documents": 3,
+          "eventListeners": 116218,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 172885,
+          "jsHeapUsedBytes": 74326776,
+          "nodes": 10521,
+          "documents": 3,
+          "eventListeners": 116217,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 189764,
+          "jsHeapUsedBytes": 74390016,
+          "nodes": 10524,
+          "documents": 3,
+          "eventListeners": 116218,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 207374,
+          "jsHeapUsedBytes": 75047832,
+          "nodes": 10526,
+          "documents": 3,
+          "eventListeners": 116217,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 224147,
+          "jsHeapUsedBytes": 75307564,
+          "nodes": 10529,
+          "documents": 3,
+          "eventListeners": 116221,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 241233,
+          "jsHeapUsedBytes": 75187416,
+          "nodes": 10522,
+          "documents": 3,
+          "eventListeners": 116217,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 258038,
+          "jsHeapUsedBytes": 75257500,
+          "nodes": 10525,
+          "documents": 3,
+          "eventListeners": 116218,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 275914,
+          "jsHeapUsedBytes": 75783760,
+          "nodes": 10524,
+          "documents": 3,
+          "eventListeners": 116217,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 292681,
+          "jsHeapUsedBytes": 75793252,
+          "nodes": 10527,
+          "documents": 3,
+          "eventListeners": 116218,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 309729,
+          "jsHeapUsedBytes": 75979676,
+          "nodes": 10525,
+          "documents": 3,
+          "eventListeners": 116217,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 326458,
+          "jsHeapUsedBytes": 76150716,
+          "nodes": 10528,
+          "documents": 3,
+          "eventListeners": 116218,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 344112,
+          "jsHeapUsedBytes": 76538092,
+          "nodes": 10531,
+          "documents": 3,
+          "eventListeners": 116217,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 360945,
+          "jsHeapUsedBytes": 76570992,
+          "nodes": 10534,
+          "documents": 3,
+          "eventListeners": 116218,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 377887,
+          "jsHeapUsedBytes": 76657800,
+          "nodes": 10527,
+          "documents": 3,
+          "eventListeners": 116217,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 394640,
+          "jsHeapUsedBytes": 76668704,
+          "nodes": 10530,
+          "documents": 3,
+          "eventListeners": 116218,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 412571,
+          "jsHeapUsedBytes": 77381456,
+          "nodes": 10529,
+          "documents": 3,
+          "eventListeners": 116217,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 429333,
+          "jsHeapUsedBytes": 77371516,
+          "nodes": 10532,
+          "documents": 3,
+          "eventListeners": 116218,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 446273,
+          "jsHeapUsedBytes": 77682276,
+          "nodes": 10530,
+          "documents": 3,
+          "eventListeners": 116217,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 463094,
+          "jsHeapUsedBytes": 77687672,
+          "nodes": 10533,
+          "documents": 3,
+          "eventListeners": 116218,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 480624,
+          "jsHeapUsedBytes": 77895444,
+          "nodes": 10536,
+          "documents": 3,
+          "eventListeners": 116217,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 497361,
+          "jsHeapUsedBytes": 77931396,
+          "nodes": 10539,
+          "documents": 3,
+          "eventListeners": 116218,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 514260,
+          "jsHeapUsedBytes": 77995952,
+          "nodes": 10532,
+          "documents": 3,
+          "eventListeners": 116217,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 531012,
+          "jsHeapUsedBytes": 78009952,
+          "nodes": 10535,
+          "documents": 3,
+          "eventListeners": 116218,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 548895,
+          "jsHeapUsedBytes": 78268228,
+          "nodes": 10534,
+          "documents": 3,
+          "eventListeners": 116217,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 565659,
+          "jsHeapUsedBytes": 78280192,
+          "nodes": 10537,
+          "documents": 3,
+          "eventListeners": 116218,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 582594,
+          "jsHeapUsedBytes": 78389404,
+          "nodes": 10535,
+          "documents": 3,
+          "eventListeners": 116217,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        },
+        {
+          "elapsedMs": 599414,
+          "jsHeapUsedBytes": 78407692,
+          "nodes": 10538,
+          "documents": 3,
+          "eventListeners": 116218,
+          "railWidth": 0,
+          "threadLayoutMode": "control"
+        }
+      ],
+      "lateTrends": {
+        "jsHeapUsedBytes": {
+          "sampleCount": 18,
+          "first": 75979676,
+          "last": 78407692,
+          "slopePerMinute": 500952.5484334242
+        },
+        "nodes": {
+          "sampleCount": 18,
+          "first": 10525,
+          "last": 10538,
+          "slopePerMinute": 2.19888956077181
+        },
+        "eventListeners": {
+          "sampleCount": 18,
+          "first": 116217,
+          "last": 116218,
+          "slopePerMinute": 0
+        }
+      },
+      "rawReport": ".tmp-review/live-monkey-20261015/soak-control/layout-memory-soak-large-M-cb5b1-churn-remain-memory-bounded/layout-memory-soak.json"
+    },
+    "mm95Isolated": {
+      "originalOutcome": "passed",
+      "originalFailure": null,
+      "mode": "deck",
+      "mattermostVersion": "9.5.11",
+      "actualDurationMs": 601108,
+      "workloadSteps": 346,
+      "rhsMutationOperations": 31900,
+      "createdPostCount": 384,
+      "cleanupFailureCount": 0,
+      "sampleCount": 36,
+      "sampledRailWidths": [
+        52
+      ],
+      "sampledLayoutModes": [
+        "collapsed"
+      ],
+      "pageCrash": null,
+      "oomSignals": [],
+      "pageErrorMessages": [
+        "O: Not authorized"
+      ],
+      "analysis": {
+        "analyzedSampleCount": 32,
+        "warmupMs": 60000,
+        "heap": {
+          "firstMedian": 85495560,
+          "lastMedian": 95816568,
+          "retainedGrowth": 10321008,
+          "slopePerMinute": 1051203.9059079157,
+          "monotonicIncreaseRatio": 0.0967741935483871,
+          "runaway": false,
+          "minimum": 75860516,
+          "maximum": 95849824
+        },
+        "embedderHeap": {
+          "firstMedian": 44152904,
+          "lastMedian": 46977736,
+          "retainedGrowth": 2824832,
+          "slopePerMinute": 232690.4702382435,
+          "monotonicIncreaseRatio": 0.0967741935483871,
+          "runaway": false,
+          "minimum": 36772880,
+          "maximum": 47172312
+        },
+        "backingStorage": {
+          "firstMedian": 23140135,
+          "lastMedian": 23163865,
+          "retainedGrowth": 23730,
+          "slopePerMinute": 182.79116061663373,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 23136783,
+          "maximum": 23411627
+        },
+        "nodes": {
+          "firstMedian": 13349,
+          "lastMedian": 13743,
+          "retainedGrowth": 394,
+          "slopePerMinute": 3.0886344614161563,
+          "monotonicIncreaseRatio": 0.06451612903225806,
+          "runaway": false,
+          "minimum": 10833,
+          "maximum": 13745
+        },
+        "documents": {
+          "firstMedian": 3,
+          "lastMedian": 3,
+          "retainedGrowth": 0,
+          "slopePerMinute": 0,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 3,
+          "maximum": 3
+        },
+        "eventListeners": {
+          "firstMedian": 152243,
+          "lastMedian": 155556,
+          "retainedGrowth": 3313,
+          "slopePerMinute": 0.3161172408560493,
+          "monotonicIncreaseRatio": 0.06451612903225806,
+          "runaway": false,
+          "minimum": 116693,
+          "maximum": 155562
+        },
+        "userTimingMeasures": {
+          "firstMedian": 0,
+          "lastMedian": 0,
+          "retainedGrowth": 0,
+          "slopePerMinute": 0,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 0,
+          "maximum": 0
+        },
+        "hostLayoutMeasurements": {
+          "firstMedian": 119,
+          "lastMedian": 737,
+          "retainedGrowth": 618,
+          "slopePerMinute": 74.19845652676233,
+          "monotonicIncreaseRatio": 1,
+          "runaway": false,
+          "minimum": 100,
+          "maximum": 748
+        },
+        "hostLayoutMeasurementDelta": 648,
+        "workloadStepDelta": 305,
+        "allowedHostLayoutMeasurementDelta": 1840,
+        "thresholds": {
+          "heapGrowthBytes": 25165824,
+          "heapSlopeBytesPerMinute": 2097152,
+          "nodeGrowth": 667.45,
+          "nodeSlopePerMinute": 50,
+          "documentGrowth": 1,
+          "documentSlopePerMinute": 0.2,
+          "eventListenerGrowth": 7612.150000000001,
+          "eventListenerSlopePerMinute": 10,
+          "userTimingMeasureGrowth": 20,
+          "userTimingMeasureSlopePerMinute": 2,
+          "hostLayoutMeasurementsPerWorkloadStep": 6,
+          "hostLayoutMeasurementAllowance": 10
+        }
+      },
+      "reviewChecks": [
+        {
+          "metric": "heap",
+          "passed": true
+        },
+        {
+          "metric": "nodes",
+          "passed": true
+        },
+        {
+          "metric": "documents",
+          "passed": true
+        },
+        {
+          "metric": "eventListeners",
+          "passed": true
+        },
+        {
+          "metric": "userTimingMeasures",
+          "passed": true
+        },
+        {
+          "metric": "hostLayoutMeasurements",
+          "passed": true
+        }
+      ],
+      "samples": [
+        {
+          "elapsedMs": 1535,
+          "jsHeapUsedBytes": 80337168,
+          "nodes": 10941,
+          "documents": 3,
+          "eventListeners": 122829,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 18432,
+          "jsHeapUsedBytes": 80896940,
+          "nodes": 10956,
+          "documents": 3,
+          "eventListeners": 122834,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 35595,
+          "jsHeapUsedBytes": 73771148,
+          "nodes": 10851,
+          "documents": 3,
+          "eventListeners": 116574,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 52576,
+          "jsHeapUsedBytes": 73443484,
+          "nodes": 10854,
+          "documents": 3,
+          "eventListeners": 116575,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 70310,
+          "jsHeapUsedBytes": 75860516,
+          "nodes": 10833,
+          "documents": 3,
+          "eventListeners": 116693,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 87320,
+          "jsHeapUsedBytes": 85495560,
+          "nodes": 13353,
+          "documents": 3,
+          "eventListeners": 152243,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 104825,
+          "jsHeapUsedBytes": 86417720,
+          "nodes": 13349,
+          "documents": 3,
+          "eventListeners": 152243,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 122210,
+          "jsHeapUsedBytes": 86590976,
+          "nodes": 13352,
+          "documents": 3,
+          "eventListeners": 152244,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 140538,
+          "jsHeapUsedBytes": 87417264,
+          "nodes": 13377,
+          "documents": 3,
+          "eventListeners": 152246,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 157522,
+          "jsHeapUsedBytes": 87529812,
+          "nodes": 13380,
+          "documents": 3,
+          "eventListeners": 152247,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 174811,
+          "jsHeapUsedBytes": 88705280,
+          "nodes": 13726,
+          "documents": 3,
+          "eventListeners": 155555,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 191920,
+          "jsHeapUsedBytes": 88771596,
+          "nodes": 13729,
+          "documents": 3,
+          "eventListeners": 155556,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 210050,
+          "jsHeapUsedBytes": 91271780,
+          "nodes": 13732,
+          "documents": 3,
+          "eventListeners": 155555,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 227077,
+          "jsHeapUsedBytes": 91465428,
+          "nodes": 13735,
+          "documents": 3,
+          "eventListeners": 155556,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 244234,
+          "jsHeapUsedBytes": 91683596,
+          "nodes": 13728,
+          "documents": 3,
+          "eventListeners": 155555,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 261339,
+          "jsHeapUsedBytes": 91704780,
+          "nodes": 13731,
+          "documents": 3,
+          "eventListeners": 155556,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 279453,
+          "jsHeapUsedBytes": 92064572,
+          "nodes": 13730,
+          "documents": 3,
+          "eventListeners": 155555,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 296364,
+          "jsHeapUsedBytes": 92186948,
+          "nodes": 13733,
+          "documents": 3,
+          "eventListeners": 155556,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 313585,
+          "jsHeapUsedBytes": 92756592,
+          "nodes": 13731,
+          "documents": 3,
+          "eventListeners": 155555,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 330672,
+          "jsHeapUsedBytes": 93540388,
+          "nodes": 13734,
+          "documents": 3,
+          "eventListeners": 155562,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 348600,
+          "jsHeapUsedBytes": 93661984,
+          "nodes": 13737,
+          "documents": 3,
+          "eventListeners": 155555,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 365565,
+          "jsHeapUsedBytes": 93862236,
+          "nodes": 13740,
+          "documents": 3,
+          "eventListeners": 155556,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 382818,
+          "jsHeapUsedBytes": 93883912,
+          "nodes": 13733,
+          "documents": 3,
+          "eventListeners": 155555,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 399873,
+          "jsHeapUsedBytes": 93896908,
+          "nodes": 13736,
+          "documents": 3,
+          "eventListeners": 155556,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 418027,
+          "jsHeapUsedBytes": 94501476,
+          "nodes": 13735,
+          "documents": 3,
+          "eventListeners": 155555,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 434911,
+          "jsHeapUsedBytes": 94692824,
+          "nodes": 13738,
+          "documents": 3,
+          "eventListeners": 155556,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 452081,
+          "jsHeapUsedBytes": 94912024,
+          "nodes": 13736,
+          "documents": 3,
+          "eventListeners": 155555,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 469158,
+          "jsHeapUsedBytes": 95019172,
+          "nodes": 13739,
+          "documents": 3,
+          "eventListeners": 155556,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 487118,
+          "jsHeapUsedBytes": 95299664,
+          "nodes": 13742,
+          "documents": 3,
+          "eventListeners": 155555,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 504059,
+          "jsHeapUsedBytes": 95340536,
+          "nodes": 13745,
+          "documents": 3,
+          "eventListeners": 155556,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 521328,
+          "jsHeapUsedBytes": 95792388,
+          "nodes": 13738,
+          "documents": 3,
+          "eventListeners": 155558,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 538383,
+          "jsHeapUsedBytes": 95453036,
+          "nodes": 13741,
+          "documents": 3,
+          "eventListeners": 155556,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 556476,
+          "jsHeapUsedBytes": 95642900,
+          "nodes": 13740,
+          "documents": 3,
+          "eventListeners": 155555,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 573386,
+          "jsHeapUsedBytes": 95706856,
+          "nodes": 13743,
+          "documents": 3,
+          "eventListeners": 155556,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 590640,
+          "jsHeapUsedBytes": 95816568,
+          "nodes": 13741,
+          "documents": 3,
+          "eventListeners": 155555,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        },
+        {
+          "elapsedMs": 601093,
+          "jsHeapUsedBytes": 95849824,
+          "nodes": 13744,
+          "documents": 3,
+          "eventListeners": 155556,
+          "railWidth": 52,
+          "threadLayoutMode": "collapsed"
+        }
+      ],
+      "lateTrends": {
+        "jsHeapUsedBytes": {
+          "sampleCount": 18,
+          "first": 92756592,
+          "last": 95849824,
+          "slopePerMinute": 573950.7157550061
+        },
+        "nodes": {
+          "sampleCount": 18,
+          "first": 13731,
+          "last": 13744,
+          "slopePerMinute": 2.1661275415896486
+        },
+        "eventListeners": {
+          "sampleCount": 18,
+          "first": 155555,
+          "last": 155556,
+          "slopePerMinute": 0
+        }
+      },
+      "rawReport": ".tmp-review/live-monkey-20261015/soak-deck-isolated/layout-memory-soak-large-M-cb5b1-churn-remain-memory-bounded/layout-memory-soak.json"
+    },
+    "mm117Visible": {
+      "originalOutcome": "passed",
+      "originalFailure": null,
+      "mode": "auto-adjust-off",
+      "mattermostVersion": "11.7.12",
+      "actualDurationMs": 601183,
+      "workloadSteps": 338,
+      "rhsMutationOperations": 32000,
+      "createdPostCount": 384,
+      "cleanupFailureCount": 0,
+      "sampleCount": 35,
+      "sampledRailWidths": [
+        644
+      ],
+      "sampledLayoutModes": [
+        "compact"
+      ],
+      "pageCrash": null,
+      "oomSignals": [],
+      "pageErrorMessages": [
+        "d: Not authorized",
+        "d: Unable to find an existing account matching your username for this team. This team may require an invite from the team owner to join."
+      ],
+      "analysis": {
+        "analyzedSampleCount": 31,
+        "warmupMs": 60000,
+        "heap": {
+          "firstMedian": 106089436,
+          "lastMedian": 111955064,
+          "retainedGrowth": 5865628,
+          "slopePerMinute": 592121.948308185,
+          "monotonicIncreaseRatio": 0.03333333333333333,
+          "runaway": false,
+          "minimum": 105820748,
+          "maximum": 112022184
+        },
+        "embedderHeap": {
+          "firstMedian": 25958152,
+          "lastMedian": 26482816,
+          "retainedGrowth": 524664,
+          "slopePerMinute": 63322.11651122464,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 25545968,
+          "maximum": 27057280
+        },
+        "backingStorage": {
+          "firstMedian": 23454036,
+          "lastMedian": 23459476,
+          "retainedGrowth": 5440,
+          "slopePerMinute": 142.94493027653036,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 23452707,
+          "maximum": 23462921
+        },
+        "nodes": {
+          "firstMedian": 12352,
+          "lastMedian": 12600,
+          "retainedGrowth": 248,
+          "slopePerMinute": 0,
+          "monotonicIncreaseRatio": 0.03333333333333333,
+          "runaway": false,
+          "minimum": 12352,
+          "maximum": 12600
+        },
+        "documents": {
+          "firstMedian": 3,
+          "lastMedian": 3,
+          "retainedGrowth": 0,
+          "slopePerMinute": 0,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 3,
+          "maximum": 3
+        },
+        "eventListeners": {
+          "firstMedian": 8430,
+          "lastMedian": 8551,
+          "retainedGrowth": 121,
+          "slopePerMinute": 0,
+          "monotonicIncreaseRatio": 0.03333333333333333,
+          "runaway": false,
+          "minimum": 8430,
+          "maximum": 8552
+        },
+        "userTimingMeasures": {
+          "firstMedian": 1,
+          "lastMedian": 1,
+          "retainedGrowth": 0,
+          "slopePerMinute": 0,
+          "monotonicIncreaseRatio": 0,
+          "runaway": false,
+          "minimum": 1,
+          "maximum": 1
+        },
+        "hostLayoutMeasurements": {
+          "firstMedian": 119,
+          "lastMedian": 725,
+          "retainedGrowth": 606,
+          "slopePerMinute": 72.96748481248368,
+          "monotonicIncreaseRatio": 1,
+          "runaway": false,
+          "minimum": 97,
+          "maximum": 742
+        },
+        "hostLayoutMeasurementDelta": 645,
+        "workloadStepDelta": 298,
+        "allowedHostLayoutMeasurementDelta": 1798,
+        "thresholds": {
+          "heapGrowthBytes": 25165824,
+          "heapSlopeBytesPerMinute": 2097152,
+          "nodeGrowth": 617.6,
+          "nodeSlopePerMinute": 50,
+          "documentGrowth": 1,
+          "documentSlopePerMinute": 0.2,
+          "eventListenerGrowth": 421.5,
+          "eventListenerSlopePerMinute": 10,
+          "userTimingMeasureGrowth": 20,
+          "userTimingMeasureSlopePerMinute": 2,
+          "hostLayoutMeasurementsPerWorkloadStep": 6,
+          "hostLayoutMeasurementAllowance": 10
+        }
+      },
+      "reviewChecks": [
+        {
+          "metric": "heap",
+          "passed": true
+        },
+        {
+          "metric": "nodes",
+          "passed": true
+        },
+        {
+          "metric": "documents",
+          "passed": true
+        },
+        {
+          "metric": "eventListeners",
+          "passed": true
+        },
+        {
+          "metric": "userTimingMeasures",
+          "passed": true
+        },
+        {
+          "metric": "hostLayoutMeasurements",
+          "passed": true
+        }
+      ],
+      "samples": [
+        {
+          "elapsedMs": 1759,
+          "jsHeapUsedBytes": 99760468,
+          "nodes": 9950,
+          "documents": 3,
+          "eventListeners": 6843,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 18720,
+          "jsHeapUsedBytes": 89758736,
+          "nodes": 9950,
+          "documents": 3,
+          "eventListeners": 6841,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 36033,
+          "jsHeapUsedBytes": 103282156,
+          "nodes": 12349,
+          "documents": 3,
+          "eventListeners": 8432,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 53493,
+          "jsHeapUsedBytes": 103034428,
+          "nodes": 12349,
+          "documents": 3,
+          "eventListeners": 8432,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 70885,
+          "jsHeapUsedBytes": 105820748,
+          "nodes": 12352,
+          "documents": 3,
+          "eventListeners": 8430,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 88366,
+          "jsHeapUsedBytes": 106089436,
+          "nodes": 12352,
+          "documents": 3,
+          "eventListeners": 8430,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 106177,
+          "jsHeapUsedBytes": 106429140,
+          "nodes": 12352,
+          "documents": 3,
+          "eventListeners": 8431,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 123093,
+          "jsHeapUsedBytes": 106751436,
+          "nodes": 12352,
+          "documents": 3,
+          "eventListeners": 8431,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 142080,
+          "jsHeapUsedBytes": 107507848,
+          "nodes": 12352,
+          "documents": 3,
+          "eventListeners": 8432,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 159555,
+          "jsHeapUsedBytes": 108895512,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 177432,
+          "jsHeapUsedBytes": 108887996,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8552,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 194416,
+          "jsHeapUsedBytes": 108990628,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 213319,
+          "jsHeapUsedBytes": 109318928,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8550,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 230761,
+          "jsHeapUsedBytes": 109502060,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8550,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 248599,
+          "jsHeapUsedBytes": 109483544,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 265539,
+          "jsHeapUsedBytes": 109583676,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 284578,
+          "jsHeapUsedBytes": 109693928,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8552,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 302090,
+          "jsHeapUsedBytes": 109749584,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 319907,
+          "jsHeapUsedBytes": 110281208,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 336802,
+          "jsHeapUsedBytes": 110587008,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 355675,
+          "jsHeapUsedBytes": 110848792,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8550,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 373193,
+          "jsHeapUsedBytes": 111051024,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8550,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 391011,
+          "jsHeapUsedBytes": 111010344,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 407909,
+          "jsHeapUsedBytes": 111110524,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 426934,
+          "jsHeapUsedBytes": 111550028,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8552,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 444397,
+          "jsHeapUsedBytes": 111706532,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 462228,
+          "jsHeapUsedBytes": 111689848,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 479098,
+          "jsHeapUsedBytes": 111758520,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 497944,
+          "jsHeapUsedBytes": 111841628,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8550,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 515399,
+          "jsHeapUsedBytes": 111942452,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8550,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 533268,
+          "jsHeapUsedBytes": 111804060,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 550172,
+          "jsHeapUsedBytes": 111927488,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 569154,
+          "jsHeapUsedBytes": 111889192,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8552,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 586636,
+          "jsHeapUsedBytes": 111955064,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        },
+        {
+          "elapsedMs": 601168,
+          "jsHeapUsedBytes": 112022184,
+          "nodes": 12600,
+          "documents": 3,
+          "eventListeners": 8551,
+          "railWidth": 644,
+          "threadLayoutMode": "compact"
+        }
+      ],
+      "lateTrends": {
+        "jsHeapUsedBytes": {
+          "sampleCount": 18,
+          "first": 109749584,
+          "last": 112022184,
+          "slopePerMinute": 336261.5342239361
+        },
+        "nodes": {
+          "sampleCount": 18,
+          "first": 12600,
+          "last": 12600,
+          "slopePerMinute": 0
+        },
+        "eventListeners": {
+          "sampleCount": 18,
+          "first": 8551,
+          "last": 8551,
+          "slopePerMinute": 0
+        }
+      },
+      "rawReport": ".tmp-review/live-monkey-20261015/soak-visible-mm117-complete/layout-memory-soak-large-M-cb5b1-churn-remain-memory-bounded/layout-memory-soak.json"
+    }
+  }
+}

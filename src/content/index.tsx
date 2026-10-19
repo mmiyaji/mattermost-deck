@@ -8,6 +8,8 @@ import {
   disposeTraceLogRuntime,
 } from "../traceLog";
 import { configureMattermostBaseUrl } from "../mattermost/api";
+import { DialogMutationTracker } from "./dialogMutations";
+import { startVisibleInterval } from "./visibleInterval";
 
 const ROOT_ID = "mattermost-deck-root";
 const STYLE_ID = "mattermost-deck-page-style";
@@ -53,11 +55,13 @@ if (previousRuntime && typeof previousRuntime.dispose === "function") {
 }
 
 let appRoot: ReturnType<typeof createRoot> | null = null;
-let routePoller: number | null = null;
 let routeNotifyTimer: number | null = null;
 let routeAnimationFrame: number | null = null;
 let dialogMutationTimer: number | null = null;
 let dialogObserver: MutationObserver | null = null;
+let dialogMutationTracker: DialogMutationTracker | null = null;
+let routeWatcherInstalled = false;
+let stopRouteFallback: (() => void) | null = null;
 let cleanupTimer: number | null = null;
 let sessionHeartbeatTimer: number | null = null;
 let settingsUnsubscribe: (() => void) | null = null;
@@ -514,10 +518,9 @@ function disposeContentRuntime(): void {
 
   dialogObserver?.disconnect();
   dialogObserver = null;
-  if (routePoller !== null) {
-    window.clearInterval(routePoller);
-    routePoller = null;
-  }
+  dialogMutationTracker = null;
+  stopRouteFallback?.();
+  stopRouteFallback = null;
   if (routeNotifyTimer !== null) {
     window.clearTimeout(routeNotifyTimer);
     routeNotifyTimer = null;
@@ -705,15 +708,16 @@ async function render(): Promise<void> {
 }
 
 function installRouteWatcher(): void {
-  if (runtimeDisposed || routePoller !== null) {
+  if (runtimeDisposed || routeWatcherInstalled) {
     return;
   }
+  routeWatcherInstalled = true;
 
   const { pushState, replaceState } = window.history;
   originalPushState = pushState;
   originalReplaceState = replaceState;
   const notify = (): void => {
-    if (runtimeDisposed) {
+    if (runtimeDisposed || document.hidden) {
       return;
     }
     const routeKey = `${window.location.pathname}${window.location.hash}`;
@@ -758,7 +762,10 @@ function installRouteWatcher(): void {
   };
   window.history.replaceState = patchedReplaceState;
 
-  const scheduleDialogNotify = (): void => {
+  const scheduleDialogNotify = (records: MutationRecord[]): void => {
+    if (!dialogMutationTracker?.isRelevant(records)) {
+      return;
+    }
     if (runtimeDisposed || dialogMutationTimer !== null) {
       return;
     }
@@ -770,14 +777,17 @@ function installRouteWatcher(): void {
 
   window.addEventListener("popstate", notify);
   window.addEventListener("hashchange", notify);
+  dialogMutationTracker = new DialogMutationTracker(document.body);
   dialogObserver = new MutationObserver(scheduleDialogNotify);
   dialogObserver.observe(document.body, {
     subtree: true,
     childList: true,
     attributes: true,
-    attributeFilter: ["aria-hidden", "aria-modal", "class", "role", "style"],
+    attributeFilter: ["aria-hidden", "aria-modal", "class", "hidden", "role", "style"],
   });
-  routePoller = window.setInterval(notify, ROUTE_FALLBACK_POLL_MS);
+  stopRouteFallback = startVisibleInterval(() => {
+    notify();
+  }, ROUTE_FALLBACK_POLL_MS);
 }
 
 function startContentRuntime(): void {

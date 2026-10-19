@@ -6,6 +6,7 @@ import {
   type CDPSession,
   type Request,
   type Route,
+  type Page,
 } from "@playwright/test";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -77,14 +78,56 @@ interface PostCardDebugState {
   viewportScrollTop?: number | null;
 }
 
-function expectStablePixels(
-  actual: Record<string, number | null | undefined>,
-  baseline: Record<string, number | null | undefined>,
-  keys: string[],
+async function clickPostCardWithPointer(
+  page: Page,
+  card: PostCardDebugState,
+): Promise<void> {
+  const root = await page.locator("#mattermost-deck-root").boundingBox();
+  if (
+    !root ||
+    typeof card.top !== "number" ||
+    typeof card.height !== "number"
+  ) {
+    throw new Error("Post card bounds are unavailable for pointer click");
+  }
+  const x = root.x + root.width / 2;
+  const y = card.top + card.height / 2;
+  expect(x).toBeGreaterThan(root.x);
+  expect(x).toBeLessThan(root.x + root.width);
+  expect(y).toBeGreaterThan(root.y);
+  expect(y).toBeLessThan(root.y + root.height);
+  expect(y).toBeGreaterThan(card.viewportTop ?? root.y);
+  await page.mouse.click(
+    x,
+    y,
+  );
+}
+
+async function expectPointerClickConfirmation(
+  page: Page,
+  card: PostCardDebugState,
+): Promise<void> {
+  const dialogPromise = page.waitForEvent("dialog", { timeout: 3_000 });
+  const handledDialogPromise = dialogPromise.then(async (dialog) => {
+    const type = dialog.type();
+    await dialog.dismiss();
+    return type;
+  });
+  const [, dialogType] = await Promise.all([
+    clickPostCardWithPointer(page, card),
+    handledDialogPromise,
+  ]);
+  expect(dialogType).toBe("confirm");
+}
+
+function expectStablePixels<T extends object>(
+  actual: T,
+  baseline: T,
+  keys: Array<Extract<keyof T, string>>,
 ): void {
   for (const key of keys) {
-    const actualValue = actual[key];
-    const baselineValue = baseline[key];
+    const actualValue = actual[key] as number | null | undefined;
+    const baselineValue = baseline[key] as number | null | undefined;
     expect(actualValue, `${key} should be measured`).not.toBeNull();
     expect(baselineValue, `${key} baseline should be measured`).not.toBeNull();
     expect(
@@ -463,6 +506,7 @@ test("all-teams mention refresh keeps rows stable until updates are applied", as
           "mattermostDeck.wsPat.v1": token,
           "mattermostDeck.persistPat.v1": "true",
           "mattermostDeck.pollingIntervalSeconds.v1": "120",
+          "mattermostDeck.postClickAction.v1": "ask",
           [layoutStorageKey]: [{
             id: "mentions",
             type: "mentions",
@@ -512,7 +556,7 @@ test("all-teams mention refresh keeps rows stable until updates are applied", as
     page.on("requestfinished", markSearchFinished);
     page.on("requestfailed", markSearchFinished);
     let holdInitialLateRequests = true;
-    let resolveInitialLateRequests = () => undefined;
+    let resolveInitialLateRequests: () => void = () => {};
     let initialLateRequestCount = 0;
     const initialLateRequestsGate = new Promise<void>((resolve) => {
       resolveInitialLateRequests = resolve;
@@ -739,6 +783,19 @@ test("all-teams mention refresh keeps rows stable until updates are applied", as
       present: true,
       clickable: true,
     });
+    const realtimeCardState = await debugRequest<PostCardDebugState>(
+      page,
+      "getPostCardState",
+      {
+        columnId: mentionsColumn!.id,
+        text: initialRealtimeMarker,
+      },
+    );
+    expect(realtimeCardState).toMatchObject({
+      present: true,
+      clickable: true,
+    });
+    await expectPointerClickConfirmation(page, realtimeCardState);
     await page.screenshot({
       path: testInfo.outputPath("mentions-progressive-complete.png"),
       fullPage: true,
@@ -886,8 +943,8 @@ test("all-teams mention refresh keeps rows stable until updates are applied", as
       },
     );
 
-    let releaseEarlyRequests = () => undefined;
-    let releaseLateRequests = () => undefined;
+    let releaseEarlyRequests: () => void = () => {};
+    let releaseLateRequests: () => void = () => {};
     let holdEarlyRequests = true;
     let holdLateRequests = true;
     const earlyGate = new Promise<void>((resolve) => {
@@ -1030,11 +1087,8 @@ test("all-teams mention refresh keeps rows stable until updates are applied", as
           text: cacheOnlyMarker,
         },
       );
-    expect(cachedCardState).toMatchObject({
-      present: true,
-      clickable: false,
-      role: null,
-    });
+    expect(cachedCardState.present).toBe(true);
+    await expectPointerClickConfirmation(page, cachedCardState);
     const baselineScrollTop = await debugRequest<number>(
       page,
       "setMentionScrollTop",
@@ -1068,6 +1122,11 @@ test("all-teams mention refresh keeps rows stable until updates are applied", as
           text: cacheOnlyMarker,
         },
       );
+    expect(scrolledCachedCardState).toMatchObject({
+      present: true,
+      clickable: true,
+      role: "button",
+    });
     await page.screenshot({
       path: testInfo.outputPath("mentions-cache-revalidating.png"),
       fullPage: true,

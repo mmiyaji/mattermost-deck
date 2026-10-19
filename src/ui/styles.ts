@@ -559,6 +559,85 @@ export const railCssText = `
     display: none;
   }
 
+  .deck-topbar--collapsed .deck-topbar-actions {
+    flex: 0 0 auto;
+    gap: 4px;
+  }
+
+  .deck-topbar--collapsed {
+    position: relative;
+  }
+
+  .deck-topbar--collapsed .deck-actions-wrap {
+    position: static;
+  }
+
+  .deck-topbar--collapsed .deck-actions-wrap > .deck-add-menu--compact {
+    top: calc(100% + 8px);
+    right: 12px;
+    width: min(320px, calc(100% - 24px));
+    min-width: 0;
+    max-width: calc(100% - 24px);
+  }
+
+  .deck-topbar--collapsed .deck-topbar-copy {
+    flex: 1 1 0;
+    overflow: hidden;
+  }
+
+  .deck-topbar--collapsed .deck-topbar-copy h1 {
+    display: flex;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .deck-topbar--collapsed .deck-topbar-copy h1 > span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .deck-topbar--collapsed .deck-version {
+    display: none;
+  }
+
+  .deck-topbar--collapsed .deck-status-badge {
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .deck-topbar--collapsed .deck-status-badge-copy {
+    gap: 4px;
+  }
+
+  .deck-topbar--collapsed .deck-topbar-actions .deck-add-wrap:not(.deck-actions-wrap) {
+    flex: 0 0 36px;
+    width: 36px;
+  }
+
+  .deck-topbar--collapsed .deck-topbar-button {
+    width: 36px;
+    min-width: 36px;
+    padding: 0;
+    gap: 0;
+    justify-content: center;
+  }
+
+  .deck-topbar--collapsed .deck-topbar-button:not(.deck-settings-button) .deck-button-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
   .deck-plus-icon {
     width: 12px;
     height: 12px;

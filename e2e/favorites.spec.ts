@@ -84,6 +84,9 @@ test("favorites persist, sync across tabs, use cached posts offline, and reconci
     await page.locator('input[name="password-input"]').fill(state.memberUser.password);
     await page.getByRole("button", { name: /log in/i }).click();
     await page.waitForURL(/\/channels\//);
+    // The account may belong to other teams; pin the fixture team after login.
+    await page.goto(`${baseUrl}/${state.team.name}/channels/town-square`);
+    await page.waitForURL(`${baseUrl}/${state.team.name}/channels/town-square`);
     const url = page.url();
     await expect.poll(async () => (await deck(url, "read", "channel"))?.text).toContain(marker);
     await deck(url, "star", "channel");

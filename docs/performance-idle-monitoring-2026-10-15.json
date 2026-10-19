@@ -1,0 +1,100 @@
+{
+  "measuredOn": "2026-10-15",
+  "timezone": "Asia/Tokyo",
+  "baseline": {
+    "sourceCommit": "fd8fecca7426b841fc5e3424ac063776784a92c9",
+    "contentJsSha256": "C1BE26D1278213D4E0FCDD8128C2A96A49E86C9158FA4B508E32AB4AE40104B8",
+    "backgroundJsSha256": "AFBEF26A5C56F219E1B3C81238C2FA2783483023CC57FCA6441BB2B6EE9E60AB"
+  },
+  "after": {
+    "sourceCommit": "ec2c96f70aab46d97b948dbf57252be90fabf313",
+    "contentJsSha256": "64C025384A6AB93037B09B9B6C4214A2C00F9626E112EE9CAC20960517F9D880",
+    "backgroundJsSha256": "AFBEF26A5C56F219E1B3C81238C2FA2783483023CC57FCA6441BB2B6EE9E60AB"
+  },
+  "fixture": {
+    "browser": "Chromium headless with ephemeral extension profile",
+    "server": "Deterministic localhost Mattermost-like API",
+    "domWorkload": "250 ordinary post-like rows; four replacement batches per 10-second phase; each batch changes class, inline style, and child text",
+    "notMeasured": "Real Mattermost post rendering or virtualization behavior",
+    "counter": "Blocking-dialog selector calls in the extension isolated world, split between Document and Element querySelectorAll",
+    "taskDuration": "CDP page-wide TaskDuration; includes fixture, extension, probe, and measurement overhead",
+    "hiddenSimulation": "95 seconds with document.hidden/visibilityState set to hidden and visibilitychange dispatched in the extension isolated world; Chromium window remains headless and active"
+  },
+  "visibleMutationWindows": {
+    "durationMsPerRepeat": 10000,
+    "repeatsPerBuild": 3,
+    "baseline": {
+      "fullDocumentDialogScans": [6, 6, 6],
+      "elementSubtreeDialogScans": [0, 0, 0],
+      "taskDurationMs": [31.864, 28.578, 32.787],
+      "heapDeltaBytes": [84676, 21028, 11828],
+      "nodeDelta": [500, 0, 0],
+      "listenerDelta": [0, 0, 0]
+    },
+    "after": {
+      "fullDocumentDialogScans": [2, 2, 2],
+      "elementSubtreeDialogScans": [0, 0, 0],
+      "taskDurationMs": [36.181, 27.403, 32.688],
+      "heapDeltaBytes": [112980, 20804, 15096],
+      "nodeDelta": [500, 0, 0],
+      "listenerDelta": [0, 0, 0]
+    },
+    "interpretation": "Full-document scans declined 6 to 2 per 10-second phase. The remaining two are consistent with the 5-second visible route fallback. TaskDuration medians were 31.864ms baseline and 32.688ms after; the page-wide noisy samples do not establish a CPU-time improvement. First-phase node growth is fixture initialization."
+  },
+  "hiddenPhase": {
+    "durationMs": 95000,
+    "baseline": {
+      "fullDocumentDialogScans": 19,
+      "elementSubtreeDialogScans": 0,
+      "healthHookFetches": 0,
+      "sessionHeartbeatFetches": 2,
+      "apiRequestDelta": {
+        "/api/v4/users/me": 2,
+        "/api/v4/users/me/teams": 0,
+        "/api/v4/users/uuuuuuuuuuuuuuuuuuuuuuuuuu/teams/unread": 0,
+        "/api/v4/users/uuuuuuuuuuuuuuuuuuuuuuuuuu/groups": 0,
+        "/api/v4/users/uuuuuuuuuuuuuuuuuuuuuuuuuu/preferences": 0,
+        "/api/v4/config/client": 0,
+        "/api/v4/teams/tttttttttttttttttttttttttt/channels/name/town-square": 0
+      }
+    },
+    "after": {
+      "fullDocumentDialogScans": 0,
+      "elementSubtreeDialogScans": 0,
+      "healthHookFetches": 0,
+      "sessionHeartbeatFetches": 2,
+      "apiRequestDelta": {
+        "/api/v4/users/me": 2,
+        "/api/v4/users/me/teams": 0,
+        "/api/v4/users/uuuuuuuuuuuuuuuuuuuuuuuuuu/teams/unread": 0,
+        "/api/v4/users/uuuuuuuuuuuuuuuuuuuuuuuuuu/groups": 0,
+        "/api/v4/users/uuuuuuuuuuuuuuuuuuuuuuuuuu/preferences": 0,
+        "/api/v4/config/client": 0,
+        "/api/v4/teams/tttttttttttttttttttttttttt/channels/name/town-square": 0
+      }
+    },
+    "interpretation": "Route fallback scans stopped while hidden. The first API health timer tick did not qualify as idle for 90 seconds after app-ready, so health fetch count was zero in both runs; no health-network reduction is claimed. The two /users/me requests in each run are independently classified session-heartbeat fetches and remain unchanged."
+  },
+  "afterFunctionalCheck": {
+    "durationMs": {
+      "mutation": 3000,
+      "hidden": 1000
+    },
+    "status": "passed",
+    "visibleResumeFullDocumentScansWithin750ms": 1,
+    "dialogRoot": {
+      "remainsMounted": true,
+      "zIndexOnOpen": "0",
+      "zIndexWhenHidden": "999",
+      "zIndexOnShow": "0",
+      "zIndexAfterRemoval": "999"
+    },
+    "note": "Separate short functional check with corrected positioned visible dialog geometry; not included in the full performance timing."
+  },
+  "longAfterRunNote": "The full performance measurements completed, then its first modal z-index assertion failed because the synthetic dialog had no layout box. The corrected short functional run passed; long-run dialog transition values are excluded.",
+  "rawRuns": {
+    "baseline": ".tmp-review/perf-idle-monitoring/baseline-full.json",
+    "afterLong": ".tmp-review/perf-idle-monitoring/after-full.json",
+    "afterFunctional": ".tmp-review/perf-idle-monitoring/after-functional.json"
+  }
+}

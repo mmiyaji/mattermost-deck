@@ -67,6 +67,15 @@ export function resolveDeckCurrentRoute(
   return genericRoute;
 }
 
+export function resolvePostChannelName(
+  target: { channelName?: string } | undefined,
+  currentRouteChannelName: string | null,
+): string | undefined | null {
+  // Cached posts may lack channel metadata. Leave their channel unset so the
+  // permalink resolves the post instead of borrowing an unrelated channel.
+  return target ? target.channelName : currentRouteChannelName;
+}
+
 export function getMattermostPostSelectors(postId: string): string[] {
   const safeId = typeof CSS !== "undefined" && typeof CSS.escape === "function"
     ? CSS.escape(postId)
