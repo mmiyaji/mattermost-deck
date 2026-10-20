@@ -813,12 +813,14 @@ test("thread layout compacts, collapses, opts out, and restores without remounti
       threadLayoutMode: "override",
     });
     // Retain the 32px keyboard request while honoring the native center budget.
-    // Mattermost's measured chrome can constrain the rendered width by 1–2px.
+    // Mattermost versions reserve different amounts of width for their chrome,
+    // so assert growth from the 320px compact width, not a fixed rendered width.
     const keyboardOverride = await debugRequest<DeckDebugState>(page, "getState");
-    expect(keyboardOverride.railWidth).toBeGreaterThanOrEqual(350);
+    expect(keyboardOverride.railWidth).toBeGreaterThan(320);
     expect(keyboardOverride.railWidth).toBeLessThanOrEqual(352);
     const keyboardLayout = await getLayoutSnapshot(page);
     expect(keyboardLayout.appContent).toBeGreaterThanOrEqual(320);
+    expect(keyboardLayout.center).toBeGreaterThanOrEqual(320);
     expect(keyboardLayout.overlap).toBeLessThanOrEqual(MAX_HOST_CENTER_RHS_CHROME_OVERLAP);
     expect(keyboardLayout.boundaryGap).toBeLessThanOrEqual(1);
     await page.locator("#rhsCloseButton").click({ timeout: 10_000 });
