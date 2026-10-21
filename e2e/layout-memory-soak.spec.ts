@@ -10,6 +10,7 @@ import {
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { cleanupPostsInBatches } from "./soak-cleanup.js";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.json");
@@ -462,6 +463,7 @@ async function createLargeDataSet(
   searchTokens: [string, string],
   seed: number,
   createdPostIds: string[],
+  rootPostIds: string[],
 ): Promise<void> {
   const payload = "memory-soak-payload ".repeat(48);
   const rootInputs = channels.flatMap((channel) => (
@@ -483,6 +485,7 @@ async function createLargeDataSet(
       },
     );
     createdPostIds.push(root.id);
+    rootPostIds.push(root.id);
 
     const replyInputs = Array.from({ length: repliesPerRoot }, (_, replyIndex) => replyIndex);
     // Mattermost 9.5 creates the thread row when the first reply arrives.
@@ -504,28 +507,17 @@ async function createLargeDataSet(
   });
 }
 
-async function cleanupPosts(token: string, postIds: string[]): Promise<number> {
-  const reverseIds = [...postIds].reverse();
-  let failureCount = 0;
-  for (let index = 0; index < reverseIds.length; index += cleanupBatchSize) {
-    const results = await Promise.allSettled(
-      reverseIds.slice(index, index + cleanupBatchSize).map((postId) => (
-        apiCall<void>(token, "DELETE", `/posts/${postId}`)
-      )),
-    );
-    const batchFailureCount = results.filter(
-      (result) => result.status === "rejected",
-    ).length;
-    failureCount += batchFailureCount;
-    if (batchFailureCount === results.length) {
-      failureCount += Math.max(
-        0,
-        reverseIds.length - index - results.length,
-      );
-      break;
-    }
-  }
-  return failureCount;
+async function cleanupPosts(
+  token: string,
+  postIds: string[],
+  rootPostIds: string[],
+): Promise<number> {
+  return cleanupPostsInBatches(
+    postIds,
+    rootPostIds,
+    cleanupBatchSize,
+    (postId) => apiCall<void>(token, "DELETE", `/posts/${postId}`),
+  );
 }
 
 async function login(page: Page, username: string, password: string): Promise<void> {
@@ -1013,6 +1005,7 @@ test("large Mattermost data and RHS churn remain memory-bounded", async ({}, tes
     `mmdecksoakb${runId}`,
   ];
   const createdPostIds: string[] = [];
+  const rootPostIds: string[] = [];
   const samples: SoakSample[] = [];
   const oomSignals: string[] = [];
   const pageErrors: string[] = [];
@@ -1064,6 +1057,7 @@ test("large Mattermost data and RHS churn remain memory-bounded", async ({}, tes
       searchTokens,
       soakSeed,
       createdPostIds,
+      rootPostIds,
     );
     report.createdPostCount = createdPostIds.length;
     console.log(`[soak] fixture ready: ${createdPostIds.length} posts, mode=${soakMode}`);
@@ -1331,6 +1325,7 @@ test("large Mattermost data and RHS churn remain memory-bounded", async ({}, tes
     report.cleanupFailureCount = await cleanupPosts(
       state.memberUser.token,
       createdPostIds,
+      rootPostIds,
     );
     let cleanupError: Error | null = null;
     if (report.cleanupFailureCount > 0 && report.outcome === "passed") {
