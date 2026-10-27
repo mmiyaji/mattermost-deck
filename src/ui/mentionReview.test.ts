@@ -52,18 +52,18 @@ describe("durable mention review", () => {
     await ingestReview(prefix, "*", [post("new")]);
     expect(selectReview(values, prefix, "*").map(entry => entry.post.id)).toEqual(["old", "new"]);
   });
-  it("prunes confirmed history beyond the cap into tombstones and never prunes pending posts", async () => {
+  it("prunes only confirmed bodies beyond the cap and keeps every confirmation and pending post", async () => {
     const prefix = reviewPrefix("server", "prune-confirmed");
     const { values } = mockStorage();
     const posts = Array.from({ length: 210 }, (_, index) => post(`p${index}`));
     await ingestReview(prefix, "*", posts);
     await writeReview(prefix, Object.fromEntries(posts.slice(0, 205).map((entry, index) => [`${prefix}confirmed:${entry.id}`, 1000 + index])));
     const confirmed = Object.keys(values).filter(key => key.startsWith(`${prefix}confirmed:`));
-    expect(confirmed).toHaveLength(200);
+    expect(confirmed).toHaveLength(205);
     for (const id of ["p0", "p1", "p2", "p3", "p4"]) {
       expect(values).not.toHaveProperty([`${prefix}post:*:${id}`]);
-      expect(values).not.toHaveProperty([`${prefix}confirmed:${id}`]);
-      expect(typeof values[`${prefix}deleted:${id}`]).toBe("number");
+      expect(typeof values[`${prefix}confirmed:${id}`]).toBe("number");
+      expect(values).not.toHaveProperty([`${prefix}deleted:${id}`]);
     }
     expect(values).toHaveProperty([`${prefix}post:*:p5`]);
     expect(selectReview(values, prefix, "*").filter(entry => entry.confirmedAt === null).map(entry => entry.post.id)).toEqual(posts.slice(205).map(entry => entry.id));
@@ -71,15 +71,15 @@ describe("durable mention review", () => {
     expect(values).not.toHaveProperty([`${prefix}post:*:p0`]);
     expect(selectReview(values, prefix, "*")).toHaveLength(205);
   });
-  it("caps tombstones, dropping legacy and oldest first", async () => {
+  it("retains deletion decisions beyond the former tombstone cap", async () => {
     const prefix = reviewPrefix("server", "prune-tombstones");
     const { values } = mockStorage({ [`${prefix}deleted:legacy`]: true });
     await writeReview(prefix, Object.fromEntries(Array.from({ length: 2005 }, (_, index) => [`${prefix}deleted:t${index}`, 1000 + index])));
     const tombstones = Object.keys(values).filter(key => key.startsWith(`${prefix}deleted:`));
-    expect(tombstones).toHaveLength(2000);
-    expect(values).not.toHaveProperty([`${prefix}deleted:legacy`]);
-    expect(values).not.toHaveProperty([`${prefix}deleted:t0`]);
-    expect(values).not.toHaveProperty([`${prefix}deleted:t4`]);
+    expect(tombstones).toHaveLength(2006);
+    expect(values).toHaveProperty([`${prefix}deleted:legacy`]);
+    expect(values).toHaveProperty([`${prefix}deleted:t0`]);
+    expect(values).toHaveProperty([`${prefix}deleted:t4`]);
     expect(values).toHaveProperty([`${prefix}deleted:t5`]);
     expect(values).toHaveProperty([`${prefix}deleted:t2004`]);
   });
@@ -107,5 +107,110 @@ describe("durable mention review", () => {
     await write;
     expect(Object.keys(seen).sort()).toEqual([`${prefix}deleted:gone`, `${prefix}post:*:gone`, `${prefix}post:*:live`, `${prefix}post:*:old`]);
     expect(selectReview(seen, prefix, "*").map(entry => entry.post.id).sort()).toEqual(["live", "old"]);
+  });
+
+  it("never reopens an old confirmation after more than 2000 deletion decisions and re-ingestion", async () => {
+    const prefix = reviewPrefix("server", "old-confirmation");
+    const { values } = mockStorage();
+    await ingestReview(prefix, "*", [post("old"), post("pending")]);
+    await writeReview(prefix, { [`${prefix}confirmed:old`]: 1 });
+    await writeReview(prefix, Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`${prefix}confirmed:new${i}`, i + 2])));
+    await writeReview(prefix, Object.fromEntries(Array.from({ length: 2005 }, (_, i) => [`${prefix}deleted:other${i}`, Date.now() + i])));
+    // Recreate the in-memory registry as after restarting the extension.
+    vi.resetModules();
+    const restarted = await import("./mentionReview");
+    await restarted.ingestReview(prefix, "*", [post("old")]);
+    expect(values[`${prefix}confirmed:old`]).toBe(1);
+    expect(selectReview(values, prefix, "*").filter(entry => entry.confirmedAt === null).map(entry => entry.post.id)).toEqual(["pending"]);
+  });
+
+  it.each([200, undefined])("keeps a newer remote decision (%s) when an older local write finishes", async (remote) => {
+    const prefix = reviewPrefix("server", `write-race-${remote}`);
+    let listener!: (changes: Record<string, { newValue?: unknown }>, area: string) => void;
+    let finish!: () => void;
+    const values: Record<string, unknown> = { [`${prefix}post:*:id`]: post("id") };
+    const set = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+    vi.stubGlobal("chrome", { storage: { local: { get: async () => ({ ...values }), set, remove: vi.fn() }, onChanged: { addListener: (fn: typeof listener) => { listener = fn; }, removeListener: vi.fn() } } });
+    const pending = writeReview(prefix, { [`${prefix}confirmed:id`]: 100 });
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    listener({ [`${prefix}confirmed:id`]: { newValue: remote } }, "local");
+    finish();
+    await pending;
+    let seen: Record<string, unknown> = {};
+    await writeReview(prefix, current => { seen = current; return {}; });
+    expect(seen[`${prefix}confirmed:id`]).toBe(remote);
+    expect(selectReview(seen, prefix, "*")[0].confirmedAt).toBe(remote ?? null);
+  });
+
+  it("frees confirmed bodies on quota failure before retrying, preserving pending posts and all decisions", async () => {
+    const prefix = reviewPrefix("server", "quota-recovery");
+    const initial: Record<string, unknown> = { [`${prefix}post:*:pending`]: post("pending") };
+    for (let i = 0; i < 200; i++) {
+      initial[`${prefix}post:*:c${i}`] = { ...post(`c${i}`), message: "x".repeat(1000) };
+      initial[`${prefix}confirmed:c${i}`] = i + 1;
+    }
+    const { values, set, remove } = mockStorage(initial);
+    const limit = JSON.stringify(initial).length + 100;
+    set.mockImplementation(async next => {
+      if (JSON.stringify({ ...values, ...next }).length > limit) throw new Error("QUOTA_BYTES quota exceeded");
+      Object.assign(values, next);
+    });
+    await ingestReview(prefix, "*", [{ ...post("new"), message: "y".repeat(2000) }]);
+    expect(set).toHaveBeenCalledTimes(2);
+    expect(remove).toHaveBeenCalled();
+    expect(remove.mock.calls.flat(2).every(key => key.startsWith(`${prefix}post:`) && !key.endsWith(":pending"))).toBe(true);
+    expect(Object.keys(values).filter(key => key.startsWith(`${prefix}confirmed:`))).toHaveLength(200);
+    expect(selectReview(values, prefix, "*").filter(entry => entry.confirmedAt === null).map(entry => entry.post.id).sort()).toEqual(["new", "pending"]);
+  });
+
+  it("reports quota failure without deleting pending posts when no confirmed bodies can be freed", async () => {
+    const prefix = reviewPrefix("server", "quota-pending-only");
+    const { values, set, remove } = mockStorage({ [`${prefix}post:*:pending`]: post("pending") });
+    set.mockRejectedValue(new Error("quota exceeded"));
+    await expect(ingestReview(prefix, "*", [post("new")])).rejects.toThrow("quota");
+    expect(remove).not.toHaveBeenCalled();
+    expect(selectReview(values, prefix, "*").map(entry => entry.post.id)).toEqual(["pending"]);
+  });
+
+  it("keeps a pending body when its confirmation still fails after freeing history", async () => {
+    const prefix = reviewPrefix("server", "quota-confirmation-failure");
+    const { values, set } = mockStorage({
+      [`${prefix}post:*:pending`]: post("pending"),
+      [`${prefix}post:*:confirmed`]: post("confirmed"),
+      [`${prefix}confirmed:confirmed`]: 10,
+    });
+    set.mockRejectedValue(new Error("quota exceeded"));
+    await expect(writeReview(prefix, { [`${prefix}confirmed:pending`]: 20 })).rejects.toThrow("quota");
+    expect(values[`${prefix}confirmed:confirmed`]).toBe(10);
+    expect(values).not.toHaveProperty([`${prefix}confirmed:pending`]);
+    expect(selectReview(values, prefix, "*").map(entry => entry.post.id)).toEqual(["pending"]);
+    let seen: Record<string, unknown> = {};
+    await writeReview(prefix, current => { seen = current; return {}; });
+    expect(selectReview(seen, prefix, "*").map(entry => entry.post.id)).toEqual(["pending"]);
+  });
+
+  it("does not replace a remote re-confirmation when an older local reopen completes", async () => {
+    const prefix = reviewPrefix("server", "remove-race");
+    let listener!: (changes: Record<string, { newValue?: unknown }>, area: string) => void;
+    let finish!: () => void;
+    const remove = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+    vi.stubGlobal("chrome", { storage: { local: { get: async () => ({ [`${prefix}post:*:id`]: post("id"), [`${prefix}confirmed:id`]: 100 }), set: vi.fn(), remove }, onChanged: { addListener: (fn: typeof listener) => { listener = fn; }, removeListener: vi.fn() } } });
+    const pending = writeReview(prefix, { [`${prefix}confirmed:id`]: undefined });
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    listener({ [`${prefix}confirmed:id`]: { newValue: 200 } }, "local");
+    finish();
+    await pending;
+    let seen: Record<string, unknown> = {};
+    await writeReview(prefix, current => { seen = current; return {}; });
+    expect(selectReview(seen, prefix, "*")[0].confirmedAt).toBe(200);
+  });
+
+  it("preserves the body being reopened even if it was eligible for history cleanup", async () => {
+    const prefix = reviewPrefix("server", "reopen-before-cleanup");
+    const initial: Record<string, unknown> = { [`${prefix}post:*:old`]: post("old"), [`${prefix}confirmed:old`]: 1 };
+    for (let i = 0; i < 200; i++) initial[`${prefix}confirmed:new${i}`] = i + 2;
+    const { values } = mockStorage(initial);
+    await writeReview(prefix, { [`${prefix}confirmed:old`]: undefined });
+    expect(selectReview(values, prefix, "*")).toEqual([{ post: post("old"), confirmedAt: null }]);
   });
 });

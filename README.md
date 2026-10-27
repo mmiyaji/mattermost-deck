@@ -80,6 +80,8 @@ Explicitly confirm a post to remove it from pending review. A five-second undo r
 
 Pending posts and confirmation state are saved in this browser per server/account and shared across review panes showing the same post. Collection continues after the original mentions pane is closed, and pending posts are retained independently of normal mention cache limits and expiry. Initially available historical posts are also pending; this is the collected range, not necessarily the server's complete history. Load older posts to extend it. Clearing extension data also clears confirmation state.
 
+Confirmation decisions have no count limit or expiry. History bodies are retained for the latest 200 confirmations; under storage pressure, confirmed bodies are removed before retrying the save. Removed bodies no longer appear in history, but fetching those posts again never makes them pending. Pending posts are never removed by this cleanup. If storage cannot be freed, a save error is shown.
+
 ## Mention Display Exclusions
 
 Use a post's hover or keyboard-focus action menu to hide its author or conversation. On touch devices the menu remains visible. Author exclusions apply to posts written by that person; conversation exclusions cover the root post and all replies, including future replies.
