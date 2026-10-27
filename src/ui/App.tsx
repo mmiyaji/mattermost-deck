@@ -5106,7 +5106,6 @@ function MentionsColumn({
   );
   const mentionCount = useMemo(
     () => {
-      if (!exclusions.ready) return 0;
       const serverCount = column.teamId
         ? getEffectiveTeamMentionCount(
             unreads.find((entry) => entry.team_id === column.teamId) ?? {
@@ -5128,8 +5127,8 @@ function MentionsColumn({
       // Once loading completes, show the actionable count represented by the
       // feed itself. TeamUnread omits DM/GM and can retain deleted-channel CRT
       // counters, so it is only a useful provisional value during loading.
-      return postState.status === "ready" || exclusions.ready
-        ? unreadPosts.filter(post => !isExcluded(post)).length
+      return postState.status === "ready"
+        ? (exclusions.ready ? unreadPosts.filter(post => !isExcluded(post)) : unreadPosts).length
         : Math.max(serverCount, unreadPosts.length);
     },
     [column.teamId, currentUser?.collapsed_reply_threads, postState.status, unreadPosts, unreads, exclusions.ready, isExcluded],
@@ -5178,13 +5177,13 @@ function MentionsColumn({
       ) ?? null,
     [deletedPostIds, deletedPostIdsRef, mentionDisplaySnapshot],
   );
-  const reviewPosts = review.entries.filter(entry => showConfirmed ? entry.confirmedAt !== null : entry.confirmedAt === null).map(entry => entry.post).filter(post => !deletedPostIdsRef.current?.has(post.id));
+  const reviewPosts = useMemo(() => review.entries.filter(entry => showConfirmed ? entry.confirmedAt !== null : entry.confirmedAt === null).map(entry => entry.post).filter(post => !deletedPostIdsRef.current?.has(post.id)), [review.entries, showConfirmed, deletedPostIds, deletedPostIdsRef]);
   const visiblePosts = useMemo(() => {
-    if (!exclusions.ready) return [];
+    if (!exclusions.loaded) return [];
     const posts = column.mentionReview ? reviewPosts : snapshotPosts ?? resolvedVisiblePosts;
-    return showExcluded ? posts : posts.filter(post => !isExcluded(post));
-  }, [exclusions.ready, column.mentionReview, review.values, showConfirmed, snapshotPosts, resolvedVisiblePosts, showExcluded, isExcluded]);
-  const reviewPendingCount = exclusions.ready ? review.entries.filter(entry => entry.confirmedAt === null && !isExcluded(entry.post)).length : 0;
+    return showExcluded || !exclusions.ready ? posts : posts.filter(post => !isExcluded(post));
+  }, [exclusions.loaded, exclusions.ready, column.mentionReview, reviewPosts, snapshotPosts, resolvedVisiblePosts, showExcluded, isExcluded]);
+  const reviewPendingCount = exclusions.loaded ? review.entries.filter(entry => entry.confirmedAt === null && !(exclusions.ready && isExcluded(entry.post))).length : 0;
   const visibleDeferredMentionPostIds = useMemo(
     () =>
       mentionDisplaySnapshot
@@ -5194,16 +5193,16 @@ function MentionsColumn({
   );
   const pendingMentionChanges = useMemo(
     () =>
-      snapshotPosts && exclusions.ready
+      snapshotPosts && exclusions.loaded
         ? summariseMentionPresentationChanges(
-            snapshotPosts.filter(post => !isExcluded(post)),
-            resolvedVisiblePosts.filter(post => !isExcluded(post)),
+            exclusions.ready ? snapshotPosts.filter(post => !isExcluded(post)) : snapshotPosts,
+            exclusions.ready ? resolvedVisiblePosts.filter(post => !isExcluded(post)) : resolvedVisiblePosts,
           )
         : {
             count: 0,
             hasAdditionsOrUpdates: false,
           },
-    [resolvedVisiblePosts, snapshotPosts, exclusions.ready, isExcluded],
+    [resolvedVisiblePosts, snapshotPosts, exclusions.loaded, exclusions.ready, isExcluded],
   );
   const pendingMentionUpdateCount = pendingMentionChanges.count;
   const pendingMentionHasAdditionsOrUpdates =
@@ -5410,7 +5409,7 @@ function MentionsColumn({
         : null,
     [mentionCacheContext],
   );
-  const shouldShowLoadingState = !exclusions.ready || (Boolean(column.mentionReview) && !review.ready) ||
+  const shouldShowLoadingState = !exclusions.loaded || (Boolean(column.mentionReview) && !review.ready) ||
     visiblePosts.length === 0 &&
     (
       mentionLoadProgress.active ||
@@ -6061,15 +6060,21 @@ function MentionsColumn({
     [currentUserId, mentionKeys],
   );
 
+  // Panes sharing a feed share its fetch, so throttle only when none of them is on screen.
+  const [feedVisibility, setFeedVisibility] = useSharedMentionState<Record<string, boolean>>(feedContext, "paneVisibility", {});
+  useEffect(() => { setFeedVisibility(previous => previous[column.id] === isPaneVisible ? previous : { ...previous, [column.id]: isPaneVisible }); }, [column.id, isPaneVisible, setFeedVisibility]);
+  useEffect(() => () => setFeedVisibility(previous => { if (!(column.id in previous)) return previous; const { [column.id]: _removed, ...rest } = previous; return rest; }), [column.id, setFeedVisibility]);
+  const feedVisibilityValues = Object.values(feedVisibility);
+  const anyPaneVisible = !feedVisibilityValues.length || feedVisibilityValues.some(Boolean);
   const mentionPollingIntervalMs = useMemo(
     () => {
-      const syncInterval = getSyncInterval(realtimeEnabled, pollingIntervalSeconds, true);
+      const syncInterval = getSyncInterval(realtimeEnabled, pollingIntervalSeconds, anyPaneVisible);
       if (column.teamId || !realtimeEnabled) {
         return syncInterval;
       }
       return Math.max(syncInterval, 120_000);
     },
-    [column.teamId, isPaneVisible, pollingIntervalSeconds, realtimeEnabled],
+    [column.teamId, anyPaneVisible, pollingIntervalSeconds, realtimeEnabled],
   );
 
   useColumnPolling(
@@ -7396,13 +7401,20 @@ function MentionsColumn({
     visiblePosts,
   ]);
 
+  // deletedPostIds is a global rolling buffer: only tombstone ids this review store holds, once each.
+  const tombstonedRef = useRef(new Set<string>());
+  useEffect(() => { tombstonedRef.current = new Set(); }, [currentUserId]);
   useEffect(() => {
-    if (currentUserId && deletedPostIds.length && feedOwner) void review.remove(deletedPostIds).catch(() => undefined);
-  }, [currentUserId, deletedPostIds, feedOwner]);
-  useEffect(() => { if (column.mentionReview && currentUserId) void ensureUsers(reviewPosts.map(post => post.user_id)); }, [column.mentionReview, currentUserId, review.values, ensureUsers]);
+    if (!currentUserId || !deletedPostIds.length || !feedOwner) return;
+    const ids = review.untombstoned(deletedPostIds).filter(id => !tombstonedRef.current.has(id));
+    if (!ids.length) return;
+    ids.forEach(id => tombstonedRef.current.add(id));
+    void review.remove(ids).catch(() => ids.forEach(id => tombstonedRef.current.delete(id)));
+  }, [currentUserId, deletedPostIds, feedOwner, review.values]);
+  useEffect(() => { if (column.mentionReview && currentUserId) void ensureUsers(reviewPosts.map(post => post.user_id)); }, [column.mentionReview, currentUserId, reviewPosts, ensureUsers]);
   const paneSearch = usePaneSearch(visiblePosts, userDirectory);
   const exclusionChannelLabels = useMemo(() => Object.fromEntries(Object.values(channelDirectory).map(channel => [channel.id, getChannelLabel(channel, userDirectory, memberDirectory, null)])), [channelDirectory, userDirectory, memberDirectory]);
-  const mentionPostDirectory = useMemo(() => new Map([...postState.posts, ...mentionCacheState.posts, ...review.entries.map(entry => entry.post)].map(post => [post.id, post])), [postState.posts, mentionCacheState.posts, review.values]);
+  const mentionPostDirectory = useMemo(() => new Map([...postState.posts, ...mentionCacheState.posts, ...review.entries.map(entry => entry.post)].map(post => [post.id, post])), [postState.posts, mentionCacheState.posts, review.entries]);
 
   useEffect(() => {
     if (!mentionLoadProgress.active && isRefreshing) finishRefresh();
@@ -7531,7 +7543,7 @@ function MentionsColumn({
         </> : null}
         {reviewBusy ? <span>{reviewText.saving}</span> : null}
       </div> : null}
-      {column.mentionReview && review.error ? <p role="alert">{reviewText.error}: {review.error}</p> : null}
+      {(column.mentionReview || (feedOwner && feedHasReview)) && review.error ? <p role="alert">{reviewText.error}: {review.error}</p> : null}
       {exclusions.error ? <div className="deck-exclusion-error" role="alert"><span>{language === "ja" ? "表示の除外を読み込み・保存できませんでした" : "Could not load or save display exclusions"}: {exclusions.error}</span><button type="button" className="deck-exclusion-link" onClick={() => void exclusions.retry()}>{language === "ja" ? "再試行" : "Retry"}</button></div> : null}
       {exclusionFeedback ? <div className="deck-exclusion-feedback" role="status"><span>{exclusionFeedback.text}</span><button type="button" className="deck-exclusion-link" disabled={exclusionUndoBusy} onClick={async () => { setExclusionUndoBusy(true); try { await exclusionFeedback.undo(); setExclusionFeedback(null); } catch { /* Shared store exposes the failure. */ } finally { setExclusionUndoBusy(false); } }}>{language === "ja" ? "取り消す" : "Undo"}</button></div> : null}
       {showControls ? (

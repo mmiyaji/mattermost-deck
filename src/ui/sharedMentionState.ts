@@ -4,21 +4,22 @@ import { useCallback, useMemo, useSyncExternalStore, type Dispatch, type SetStat
 interface Cell<T> { value: T; listeners: Set<() => void>; cleanup?: ReturnType<typeof setTimeout> }
 const cells = new Map<string, Cell<unknown>>();
 export function useSharedMentionState<T>(context: string, name: string, initial: T | (() => T)): [T, Dispatch<SetStateAction<T>>] {
+  const key = useMemo(() => JSON.stringify([context, name]), [context, name]);
   const cell = useMemo(() => {
-    const key = JSON.stringify([context, name]);
     if (!cells.has(key)) cells.set(key, { value: typeof initial === "function" ? (initial as () => T)() : initial, listeners: new Set() });
     return cells.get(key)! as Cell<T>;
-  }, [context, name]);
+  }, [key]);
   const subscribe = useCallback((listener: () => void) => {
     clearTimeout(cell.cleanup);
     cell.listeners.add(listener);
     return () => {
       cell.listeners.delete(listener);
+      clearTimeout(cell.cleanup);
       cell.cleanup = setTimeout(() => {
-        if (!cell.listeners.size) cells.delete(JSON.stringify([context, name]));
+        if (!cell.listeners.size && cells.get(key) === cell) cells.delete(key);
       }, 1000);
     };
-  }, [cell, context, name]);
+  }, [cell, key]);
   const value = useSyncExternalStore(subscribe, () => cell.value);
   const update = useCallback<Dispatch<SetStateAction<T>>>((action) => {
     const next = typeof action === "function" ? (action as (previous: T) => T)(cell.value) : action;

@@ -1123,12 +1123,11 @@ export const railCssText = `
     gap: 8px;
   }
 
-  .deck-review-create { padding: 6px 10px; font-size: inherit; }
+  .deck-review-create { padding: 6px 10px; font-size: inherit; flex-basis: 100%; justify-content: center; }
   .deck-review-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; color: var(--deck-text-soft); font-size: calc(12px * var(--deck-font-scale)); line-height: 1.5; }
   .deck-review-undo { padding: 0; border: 0; background: transparent; color: var(--deck-accent); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
   .deck-review-undo:focus-visible { outline: 2px solid var(--deck-accent); outline-offset: 3px; border-radius: 2px; }
   .deck-review-undo:disabled { opacity: .5; cursor: default; }
-  .deck-review-create { flex-basis: 100%; justify-content: center; }
   .deck-review-mode-actions { display: grid; gap: 8px; min-width: 0; }
   .deck-review-mode-action { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; }
   .deck-review-mode-action .deck-review-create { flex: 1 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }

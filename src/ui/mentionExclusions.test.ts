@@ -71,11 +71,20 @@ describe("shared mention exclusions", () => {
     records[`${prefix}user:existing`] = { id: "existing", username: "Saved" };
     get.mockRejectedValueOnce(new Error("load failed"));
     const store = open(); await store.retry();
-    expect(store.getSnapshot()).toMatchObject({ ready: false, error: "load failed" });
+    expect(store.getSnapshot()).toMatchObject({ loaded: true, ready: false, error: "load failed" });
     await expect(store.excludeUser({ id: "new", username: "New" })).rejects.toThrow("load failed");
     expect(set).not.toHaveBeenCalled();
     await store.retry(); await store.excludeUser({ id: "new", username: "New" });
     expect(store.getSnapshot().users).toHaveLength(2);
+  });
+  it("separates loaded from ready: unloaded until hydration settles, loaded but read-only after failure", async () => {
+    get.mockRejectedValueOnce(new Error("load failed"));
+    const store = open();
+    expect(store.getSnapshot()).toMatchObject({ loaded: false, ready: false });
+    await store.retry();
+    expect(store.getSnapshot()).toMatchObject({ loaded: true, ready: false, error: "load failed" });
+    await store.retry();
+    expect(store.getSnapshot()).toMatchObject({ loaded: true, ready: true, error: null });
   });
   it("does not publish an unsaved rule after a write failure", async () => {
     const store = open(); await store.retry();

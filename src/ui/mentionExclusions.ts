@@ -3,7 +3,7 @@ import type { MattermostPost } from "../mattermost/api";
 
 export interface ExcludedMentionUser { id: string; username: string; displayName?: string }
 export interface ExcludedMentionConversation { rootId: string; channelId: string; label: string; authorUsername?: string }
-interface Snapshot { ready: boolean; error: string | null; users: ExcludedMentionUser[]; conversations: ExcludedMentionConversation[] }
+interface Snapshot { loaded: boolean; ready: boolean; error: string | null; users: ExcludedMentionUser[]; conversations: ExcludedMentionConversation[] }
 export const mentionExclusionPrefix = (server: string, userId: string) => `mattermostDeck.mentionExclusions.v1:${encodeURIComponent(server)}:${encodeURIComponent(userId)}:`;
 export function isMentionExcluded(post: MattermostPost, userIds: ReadonlySet<string>, rootIds: ReadonlySet<string>): boolean {
   return userIds.has(post.user_id) || rootIds.has(post.root_id || post.id);
@@ -24,7 +24,7 @@ function conversation(value: unknown): ExcludedMentionConversation | null {
   return rootId && channelId && label ? { rootId, channelId, label, ...(authorUsername ? { authorUsername } : {}) } : null;
 }
 const stores = new Map<string, MentionExclusionStore>();
-const emptySnapshot: Snapshot = { ready: false, error: null, users: [], conversations: [] };
+const emptySnapshot: Snapshot = { loaded: false, ready: false, error: null, users: [], conversations: [] };
 
 /** One store per account, with independent storage keys for each rule. */
 export class MentionExclusionStore {
@@ -69,7 +69,7 @@ export class MentionExclusionStore {
     else if (typeof window !== "undefined") window.removeEventListener("storage", this.localChanged);
     if (stores.get(this.prefix) === this) stores.delete(this.prefix);
   };
-  private publish(error: string | null = null, ready = this.snapshot.ready) {
+  private publish(error: string | null = null, ready = this.snapshot.ready, loaded = this.snapshot.loaded) {
     const users: ExcludedMentionUser[] = [], conversations: ExcludedMentionConversation[] = [];
     for (const [key, value] of Object.entries(this.values)) {
       if (key.startsWith(`${this.prefix}user:`)) {
@@ -82,7 +82,7 @@ export class MentionExclusionStore {
     }
     users.sort((a, b) => a.username.localeCompare(b.username));
     conversations.sort((a, b) => a.label.localeCompare(b.label));
-    this.snapshot = { ready, error, users, conversations };
+    this.snapshot = { loaded, ready, error, users, conversations };
     this.listeners.forEach(listener => listener());
   }
   private accept(changes: Record<string, unknown>) {
@@ -114,8 +114,8 @@ export class MentionExclusionStore {
           }
         }
         this.values = { ...Object.fromEntries(Object.entries(values).filter(([key]) => key.startsWith(this.prefix))), ...this.pending };
-        this.publish(null, true);
-      } catch (error) { this.publish(errorMessage(error), false); }
+        this.publish(null, true, true);
+      } catch (error) { this.publish(errorMessage(error), false, true); }
       finally { this.pending = null; this.loading = null; }
     });
     return this.loading;
