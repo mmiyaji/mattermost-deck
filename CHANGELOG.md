@@ -7,6 +7,21 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-27
+
+### Added
+
+- Mention review panes derived from an existing mentions pane: duplicate it or convert it in place, sharing the normal mention fetch. Explicit confirmation removes a post from pending review, with a five-second undo and restorable confirmation history.
+- Durable pending posts and confirmation state stored in this browser per server/account, shared across review panes independently of normal mention cache limits. Opening or marking a post read never confirms it.
+- Saved author and conversation exclusions shared by normal and review mentions per server/account. Conversation exclusions include future replies; hiding posts changes neither read nor confirmation state, and pending review data is retained.
+
+### Changed
+
+- Show post action menus on hover or keyboard focus as overlays without reserving an author-line gap, with readable contrast across themes and persistent access on touch devices.
+- Keep mention feed ownership stable during pane reordering to avoid refetching posts.
+- Keep the app version visible in the compact header.
+- This release requests no additional extension permissions.
+
 ## [1.2.3] - 2026-10-19
 
 ### Changed

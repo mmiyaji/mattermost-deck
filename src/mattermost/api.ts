@@ -937,6 +937,16 @@ export async function getCurrentUser(): Promise<MattermostUser> {
   return await apiGet<MattermostUser>("/users/me");
 }
 
+export async function searchUsers(term: string): Promise<MattermostUser[]> {
+  const query = term.trim();
+  if (!query) return [];
+  return await apiPost<MattermostUser[]>("/users/search", {
+    term: query,
+    limit: 20,
+    allow_inactive: false,
+  });
+}
+
 export async function checkApiHealth(pathname: string): Promise<boolean> {
   const response = await apiGetAbsolute(getConfiguredPath(pathname));
   return response.ok;

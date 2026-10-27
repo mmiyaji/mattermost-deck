@@ -1,3 +1,8 @@
+import { useSharedMentionState } from "./sharedMentionState";
+import { mentionFeedOwnerKey, reconcileMentionFeedOwners } from "./mentionFeedOwners";
+import { useMentionExclusions, isMentionExcluded } from "./mentionExclusions";
+import { MentionExclusionControls, MentionPostMenu, type ExclusionFeedback } from "./MentionExclusionControls";
+import { useMentionReview } from "./mentionReview";
 import { startVisiblePolling } from "./visiblePolling";
 import { ColumnTypeIcon } from "./ColumnTypeIcon";
 import { TwoRowHint } from "./TwoRowHint";
@@ -489,9 +494,9 @@ declare global {
       };
       addColumn: (
         type: DeckColumnType,
-        defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>,
+        defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>,
       ) => string;
-      updateColumn: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>) => void;
+      updateColumn: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => void;
       moveColumn: (id: string, direction: "left" | "right") => void;
       removeColumn: (id: string) => void;
     };
@@ -2342,9 +2347,9 @@ function buildDiagnosticsLogEntries(logs: SyncLogEntry[], limit = 5): Diagnostic
 
 function useDeckLayout(): [
   DeckColumn[] | null,
-  (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>, groupRows?: boolean) => string,
+  (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>, groupRows?: boolean) => string,
   (id: string) => void,
-  (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>) => void,
+  (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => void,
   (id: string, direction: "left" | "right") => void,
   (nextColumns: DeckColumn[]) => void,
   (source: string, target: string | null, after: boolean, row?: 0 | 1) => void,
@@ -2385,7 +2390,7 @@ function useDeckLayout(): [
   const addColumn = useCallback(
     (
       type: DeckColumnType,
-      defaults: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">> = {},
+      defaults: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">> = {},
       groupRows = false,
     ): string => {
       const nextColumn = createColumn(type, defaults);
@@ -2405,7 +2410,7 @@ function useDeckLayout(): [
     });
   }, [persistFromCurrent]);
 
-  const updateColumn = useCallback((id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>): void => {
+  const updateColumn = useCallback((id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>): void => {
     persistFromCurrent((current) =>
       current.map((column) =>
         column.id === id
@@ -4228,6 +4233,8 @@ function PostListItem({
   compactMode,
   renderMeta,
   renderBody,
+  renderActions,
+  isPostExcluded,
   onOpenPost,
   postClickAction,
   showImagePreviews,
@@ -4243,6 +4250,8 @@ function PostListItem({
   compactMode: boolean;
   renderMeta?: (post: MattermostPost) => React.ReactNode;
   renderBody?: (post: MattermostPost, options: { isVisible: boolean }) => React.ReactNode;
+  renderActions?: (post: MattermostPost) => React.ReactNode;
+  isPostExcluded?: (post: MattermostPost) => boolean;
   onOpenPost?: (post: MattermostPost) => void;
   postClickAction: PostClickAction;
   showImagePreviews: boolean;
@@ -4280,7 +4289,8 @@ function PostListItem({
       key={entry.key}
       role={canOpenPost ? "button" : undefined}
       tabIndex={canOpenPost ? 0 : undefined}
-      className={`deck-card deck-card--post${compactMode ? " deck-card--post-compact" : ""}${groupedWithPrevious ? " deck-card--post-grouped" : ""}${isReplyPost ? " deck-card--reply" : ""}${onOpenPost && postClickAction !== "none" ? " deck-card--clickable" : ""}`}
+      data-deck-post-excluded={isPostExcluded?.(post) ? "true" : undefined}
+      className={`deck-card deck-card--post${renderActions ? " deck-card--mention-actions" : ""}${isPostExcluded?.(post) ? " deck-card--excluded" : ""}${compactMode ? " deck-card--post-compact" : ""}${groupedWithPrevious ? " deck-card--post-grouped" : ""}${isReplyPost ? " deck-card--reply" : ""}${onOpenPost && postClickAction !== "none" ? " deck-card--clickable" : ""}`}
       onPointerDown={
         onOpenPost && postClickAction !== "none"
           ? (event) => {
@@ -4344,6 +4354,7 @@ function PostListItem({
           : undefined
       }
     >
+      {renderActions ? <div className="deck-mention-actions">{renderActions(post)}</div> : null}
       {!compactMode && !groupedWithPrevious ? (
         <div className="deck-card-header">
           <strong>{formatPostTime(post.create_at)}</strong>
@@ -4404,6 +4415,8 @@ function PostList({
   onLoadMore,
   renderMeta,
   renderBody,
+  renderActions,
+  isPostExcluded,
   onOpenPost,
   postClickAction,
   showImagePreviews = true,
@@ -4432,6 +4445,8 @@ function PostList({
   onLoadMore?: () => void;
   renderMeta?: (post: MattermostPost) => React.ReactNode;
   renderBody?: (post: MattermostPost, options: { isVisible: boolean }) => React.ReactNode;
+  renderActions?: (post: MattermostPost) => React.ReactNode;
+  isPostExcluded?: (post: MattermostPost) => boolean;
   onOpenPost?: (post: MattermostPost) => void;
   postClickAction: PostClickAction;
   showImagePreviews?: boolean;
@@ -4661,6 +4676,8 @@ function PostList({
         compactMode={compactMode}
         renderMeta={renderMeta}
         renderBody={filterQuery ? filteredRenderBody : renderBody}
+        renderActions={renderActions}
+        isPostExcluded={isPostExcluded}
         onOpenPost={onOpenPost}
         postClickAction={postClickAction}
         showImagePreviews={showImagePreviews}
@@ -4742,8 +4759,58 @@ function PostList({
   );
 }
 
+function MentionModeAction({ label, explanation, kind, onClick }: {
+  label: string;
+  explanation: string;
+  kind: "duplicate" | "convert";
+  onClick: () => void;
+}): React.JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  const row = useRef<HTMLDivElement | null>(null);
+  const infoButton = useRef<HTMLButtonElement | null>(null);
+  const descriptionId = React.useId();
+  useEffect(() => {
+    if (!expanded) return;
+    const root = row.current?.getRootNode();
+    const dismissOutside = (event: Event) => {
+      // A closed shadow root hides its descendants from document listeners.
+      // Inspect internal events at that root, and document events only outside it.
+      if (event.currentTarget === document && root instanceof ShadowRoot && event.composedPath().includes(root.host)) return;
+      if (row.current && !event.composedPath().includes(row.current)) setExpanded(false);
+    };
+    const dismissEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setExpanded(false);
+        infoButton.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", dismissOutside, true);
+    if (root instanceof ShadowRoot) root.addEventListener("pointerdown", dismissOutside, true);
+    document.addEventListener("keydown", dismissEscape, true);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside, true);
+      if (root instanceof ShadowRoot) root.removeEventListener("pointerdown", dismissOutside, true);
+      document.removeEventListener("keydown", dismissEscape, true);
+    };
+  }, [expanded]);
+  return <div className="deck-review-mode-action" ref={row}>
+    <button type="button" className="deck-button deck-button--secondary deck-review-create"
+      data-deck-create-review={kind === "duplicate" ? "true" : undefined}
+      data-deck-convert-review={kind === "convert" ? "true" : undefined}
+      onClick={onClick}>{label}</button>
+    <button type="button" ref={infoButton} className="deck-icon-button deck-icon-button--ghost deck-review-info"
+      data-deck-review-info={kind} aria-label={`${label} — ${i18n.language === "ja" ? "説明" : "Information"}`}
+      aria-expanded={expanded} aria-controls={descriptionId}
+      onClick={() => setExpanded(value => !value)}><span aria-hidden="true">ⓘ</span></button>
+    {expanded ? <div id={descriptionId} data-deck-review-help className="deck-review-explanation" role="note">{explanation}</div> : null}
+  </div>;
+}
+
 function MentionsColumn({
   column,
+  feedOwner,
+  feedHasReview,
+  onCreateReview,
   username,
   currentUser,
   currentUserId,
@@ -4782,6 +4849,9 @@ function MentionsColumn({
   onToggleFocus,
 }: {
   column: DeckColumn;
+  feedOwner: boolean;
+  feedHasReview: boolean;
+  onCreateReview: () => void;
   username: string | null;
   currentUser: MattermostUser | null;
   currentUserId?: string | null;
@@ -4806,7 +4876,7 @@ function MentionsColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
@@ -4819,6 +4889,40 @@ function MentionsColumn({
   isFocusedPane: boolean;
   onToggleFocus: (id: string) => void;
 }): React.JSX.Element {
+  const feedContext = JSON.stringify([getMattermostUrl("/"), currentUserId, username, column.teamId, teams.map(team => team.id).sort(), currentUser?.notify_props, currentUser?.mention_group_names]);
+  const review = useMentionReview(getMattermostUrl("/"), currentUserId ?? "", column.teamId);
+  const exclusionContext = JSON.stringify([getMattermostUrl("/"), currentUserId]);
+  const exclusions = useMentionExclusions(getMattermostUrl("/"), currentUserId);
+  const [showExcluded, setShowExcluded] = useState(false);
+  const [exclusionFeedback, setExclusionFeedback] = useState<ExclusionFeedback | null>(null);
+  const [exclusionUndoBusy, setExclusionUndoBusy] = useState(false);
+  const excludedUserIds = useMemo(() => new Set(exclusions.users.map(user => user.id)), [exclusions.users]);
+  const excludedRootIds = useMemo(() => new Set(exclusions.conversations.map(conversation => conversation.rootId)), [exclusions.conversations]);
+  const isExcluded = useCallback((post: MattermostPost) => isMentionExcluded(post, excludedUserIds, excludedRootIds), [excludedUserIds, excludedRootIds]);
+  useEffect(() => { setShowExcluded(false); setExclusionFeedback(null); }, [exclusionContext]);
+  useEffect(() => {
+    if (!exclusionFeedback) return;
+    const timer = window.setTimeout(() => setExclusionFeedback(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [exclusionFeedback]);
+  const [showConfirmed, setShowConfirmed] = useState(false);
+  const [lastConfirmed, setLastConfirmed] = useState<string | null>(null);
+  useEffect(() => { setLastConfirmed(null); setShowConfirmed(false); }, [exclusionContext]);
+  useEffect(() => {
+    if (!lastConfirmed) return;
+    const timer = window.setTimeout(() => setLastConfirmed(null), 5_000);
+    return () => window.clearTimeout(timer);
+  }, [lastConfirmed]);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const reviewText = language === "ja" ? { title: "要確認メンション", create: "要確認タブを複製", confirm: "確認済みにする", restore: "未確認に戻す", history: "確認済み履歴", pending: "未確認", undo: "元に戻す", saving: "保存中…", error: "確認状態を保存できませんでした", empty: "未確認のメンションはありません" } : { title: "Mentions to review", create: "Duplicate as review pane", confirm: "Confirm", restore: "Reopen", history: "Confirmed history", pending: "Pending", undo: "Undo", saving: "Saving…", error: "Could not save review state", empty: "No pending mentions" };
+  const changeConfirmation = async (id: string, confirmed: boolean) => {
+    setReviewBusy(true);
+    try { await review.confirm(id, confirmed); setLastConfirmed(confirmed ? id : null); } catch { /* The durable store exposes the failure. */ }
+    finally { setReviewBusy(false); }
+  };
+  const reviewEnabledRef = useRef(feedHasReview);
+  reviewEnabledRef.current = feedHasReview;
+  const captureReview = (posts: MattermostPost[]) => { if (currentUserId && reviewEnabledRef.current) void review.ingest(posts).catch(() => undefined); };
   const availableTeamIdsSignature = teams.map((team) => team.id).join(",");
   const teamIds = useMemo(
     () =>
@@ -4830,7 +4934,7 @@ function MentionsColumn({
   const text = useAppText();
   const highlightTerms = useMemo(() => resolveHighlightTerms(highlightKeywords, username), [highlightKeywords, username]);
   const teamDirectory = useMemo(() => Object.fromEntries(teams.map((team) => [team.id, team])), [teams]);
-  const [postState, setPostState] = useState<PostState>({
+  const [postState, setPostState] = useSharedMentionState<PostState>(feedContext, "postState", {
     status: "idle",
     posts: [],
     error: null,
@@ -4838,13 +4942,18 @@ function MentionsColumn({
     hasMore: false,
     loadingMore: false,
   });
-  const [channelDirectory, setChannelDirectory] = useState<Record<string, MattermostChannel>>({});
-  const [memberDirectory, setMemberDirectory] = useState<Record<string, string[]>>({});
-  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [channelDirectory, setChannelDirectory] = useSharedMentionState<Record<string, MattermostChannel>>(feedContext, "channelDirectory", {});
+  const [memberDirectory, setMemberDirectory] = useSharedMentionState<Record<string, string[]>>(feedContext, "memberDirectory", {});
+  const [refreshNonce, setRefreshNonce] = useSharedMentionState(feedContext, "refreshNonce", 0);
   const { isRefreshing, startRefresh, finishRefresh } = useRefreshIndicator();
-  const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
+  const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useSharedMentionState(feedContext, "hasCompletedInitialLoad", false);
   const [showControls, setShowControls] = useState(false);
-  const [paused, setPaused] = useState(false);
+  const [paused, setPaused] = useSharedMentionState(feedContext, "paused", false);
+  useEffect(() => {
+    setShowControls(false);
+    setShowConfirmed(false);
+    setLastConfirmed(null);
+  }, [column.mentionReview]);
   const [sectionNode, setSectionNode] = useState<HTMLElement | null>(null);
   const specialMentionMembersCacheRef = useRef<Record<string, { expiresAt: number; members: MattermostChannelMember[] }>>({});
   const mentionPostsRef = useRef<MattermostPost[]>([]);
@@ -4871,17 +4980,17 @@ function MentionsColumn({
     teamId: currentTeamId,
     channelId: currentChannelId,
   };
-  const [mentionReadState, setMentionReadState] = useState<MentionReadState>({
+  const [mentionReadState, setMentionReadState] = useSharedMentionState<MentionReadState>(feedContext, "mentionReadState", {
     channelLastViewedAt: {},
     threadLastViewedAt: {},
     activeChannelIds: null,
   });
   const [mentionLoadProgress, setMentionLoadProgress] =
-    useState<MentionLoadProgressState>(() =>
+    useSharedMentionState<MentionLoadProgressState>(feedContext, "mentionLoadProgress", () =>
       createMentionLoadProgressState(mentionLoadRunIdRef.current),
     );
   const [mentionCacheState, setMentionCacheState] =
-    useState<MentionCacheDisplayState>(() =>
+    useSharedMentionState<MentionCacheDisplayState>(feedContext, "mentionCacheState", () =>
       createMentionCacheDisplayState(),
     );
   const [mentionDisplaySnapshot, setMentionDisplaySnapshot] =
@@ -4891,9 +5000,9 @@ function MentionsColumn({
     setSuppressAppliedMentionNotifications,
   ] = useState(false);
   const [mentionCacheSaveVersion, setMentionCacheSaveVersion] =
-    useState(0);
+    useSharedMentionState(feedContext, "mentionCacheSaveVersion", 0);
   const [mentionCacheLastSavedAt, setMentionCacheLastSavedAt] =
-    useState<number | null>(null);
+    useSharedMentionState<number | null>(feedContext, "mentionCacheLastSavedAt", null);
   const mentionCacheActiveForContext =
     mentionCacheState.active &&
     mentionCacheState.ownerUserId === currentUserId &&
@@ -4924,6 +5033,9 @@ function MentionsColumn({
   // ready. Feeding partial scan results into PostList makes existing rows move
   // whenever another team's posts arrive and can look like a realtime post.
   const liveDisplayedPosts = postState.posts;
+  useEffect(() => {
+    if (feedOwner && feedHasReview && currentUserId) captureReview([...postState.posts, ...mentionCacheState.posts]);
+  }, [feedOwner, feedHasReview, currentUserId, postState.posts, mentionCacheState.posts]);
   const displayedPosts = useMemo(
     () =>
       mentionCacheActiveForContext
@@ -4994,6 +5106,7 @@ function MentionsColumn({
   );
   const mentionCount = useMemo(
     () => {
+      if (!exclusions.ready) return 0;
       const serverCount = column.teamId
         ? getEffectiveTeamMentionCount(
             unreads.find((entry) => entry.team_id === column.teamId) ?? {
@@ -5015,11 +5128,11 @@ function MentionsColumn({
       // Once loading completes, show the actionable count represented by the
       // feed itself. TeamUnread omits DM/GM and can retain deleted-channel CRT
       // counters, so it is only a useful provisional value during loading.
-      return postState.status === "ready"
-        ? unreadPosts.length
+      return postState.status === "ready" || exclusions.ready
+        ? unreadPosts.filter(post => !isExcluded(post)).length
         : Math.max(serverCount, unreadPosts.length);
     },
-    [column.teamId, currentUser?.collapsed_reply_threads, postState.status, unreadPosts.length, unreads],
+    [column.teamId, currentUser?.collapsed_reply_threads, postState.status, unreadPosts, unreads, exclusions.ready, isExcluded],
   );
   const resolvedVisiblePosts = useMemo(
     () => (column.unreadOnly ? unreadPosts : activePosts),
@@ -5065,7 +5178,13 @@ function MentionsColumn({
       ) ?? null,
     [deletedPostIds, deletedPostIdsRef, mentionDisplaySnapshot],
   );
-  const visiblePosts = snapshotPosts ?? resolvedVisiblePosts;
+  const reviewPosts = review.entries.filter(entry => showConfirmed ? entry.confirmedAt !== null : entry.confirmedAt === null).map(entry => entry.post).filter(post => !deletedPostIdsRef.current?.has(post.id));
+  const visiblePosts = useMemo(() => {
+    if (!exclusions.ready) return [];
+    const posts = column.mentionReview ? reviewPosts : snapshotPosts ?? resolvedVisiblePosts;
+    return showExcluded ? posts : posts.filter(post => !isExcluded(post));
+  }, [exclusions.ready, column.mentionReview, review.values, showConfirmed, snapshotPosts, resolvedVisiblePosts, showExcluded, isExcluded]);
+  const reviewPendingCount = exclusions.ready ? review.entries.filter(entry => entry.confirmedAt === null && !isExcluded(entry.post)).length : 0;
   const visibleDeferredMentionPostIds = useMemo(
     () =>
       mentionDisplaySnapshot
@@ -5075,16 +5194,16 @@ function MentionsColumn({
   );
   const pendingMentionChanges = useMemo(
     () =>
-      snapshotPosts
+      snapshotPosts && exclusions.ready
         ? summariseMentionPresentationChanges(
-            snapshotPosts,
-            resolvedVisiblePosts,
+            snapshotPosts.filter(post => !isExcluded(post)),
+            resolvedVisiblePosts.filter(post => !isExcluded(post)),
           )
         : {
             count: 0,
             hasAdditionsOrUpdates: false,
           },
-    [resolvedVisiblePosts, snapshotPosts],
+    [resolvedVisiblePosts, snapshotPosts, exclusions.ready, isExcluded],
   );
   const pendingMentionUpdateCount = pendingMentionChanges.count;
   const pendingMentionHasAdditionsOrUpdates =
@@ -5291,7 +5410,7 @@ function MentionsColumn({
         : null,
     [mentionCacheContext],
   );
-  const shouldShowLoadingState =
+  const shouldShowLoadingState = !exclusions.ready || (Boolean(column.mentionReview) && !review.ready) ||
     visiblePosts.length === 0 &&
     (
       mentionLoadProgress.active ||
@@ -5321,6 +5440,7 @@ function MentionsColumn({
   }, [onSetMentionsLastReadAt, visiblePosts]);
 
   useEffect(() => {
+    if (!feedOwner) return;
     mentionLoadRunIdRef.current += 1;
     mentionPostsRef.current = [];
     mentionCacheHydratedEntryIdRef.current = null;
@@ -5368,6 +5488,7 @@ function MentionsColumn({
   }, [isFocusedPane]);
 
   useEffect(() => {
+    if (!feedOwner) return;
     if (!paused) {
       return;
     }
@@ -5942,7 +6063,7 @@ function MentionsColumn({
 
   const mentionPollingIntervalMs = useMemo(
     () => {
-      const syncInterval = getSyncInterval(realtimeEnabled, pollingIntervalSeconds, isPaneVisible);
+      const syncInterval = getSyncInterval(realtimeEnabled, pollingIntervalSeconds, true);
       if (column.teamId || !realtimeEnabled) {
         return syncInterval;
       }
@@ -6073,6 +6194,7 @@ function MentionsColumn({
         if (!canPublishProgress() || posts.length === 0) {
           return;
         }
+        captureReview(posts);
         const teamProgress = teamProgressById.get(teamId);
         if (!teamProgress) {
           return;
@@ -6239,6 +6361,7 @@ function MentionsColumn({
                   if (!canPublishProgress()) {
                     return;
                   }
+                  captureReview(posts);
                   successfulSearchCount += 1;
                   searchHasMore =
                     searchHasMore ||
@@ -6371,6 +6494,7 @@ function MentionsColumn({
           throw firstSearchError ?? new Error(text.failedToLoadMentions);
         }
 
+        captureReview([...searchPosts, ...unreadChannelPosts, ...unreadThreadPosts]);
         const rawLatestPosts = mergePosts(
           searchPosts,
           [...unreadChannelPosts, ...unreadThreadPosts],
@@ -6609,7 +6733,7 @@ function MentionsColumn({
             posts,
             error: null,
             nextPage: current.nextPage,
-            hasMore: searchHasMore && posts.length < MENTIONS_MAX_BUFFER,
+            hasMore: searchHasMore,
             loadingMore: false,
           };
         });
@@ -6650,9 +6774,10 @@ function MentionsColumn({
     },
     mentionPollingIntervalMs,
     {
-      enabled: teamIds.length > 0 && Boolean(currentUserId) && Boolean(mentionSearchTerms),
+      enabled: feedOwner && teamIds.length > 0 && Boolean(currentUserId) && Boolean(mentionSearchTerms),
       paused,
       onDisabled: () => {
+        if (!feedOwner) return;
         mentionLoadRunIdRef.current += 1;
         setHasCompletedInitialLoad(false);
         setPostState({
@@ -6679,6 +6804,7 @@ function MentionsColumn({
         finishRefresh();
       },
       dependencies: [
+        feedOwner,
         column.teamId,
         currentUserId,
         ensureUsers,
@@ -6701,6 +6827,7 @@ function MentionsColumn({
 
   useEffect(() => {
     if (
+      !feedOwner ||
       mentionCacheSaveVersion === 0 ||
       !mentionCacheContext ||
       !mentionCacheEntryId ||
@@ -6745,6 +6872,7 @@ function MentionsColumn({
   ]);
 
   useEffect(() => {
+    if (!feedOwner) return;
     const processedEvents = processedMentionPostedEventsRef.current;
     if (!processedEvents) {
       return;
@@ -6780,6 +6908,7 @@ function MentionsColumn({
     if (matchingEvents.length === 0 && editedPostIds.size === 0) {
       return;
     }
+    captureReview(matchingEvents.map(event => event.post));
     const activeRealtimePosts = filterActiveMentionPosts(
       matchingEvents.map((event) => event.post),
       effectiveMentionReadState,
@@ -6972,9 +7101,13 @@ function MentionsColumn({
   ]);
 
   useEffect(() => {
-    const missingChannelIds = Array.from(
-      new Set(postState.posts.map((post) => post.channel_id).filter((channelId) => channelId && !channelDirectory[channelId])),
+    if (!feedOwner) return;
+    const requiredChannelIds = new Set(
+      [...postState.posts, ...(feedHasReview ? review.entries.map(entry => entry.post) : [])]
+        .map((post) => post.channel_id)
+        .filter(Boolean),
     );
+    const missingChannelIds = [...requiredChannelIds].filter((channelId) => !channelDirectory[channelId]);
     if (missingChannelIds.length === 0) {
       return;
     }
@@ -6993,9 +7126,12 @@ function MentionsColumn({
             delete next[channel.id];
             next[channel.id] = channel;
           }
-          const channelIds = Object.keys(next);
+          // Durable review entries can exceed the live feed's cache limit.
+          // Evict only unused metadata, otherwise this effect fetches evicted
+          // required channels repeatedly on every directory update.
+          const channelIds = Object.keys(next).filter((id) => !requiredChannelIds.has(id));
           while (
-            channelIds.length >
+            Object.keys(next).length >
             MENTION_METADATA_DIRECTORY_MAX_ENTRIES
           ) {
             const oldestChannelId = channelIds.shift();
@@ -7043,9 +7179,9 @@ function MentionsColumn({
             delete next[channelId];
             next[channelId] = userIds;
           }
-          const channelIds = Object.keys(next);
+          const channelIds = Object.keys(next).filter((id) => !requiredChannelIds.has(id));
           while (
-            channelIds.length >
+            Object.keys(next).length >
             MENTION_METADATA_DIRECTORY_MAX_ENTRIES
           ) {
             const oldestChannelId = channelIds.shift();
@@ -7066,7 +7202,7 @@ function MentionsColumn({
     return () => {
       cancelled = true;
     };
-  }, [channelDirectory, ensureUsers, postState.posts]);
+  }, [channelDirectory, ensureUsers, postState.posts, feedOwner, feedHasReview, review.values]);
 
   const renderPostMeta = useCallback(
     (post: MattermostPost) => {
@@ -7115,6 +7251,8 @@ function MentionsColumn({
               MENTIONS_PAGE_SIZE,
               { isOrSearch: true },
             );
+            if (mentionLoadMoreContextRef.current !== requestContext || mentionLoadRunIdRef.current !== requestRunId) return;
+            captureReview(teamPosts);
             hasFullPage =
               hasFullPage ||
               teamPosts.length === MENTIONS_PAGE_SIZE;
@@ -7150,7 +7288,7 @@ function MentionsColumn({
           posts: merged.posts,
           error: null,
           nextPage: current.nextPage + 1,
-          hasMore: hasFullPage && merged.hasMore,
+          hasMore: hasFullPage,
           loadingMore: false,
         };
       });
@@ -7258,11 +7396,22 @@ function MentionsColumn({
     visiblePosts,
   ]);
 
+  useEffect(() => {
+    if (currentUserId && deletedPostIds.length && feedOwner) void review.remove(deletedPostIds).catch(() => undefined);
+  }, [currentUserId, deletedPostIds, feedOwner]);
+  useEffect(() => { if (column.mentionReview && currentUserId) void ensureUsers(reviewPosts.map(post => post.user_id)); }, [column.mentionReview, currentUserId, review.values, ensureUsers]);
   const paneSearch = usePaneSearch(visiblePosts, userDirectory);
+  const exclusionChannelLabels = useMemo(() => Object.fromEntries(Object.values(channelDirectory).map(channel => [channel.id, getChannelLabel(channel, userDirectory, memberDirectory, null)])), [channelDirectory, userDirectory, memberDirectory]);
+  const mentionPostDirectory = useMemo(() => new Map([...postState.posts, ...mentionCacheState.posts, ...review.entries.map(entry => entry.post)].map(post => [post.id, post])), [postState.posts, mentionCacheState.posts, review.values]);
+
+  useEffect(() => {
+    if (!mentionLoadProgress.active && isRefreshing) finishRefresh();
+  }, [mentionLoadProgress.active, isRefreshing, finishRefresh]);
 
   return (
     <section
       ref={setSectionNode}
+      data-deck-mention-review={column.mentionReview ? "true" : undefined}
       className={`deck-column deck-column--mentions${isFocusedPane ? " deck-column--pane-focused" : ""}`}
       style={getColumnAccentStyle(column.type, columnColors)}
       data-deck-column-id={column.id}
@@ -7270,13 +7419,13 @@ function MentionsColumn({
       <header className="deck-column-header">
         <div className="deck-column-heading">
           <PaneTitle
-            title={text.addMentions}
+            title={column.mentionReview ? reviewText.title : text.addMentions}
             tabIndex={-1}
             data-deck-mention-apply-focus="true"
           >
             <span className="deck-title-with-icon">
               <ColumnTypeBadge type="mentions" />
-              <span>{text.addMentions}</span>
+              <span>{column.mentionReview ? reviewText.title : text.addMentions}</span>
             </span>
           </PaneTitle>
           {mentionLoadProgress.active ? (
@@ -7311,7 +7460,7 @@ function MentionsColumn({
               completed={mentionLoadProgress.completedTeams}
               total={mentionLoadProgress.totalTeams}
             />
-          ) : mentionDisplaySnapshot &&
+          ) : !column.mentionReview && mentionDisplaySnapshot &&
             pendingMentionUpdateCount > 0 ? (
             <div className="deck-mention-updates">
               <button
@@ -7340,12 +7489,13 @@ function MentionsColumn({
             </div>
           ) : (
             <p title={selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.allTeams}>
+              {column.mentionReview && showConfirmed ? `${reviewText.history} / ` : ""}
               {selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.allTeams}
             </p>
           )}
         </div>
-        <div className="deck-badge" title={text.mentionBadge(mentionCount, Boolean(column.teamId))}>
-          {mentionCount}
+        <div className="deck-badge" title={column.mentionReview ? reviewText.pending : text.mentionBadge(mentionCount, Boolean(column.teamId))}>
+          {column.mentionReview ? reviewPendingCount : mentionCount}
         </div>
         <div className="deck-column-actions">
           <PaneSearchToggle search={paneSearch} icon={<SearchIcon />} />
@@ -7374,6 +7524,16 @@ function MentionsColumn({
       <div className="deck-column-body">
       <PaneSearchField search={paneSearch} icon={<SearchIcon />} closeIcon={<CloseIcon />} />
 
+      {column.mentionReview && (lastConfirmed || reviewBusy) ? <div className="deck-review-feedback" role="status" aria-live="polite">
+        {lastConfirmed ? <>
+          <span>{language === "ja" ? "確認済みにしました" : "Marked as confirmed"}</span>
+          <button type="button" className="deck-review-undo" data-deck-review-undo disabled={reviewBusy} onClick={() => void changeConfirmation(lastConfirmed, false)}>{language === "ja" ? "取り消す" : "Undo"}</button>
+        </> : null}
+        {reviewBusy ? <span>{reviewText.saving}</span> : null}
+      </div> : null}
+      {column.mentionReview && review.error ? <p role="alert">{reviewText.error}: {review.error}</p> : null}
+      {exclusions.error ? <div className="deck-exclusion-error" role="alert"><span>{language === "ja" ? "表示の除外を読み込み・保存できませんでした" : "Could not load or save display exclusions"}: {exclusions.error}</span><button type="button" className="deck-exclusion-link" onClick={() => void exclusions.retry()}>{language === "ja" ? "再試行" : "Retry"}</button></div> : null}
+      {exclusionFeedback ? <div className="deck-exclusion-feedback" role="status"><span>{exclusionFeedback.text}</span><button type="button" className="deck-exclusion-link" disabled={exclusionUndoBusy} onClick={async () => { setExclusionUndoBusy(true); try { await exclusionFeedback.undo(); setExclusionFeedback(null); } catch { /* Shared store exposes the failure. */ } finally { setExclusionUndoBusy(false); } }}>{language === "ja" ? "取り消す" : "Undo"}</button></div> : null}
       {showControls ? (
         <div className="deck-stack deck-stack--controls">
           <div className="deck-inline-actions">
@@ -7417,6 +7577,18 @@ function MentionsColumn({
               <CloseIcon />
             </button>
           </div>
+          {!column.mentionReview ? <div className="deck-review-mode-actions">
+            <MentionModeAction kind="duplicate" label={reviewText.create} onClick={onCreateReview}
+              explanation={language === "ja" ? "元のペインを残し、同じ対象チームの要確認タブを隣に追加します。取得データを共有します。既読とは独立して確認し、元に戻す・確認済み履歴から未確認に戻すことができます。同じ投稿の確認状態は、このブラウザーに保存され、要確認タブ間で共有されます。" : "Keeps the original pane and adds an adjacent review pane for the same team, sharing fetched data. Confirmation is separate from reading. Undo or reopen posts from confirmed history. Confirmation state is saved in this browser and shared across review panes."} />
+            <MentionModeAction kind="convert" label={language === "ja" ? "要確認モードに変更" : "Switch to review mode"}
+              onClick={() => onUpdate(column.id, { mentionReview: true })}
+              explanation={language === "ja" ? "このペインだけを要確認モードに変更します。タブを追加せず、対象チーム・名前・位置を維持します。既読とは独立して確認し、元に戻す・確認済み履歴から未確認に戻すことができます。確認状態は、このブラウザーに保存され、要確認タブ間で共有されます。通常メンションに戻しても履歴は残ります。" : "Changes only the current pane to review mode, preserving its team, name and position without adding a tab. Confirmation is separate from reading. Undo or reopen posts from confirmed history. State is saved in this browser and shared across review panes; switching back keeps the history."} />
+          </div> : <>
+            <button type="button" className="deck-button deck-button--secondary deck-review-create" data-deck-review-history aria-pressed={showConfirmed} onClick={() => setShowConfirmed(value => !value)}>{showConfirmed ? reviewText.pending : reviewText.history}</button>
+            <button type="button" data-deck-exit-review className="deck-button deck-button--secondary deck-review-create"
+              onClick={() => onUpdate(column.id, { mentionReview: false })}>{language === "ja" ? "通常メンションに戻す" : "Back to normal mentions"}</button>
+            <p className="deck-review-note">{language === "ja" ? "取得範囲は通常のメンションと同じです。取得済みの投稿は、既読にしても明示的に確認するまで残ります。確認状態と履歴は通常メンションに戻しても保持します。" : "Uses the same retrieval range as Mentions. Collected posts remain pending until explicitly confirmed, even after reading. Switching back keeps confirmations and history."}</p>
+          </>}
           <div className="deck-controls">
             <label className="deck-field">
               <span>{text.teamLabel}</span>
@@ -7427,25 +7599,26 @@ function MentionsColumn({
                 onChange={(teamId) => onUpdate(column.id, { teamId: teamId || undefined })}
               />
             </label>
-            <label className="deck-toggle">
+            {!column.mentionReview ? <label className="deck-toggle">
               <input
                 type="checkbox"
                 checked={Boolean(column.unreadOnly)}
                 onChange={(event) => onUpdate(column.id, { unreadOnly: event.currentTarget.checked })}
               />
               <span>{text.unreadOnly}</span>
-            </label>
+            </label> : null}
           </div>
 
+          <MentionExclusionControls key={exclusionContext} rules={exclusions} directory={userDirectory} channelLabels={exclusionChannelLabels} showExcluded={showExcluded} onShowExcluded={setShowExcluded} language={language} onFeedback={setExclusionFeedback} />
           <article className="deck-card deck-card--muted">
             <strong>{text.scope}</strong>
             <p>{selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.allTeams}</p>
           </article>
           <article className="deck-card deck-card--muted">
-          <strong>{text.addMentions}</strong>
-            <p>{text.mentionBadge(mentionCount, Boolean(column.teamId))}</p>
+          <strong>{column.mentionReview ? reviewText.title : text.addMentions}</strong>
+            <p>{column.mentionReview ? `${reviewText.pending}: ${reviewPendingCount}` : text.mentionBadge(mentionCount, Boolean(column.teamId))}</p>
           </article>
-          {column.unreadOnly ? (
+          {column.unreadOnly && !column.mentionReview ? (
             <article className="deck-card deck-card--muted">
               <strong>{text.unreadOnly}</strong>
               <p>{text.unreadOnlyNote}</p>
@@ -7500,20 +7673,25 @@ function MentionsColumn({
           ) : null}
           {visiblePosts.length === 0 &&
           !mentionLoadProgress.active &&
-          !mentionDisplaySnapshot ? (
+          (!mentionDisplaySnapshot || column.mentionReview) ? (
             <article className="deck-card">
-              <strong>{text.noMentions}</strong>
-              <p>{column.unreadOnly ? text.noUnreadMentions : text.mentionsWillAppear}</p>
+              <strong>{column.mentionReview ? (showConfirmed ? reviewText.history : reviewText.empty) : text.noMentions}</strong>
+              {!column.mentionReview ? <p>{column.unreadOnly ? text.noUnreadMentions : text.mentionsWillAppear}</p> : null}
             </article>
           ) : visiblePosts.length > 0 || mentionDisplaySnapshot ? (
             <PostList paneSearch={paneSearch}
               posts={visiblePosts}
               userDirectory={userDirectory}
               compactMode={compactMode}
-              hasMore={postState.hasMore}
+              hasMore={postState.hasMore && (Boolean(column.mentionReview) || postState.posts.length < MENTIONS_MAX_BUFFER)}
               loadingMore={postState.loadingMore}
               onLoadMore={handleLoadMore}
-              renderMeta={renderPostMeta}
+              isPostExcluded={isExcluded}
+              renderActions={post => {
+                const rootPost = mentionPostDirectory.get(post.root_id || post.id);
+                return <MentionPostMenu key={exclusionContext} post={post} user={userDirectory[post.user_id]} rootPost={rootPost} rootUser={rootPost ? userDirectory[rootPost.user_id] : undefined} channelLabel={exclusionChannelLabels[post.channel_id] || post.channel_id} rules={exclusions} language={language} onFeedback={setExclusionFeedback} />;
+              }}
+              renderMeta={post => <span className="deck-review-post-meta"><span>{renderPostMeta(post)}{isExcluded(post) ? <span className="deck-excluded-badge">{language === "ja" ? "除外中" : "Excluded"}</span> : null}</span>{column.mentionReview ? <button type="button" className="deck-icon-button deck-icon-button--ghost deck-review-confirm" data-deck-review-confirm={!showConfirmed ? post.id : undefined} data-deck-review-restore={showConfirmed ? post.id : undefined} disabled={reviewBusy || !review.ready} aria-label={showConfirmed ? reviewText.restore : reviewText.confirm} title={showConfirmed ? reviewText.restore : reviewText.confirm} onClick={event => { event.stopPropagation(); void changeConfirmation(post.id, !showConfirmed); }} onKeyDown={event => event.stopPropagation()}>{showConfirmed ? "↶" : "✓"}</button> : null}</span>}
               onOpenPost={(post) => {
                 const channel = channelDirectory[post.channel_id];
                 const teamId = channel?.team_id;
@@ -7528,8 +7706,8 @@ function MentionsColumn({
               reversedPostOrder={reversedPostOrder}
               highlightTerms={highlightTerms}
               currentUserId={currentUserId}
-              lastViewedAt={mentionsLastReadAt}
-              onMarkRead={handleMarkRead}
+              lastViewedAt={column.mentionReview ? null : mentionsLastReadAt}
+              onMarkRead={column.mentionReview ? undefined : handleMarkRead}
               unreadSeparatorLabel={text.unreadSeparatorLabel}
               markReadLabel={text.markRead}
               jumpToLatestLabel={text.jumpToLatest}
@@ -7658,9 +7836,9 @@ function ChannelWatchColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onAddColumn: (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>) => string;
+  onAddColumn: (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => string;
   onRememberTarget: (target: RecentChannelTarget) => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
@@ -8533,7 +8711,7 @@ function SearchLikeColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
@@ -9783,6 +9961,8 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   }, [state.userId]);
   const [mentionsLastReadAt, setMentionsLastReadAt] = useMentionsLastReadAt();
   const [columns, addColumn, removeColumn, updateColumn, moveColumnInOrder, replaceColumns, reorderColumn] = useDeckLayout();
+  const mentionFeedOwnersRef = useRef(new Map<string, string>());
+  mentionFeedOwnersRef.current = reconcileMentionFeedOwners(mentionFeedOwnersRef.current, columns ?? [], getMattermostUrl("/"), state.userId);
   const [layoutMode, setLayoutMode] = useState<"row" | "twoRows">("row");
   const [layoutModeReady, setLayoutModeReady] = useState(false);
   const [rowSplit, setRowSplit] = useState(50);
@@ -10154,10 +10334,10 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     const title = root?.querySelector(".deck-column-heading h2")?.textContent?.replace(/\s+/g, " ").trim();
     const subtitle = root?.querySelector(".deck-column-heading p")?.textContent?.replace(/\s+/g, " ").trim();
     return {
-      title: column.customTitle ?? (title && title.length > 0 ? title : getLocalizedColumnTitle(column.type)),
+      title: column.customTitle ?? (title && title.length > 0 ? title : column.mentionReview ? (deckSettings.language === "ja" ? "要確認メンション" : "Mentions to review") : getLocalizedColumnTitle(column.type)),
       subtitle: subtitle && subtitle.length > 0 ? subtitle : undefined,
     };
-  }, [getLocalizedColumnTitle]);
+  }, [getLocalizedColumnTitle, deckSettings.language]);
 
   const healthStatusLabel = getApiHealthLabel(apiHealthStatus);
   const connectionModeLabel = realtimeAuthError ? text.pollingRealtimeAuthFailed : effectiveRealtimeEnabled ? text.realtime : text.polling;
@@ -10891,7 +11071,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
   const handleAddColumn = (
     type: DeckColumnType,
-    defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>,
+    defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>,
   ): string => {
     const row = layoutMode === "twoRows" || columns?.some(column => column.row !== undefined)
       ? (showRailAddMenu && railAddButtonRef.current?.dataset.addRow === "1" ? 1 : 0) : undefined;
@@ -11296,12 +11476,12 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       } else if (action === "addColumn") {
         result = handleAddColumn(
           payload.type as DeckColumnType,
-          payload.defaults as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">> | undefined,
+          payload.defaults as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">> | undefined,
         );
       } else if (action === "updateColumn") {
         updateColumn(
           payload.id as string,
-          payload.patch as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "width" | "row" | "customTitle">>,
+          payload.patch as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>,
         );
       } else if (action === "moveColumn") {
         moveColumn(payload.id as string, payload.direction as "left" | "right");
@@ -12213,6 +12393,16 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                       <PaneFrame key={column.id} {...frameProps}>
         <MentionsColumn
           column={column}
+          feedOwner={mentionFeedOwnersRef.current.get(mentionFeedOwnerKey(getMattermostUrl("/"), state.userId, column.teamId)) === column.id}
+          feedHasReview={(columns ?? []).some(candidate => candidate.type === "mentions" && candidate.teamId === column.teamId && candidate.mentionReview)}
+          onCreateReview={() => {
+            const { id: _sourceId, type: _sourceType, ...defaults } = column;
+            const next = createColumn("mentions", { ...defaults, customTitle: undefined, mentionReview: true });
+            const updated = [...(columns ?? [])];
+            updated.splice(updated.findIndex(candidate => candidate.id === column.id) + 1, 0, next);
+            replaceColumns(updated);
+            setPendingScrollColumnId(next.id);
+          }}
           username={state.username}
           currentUser={state.currentUser}
           currentUserId={state.userId}

@@ -60,6 +60,8 @@ Two-row layout with custom pane titles:
 - Layout export and import as JSON
 - Optional realtime updates with a Mattermost PAT
 - Mattermost-aligned mention collection across teams and joined channels, including custom mention keys, group and special mentions, CRT and non-CRT thread semantics, and DM/GM conversations
+- Derive a review pane from mentions to retain posts until explicitly confirmed, with shared fetching, five-second undo, confirmation history, and durable pending posts.
+- Hide posts by author or conversation with exclusions shared by normal and review mentions and saved per server/account.
 - Optional per-server profiles for switching between multiple saved setting sets
 - Mattermost-aware theme colors, optional pane identity accents, configurable default widths, and a compact mode that switches to dense `time author: content` rows with stable per-author colors
 - Inline URL detection and truncation for long tokens in post bodies
@@ -69,6 +71,22 @@ Two-row layout with custom pane titles:
 - Japanese, English, German, Chinese (Simplified), French, Russian, Ukrainian, Spanish, and Korean UI
 - Localized extension package name and description for Chrome
 - Direct links from Settings to the official website, privacy policy, terms, support, and Chrome Web Store listing
+
+## Mention Review
+
+Use the controls in a mentions pane to duplicate it as a review pane or convert it in place. Duplication keeps the original and adds a review pane beside it for the same teams; conversion preserves its teams, title, and position. The adjacent information buttons explain each choice and confirmation behavior; activate them again, press Escape, or click outside to close the explanation. Review includes the personal and special mentions collected by normal mentions, such as `@all`, `@channel`, and `@here`.
+
+Explicitly confirm a post to remove it from pending review. A five-second undo remains available even when the controls are collapsed; confirmation history lets you restore it afterward. Opening a post or marking it read in Mattermost never confirms it. Returning a review pane to normal mentions preserves pending posts and confirmation history for later use.
+
+Pending posts and confirmation state are saved in this browser per server/account and shared across review panes showing the same post. Collection continues after the original mentions pane is closed, and pending posts are retained independently of normal mention cache limits and expiry. Initially available historical posts are also pending; this is the collected range, not necessarily the server's complete history. Load older posts to extend it. Clearing extension data also clears confirmation state.
+
+## Mention Display Exclusions
+
+Use a post's hover or keyboard-focus action menu to hide its author or conversation. On touch devices the menu remains visible. Author exclusions apply to posts written by that person; conversation exclusions cover the root post and all replies, including future replies.
+
+The collapsible mention controls let you search for and add authors, remove author or conversation exclusions, and temporarily show excluded posts. Exclusions are shared by normal and review mentions and saved in this browser per server/account. Temporary display is per pane and resets after restart.
+
+Exclusions affect display only: fetching, Mattermost notifications, read state, and confirmation state are unchanged. Excluded review posts remain pending and return when the exclusion is removed. If saving fails, posts stay visible and an error is shown.
 
 ## How It Works
 
@@ -199,7 +217,7 @@ npm run capture:readme
 
 ## Release
 
-Push a tag in `v` format, such as `v1.2.3`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
+Push a tag in `v` format, such as `v1.3.0`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
 
 - Runs type checks, unit tests, the full Mattermost 9.5.4 Playwright suite, and the release compatibility matrix for 9.5.11, 10.11.22, and 11.8.2
 - Builds the Chrome Web Store archive with `STORE_BUILD=true`, extracts that exact archive, and smoke-tests its ungranted first-run state and safe handling when Chrome cannot approve the native permission prompt
@@ -216,12 +234,12 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.2.3"
+$env:EXT_VERSION = "v1.3.0"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.2.3.zip -Force
-$releaseHash = (Get-FileHash mattermost-deck-v1.2.3.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-"$releaseHash  mattermost-deck-v1.2.3.zip" | Set-Content mattermost-deck-v1.2.3.zip.sha256 -Encoding ascii
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.3.0.zip -Force
+$releaseHash = (Get-FileHash mattermost-deck-v1.3.0.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+"$releaseHash  mattermost-deck-v1.3.0.zip" | Set-Content mattermost-deck-v1.3.0.zip.sha256 -Encoding ascii
 ```
 
 The archive must contain `manifest.json` at its root. Store builds intentionally omit the localhost-only static content script; local development builds retain it for E2E testing.

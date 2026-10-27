@@ -32,6 +32,11 @@ function createLocalStorage(initial: Record<string, string> = {}): Storage {
 }
 
 describe("normaliseColumns", () => {
+  it("preserves review mode and source conditions in layout exports and restores", () => {
+    const review = { id: "review", type: "mentions", teamId: "team", unreadOnly: true, mentionReview: true, row: 1 };
+    expect(normaliseColumns(JSON.parse(JSON.stringify([review])))).toEqual([review]);
+    expect(normaliseColumns([{ id: "ordinary", type: "search", mentionReview: true }])[0]).not.toHaveProperty("mentionReview");
+  });
   it("retains valid individual widths, clamps bounds, and ignores invalid widths without dropping panes", () => {
     const widths = [360, 100, 9999, NaN, "400", undefined];
     const result = normaliseColumns(widths.map((width, index) => ({ id: String(index), type: "favorites", width })));

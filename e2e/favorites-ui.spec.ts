@@ -68,6 +68,14 @@ test("built Deck displays and operates the favorites pane with a fixture server"
     const favoritePane = ".deck-column--favorites";
     await expect.poll(async () => (await inspect(favoritePane))?.text, { timeout: 20_000 }).toContain("Use ☆");
     await expect.poll(async () => (await inspect('.deck-column--channel .deck-card--post'))?.text, { timeout: 20_000 }).toContain(post.message);
+    const manifest = JSON.parse(await fs.readFile(path.resolve("dist/manifest.json"), "utf8"));
+    expect((await inspect(".deck-version"))?.text).toBe(`v${manifest.version}`);
+    expect((await inspect(".deck-version"))?.width).toBeGreaterThan(0);
+    await page.setViewportSize({ width: 1050, height: 900 });
+    await expect.poll(async () => (await inspect(".deck-topbar--collapsed .deck-version"))?.width).toBeGreaterThan(0);
+    await page.screenshot({ path: testInfo.outputPath("header-version-compact.png"), fullPage: true });
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await expect.poll(async () => (await inspect(".deck-shell"))?.width).toBeGreaterThan(620);
     const oldUrl = page.url();
     const channelStar = '.deck-column--channel .deck-favorite-button';
     expect((await inspect(channelStar))?.opacity).toBe("0");

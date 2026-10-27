@@ -32,7 +32,8 @@ export function isDeckColumn(value: unknown): value is DeckColumn {
     (candidate.teamId === undefined || typeof candidate.teamId === "string") &&
     (candidate.channelId === undefined || typeof candidate.channelId === "string") &&
     (candidate.query === undefined || typeof candidate.query === "string") &&
-    (candidate.unreadOnly === undefined || typeof candidate.unreadOnly === "boolean")
+    (candidate.unreadOnly === undefined || typeof candidate.unreadOnly === "boolean") &&
+    (candidate.mentionReview === undefined || typeof candidate.mentionReview === "boolean")
   );
 }
 
@@ -61,6 +62,7 @@ function normaliseColumnsOrNull(value: unknown): DeckColumn[] | null {
     query: column.query,
     ...(normalisePaneTitle(column.customTitle) ? { customTitle: normalisePaneTitle(column.customTitle) } : {}),
     unreadOnly: column.unreadOnly,
+    ...(column.type === "mentions" && column.mentionReview ? { mentionReview: true } : {}),
     ...(column.row === 0 || column.row === 1 ? { row: column.row } : {}),
     ...(typeof column.width === "number" && Number.isFinite(column.width)
       ? { width: normalisePreferredColumnWidth(column.width) } : {}),

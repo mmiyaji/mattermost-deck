@@ -28,6 +28,20 @@ async function loadApiModule() {
   return await import("./api.js");
 }
 
+describe("searchUsers", () => {
+  it("avoids empty searches and uses the authenticated API request path", async () => {
+    const { searchUsers } = await loadApiModule();
+    await expect(searchUsers("   ")).resolves.toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+    vi.mocked(fetch).mockResolvedValue(makeFetchOk([mockUser("alice")]));
+    await expect(searchUsers(" alice ")).resolves.toEqual([mockUser("alice")]);
+    expect(fetch).toHaveBeenCalledWith("/api/v4/users/search", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ term: "alice", limit: 20, allow_inactive: false }),
+    }));
+  });
+});
+
 describe("getUsersByIds", () => {
   beforeEach(() => {
     vi.useRealTimers();
