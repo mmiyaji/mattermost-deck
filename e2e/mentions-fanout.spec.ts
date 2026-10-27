@@ -78,6 +78,55 @@ interface PostCardDebugState {
   viewportScrollTop?: number | null;
 }
 
+// A pointer click needs real viewport coordinates, so the card has to be on
+// screen. How far down the list it sits depends on how many mentions the
+// account already has, so scroll it to the top of its own viewport first
+// instead of assuming the first screenful contains it.
+async function scrollPostCardIntoView(
+  page: Page,
+  columnId: string,
+  text: string,
+): Promise<{ card: PostCardDebugState; restoreScrollTop: number | null }> {
+  const readCard = () =>
+    debugRequest<PostCardDebugState>(page, "getPostCardState", {
+      columnId,
+      text,
+    });
+  let card = await readCard();
+  const restoreScrollTop = card.viewportScrollTop ?? null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const root = await page.locator("#mattermost-deck-root").boundingBox();
+    if (
+      !root ||
+      typeof card.top !== "number" ||
+      typeof card.height !== "number" ||
+      typeof card.relativeTop !== "number" ||
+      typeof card.viewportScrollTop !== "number"
+    ) {
+      return { card, restoreScrollTop };
+    }
+    const centre = card.top + card.height / 2;
+    if (
+      centre > (card.viewportTop ?? root.y) &&
+      centre < root.y + root.height
+    ) {
+      return { card, restoreScrollTop };
+    }
+    const previousScrollTop = card.viewportScrollTop;
+    await debugRequest<number>(page, "setMentionScrollTop", {
+      id: columnId,
+      value: previousScrollTop + card.relativeTop,
+    });
+    card = await readCard();
+    // A clamped scroll cannot improve further; the card is as visible as the
+    // list allows, and the assertions below report it if that is not enough.
+    if (card.viewportScrollTop === previousScrollTop) {
+      return { card, restoreScrollTop };
+    }
+  }
+  return { card, restoreScrollTop };
+}
+
 async function clickPostCardWithPointer(
   page: Page,
   card: PostCardDebugState,
@@ -105,8 +154,14 @@ async function clickPostCardWithPointer(
 
 async function expectPointerClickConfirmation(
   page: Page,
-  card: PostCardDebugState,
+  columnId: string,
+  text: string,
 ): Promise<void> {
+  const { card, restoreScrollTop } = await scrollPostCardIntoView(
+    page,
+    columnId,
+    text,
+  );
   const dialogPromise = page.waitForEvent("dialog", { timeout: 3_000 });
   const handledDialogPromise = dialogPromise.then(async (dialog) => {
     const type = dialog.type();
@@ -118,6 +173,17 @@ async function expectPointerClickConfirmation(
     handledDialogPromise,
   ]);
   expect(dialogType).toBe("confirm");
+  // Scrolling is only a means to reach the card. Later assertions read the
+  // jump-to-latest control and the viewport offset, so put the list back.
+  if (
+    typeof restoreScrollTop === "number" &&
+    restoreScrollTop !== card.viewportScrollTop
+  ) {
+    await debugRequest<number>(page, "setMentionScrollTop", {
+      id: columnId,
+      value: restoreScrollTop,
+    });
+  }
 }
 
 function expectStablePixels<T extends object>(
@@ -795,7 +861,11 @@ test("all-teams mention refresh keeps rows stable until updates are applied", as
       present: true,
       clickable: true,
     });
-    await expectPointerClickConfirmation(page, realtimeCardState);
+    await expectPointerClickConfirmation(
+      page,
+      mentionsColumn!.id,
+      initialRealtimeMarker,
+    );
     await page.screenshot({
       path: testInfo.outputPath("mentions-progressive-complete.png"),
       fullPage: true,
@@ -1088,7 +1158,11 @@ test("all-teams mention refresh keeps rows stable until updates are applied", as
         },
       );
     expect(cachedCardState.present).toBe(true);
-    await expectPointerClickConfirmation(page, cachedCardState);
+    await expectPointerClickConfirmation(
+      page,
+      mentionsColumn!.id,
+      cacheOnlyMarker,
+    );
     const baselineScrollTop = await debugRequest<number>(
       page,
       "setMentionScrollTop",
