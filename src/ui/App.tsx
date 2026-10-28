@@ -4922,7 +4922,24 @@ function MentionsColumn({
   };
   const reviewEnabledRef = useRef(feedHasReview);
   reviewEnabledRef.current = feedHasReview;
-  const captureReview = (posts: MattermostPost[]) => { if (currentUserId && reviewEnabledRef.current) void review.ingest(posts).catch(() => undefined); };
+  const reviewReadStateRef = useRef<MentionReadState | null>(null);
+  // Capture sources include raw team-search hits, which a mention search can
+  // match on a name alone. The feed drops those again because it re-applies
+  // active-channel filtering on every poll, but a review record is permanent,
+  // so apply the same filter here and never store channel noise. Being added
+  // to a channel stays a mention; every other system message is not.
+  const isReviewablePost = (post: MattermostPost) => {
+    if (post.type?.startsWith("system_")) {
+      return post.type === "system_add_to_channel" && post.props?.addedUserId === currentUserId;
+    }
+    const activeChannelIds = reviewReadStateRef.current?.activeChannelIds ?? null;
+    return activeChannelIds === null || activeChannelIds[post.channel_id] === true;
+  };
+  const captureReview = (posts: MattermostPost[]) => {
+    if (!currentUserId || !reviewEnabledRef.current) return;
+    const storable = posts.filter(isReviewablePost);
+    if (storable.length) void review.ingest(storable).catch(() => undefined);
+  };
   const availableTeamIdsSignature = teams.map((team) => team.id).join(",");
   const teamIds = useMemo(
     () =>
@@ -5021,6 +5038,7 @@ function MentionsColumn({
     () => applyMentionReadMarkers(displayedMentionReadState, realtimeReadMarkers),
     [displayedMentionReadState, realtimeReadMarkers],
   );
+  reviewReadStateRef.current = effectiveMentionReadState;
   const effectiveCachedMentionReadState = useMemo(
     () =>
       applyMentionReadMarkers(

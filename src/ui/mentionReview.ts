@@ -7,6 +7,12 @@ interface Store { snapshot: Snapshot; listeners: Set<() => void>; loaded: Promis
 const stores = new Map<string, Store>();
 const CONFIRMED_BODY_CAP = 200;
 export const reviewPrefix = (server: string, user: string) => `mattermostDeck.mentionReview.v1:${encodeURIComponent(server)}:${encodeURIComponent(user)}:`;
+// Mattermost counts being added to a channel as a mention. Joins, leaves and
+// the other system messages are channel noise that a mention search can match
+// by name, so refuse them on write and hide any a previous version stored.
+export function isReviewableMentionPost(post: MattermostPost): boolean {
+  return !post.type?.startsWith("system_") || post.type === "system_add_to_channel";
+}
 export const reviewScope = (team?: string) => encodeURIComponent(team ?? "*");
 const storage = () => typeof chrome !== "undefined" && chrome.storage?.local ? chrome.storage.local : null;
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -133,7 +139,7 @@ export async function ingestReview(prefix: string, scope: string, posts: Matterm
     const values: Record<string, unknown> = {};
     const retained = retainedConfirmedIds(prefix, current, CONFIRMED_BODY_CAP);
     for (const post of posts) {
-      if (!post.id || post.delete_at || current[`${prefix}deleted:${post.id}`]) continue;
+      if (!post.id || post.delete_at || !isReviewableMentionPost(post) || current[`${prefix}deleted:${post.id}`]) continue;
       if (typeof current[`${prefix}confirmed:${post.id}`] === "number" && !retained.has(post.id)) continue;
       const key = `${prefix}post:${scope}:${post.id}`;
       const previous = current[key] as MattermostPost | undefined;
@@ -149,7 +155,7 @@ export function selectReview(values: Record<string, unknown>, prefix: string, sc
   return Object.entries(values).flatMap(([key, value]) => {
     if (!key.startsWith(start)) return [];
     const post = value as MattermostPost;
-    if (!post || typeof post.id !== "string" || typeof post.message !== "string" || typeof post.create_at !== "number" || !Number.isFinite(post.create_at) || post.delete_at || values[`${prefix}deleted:${post.id}`]) return [];
+    if (!post || typeof post.id !== "string" || typeof post.message !== "string" || typeof post.create_at !== "number" || !Number.isFinite(post.create_at) || post.delete_at || !isReviewableMentionPost(post) || values[`${prefix}deleted:${post.id}`]) return [];
     const confirmedAt = values[`${prefix}confirmed:${post.id}`];
     return [{ post, confirmedAt: typeof confirmedAt === "number" ? confirmedAt : null }];
   }).sort((a, b) => b.post.create_at - a.post.create_at);

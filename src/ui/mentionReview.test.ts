@@ -52,6 +52,18 @@ describe("durable mention review", () => {
     await ingestReview(prefix, "*", [post("new")]);
     expect(selectReview(values, prefix, "*").map(entry => entry.post.id)).toEqual(["old", "new"]);
   });
+  it("refuses system messages a mention search matched by name, and hides ones already stored", async () => {
+    const prefix = reviewPrefix("server", "system");
+    const join = { ...post("join"), type: "system_join_channel", message: "mm95user has joined the channel." };
+    const added = { ...post("added"), type: "system_add_to_channel", props: { addedUserId: "me" } };
+    const { values } = mockStorage();
+    await ingestReview(prefix, "*", [join, added, post("real")]);
+    expect(values).not.toHaveProperty([`${prefix}post:*:join`]);
+    expect(selectReview(values, prefix, "*").map(entry => entry.post.id).sort()).toEqual(["added", "real"]);
+    // A record written before the guard existed must stop being displayed.
+    values[`${prefix}post:*:legacyJoin`] = { ...post("legacyJoin"), type: "system_leave_channel" };
+    expect(selectReview(values, prefix, "*").map(entry => entry.post.id).sort()).toEqual(["added", "real"]);
+  });
   it("prunes only confirmed bodies beyond the cap and keeps every confirmation and pending post", async () => {
     const prefix = reviewPrefix("server", "prune-confirmed");
     const { values } = mockStorage();
