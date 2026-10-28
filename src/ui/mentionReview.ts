@@ -3,7 +3,7 @@ import type { MattermostPost } from "../mattermost/api";
 
 export interface ReviewEntry { post: MattermostPost; confirmedAt: number | null }
 interface Snapshot { values: Record<string, unknown>; ready: boolean; error: string | null }
-interface Store { snapshot: Snapshot; listeners: Set<() => void>; loaded: Promise<void>; queue: Promise<void>; pending: Record<string, unknown> | null; revisions: Map<string, number>; unlisten: () => void; cleanup?: ReturnType<typeof setTimeout> }
+interface Store { snapshot: Snapshot; listeners: Set<() => void>; loaded: Promise<void>; queue: Promise<void>; pending: Record<string, unknown> | null; revisions: Map<string, number>; postKeys: Map<string, Set<string>>; unlisten: () => void; cleanup?: ReturnType<typeof setTimeout> }
 const stores = new Map<string, Store>();
 const CONFIRMED_BODY_CAP = 200;
 export const reviewPrefix = (server: string, user: string) => `mattermostDeck.mentionReview.v1:${encodeURIComponent(server)}:${encodeURIComponent(user)}:`;
@@ -17,16 +17,43 @@ export const reviewScope = (team?: string) => encodeURIComponent(team ?? "*");
 const storage = () => typeof chrome !== "undefined" && chrome.storage?.local ? chrome.storage.local : null;
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 function publish(store: Store, snapshot: Snapshot) { store.snapshot = snapshot; store.listeners.forEach(listener => listener()); }
+
+// Reading a scope used to scan every key in the store. The index groups post
+// keys by scope so a read touches only its own rows. It belongs to the store
+// rather than the snapshot: each publish replaces `values`, so the memo that
+// reads it re-runs anyway, and no copy per publish is needed.
+function postKeyScope(prefix: string, key: string): string | null {
+  const start = `${prefix}post:`;
+  if (!key.startsWith(start)) return null;
+  const rest = key.slice(start.length);
+  const end = rest.indexOf(":");
+  return end < 0 ? null : rest.slice(0, end);
+}
+function indexPostKey(store: Store, prefix: string, key: string, present: boolean): void {
+  const scope = postKeyScope(prefix, key);
+  if (scope === null) return;
+  const bucket = store.postKeys.get(scope);
+  if (!present) { bucket?.delete(key); if (bucket && !bucket.size) store.postKeys.delete(scope); return; }
+  if (bucket) bucket.add(key); else store.postKeys.set(scope, new Set([key]));
+}
+function rebuildPostKeys(store: Store, prefix: string, values: Record<string, unknown>): void {
+  store.postKeys.clear();
+  for (const key of Object.keys(values)) indexPostKey(store, prefix, key, true);
+}
+/** This scope's indexed post keys, empty while no store holds the prefix. */
+export function reviewScopeIndex(prefix: string, scope: string): ReadonlySet<string> {
+  return stores.get(prefix)?.postKeys.get(scope) ?? new Set();
+}
 function getStore(prefix: string): Store {
   const existing = stores.get(prefix);
   if (existing) return existing;
-  const store: Store = { snapshot: { values: {}, ready: false, error: null }, listeners: new Set(), loaded: Promise.resolve(), queue: Promise.resolve(), pending: {}, revisions: new Map(), unlisten: () => {} };
+  const store: Store = { snapshot: { values: {}, ready: false, error: null }, listeners: new Set(), loaded: Promise.resolve(), queue: Promise.resolve(), pending: {}, revisions: new Map(), postKeys: new Map(), unlisten: () => {} };
   stores.set(prefix, store);
   const accept = (changes: Record<string, unknown>) => {
     const relevant = Object.entries(changes).filter(([key]) => key.startsWith(prefix));
     if (!relevant.length) return;
     const values = { ...store.snapshot.values };
-    for (const [key, value] of relevant) { store.revisions.set(key, (store.revisions.get(key) ?? 0) + 1); if (store.pending) store.pending[key] = value; if (value == null) delete values[key]; else values[key] = value; }
+    for (const [key, value] of relevant) { store.revisions.set(key, (store.revisions.get(key) ?? 0) + 1); if (store.pending) store.pending[key] = value; if (value == null) delete values[key]; else values[key] = value; indexPostKey(store, prefix, key, value != null); }
     publish(store, { ...store.snapshot, values });
   };
   const changed = (changes: Record<string, chrome.storage.StorageChange>, area: string) => { if (area === "local") accept(Object.fromEntries(Object.entries(changes).map(([key, change]) => [key, change.newValue]))); };
@@ -45,6 +72,7 @@ function getStore(prefix: string): Store {
       }));
       const values: Record<string, unknown> = { ...Object.fromEntries(Object.entries(all).filter(([key]) => key.startsWith(prefix))), ...store.pending };
       for (const key of Object.keys(values)) if (values[key] == null) delete values[key];
+      rebuildPostKeys(store, prefix, values);
       publish(store, { values, ready: true, error: null });
     } catch (error) { publish(store, { ...store.snapshot, ready: true, error: message(error) }); }
     finally { store.pending = null; }
@@ -72,7 +100,7 @@ function historyBodyRemovals(prefix: string, values: Record<string, unknown>, li
 }
 // Storage events can carry a later remote write before an earlier local promise
 // resolves. Only apply its result to keys that have received no event since then.
-async function persistReview(store: Store, sets: Record<string, unknown>, removes: string[]): Promise<void> {
+async function persistReview(prefix: string, store: Store, sets: Record<string, unknown>, removes: string[]): Promise<void> {
   const keys = [...Object.keys(sets), ...removes];
   if (!keys.length) return;
   const revisions = new Map(keys.map(key => [key, store.revisions.get(key) ?? 0]));
@@ -88,13 +116,14 @@ async function persistReview(store: Store, sets: Record<string, unknown>, remove
   for (const key of keys) {
     if ((store.revisions.get(key) ?? 0) !== revisions.get(key)) continue;
     if (key in sets) values[key] = sets[key]; else delete values[key];
+    indexPostKey(store, prefix, key, key in sets);
   }
   publish(store, { ...store.snapshot, values });
 }
 async function cleanHistoryBodies(prefix: string, store: Store, limit: number, reopening = new Set<string>()): Promise<number> {
   const keys = historyBodyRemovals(prefix, store.snapshot.values, limit)
     .filter(key => !reopening.has(key.slice(key.lastIndexOf(":") + 1)));
-  await persistReview(store, {}, keys);
+  await persistReview(prefix, store, {}, keys);
   return keys.length;
 }
 
@@ -116,16 +145,16 @@ export async function writeReview(prefix: string, update: Record<string, unknown
       const sets: Record<string, unknown> = {}, removes: string[] = [];
       for (const [key, value] of Object.entries(requested)) { if (value === undefined) removes.push(key); else sets[key] = value; }
       try {
-        await persistReview(store, sets, []);
+        await persistReview(prefix, store, sets, []);
       } catch (error) {
         // Under storage pressure discard even recent confirmed bodies, but keep
         // every decision and every pending post. If none can be freed, surface it.
         if (!/quota|exceed/i.test(message(error)) || !await cleanHistoryBodies(prefix, store, 0, reopening)) throw error;
-        await persistReview(store, sets, []);
+        await persistReview(prefix, store, sets, []);
       }
-      await persistReview(store, {}, removes);
+      await persistReview(prefix, store, {}, removes);
       await cleanHistoryBodies(prefix, store, CONFIRMED_BODY_CAP);
-      publish(store, { ...store.snapshot, error: null });
+      if (store.snapshot.error !== null) publish(store, { ...store.snapshot, error: null });
     } catch (error) {
       publish(store, { ...store.snapshot, error: message(error) });
       throw error;
@@ -150,9 +179,15 @@ export async function ingestReview(prefix: string, scope: string, posts: Matterm
     return values;
   });
 }
-export function selectReview(values: Record<string, unknown>, prefix: string, scope: string): ReviewEntry[] {
+// `postKeys` is this scope's index. Without it every key in the store is
+// scanned, which the exported pure form still allows for callers holding only
+// a plain record.
+export function selectReview(values: Record<string, unknown>, prefix: string, scope: string, postKeys?: ReadonlySet<string>): ReviewEntry[] {
   const start = `${prefix}post:${scope}:`;
-  return Object.entries(values).flatMap(([key, value]) => {
+  const candidates = postKeys
+    ? Array.from(postKeys, (key): [string, unknown] => [key, values[key]])
+    : Object.entries(values);
+  return candidates.flatMap(([key, value]) => {
     if (!key.startsWith(start)) return [];
     const post = value as MattermostPost;
     if (!post || typeof post.id !== "string" || typeof post.message !== "string" || typeof post.create_at !== "number" || !Number.isFinite(post.create_at) || post.delete_at || !isReviewableMentionPost(post) || values[`${prefix}deleted:${post.id}`]) return [];
@@ -178,7 +213,7 @@ export function useMentionReview(server: string, user: string, team?: string) {
   }, () => store.snapshot);
   return {
     ...snapshot,
-    entries: useMemo(() => selectReview(snapshot.values, prefix, scope), [snapshot.values, prefix, scope]),
+    entries: useMemo(() => selectReview(snapshot.values, prefix, scope, reviewScopeIndex(prefix, scope)), [snapshot.values, prefix, scope]),
     ingest: (posts: MattermostPost[]) => ingestReview(prefix, scope, posts),
     confirm: (id: string, confirmed: boolean) => writeReview(prefix, { [`${prefix}confirmed:${id}`]: confirmed ? Date.now() : undefined }),
     remove: (ids: string[]) => writeReview(prefix, Object.fromEntries(ids.map(id => [`${prefix}deleted:${id}`, Date.now()]))),

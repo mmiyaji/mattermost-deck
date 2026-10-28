@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MattermostPost } from "../mattermost/api";
-import { ingestReview, reviewPrefix, reviewScope, selectReview, writeReview } from "./mentionReview";
+import { ingestReview, reviewPrefix, reviewScopeIndex, reviewScope, selectReview, writeReview } from "./mentionReview";
 
 const post = (id: string, update_at = 1): MattermostPost => ({ id, channel_id: "channel", user_id: "author", message: `mention ${update_at}`, create_at: 1, update_at });
 function mockStorage(initial: Record<string, unknown> = {}) {
@@ -51,6 +51,44 @@ describe("durable mention review", () => {
     const { values } = mockStorage({ [key]: post("old"), [`${reviewPrefix("other", "hydrate")}post:*:foreign`]: post("foreign") });
     await ingestReview(prefix, "*", [post("new")]);
     expect(selectReview(values, prefix, "*").map(entry => entry.post.id)).toEqual(["old", "new"]);
+  });
+  it("keeps the scope index in step with writes, removals and remote changes", async () => {
+    const prefix = reviewPrefix("server", "index");
+    let listener!: (changes: Record<string, { newValue?: unknown }>, area: string) => void;
+    const stored: Record<string, unknown> = {};
+    const set = vi.fn(async (next: Record<string, unknown>) => { Object.assign(stored, next); });
+    const remove = vi.fn(async (keys: string[]) => { for (const key of keys) delete stored[key]; });
+    vi.stubGlobal("chrome", {
+      storage: {
+        local: { get: vi.fn(async () => ({ ...stored })), set, remove },
+        onChanged: { addListener: (fn: typeof listener) => { listener = fn; }, removeListener: vi.fn() },
+      },
+    });
+    // The indexed read must always agree with the full scan the pure form does.
+    const agrees = (scope: string) => {
+      const indexed = selectReview(stored, prefix, scope, reviewScopeIndex(prefix, scope));
+      const scanned = selectReview(stored, prefix, scope);
+      expect(indexed.map(entry => entry.post.id)).toEqual(scanned.map(entry => entry.post.id));
+      return indexed.map(entry => entry.post.id);
+    };
+    await ingestReview(prefix, "team", [post("a"), post("b")]);
+    await ingestReview(prefix, "*", [post("c")]);
+    expect(agrees("team")).toEqual(["a", "b"]);
+    expect(agrees("*")).toEqual(["c"]);
+    expect([...reviewScopeIndex(prefix, "team")]).toHaveLength(2);
+    // Confirming then dropping the body must take its key out of the index.
+    await writeReview(prefix, { [`${prefix}confirmed:a`]: 1 });
+    await writeReview(prefix, { [`${prefix}deleted:a`]: 2 });
+    expect(agrees("team")).toEqual(["b"]);
+    expect([...reviewScopeIndex(prefix, "team")].some(key => key.endsWith(":a"))).toBe(false);
+    // A post arriving from another tab must become visible without a reload.
+    stored[`${prefix}post:team:remote`] = post("remote");
+    listener({ [`${prefix}post:team:remote`]: { newValue: post("remote") } }, "local");
+    expect(agrees("team")).toContain("remote");
+    // And its removal elsewhere must not leave a phantom row behind.
+    delete stored[`${prefix}post:team:remote`];
+    listener({ [`${prefix}post:team:remote`]: { newValue: undefined } }, "local");
+    expect(agrees("team")).toEqual(["b"]);
   });
   it("refuses system messages a mention search matched by name, and hides ones already stored", async () => {
     const prefix = reviewPrefix("server", "system");

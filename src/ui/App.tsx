@@ -5201,7 +5201,10 @@ function MentionsColumn({
     const posts = column.mentionReview ? reviewPosts : snapshotPosts ?? resolvedVisiblePosts;
     return showExcluded || !exclusions.ready ? posts : posts.filter(post => !isExcluded(post));
   }, [exclusions.loaded, exclusions.ready, column.mentionReview, reviewPosts, snapshotPosts, resolvedVisiblePosts, showExcluded, isExcluded]);
-  const reviewPendingCount = exclusions.loaded ? review.entries.filter(entry => entry.confirmedAt === null && !(exclusions.ready && isExcluded(entry.post))).length : 0;
+  const reviewPendingCount = useMemo(
+    () => exclusions.loaded ? review.entries.filter(entry => entry.confirmedAt === null && !(exclusions.ready && isExcluded(entry.post))).length : 0,
+    [exclusions.loaded, exclusions.ready, review.entries, isExcluded],
+  );
   const visibleDeferredMentionPostIds = useMemo(
     () =>
       mentionDisplaySnapshot
