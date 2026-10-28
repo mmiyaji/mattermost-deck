@@ -5528,6 +5528,7 @@ function MentionsColumn({
       onProgress?: (progress: ChannelMentionLoadProgress) => void,
       isCancelled?: () => boolean,
       activeChannelSnapshotPromise?: Promise<MentionActiveChannelSnapshot>,
+      onScansCompleted?: (scans: readonly [string, string][]) => void,
     ) => {
       const shouldCancel = () => isCancelled?.() ?? false;
       if (!currentUserId || mentionKeys.length === 0 || shouldCancel()) {
@@ -5645,8 +5646,8 @@ function MentionsColumn({
       ]);
       let scannedChannels = 0;
       let skippedChannels = 0;
-      // Held back until the whole fan-out completes: a cancelled run's posts
-      // never reach the feed, so its channels must still be scanned next time.
+      // Return these to the poll without changing the shared scan cache. Even
+      // after this team completes, another pipeline can fail or cancel the poll.
       const completedScanSignatures: [string, string][] = [];
       let posts: MattermostPost[] = [];
       await mapInBatches(
@@ -6006,14 +6007,7 @@ function MentionsColumn({
       );
 
       if (!shouldCancel()) {
-        for (const [channelId, signature] of completedScanSignatures) {
-          rememberMentionScan(
-            scanCache,
-            channelId,
-            signature,
-            SPECIAL_MENTION_SCAN_CACHE_MAX_CHANNELS,
-          );
-        }
+        onScansCompleted?.(completedScanSignatures);
       }
 
       recordSpecialMentionScan({
@@ -6204,6 +6198,7 @@ function MentionsColumn({
       let searchPosts: MattermostPost[] = [];
       let unreadChannelPosts: MattermostPost[] = [];
       let unreadThreadPosts: MattermostPost[] = [];
+      const completedScanSignatures: [string, string][] = [];
       let completedMentionReadState = createEmptyMentionReadState();
       const teamProgressById = new Map<string, MentionTeamLoadAccumulator>(
         teamIds.map((teamId) => [
@@ -6519,6 +6514,7 @@ function MentionsColumn({
                     },
                     () => !canPublishProgress(),
                     activeChannelSnapshotPromise,
+                    scans => completedScanSignatures.push(...scans),
                   );
                   if (!canPublishProgress()) {
                     return;
@@ -6856,6 +6852,16 @@ function MentionsColumn({
         setMentionCacheState(
           createMentionCacheDisplayState(mentionCacheEntryId),
         );
+        // The complete poll has successfully published its posts. Failed or
+        // cancelled polls leave signatures untouched so the next run rescans.
+        for (const [channelId, signature] of completedScanSignatures) {
+          rememberMentionScan(
+            specialMentionScanCacheRef.current,
+            channelId,
+            signature,
+            SPECIAL_MENTION_SCAN_CACHE_MAX_CHANNELS,
+          );
+        }
         cancelTeamProgressFlush();
         setMentionLoadProgress((current) =>
           current.runId === runId
