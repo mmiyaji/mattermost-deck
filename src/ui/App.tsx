@@ -3,6 +3,7 @@ import { mentionFeedOwnerKey, reconcileMentionFeedOwners } from "./mentionFeedOw
 import { useMentionExclusions, isMentionExcluded } from "./mentionExclusions";
 import { MentionExclusionControls, MentionPostMenu, type ExclusionFeedback } from "./MentionExclusionControls";
 import { useMentionReview } from "./mentionReview";
+import { mentionScanSignature, rememberMentionScan } from "./mentionScanCache";
 import { startVisiblePolling } from "./visiblePolling";
 import { ColumnTypeIcon } from "./ColumnTypeIcon";
 import { TwoRowHint } from "./TwoRowHint";
@@ -423,6 +424,7 @@ const MAX_IMPLICIT_MENTION_RECONCILES_IN_FLIGHT = 8;
 const SPECIAL_MENTION_MEMBER_TTL_MS = 45_000;
 const SPECIAL_MENTION_MEMBER_TTL_WS_MS = 180_000;
 const SPECIAL_MENTION_MEMBER_CACHE_MAX_TEAMS = 12;
+const SPECIAL_MENTION_SCAN_CACHE_MAX_CHANNELS = 200;
 const TEAM_FANOUT_BATCH_SIZE = 2;
 const TEAM_FANOUT_GAP_MS = 250;
 const CHANNEL_FANOUT_BATCH_SIZE = 3;
@@ -4973,6 +4975,7 @@ function MentionsColumn({
   }, [column.mentionReview]);
   const [sectionNode, setSectionNode] = useState<HTMLElement | null>(null);
   const specialMentionMembersCacheRef = useRef<Record<string, { expiresAt: number; members: MattermostChannelMember[] }>>({});
+  const specialMentionScanCacheRef = useRef(new Map<string, string>());
   const mentionPostsRef = useRef<MattermostPost[]>([]);
   const mentionLoadRunIdRef = useRef(0);
   const mentionCacheHydratedEntryIdRef = useRef<string | null>(null);
@@ -5494,6 +5497,7 @@ function MentionsColumn({
 
   useEffect(() => {
     specialMentionMembersCacheRef.current = {};
+    specialMentionScanCacheRef.current.clear();
   }, [
     currentUserId,
     mentionMetadataNonce,
@@ -5631,6 +5635,19 @@ function MentionsColumn({
               candidateChannelDirectory.has(member.channel_id),
           )
         : candidateMembers;
+      const scanCache = specialMentionScanCacheRef.current;
+      const filterSignature = JSON.stringify([
+        currentUserId,
+        collapsedReplyThreads,
+        commentsNotify,
+        activeChannels !== null,
+        mentionKeys,
+      ]);
+      let scannedChannels = 0;
+      let skippedChannels = 0;
+      // Held back until the whole fan-out completes: a cancelled run's posts
+      // never reach the feed, so its channels must still be scanned next time.
+      const completedScanSignatures: [string, string][] = [];
       let posts: MattermostPost[] = [];
       await mapInBatches(
         scannableCandidateMembers,
@@ -5639,10 +5656,41 @@ function MentionsColumn({
           if (shouldCancel()) {
             return;
           }
+          const isCurrentChannel =
+            activeTeamId === teamId &&
+            activeChannelId === member.channel_id;
+          const readMarker = member.last_viewed_at ?? 0;
+          const candidateChannel =
+            candidateChannelDirectory.get(
+              member.channel_id,
+            );
+          const channelType = candidateChannel?.type;
+          const serverCountedChannel = serverCountedChannelIds.has(
+            member.channel_id,
+          );
+          // The open channel is never skipped: scanning it also bridges
+          // search-index delay for the user's own @here/@channel posts, and
+          // reading along in it moves no counter until the view marks it read.
+          const scanSignature =
+            candidateChannel && !isCurrentChannel
+              ? mentionScanSignature(
+                  member,
+                  candidateChannel,
+                  filterSignature,
+                )
+              : null;
+          if (
+            scanSignature !== null &&
+            scanCache.get(member.channel_id) === scanSignature
+          ) {
+            // Contribute nothing: a mention this scan would have found is
+            // already held, and the caller reconciles anything the newest scan
+            // omits by id, which is both cheaper and how a deletion is spotted.
+            skippedChannels += 1;
+            return;
+          }
+          scannedChannels += 1;
           try {
-            const isCurrentChannel =
-              activeTeamId === teamId &&
-              activeChannelId === member.channel_id;
             const recentPosts = isCurrentChannel
               ? await getRecentPosts(
                   member.channel_id,
@@ -5653,21 +5701,16 @@ function MentionsColumn({
             if (shouldCancel()) {
               return;
             }
-            const readMarker = member.last_viewed_at ?? 0;
-            const candidateChannel =
-              candidateChannelDirectory.get(
-                member.channel_id,
-              );
-            const channelType = candidateChannel?.type;
-            const serverCountedChannel = serverCountedChannelIds.has(
-              member.channel_id,
-            );
+            // Resolved per channel and shared by every page of its scan, so a
+            // thread is fetched once however many unread replies point at it.
+            // "failed" is remembered too, to stop a dead thread being retried.
             const fullThreadParticipationCache = new Map<
               string,
-              Promise<{
-                firstCurrentUserPostAt: number | null;
-                truncated: boolean;
-              }>
+              | {
+                  firstCurrentUserPostAt: number | null;
+                  truncated: boolean;
+                }
+              | "failed"
             >();
             let memberPosts: MattermostPost[] = [];
             const filterAndPublishBatch = async (
@@ -5711,6 +5754,12 @@ function MentionsColumn({
                   extraPosts.length,
               );
               const filteredPosts: MattermostPost[] = [];
+              const pendingThreadRootIds: string[] = [];
+              const deferredThreadPosts: {
+                post: MattermostPost;
+                rootId: string;
+                hasRootPost: boolean;
+              }[] = [];
 
               for (const post of candidatePosts) {
                 if (shouldCancel()) {
@@ -5788,89 +5837,106 @@ function MentionsColumn({
                   continue;
                 }
 
-                try {
-                  let participation =
-                    fullThreadParticipationCache.get(
-                      post.root_id,
-                    );
-                  if (!participation) {
+                // Only collect the thread here. Resolving each lookup inline
+                // would serialise one round trip per unread reply, so the
+                // fetches are batched once the page has been classified.
+                if (
+                  !fullThreadParticipationCache.has(post.root_id) &&
+                  !pendingThreadRootIds.includes(post.root_id)
+                ) {
+                  if (
+                    fullThreadParticipationCache.size +
+                      pendingThreadRootIds.length >=
+                    MENTION_FULL_THREAD_LOOKUP_LIMIT
+                  ) {
                     if (
-                      fullThreadParticipationCache.size >=
-                      MENTION_FULL_THREAD_LOOKUP_LIMIT
+                      serverCountedChannel &&
+                      post.user_id !== currentUserId
                     ) {
-                      if (
-                        serverCountedChannel &&
-                        post.user_id !== currentUserId
-                      ) {
-                        filteredPosts.push(post);
-                      }
-                      continue;
+                      filteredPosts.push(post);
                     }
-                    participation =
-                      getPostThreadSinceWithMetadata(
-                        post.root_id,
+                    continue;
+                  }
+                  pendingThreadRootIds.push(post.root_id);
+                }
+                deferredThreadPosts.push({
+                  post,
+                  rootId: post.root_id,
+                  hasRootPost: Boolean(rootPost),
+                });
+              }
+
+              await mapInBatches(
+                pendingThreadRootIds,
+                CHANNEL_FANOUT_BATCH_SIZE,
+                async (rootId) => {
+                  if (shouldCancel()) {
+                    return;
+                  }
+                  try {
+                    const { posts: threadPosts, truncated } =
+                      await getPostThreadSinceWithMetadata(
+                        rootId,
                         0,
                         200,
                         MENTION_THREAD_POST_SCAN_LIMIT,
-                      ).then(
-                        ({
-                          posts: threadPosts,
-                          truncated,
-                        }) => {
-                          let firstCurrentUserPostAt:
-                            | number
-                            | null = null;
-                          for (const threadPost of threadPosts) {
-                            if (
-                              threadPost.user_id !==
-                              currentUserId
-                            ) {
-                              continue;
-                            }
-                            firstCurrentUserPostAt =
-                              firstCurrentUserPostAt ===
-                              null
-                                ? threadPost.create_at
-                                : Math.min(
-                                    firstCurrentUserPostAt,
-                                    threadPost.create_at,
-                                  );
-                          }
-                          return {
-                            firstCurrentUserPostAt,
-                            truncated,
-                          };
-                        },
                       );
-                    fullThreadParticipationCache.set(
-                      post.root_id,
-                      participation,
-                    );
+                    let firstCurrentUserPostAt: number | null = null;
+                    for (const threadPost of threadPosts) {
+                      if (threadPost.user_id !== currentUserId) {
+                        continue;
+                      }
+                      firstCurrentUserPostAt =
+                        firstCurrentUserPostAt === null
+                          ? threadPost.create_at
+                          : Math.min(
+                              firstCurrentUserPostAt,
+                              threadPost.create_at,
+                            );
+                    }
+                    fullThreadParticipationCache.set(rootId, {
+                      firstCurrentUserPostAt,
+                      truncated,
+                    });
+                  } catch {
+                    fullThreadParticipationCache.set(rootId, "failed");
                   }
-                  const {
-                    firstCurrentUserPostAt,
-                    truncated,
-                  } = await participation;
+                },
+                CHANNEL_FANOUT_GAP_MS,
+                shouldCancel,
+                "interval",
+              );
+
+              for (const deferred of deferredThreadPosts) {
+                if (shouldCancel()) {
+                  break;
+                }
+                const { post, hasRootPost } = deferred;
+                const participation =
+                  fullThreadParticipationCache.get(deferred.rootId);
+                // A lookup that failed or was cancelled falls back to the
+                // server's own unread count, as the inline version did.
+                if (participation === undefined || participation === "failed") {
                   if (
-                    firstCurrentUserPostAt !== null &&
-                    firstCurrentUserPostAt <
-                      post.create_at
-                  ) {
-                    filteredPosts.push(post);
-                  } else if (
-                    (truncated || !rootPost) &&
                     serverCountedChannel &&
                     post.user_id !== currentUserId
                   ) {
                     filteredPosts.push(post);
                   }
-                } catch {
-                  if (
-                    serverCountedChannel &&
-                    post.user_id !== currentUserId
-                  ) {
-                    filteredPosts.push(post);
-                  }
+                  continue;
+                }
+                const { firstCurrentUserPostAt, truncated } = participation;
+                if (
+                  firstCurrentUserPostAt !== null &&
+                  firstCurrentUserPostAt < post.create_at
+                ) {
+                  filteredPosts.push(post);
+                } else if (
+                  (truncated || !hasRootPost) &&
+                  serverCountedChannel &&
+                  post.user_id !== currentUserId
+                ) {
+                  filteredPosts.push(post);
                 }
               }
 
@@ -5920,21 +5986,45 @@ function MentionsColumn({
                 memberPosts.length >=
                   MENTIONS_MAX_BUFFER,
             );
+            if (scanSignature !== null && !shouldCancel()) {
+              completedScanSignatures.push([member.channel_id, scanSignature]);
+            }
           } catch {
             // One inaccessible or archived channel must not discard the other
-            // channels in the mentions feed.
+            // channels in the mentions feed. Leaving its cache entry untouched
+            // also means the next poll retries it rather than replaying a
+            // partial result.
             return;
           }
         },
         scannableCandidateMembers.length > CHANNEL_FANOUT_BATCH_SIZE ? CHANNEL_FANOUT_GAP_MS : 0,
         shouldCancel,
+        // The channel fetches already pace themselves, so the gap only has to
+        // cover batches that returned fast. Charging the batch's own duration
+        // against it keeps 15 candidates from adding most of a second of sleep.
+        "interval",
       );
+
+      if (!shouldCancel()) {
+        for (const [channelId, signature] of completedScanSignatures) {
+          rememberMentionScan(
+            scanCache,
+            channelId,
+            signature,
+            SPECIAL_MENTION_SCAN_CACHE_MAX_CHANNELS,
+          );
+        }
+      }
 
       recordSpecialMentionScan({
         hits: posts.length,
-        channelsScanned: scannableCandidateMembers.length,
-        cacheHits: cachedMembers && cachedMembers.expiresAt > now ? 1 : 0,
-        cacheMisses: cachedMembers && cachedMembers.expiresAt > now ? 0 : 1,
+        channelsScanned: scannedChannels,
+        cacheHits:
+          skippedChannels +
+          (cachedMembers && cachedMembers.expiresAt > now ? 1 : 0),
+        cacheMisses:
+          scannedChannels +
+          (cachedMembers && cachedMembers.expiresAt > now ? 0 : 1),
       });
       return { posts, members, activeChannelIds };
     },

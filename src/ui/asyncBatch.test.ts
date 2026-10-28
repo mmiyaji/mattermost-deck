@@ -54,4 +54,51 @@ describe("mapInBatches", () => {
     await expect(promise).resolves.toEqual([1, 2, 3]);
     expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 250);
   });
+
+  it("charges a batch's own duration against an interval gap", async () => {
+    vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    vi.setSystemTime(0);
+
+    const promise = mapInBatches(
+      [1, 2, 3],
+      1,
+      async (value) => {
+        vi.setSystemTime(Date.now() + 100);
+        return value;
+      },
+      250,
+      undefined,
+      "interval",
+    );
+    await vi.runAllTimersAsync();
+
+    await expect(promise).resolves.toEqual([1, 2, 3]);
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 150);
+    expect(setTimeoutSpy).not.toHaveBeenCalledWith(expect.any(Function), 250);
+    vi.useRealTimers();
+  });
+
+  it("skips an interval gap a slow batch has already covered", async () => {
+    vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    vi.setSystemTime(0);
+
+    const promise = mapInBatches(
+      [1, 2],
+      1,
+      async (value) => {
+        vi.setSystemTime(Date.now() + 400);
+        return value;
+      },
+      250,
+      undefined,
+      "interval",
+    );
+    await vi.runAllTimersAsync();
+
+    await expect(promise).resolves.toEqual([1, 2]);
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
 });

@@ -52,6 +52,7 @@ export interface MattermostChannel {
   type: string;
   team_id?: string;
   delete_at?: number;
+  last_post_at?: number;
 }
 
 export interface MattermostChannelMember {
