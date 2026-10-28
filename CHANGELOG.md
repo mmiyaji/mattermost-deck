@@ -7,6 +7,18 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-28
+
+### Fixed
+
+- Preserve confirmation and deletion decisions when trimming mention history bodies, and retry quota failures without pruning pending posts. Keep newer cross-window decisions when an earlier save completes.
+- Keep mentions visible if exclusion settings fail to load, while preventing edits until settings are available.
+- Commit channel scan signatures only after the complete poll publishes its feed, so failed searches and cancelled polls rescan on retry.
+
+### Changed
+
+- Skip unchanged channel scans and batch thread participation lookups to reduce mention polling requests.
+
 ## [1.3.0] - 2026-10-27
 
 ### Added

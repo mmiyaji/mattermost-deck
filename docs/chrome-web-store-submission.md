@@ -8,6 +8,14 @@ Use this copy when maintaining the Chrome Web Store listing and its Privacy prac
 - Privacy policy URL: https://mattermost-deck.ruhenheim.org/privacy/
 - Store screenshot (1280 x 800): `docs/assets/readme-overview-dark-store.png`
 
+## v1.3.1 release notes
+
+- Preserve pending mentions and confirmation decisions during storage cleanup and quota recovery.
+- Respect newer confirmation changes from another window.
+- Continue displaying mentions if exclusion settings cannot load, with settings edits disabled until recovery.
+- Reduce polling with unchanged-channel scan reuse and batched thread lookups; retry scans after failed or cancelled polls.
+- No additional extension permissions.
+
 ## v1.3.0 release notes
 
 ### Added
