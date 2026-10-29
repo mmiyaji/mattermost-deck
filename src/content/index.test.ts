@@ -200,4 +200,16 @@ describe("content runtime lifecycle", () => {
       ),
     ).toBe(false);
   });
+
+  it("keeps mounted channel panes through permalink navigation without broadening initial injection", async () => {
+    const { routeMatchesAllowedKinds: matches } = await import("./index.js");
+    expect(matches("/team/pl/post-id", ["channels"])).toBe(false);
+    expect(matches("/team/pl/post-id", ["channels"], true)).toBe(true);
+    expect(matches("/team/pl/post-id", ["messages"], true)).toBe(true);
+    expect(matches("/#/team/pl/post-id", ["channels"], true)).toBe(true);
+    expect(matches("/team/pl/post-id", ["threads"], true)).toBe(false);
+    expect(matches("/team/pl", ["channels"], true)).toBe(false);
+    expect(matches("/team/threads", ["channels"], true)).toBe(false);
+    expect(matches("/team/channels/pl", ["messages"], true)).toBe(false);
+  });
 });

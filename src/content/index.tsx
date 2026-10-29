@@ -154,6 +154,7 @@ function debugLog(event: string, payload?: Record<string, unknown>): void {
 export function routeMatchesAllowedKinds(
   route: string,
   allowedKinds: readonly string[],
+  keepMountedPostRoute = false,
 ): boolean {
   const hashRouteIndex = route.indexOf("#/");
   const routePathname =
@@ -167,7 +168,12 @@ export function routeMatchesAllowedKinds(
   // "threads" cannot enable a route kind the user disabled.
   return Boolean(
     routeSegments[1] &&
-    allowedKinds.includes(routeSegments[1]),
+    (allowedKinds.includes(routeSegments[1]) || (
+      keepMountedPostRoute &&
+      routeSegments[1] === "pl" &&
+      routeSegments[2] &&
+      (allowedKinds.includes("channels") || allowedKinds.includes("messages"))
+    )),
   );
 }
 
@@ -182,7 +188,10 @@ function matchesConfiguredRoute(): boolean {
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean);
-  if (!routeMatchesAllowedKinds(route, allowedKinds)) {
+  // Opening a reply can temporarily visit /<team>/pl/<post> before Mattermost
+  // resolves the channel. Keep an existing Deck alive through that transition,
+  // even when initial injection is restricted to channel/message routes.
+  if (!routeMatchesAllowedKinds(route, allowedKinds, Boolean(appRoot))) {
     return false;
   }
 
