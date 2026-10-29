@@ -11881,11 +11881,20 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
           role: postCard?.getAttribute("role") ?? null,
           top: postRect?.top ?? null,
           height: postRect?.height ?? null,
+          // A pointer click needs the card's own horizontal span: the pane is
+          // narrower than the deck, and its floating controls sit at the pane's
+          // right edge, which the deck's own centre line can run straight into.
+          left: postRect?.left ?? null,
+          right: postRect?.right ?? null,
           relativeTop:
             postRect && viewportRect
               ? postRect.top - viewportRect.top
               : null,
           viewportTop: viewportRect?.top ?? null,
+          // A pointer click has to land inside the scroller, not merely below
+          // its top edge: a short list clamps its scroll with the last card
+          // still hanging past the fold.
+          viewportBottom: viewportRect?.bottom ?? null,
           viewportScrollTop:
             viewport instanceof HTMLElement
               ? viewport.scrollTop

@@ -73,8 +73,11 @@ interface PostCardDebugState {
   role?: string | null;
   top?: number | null;
   height?: number | null;
+  left?: number | null;
+  right?: number | null;
   relativeTop?: number | null;
   viewportTop?: number | null;
+  viewportBottom?: number | null;
   viewportScrollTop?: number | null;
 }
 
@@ -105,10 +108,13 @@ async function scrollPostCardIntoView(
     ) {
       return { card, restoreScrollTop };
     }
+    // Measure against the scroller, not the deck root: the list ends above the
+    // root's own bottom edge, so a card hanging into that gap is not clickable
+    // however much of the root it sits inside.
     const centre = card.top + card.height / 2;
     if (
       centre > (card.viewportTop ?? root.y) &&
-      centre < root.y + root.height
+      centre < (card.viewportBottom ?? root.y + root.height)
     ) {
       return { card, restoreScrollTop };
     }
@@ -127,6 +133,46 @@ async function scrollPostCardIntoView(
   return { card, restoreScrollTop };
 }
 
+// The list is still settling while the cache revalidates, so geometry read a
+// moment too early can move before the pointer lands and the click misses the
+// card. Require two consecutive identical reads, as the presentation state is
+// stabilised elsewhere in this spec.
+async function waitForStablePostCard(
+  page: Page,
+  columnId: string,
+  text: string,
+): Promise<PostCardDebugState> {
+  let previousSignature = "";
+  let stableReadCount = 0;
+  let latest: PostCardDebugState = {};
+
+  await expect.poll(async () => {
+    latest = await debugRequest<PostCardDebugState>(
+      page,
+      "getPostCardState",
+      { columnId, text },
+    );
+    const signature = JSON.stringify([
+      latest.top,
+      latest.height,
+      latest.viewportTop,
+      latest.viewportBottom,
+      latest.viewportScrollTop,
+    ].map((value) =>
+      typeof value === "number" ? Math.round(value * 10) / 10 : value
+    ));
+    stableReadCount =
+      signature === previousSignature ? stableReadCount + 1 : 0;
+    previousSignature = signature;
+    return stableReadCount;
+  }, {
+    timeout: 5_000,
+    intervals: [50, 100, 150],
+  }).toBeGreaterThanOrEqual(1);
+
+  return latest;
+}
+
 async function clickPostCardWithPointer(
   page: Page,
   card: PostCardDebugState,
@@ -139,13 +185,28 @@ async function clickPostCardWithPointer(
   ) {
     throw new Error("Post card bounds are unavailable for pointer click");
   }
-  const x = root.x + root.width / 2;
-  const y = card.top + card.height / 2;
+  // A short list clamps its scroll with the last card straddling the fold, so
+  // aim at the part of the card the scroller actually shows rather than at the
+  // card's own centre, which can sit past the bottom edge.
+  const viewportTop = card.viewportTop ?? root.y;
+  const viewportBottom = card.viewportBottom ?? root.y + root.height;
+  const visibleTop = Math.max(card.top, viewportTop);
+  const visibleBottom = Math.min(card.top + card.height, viewportBottom);
+  expect(
+    visibleBottom - visibleTop,
+    "the card needs a visible band inside the scroller to click",
+  ).toBeGreaterThan(8);
+  // Aim at the card's own centre, not the deck's. The pane is narrower than the
+  // deck, so the deck's centre line can fall on the pane's floating jump-to-
+  // latest control and the post never receives the click.
+  const x = typeof card.left === "number" && typeof card.right === "number"
+    ? (card.left + card.right) / 2
+    : root.x + root.width / 2;
+  const y = (visibleTop + visibleBottom) / 2;
   expect(x).toBeGreaterThan(root.x);
   expect(x).toBeLessThan(root.x + root.width);
-  expect(y).toBeGreaterThan(root.y);
-  expect(y).toBeLessThan(root.y + root.height);
-  expect(y).toBeGreaterThan(card.viewportTop ?? root.y);
+  expect(y).toBeGreaterThan(viewportTop);
+  expect(y).toBeLessThan(viewportBottom);
   await page.mouse.click(
     x,
     y,
@@ -157,11 +218,12 @@ async function expectPointerClickConfirmation(
   columnId: string,
   text: string,
 ): Promise<void> {
-  const { card, restoreScrollTop } = await scrollPostCardIntoView(
+  const { restoreScrollTop } = await scrollPostCardIntoView(
     page,
     columnId,
     text,
   );
+  const card = await waitForStablePostCard(page, columnId, text);
   const dialogPromise = page.waitForEvent("dialog", { timeout: 3_000 });
   const handledDialogPromise = dialogPromise.then(async (dialog) => {
     const type = dialog.type();
