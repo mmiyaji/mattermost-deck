@@ -1524,7 +1524,9 @@ test(
         const isCollapsed =
           current.threadLayoutMode === "collapsed" ||
           !current.canResizeRail;
-        if (viewportWidth < 1_280 && isCollapsed) {
+        // The native RHS can collapse Deck at exactly 1280px too. Restore
+        // the known wide viewport before attempting controls inside the drawer.
+        if (viewportWidth < 1_440 && isCollapsed) {
           await page!.setViewportSize({
             width: 1_440,
             height: 900,
@@ -1663,11 +1665,14 @@ test(
                 height: 900,
               });
             }
-            await ensureDeckOpen(actionName);
+            const resizeState = await ensureDeckOpen(actionName);
             const targetWidth =
               360 +
               Math.floor(randomValue * 440);
-            const expectedWidth = targetWidth;
+            const expectedWidth = Math.min(
+              targetWidth,
+              resizeState.maximumInteractiveRailWidth ?? targetWidth,
+            );
             await dragDeckToWidth(
               page!,
               targetWidth,
