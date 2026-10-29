@@ -8,6 +8,12 @@ Use this copy when maintaining the Chrome Web Store listing and its Privacy prac
 - Privacy policy URL: https://mattermost-deck.ruhenheim.org/privacy/
 - Store screenshot (1280 x 800): `docs/assets/readme-overview-dark-store.png`
 
+## v1.3.2 release notes
+
+- Keep the deck in place when a mention opens a reply, instead of reloading every pane.
+- Keep the jump-to-latest control available while a cached pane refreshes in the background.
+- No additional extension permissions.
+
 ## v1.3.1 release notes
 
 - Preserve pending mentions and confirmation decisions during storage cleanup and quota recovery.
