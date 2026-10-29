@@ -4584,7 +4584,14 @@ function PostList({
     }
     if (suppressNewPostNotifications || filterQuery || filterChanged) {
       setNewPostCount(0);
-      setShowJumpToLatest(false);
+      // Clearing the count is what suppresses the notification. The jump button
+      // is not one: it reports that the viewport sits away from the newest post,
+      // which stays true across a revalidation the reader never asked for. Only
+      // a filter change resets it, because that scrolls back to the edge above,
+      // and an empty list has nothing left to jump to.
+      if (filterChanged || posts.length === 0) {
+        setShowJumpToLatest(false);
+      }
       return;
     }
 

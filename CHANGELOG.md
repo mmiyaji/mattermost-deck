@@ -12,6 +12,7 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Keep the deck mounted while Mattermost resolves a permalink, so opening a reply from a mention no longer discards and refetches every pane. Initial injection still follows the configured route kinds.
+- Keep the jump-to-latest control while a cached pane revalidates in the background, so a reader scrolled into older mentions no longer loses their way back to the newest one.
 - Preserve confirmation and deletion decisions when trimming mention history bodies, and retry quota failures without pruning pending posts. Keep newer cross-window decisions when an earlier save completes.
 - Keep mentions visible if exclusion settings fail to load, while preventing edits until settings are available.
 - Commit channel scan signatures only after the complete poll publishes its feed, so failed searches and cancelled polls rescan on retry.
