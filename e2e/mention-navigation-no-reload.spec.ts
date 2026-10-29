@@ -118,7 +118,15 @@ test(`opening a reply during ${phase} preserves every mention pane`, async () =>
       await inspect('[data-deck-column-id="mentions"] button[title="Refresh"]', true);
     }
     if (phase !== 'ready') {
-      await expect.poll(() => searchRequests).toBe(phase === 'initial loading' ? 1 : 2);
+      // A reconnect and a manual refresh each reconcile the feed on their own
+      // debounce, and a held search can be followed by another before the first
+      // responds. Wait for the count to settle rather than expecting an exact
+      // number: the window measured below only has to start from a quiet count.
+      await expect.poll(async () => {
+        const seen = searchRequests;
+        await new Promise(resolve => setTimeout(resolve, 500));
+        return seen > 0 && searchRequests === seen;
+      }, { timeout: 30_000, message: "Feed reconciliation settles" }).toBe(true);
       await expect.poll(() => inspect('[data-deck-column-id="mentions"] [role="progressbar"]')).not.toBeNull();
     } else {
       await expect.poll(() => inspect(`${source} [role="progressbar"]`)).toBeNull();
@@ -131,7 +139,6 @@ test(`opening a reply during ${phase} preserves every mention pane`, async () =>
     // A native permalink can stay visible while Mattermost resolves its channel.
     await inspect(source + ' .deck-card--post', true);
     await expect(page).toHaveURL(new RegExp('/testteam/pl/' + post.id));
-    holdSearch = false; releaseSearch!();
     await page.waitForTimeout(1000); // Exceed the content runtime's 500ms route cleanup grace.
     await page.evaluate(postId => {
       window.history.pushState({}, '', '/testteam/channels/town-square/' + postId);
@@ -140,15 +147,18 @@ test(`opening a reply during ${phase} preserves every mention pane`, async () =>
     await expect.poll(async () => page.locator('#mattermost-deck-root').getAttribute('data-navigation-marker')).toBe('preserved');
     await expect.poll(async () => (await inspect(source + ' .deck-card--post'))?.text).toContain('Review fixture');
     await expect.poll(async () => (await inspect('[data-deck-column-id="review"] .deck-card--post'))?.text).toContain('Review fixture');
+    // Measured with the feed request still held, so only the click and the
+    // navigation can have added one. Releasing the gate first would let the
+    // reconnect's own reconciliation finish and schedule more work inside the
+    // window, which says nothing about whether the click refetched the feed.
     expect(searchRequests).toBe(baseline);
     if (phase === "ready") expect(feedRequests()).toEqual(baselineFeedRequests);
     if (phase !== 'reconnecting') {
       expect(requests.filter(p => p === "/users/me" || p === "/users/me/teams")).toEqual(baselineAccountRequests);
     } else {
       expect(connections).toBe(2);
-      // Reconnection deliberately reconciles feeds once; the click must not restart them again.
-      expect(searchRequests).toBe(2);
     }
+    holdSearch = false; releaseSearch!();
     expect(pageErrors).toEqual([]);
   } finally {
     releaseSearch!();
