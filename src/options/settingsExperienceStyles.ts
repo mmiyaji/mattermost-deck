@@ -19,8 +19,9 @@ export const settingsExperienceCss = `
   .options-appearance-group > h3 { font-size: 15px; padding-bottom: 10px; border-bottom: 1px solid rgba(123,178,255,.2); }
   .options-appearance-preview { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .options-appearance-body, .options-appearance-controls { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
-  .options-panel--appearance { max-width: 1260px; }
-  .options-appearance-body > .options-appearance-preview { order: -1; }
+  /* Keep the heading on the same line as every other panel's and let the
+     extra width fall to the right, so switching panels does not jump. */
+  .options-panel--appearance { max-width: 1260px; margin-left: max(0px, calc((100% - 740px) / 2)); margin-right: auto; }
   .options-appearance-preview > h3 { font-size: 15px; }
   .options-preview-scroll { overflow-x: auto; border: 1px solid #496583; border-radius: 10px; max-width: 100%; }
   .options-preview-scroll:focus-visible { outline: 2px solid #1f9dff; outline-offset: 3px; }
@@ -54,7 +55,7 @@ export const settingsExperienceCss = `
   body[data-theme="light"] .options-switch-dialog { background: #fff; color: #16263b; }
   @media (min-width: 1100px) {
     .options-appearance-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .9fr); align-items: start; }
-    .options-appearance-body > .options-appearance-preview { order: 0; position: sticky; top: 16px; }
+    .options-appearance-body > .options-appearance-preview { position: sticky; top: 16px; }
     .options-appearance-controls .options-grid { grid-template-columns: minmax(0, 1fr); }
   }
   @media (max-width: 720px) {

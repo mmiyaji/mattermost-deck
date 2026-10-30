@@ -384,3 +384,38 @@ test("performance purposes and the settings title follow the selected language",
     await closeOptions(fixture);
   }
 });
+
+test("read-only panels drop the save footer but keep it while a draft is pending", async () => {
+  const fixture = await openOptions();
+  const { page } = fixture;
+  try {
+    const footer = page.locator(".options-save-footer");
+    await page.getByTestId("options-nav-behavior").click();
+    await expect(footer).toBeVisible();
+
+    // Nothing on these panels is saved: the trace switch writes immediately.
+    for (const panel of ["guide", "performance", "security"]) {
+      await page.getByTestId(`options-nav-${panel}`).click();
+      await expect(footer).toHaveCount(0);
+    }
+
+    // An edit made elsewhere must stay reachable from every panel, or the
+    // draft would be stranded behind the navigation.
+    await editFont(page, "120");
+    await expect(page.locator("#options-save-status")).toHaveText(/unsaved/i);
+    await page.getByTestId("options-nav-security").click();
+    await expect(footer).toBeVisible();
+
+    await page.getByRole("button", { name: /discard/i }).click();
+    await expect(footer).toHaveCount(0);
+
+    // The security panel names where the storage-related settings live.
+    await page.getByRole("button", { name: /Mention cache/i }).click();
+    await expect(page.locator("#persist-mention-cache-label")).toBeVisible();
+    await page.getByTestId("options-nav-security").click();
+    await page.getByRole("button", { name: /Token storage/i }).click();
+    await expect(page.getByRole("textbox", { name: /Access Token|Personal Access Token/i }).first()).toBeVisible();
+  } finally {
+    await closeOptions(fixture);
+  }
+});

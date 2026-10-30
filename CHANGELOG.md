@@ -14,6 +14,12 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Document the mention review store and the mention feed cache in the privacy policy, and state that extension local storage is not encrypted at rest.
+- Name every settings panel in its own navigation tooltip, so an icon-only sidebar on a narrow window is readable without a screen reader, and make those targets comfortable to tap.
+- Align a checkbox with the first line of its description instead of centring it, so a long hint no longer pushes the control away from its label.
+- Mark the update method that is actually saved, rather than always emphasising realtime updates.
+- Show the appearance controls before the preview on a narrow window, and keep every panel heading on the same line so switching panels does not shift the page.
+- Point from the security panel to the settings that decide what is written to this browser, and describe the appearance and behavior panels by what they now contain.
+- Drop the save footer on panels that hold nothing to save, while keeping it whenever a draft is pending elsewhere.
 
 ## [1.3.2] - 2026-10-30
 

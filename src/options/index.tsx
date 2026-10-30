@@ -59,6 +59,13 @@ const RELEASE_NOTICE_STORAGE_KEY = "mattermostDeck.releaseNotice.v1";
 
 type ActivePanel = "guide" | "conn" | "profiles" | "realtime" | "appearance" | "behavior" | "performance" | "security";
 
+/** Panels that only read: the trace switch writes on the spot, not on save. */
+const READ_ONLY_PANELS: ReadonlySet<ActivePanel> = new Set<ActivePanel>([
+  "guide",
+  "performance",
+  "security",
+]);
+
 type ReleaseNotice = {
   version: string;
   previousVersion: string | null;
@@ -258,6 +265,10 @@ function useOptionsText() {
     reversedPostOrderHint: t("options.reversedPostOrderHint"),
     persistMentionCacheLabel: t("options.persistMentionCacheLabel"),
     persistMentionCacheHint: t("options.persistMentionCacheHint"),
+    securityStoredDataLabel: t("options.securityStoredDataLabel"),
+    securityStoredDataHint: t("options.securityStoredDataHint"),
+    securityTokenStorageLink: t("options.securityTokenStorageLink"),
+    securityMentionCacheLink: t("options.securityMentionCacheLink"),
     paneIdentityLabel: t("options.paneIdentityLabel"),
     paneIdentityHint: t("options.paneIdentityHint"),
     colorAccentsLabel: t("options.colorAccentsLabel"),
@@ -1156,7 +1167,9 @@ const pageCss = `
 
   .options-choice {
     display: inline-flex;
-    align-items: center;
+    /* Align the control with the first line of its description. Centring it
+       pushes the box further from the label the longer the hint runs. */
+    align-items: flex-start;
     gap: 8px;
     font-size: 13px;
     cursor: pointer;
@@ -1165,7 +1178,7 @@ const pageCss = `
   .options-choice input {
     accent-color: #1f9dff;
     flex: none;
-    margin-top: 1px;
+    margin-top: 3px;
   }
 
   /* Callout */
@@ -1177,6 +1190,12 @@ const pageCss = `
     font-size: 13px;
     color: #8facd5;
     line-height: 1.55;
+  }
+
+  /* Marks the option that is actually in effect. Must follow the base rule. */
+  .options-callout--current {
+    border-color: rgba(31, 157, 255, 0.45);
+    background: rgba(31, 157, 255, 0.1);
   }
 
   .options-callout strong {
@@ -1862,6 +1881,8 @@ const pageCss = `
   @media (max-width: 720px) {
     .options-sidebar { width: 52px; }
     .options-nav-item span:last-child { display: none; }
+    /* Icon-only navigation still has to be comfortable to tap. */
+    .options-nav-item { min-height: 44px; justify-content: center; }
     .options-nav-icon { margin: 0 auto; }
     .options-sidebar-footer { display: none; }
     .options-mobile-links {
@@ -2383,6 +2404,7 @@ function OptionsApp(): React.JSX.Element {
   };
 
   const handleSave = () => hasUnsavedChanges ? runOperation(persistDraft) : Promise.resolve(false);
+  const showSaveFooter = !READ_ONLY_PANELS.has(activePanel) || hasUnsavedChanges;
 
   const navItems: { id: ActivePanel; icon: React.JSX.Element; label: string; group: "general" | "management" }[] = [
     { id: "appearance", icon: <NavIconAppearance />, label: text.appearanceTitle, group: "general" },
@@ -2812,6 +2834,9 @@ function OptionsApp(): React.JSX.Element {
                 className={`options-nav-item${activePanel === id ? " active" : ""}`}
                 onClick={() => setActivePanel(id)}
                 aria-label={label}
+                // A narrow window hides the label, leaving only the icon. The
+                // tooltip is the sighted equivalent of the accessible name.
+                title={label}
                 aria-current={activePanel === id ? "page" : undefined}
               >
                 <span className="options-nav-icon">{icon}</span>
@@ -3336,7 +3361,9 @@ function OptionsApp(): React.JSX.Element {
           )}
 
           {/* Panel: Realtime */}
-          {activePanel === "realtime" && (
+          {activePanel === "realtime" && (() => {
+            const savedRealtimeMode = savedSettings.wsPat.trim().length > 0;
+            return (
             <div className="options-panel">
               <div className="options-panel-header">
                 <h2>{text.realtimeTitle}</h2>
@@ -3367,9 +3394,11 @@ function OptionsApp(): React.JSX.Element {
                   />
                   <span className="options-hint">{text.pollingHint}</span>
                 </label>
-              {/* Polling vs Realtime comparison */}
+              {/* Polling vs Realtime comparison. Neither card is a control, so
+                  the emphasis has to follow the saved method rather than sit on
+                  whichever option reads as the more advanced one. */}
               <div className="options-grid">
-                <div className="options-callout" role="note">
+                <div className={`options-callout${savedRealtimeMode ? "" : " options-callout--current"}`} role="note">
                   <strong>
                     {t("options.pollingModeTitle")}
                   </strong>
@@ -3377,7 +3406,7 @@ function OptionsApp(): React.JSX.Element {
                     {t("options.pollingModeDesc", { sec: settings.pollingIntervalSeconds })}
                   </p>
                 </div>
-                <div className="options-callout" role="note" style={{ borderColor: "rgba(31, 157, 255, 0.3)", background: "rgba(31, 157, 255, 0.07)" }}>
+                <div className={`options-callout${savedRealtimeMode ? " options-callout--current" : ""}`} role="note">
                   <strong>
                     {t("options.realtimeModeTitle")}
                   </strong>
@@ -3451,7 +3480,8 @@ function OptionsApp(): React.JSX.Element {
                 </div>
               </details>
             </div>
-          )}
+            );
+          })()}
 
           {/* Panel: Appearance */}
           {activePanel === "appearance" && (
@@ -4042,6 +4072,30 @@ function OptionsApp(): React.JSX.Element {
                 <p style={{ marginTop: "8px" }}>{text.securityBody2}</p>
                 <p style={{ marginTop: "8px" }}>{text.securityBody3}</p>
               </div>
+
+              {/* The controls that decide what is written to this browser live
+                  in other panels. Name them here rather than leave the reader
+                  to find them. */}
+              <div className="options-subsection">
+                <span className="options-subsection-label">{text.securityStoredDataLabel}</span>
+                <p className="options-hint">{text.securityStoredDataHint}</p>
+                <div className="options-inline">
+                  <button
+                    type="button"
+                    className="options-button options-button--ghost"
+                    onClick={() => { setTokenSettingsOpen(true); setActivePanel("realtime"); }}
+                  >
+                    {text.securityTokenStorageLink}
+                  </button>
+                  <button
+                    type="button"
+                    className="options-button options-button--ghost"
+                    onClick={() => setActivePanel("behavior")}
+                  >
+                    {text.securityMentionCacheLink}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -4069,7 +4123,10 @@ function OptionsApp(): React.JSX.Element {
 
           </div>{/* options-panel-scroll */}
 
-          {/* Save footer */}
+          {/* Save footer. Hidden on the panels that hold nothing to save, but
+              kept whenever a draft is pending so edits made elsewhere can
+              still be saved or discarded from here. */}
+          {showSaveFooter && (
           <footer className="options-save-footer">
             <div className="options-save-footer-inner">
               <span
@@ -4110,6 +4167,7 @@ function OptionsApp(): React.JSX.Element {
               </div>
             </div>
           </footer>
+          )}
 
         </main>
       </div>
