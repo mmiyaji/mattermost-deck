@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MattermostPost } from "../mattermost/api";
 import type { MentionReadState } from "./mentionFeed";
 import {
+  MENTION_CACHE_HARD_TTL_MS,
   MENTION_CACHE_SOFT_TTL_MS,
   buildMentionCacheEntryId,
+  clearPersistedMentionCache,
   createMentionCacheSnapshot,
   loadMentionCache,
   normaliseMentionCacheSnapshot,
@@ -348,5 +350,173 @@ describe("mention cache session storage", () => {
     await removeMentionCache(context, NOW + 1);
 
     expect(await loadMentionCache(context, NOW + 2)).toBeNull();
+  });
+});
+
+describe("mention cache persistence", () => {
+  function stubAreas() {
+    const localStored: Record<string, unknown> = {};
+    const sessionStored: Record<string, unknown> = {};
+    const area = (stored: Record<string, unknown>) => ({
+      get: vi.fn(async (key: string) => ({ [key]: stored[key] })),
+      set: vi.fn(async (payload: Record<string, unknown>) => {
+        Object.assign(stored, payload);
+      }),
+      remove: vi.fn(async (key: string) => {
+        delete stored[key];
+      }),
+    });
+    const local = area(localStored);
+    const session = area(sessionStored);
+    vi.stubGlobal("chrome", { storage: { local, session } });
+    return { local, session, localStored, sessionStored };
+  }
+
+  it("writes to local storage only when persistence is enabled", async () => {
+    const { local, session } = stubAreas();
+    const context = createContext();
+
+    await saveMentionCache(
+      context,
+      [createPost("persisted")],
+      createReadState(),
+      NOW,
+      true,
+    );
+
+    expect(local.set).toHaveBeenCalledTimes(1);
+    expect(session.set).not.toHaveBeenCalled();
+    expect(
+      (await loadMentionCache(context, NOW + 1, true))?.posts.map(
+        (post) => post.id,
+      ),
+    ).toEqual(["persisted"]);
+    // The session area is a separate registry, so a reader who turns the
+    // setting back off sees no cache rather than someone else's snapshot.
+    expect(await loadMentionCache(context, NOW + 1, false)).toBeNull();
+  });
+
+  it("keeps the session area when persistence is disabled", async () => {
+    const { local, session } = stubAreas();
+
+    await saveMentionCache(
+      createContext(),
+      [createPost("ephemeral")],
+      createReadState(),
+      NOW,
+    );
+
+    expect(session.set).toHaveBeenCalledTimes(1);
+    expect(local.set).not.toHaveBeenCalled();
+  });
+
+  it("shows a persisted snapshot past the session display window", async () => {
+    stubAreas();
+    const context = createContext();
+    await saveMentionCache(
+      context,
+      [createPost("after-restart")],
+      createReadState(),
+      NOW,
+      true,
+    );
+
+    const restarted = await loadMentionCache(
+      context,
+      NOW + MENTION_CACHE_SOFT_TTL_MS + 1,
+      true,
+    );
+
+    expect(restarted?.posts.map((post) => post.id)).toEqual([
+      "after-restart",
+    ]);
+  });
+
+  it("still drops a session snapshot past the session display window", async () => {
+    stubAreas();
+    const context = createContext();
+    await saveMentionCache(
+      context,
+      [createPost("stale")],
+      createReadState(),
+      NOW,
+    );
+
+    expect(
+      await loadMentionCache(
+        context,
+        NOW + MENTION_CACHE_SOFT_TTL_MS + 1,
+        false,
+      ),
+    ).toBeNull();
+  });
+
+  it("drops a persisted snapshot past the retention window", async () => {
+    stubAreas();
+    const context = createContext();
+    await saveMentionCache(
+      context,
+      [createPost("expired")],
+      createReadState(),
+      NOW,
+      true,
+    );
+
+    expect(
+      await loadMentionCache(
+        context,
+        NOW + MENTION_CACHE_HARD_TTL_MS + 1,
+        true,
+      ),
+    ).toBeNull();
+  });
+
+  it("deletes the persisted registry when persistence is turned off", async () => {
+    const { local, session, localStored, sessionStored } = stubAreas();
+    const context = createContext();
+    await saveMentionCache(
+      context,
+      [createPost("persisted")],
+      createReadState(),
+      NOW,
+      true,
+    );
+    await saveMentionCache(
+      context,
+      [createPost("ephemeral")],
+      createReadState(),
+      NOW,
+    );
+
+    await clearPersistedMentionCache();
+
+    expect(local.remove).toHaveBeenCalledTimes(1);
+    expect(Object.keys(localStored)).toEqual([]);
+    expect(session.remove).not.toHaveBeenCalled();
+    expect(Object.keys(sessionStored)).not.toEqual([]);
+    expect(await loadMentionCache(context, NOW + 1, true)).toBeNull();
+  });
+
+  it("invalidates an edited post in both storage areas", async () => {
+    stubAreas();
+    const context = createContext();
+    await saveMentionCache(
+      context,
+      [createPost("persisted")],
+      createReadState(),
+      NOW,
+      true,
+    );
+    await saveMentionCache(
+      context,
+      [createPost("ephemeral")],
+      createReadState(),
+      NOW,
+    );
+
+    await removeMentionCache(context, NOW + 1);
+
+    expect(await loadMentionCache(context, NOW + 2, true)).toBeNull();
+    expect(await loadMentionCache(context, NOW + 2, false)).toBeNull();
   });
 });

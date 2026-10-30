@@ -52,6 +52,7 @@ export interface DeckSettings {
   showImagePreviews: boolean;
   highZIndex: boolean;
   reversedPostOrder: boolean;
+  persistMentionCache: boolean;
 }
 
 export const SETTINGS_KEYS = {
@@ -78,6 +79,7 @@ export const SETTINGS_KEYS = {
   showImagePreviews: "mattermostDeck.showImagePreviews.v1",
   highZIndex: "mattermostDeck.highZIndex.v1",
   reversedPostOrder: "mattermostDeck.reversedPostOrder.v1",
+  persistMentionCache: "mattermostDeck.persistMentionCache.v1",
 } as const;
 
 export const DEFAULT_COLUMN_COLORS: ColumnColorSettings = {
@@ -112,6 +114,10 @@ export const DEFAULT_SETTINGS: DeckSettings = {
   showImagePreviews: true,
   highZIndex: false,
   reversedPostOrder: false,
+  // Opt-in. The mention feed cache is session-only by default so that post
+  // bodies never reach the profile directory unless the reader asks for a
+  // list that survives a browser restart.
+  persistMentionCache: false,
 };
 export const MIN_POLLING_INTERVAL_SECONDS = 15;
 export const MAX_POLLING_INTERVAL_SECONDS = 300;
@@ -427,6 +433,7 @@ export async function loadDeckSettings(origin?: string): Promise<DeckSettings> {
     showImagePreviews,
     highZIndex,
     reversedPostOrder,
+    persistMentionCache,
   ] = await Promise.all([
     loadScopedStoredString(SETTINGS_KEYS.serverUrl, "local", origin),
     loadScopedStoredString(SETTINGS_KEYS.teamSlug, "local", origin),
@@ -451,6 +458,7 @@ export async function loadDeckSettings(origin?: string): Promise<DeckSettings> {
     loadScopedStoredString(SETTINGS_KEYS.showImagePreviews, "local", origin),
     loadScopedStoredString(SETTINGS_KEYS.highZIndex, "local", origin),
     loadScopedStoredString(SETTINGS_KEYS.reversedPostOrder, "local", origin),
+    loadScopedStoredString(SETTINGS_KEYS.persistMentionCache, "local", origin),
   ]);
 
   return {
@@ -478,6 +486,7 @@ export async function loadDeckSettings(origin?: string): Promise<DeckSettings> {
     showImagePreviews: normaliseBoolean(showImagePreviews, DEFAULT_SETTINGS.showImagePreviews),
     highZIndex: normaliseBoolean(highZIndex, DEFAULT_SETTINGS.highZIndex),
     reversedPostOrder: normaliseBoolean(reversedPostOrder, DEFAULT_SETTINGS.reversedPostOrder),
+    persistMentionCache: normaliseBoolean(persistMentionCache, DEFAULT_SETTINGS.persistMentionCache),
   };
 }
 
@@ -523,6 +532,7 @@ export async function saveDeckSettings(settings: DeckSettings, origin?: string):
       [profileKey(SETTINGS_KEYS.showImagePreviews)]: settings.showImagePreviews ? "true" : "false",
       [profileKey(SETTINGS_KEYS.highZIndex)]: settings.highZIndex ? "true" : "false",
       [profileKey(SETTINGS_KEYS.reversedPostOrder)]: settings.reversedPostOrder ? "true" : "false",
+      [profileKey(SETTINGS_KEYS.persistMentionCache)]: settings.persistMentionCache ? "true" : "false",
       [profileKey(PROFILE_SETTINGS_INITIALIZED_KEY)]: "true",
     }),
   ]);

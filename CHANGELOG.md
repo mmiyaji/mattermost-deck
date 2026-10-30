@@ -7,6 +7,14 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Optional "Keep mentions after a restart". The mention pane fills from the last loaded feed as soon as the browser starts and refreshes it in the background, instead of waiting for a full fetch. It is off by default because an enabled cache is written to extension local storage, which Chrome does not encrypt; turning it off deletes what was already stored.
+
+### Changed
+
+- Document the mention review store and the mention feed cache in the privacy policy, and state that extension local storage is not encrypted at rest.
+
 ## [1.3.2] - 2026-10-30
 
 ### Fixed

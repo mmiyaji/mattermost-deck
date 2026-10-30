@@ -11,6 +11,21 @@ const MENTION_CACHE_MAX_POSTS = 100;
 const MENTION_CACHE_POST_BYTES = 240 * 1024;
 export const MENTION_CACHE_SOFT_TTL_MS = 15 * 60_000;
 export const MENTION_CACHE_HARD_TTL_MS = 24 * 60 * 60_000;
+
+/**
+ * How old a snapshot may be and still be shown while the feed reloads.
+ *
+ * A session-only snapshot keeps the short window: inside one browser session
+ * anything older was already replaced by a completed poll, so showing it would
+ * mean the feed had been stalled for a quarter of an hour. A persisted
+ * snapshot exists for the opposite reason - to fill the pane on the next
+ * browser start - so it stays displayable for as long as the registry keeps
+ * it. Either way the snapshot is only a placeholder: the fan-out starts in the
+ * same pass and replaces it.
+ */
+export function mentionCacheDisplayTtlMs(persist: boolean): number {
+  return persist ? MENTION_CACHE_HARD_TTL_MS : MENTION_CACHE_SOFT_TTL_MS;
+}
 const MENTION_CACHE_MIN_WRITE_INTERVAL_MS = 60_000;
 const MENTION_CACHE_FUTURE_TOLERANCE_MS = 5 * 60_000;
 
@@ -271,6 +286,7 @@ export function normaliseMentionCacheSnapshot(
   value: unknown,
   context: MentionCacheContext,
   now = Date.now(),
+  maxAgeMs = MENTION_CACHE_SOFT_TTL_MS,
 ): MentionCacheSnapshot | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -288,7 +304,7 @@ export function normaliseMentionCacheSnapshot(
     typeof candidate.savedAt !== "number" ||
     !Number.isFinite(candidate.savedAt) ||
     candidate.savedAt > now + MENTION_CACHE_FUTURE_TOLERANCE_MS ||
-    now - candidate.savedAt > MENTION_CACHE_SOFT_TTL_MS ||
+    now - candidate.savedAt > maxAgeMs ||
     !Array.isArray(candidate.posts)
   ) {
     return null;
@@ -349,21 +365,26 @@ function normaliseRegistry(value: unknown, now: number): MentionCacheRegistry {
   return { version: MENTION_CACHE_VERSION, entries };
 }
 
-function getSessionStorage(): chrome.storage.StorageArea | null {
-  if (
-    typeof chrome === "undefined" ||
-    !chrome.storage?.session
-  ) {
+/**
+ * Session storage is the default because it never reaches the profile
+ * directory: `chrome.storage.local` is not encrypted at rest, so a snapshot
+ * written there exposes mention bodies to anything that can read the Chrome
+ * profile. The reader opts in per connection profile when they want the pane
+ * filled again after a browser restart.
+ */
+function getCacheStorage(persist: boolean): chrome.storage.StorageArea | null {
+  if (typeof chrome === "undefined") {
     return null;
   }
-  return chrome.storage.session;
+  return (persist ? chrome.storage?.local : chrome.storage?.session) ?? null;
 }
 
 export async function loadMentionCache(
   context: MentionCacheContext,
   now = Date.now(),
+  persist = false,
 ): Promise<MentionCacheSnapshot | null> {
-  const storage = getSessionStorage();
+  const storage = getCacheStorage(persist);
   if (!storage) {
     return null;
   }
@@ -377,6 +398,7 @@ export async function loadMentionCache(
       registry.entries[buildMentionCacheEntryId(context)],
       context,
       now,
+      mentionCacheDisplayTtlMs(persist),
     );
   } catch {
     return null;
@@ -387,8 +409,9 @@ async function writeMentionCache(
   context: MentionCacheContext,
   snapshot: MentionCacheSnapshot,
   now: number,
+  persist: boolean,
 ): Promise<void> {
-  const storage = getSessionStorage();
+  const storage = getCacheStorage(persist);
   if (!storage) {
     return;
   }
@@ -403,6 +426,7 @@ async function writeMentionCache(
     registry.entries[entryId],
     context,
     now,
+    mentionCacheDisplayTtlMs(persist),
   );
   if (
     previous?.fingerprint === snapshot.fingerprint &&
@@ -425,6 +449,7 @@ export async function saveMentionCache(
   posts: MattermostPost[],
   readState: MentionReadState,
   now = Date.now(),
+  persist = false,
 ): Promise<void> {
   const snapshot = createMentionCacheSnapshot(
     context,
@@ -433,18 +458,18 @@ export async function saveMentionCache(
     now,
   );
   const write = mentionCacheWriteQueue.then(
-    () => writeMentionCache(context, snapshot, now),
-    () => writeMentionCache(context, snapshot, now),
+    () => writeMentionCache(context, snapshot, now, persist),
+    () => writeMentionCache(context, snapshot, now, persist),
   );
   mentionCacheWriteQueue = write.catch(() => undefined);
   await write.catch(() => undefined);
 }
 
-async function removeMentionCacheEntry(
+async function removeMentionCacheEntryFrom(
+  storage: chrome.storage.StorageArea | null,
   context: MentionCacheContext,
   now: number,
 ): Promise<void> {
-  const storage = getSessionStorage();
   if (!storage) {
     return;
   }
@@ -461,6 +486,23 @@ async function removeMentionCacheEntry(
   await storage.set({ [MENTION_CACHE_STORAGE_KEY]: registry });
 }
 
+// An edit or a deletion invalidates whatever snapshot is on hand, and the
+// storage area may have changed since it was written. Clear both so that
+// turning persistence off and on again cannot resurrect a stale entry.
+async function removeMentionCacheEntry(
+  context: MentionCacheContext,
+  now: number,
+): Promise<void> {
+  const results = await Promise.allSettled([
+    removeMentionCacheEntryFrom(getCacheStorage(false), context, now),
+    removeMentionCacheEntryFrom(getCacheStorage(true), context, now),
+  ]);
+  const failure = results.find((result) => result.status === "rejected");
+  if (failure?.status === "rejected") {
+    throw failure.reason;
+  }
+}
+
 export async function removeMentionCache(
   context: MentionCacheContext,
   now = Date.now(),
@@ -471,4 +513,22 @@ export async function removeMentionCache(
   );
   mentionCacheWriteQueue = write.catch(() => undefined);
   await write.catch(() => undefined);
+}
+
+/**
+ * Drop every persisted snapshot. Turning the setting off has to take the
+ * copies already on disk with it, otherwise the reader has disabled a
+ * behaviour while the data it wrote stays behind.
+ */
+export async function clearPersistedMentionCache(): Promise<void> {
+  const storage = getCacheStorage(true);
+  if (!storage) {
+    return;
+  }
+  const clear = mentionCacheWriteQueue.then(
+    () => storage.remove(MENTION_CACHE_STORAGE_KEY),
+    () => storage.remove(MENTION_CACHE_STORAGE_KEY),
+  );
+  mentionCacheWriteQueue = clear.then(() => undefined, () => undefined);
+  await clear.catch(() => undefined);
 }

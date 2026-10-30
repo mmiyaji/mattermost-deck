@@ -400,6 +400,8 @@
     "highZIndexHint": "D\u00e9sactiv\u00e9 : ordre Z 999 (les menus d\u00e9roulants et popups Mattermost apparaissent au premier plan). Activ\u00e9 : valeur maximale, l'extension s'affiche au-dessus de tout.",
     "reversedPostOrderLabel": "Inverser l'ordre des messages",
     "reversedPostOrderHint": "Afficher les messages les plus r\u00e9cents en bas, conform\u00e9ment au comportement standard de Mattermost.",
+    "persistMentionCacheLabel": "Conserver les mentions après un redémarrage",
+    "persistMentionCacheHint": "Affiche immédiatement les dernières mentions chargées au démarrage du navigateur, puis les actualise en arrière-plan. Le texte des messages est écrit dans le stockage local de ce navigateur, que Chrome ne chiffre pas.",
     "paneIdentityLabel": "Couleurs d'identit\u00e9 des volets",
     "paneIdentityHint": "Les couleurs choisies s’appliquent aux icônes de type à côté des titres. Les formes et les noms permettent aussi de distinguer les types sans couleur.",
     "colorAccentsLabel": "Distinguer les types de volets par couleur",

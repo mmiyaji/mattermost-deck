@@ -138,6 +138,8 @@
                 <li>MattermostサーバーURLと任意のTeam Slug</li>
                 <li>テーマ、言語、ポーリング間隔、レイアウト、保存済みViews、プロファイルなどの表示・動作設定</li>
                 <li>個人用お気に入りの投稿ID、登録日時、本文の一部、投稿者・チャンネル・添付ファイルのIDと投稿日時。サーバーとアカウントごとに最大100件を拡張機能のローカル保存領域に保存します。本文キャッシュは最終確認から7日を超えると次回読み込み時に破棄し、登録情報は解除するまで保持します。取得に成功した際に削除・閲覧不可と判明した投稿の本文も破棄します。解除すると該当のお気に入りとキャッシュを削除します。</li>
+                <li>要確認メンションの未確認投稿と確認状態。対象投稿の本文を含み、サーバーとアカウントごとに拡張機能のローカル保存領域へ保存します。要確認ペインを使用した場合にのみ保存し、未確認の投稿は確認済みにするまで保持します。確認済みの履歴は本文を最大200件まで保持し、それを超えた分と保存領域が不足した場合は古い本文から破棄します。確認した記録自体は残ります。</li>
+                <li>メンションペインの表示キャッシュ。直近のメンション投稿の本文を含みます。既定ではブラウザのセッション保存領域にのみ置き、ブラウザを終了すると破棄します。「再起動後もメンションを表示」を有効にした場合だけ拡張機能のローカル保存領域へ保存し、サーバー・アカウント・チーム範囲の組み合わせごとに最大100件、全体で最大4組を保持します。保存から24時間を超えた分は読み込み時に破棄し、設定を無効にすると保存済みのキャッシュを削除します。</li>
                 <li>PATを永続保存するかどうかの任意設定</li>
                 <li>トレース記録を有効にした場合の件数制限付き診断ログ。24時間を超えた項目は、次に拡張機能が動作、記録、または診断画面を開いたときに削除します。</li>
               </ul>
@@ -146,6 +148,12 @@
                 ユーザーが永続保存を選択した場合、PATはクライアント側で暗号化してブラウザ内に保存されます。
                 同じクライアントが復号できるため、この暗号化は平文保存を避けるための補助であり、
                 完全なセキュリティ境界ではありません。
+              </p>
+              <p>
+                拡張機能のローカル保存領域は、Chromeがブラウザのプロファイル内に平文で保持します。
+                投稿本文を含む保存データは、同じOSアカウントで動作するプログラムや、
+                プロファイルを読み取れる利用者からは保護されません。
+                必要に応じて、ディスク暗号化などOS側の保護と併せて利用してください。
               </p>
               <p>
                 診断ログには、要求目的、パス、ステータス、所要時間、キュー待機時間、拡張機能のライフサイクルイベントが含まれます。
@@ -268,6 +276,8 @@
                 <li>Mattermost server URL and optional Team Slug</li>
                 <li>Theme, language, polling interval, layout, saved Views, profiles, and other display or behavior settings</li>
                 <li>Personal favorite post IDs, saved timestamps, bounded message text, author/channel/attachment IDs, and post timestamps. Up to 100 entries per server/account are kept in extension local storage. Cached bodies older than seven days since verification are discarded on the next load, while membership remains until removed. Bodies are also discarded when a successful fetch identifies a deleted or inaccessible post. Removing a favorite deletes its entry and cached body.</li>
+                <li>Pending mentions and confirmation decisions for mention review panes, including the body of each post, kept in extension local storage per server/account. They are stored only once a review pane is used, and a pending post is retained until it is confirmed. Confirmed history keeps at most 200 bodies; older bodies are discarded beyond that cap or under storage pressure, while the confirmation record remains.</li>
+                <li>A display cache for mention panes, including the bodies of recent mention posts. By default it is kept only in browser session storage and is discarded when the browser closes. Only when &quot;Keep mentions after a restart&quot; is enabled is it written to extension local storage, holding at most 100 posts per server/account/team scope and at most four scopes in total. Entries older than 24 hours are discarded on load, and disabling the setting deletes the stored cache.</li>
                 <li>The optional preference for persistent PAT storage</li>
                 <li>Bounded diagnostic trace logs; entries older than 24 hours are pruned the next time the extension runs, writes a trace, or opens diagnostics</li>
               </ul>
@@ -277,6 +287,14 @@
                 PAT is stored locally with client-side encryption. Because the
                 same client can decrypt it, this helps avoid plain-text storage
                 but is not a complete security boundary.
+              </p>
+              <p>
+                Extension local storage is kept by Chrome inside the browser
+                profile without encryption. Stored data, including post bodies,
+                is not protected from programs running under the same
+                operating-system account or from anyone who can read the profile
+                directory. Where that matters, use it together with
+                operating-system protection such as disk encryption.
               </p>
               <p>
                 Diagnostic logs contain request purpose, path, status, duration,

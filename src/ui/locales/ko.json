@@ -390,6 +390,8 @@
     "highZIndexHint": "끔: Z 순서 999(Mattermost 드롭다운과 팝오버가 위에 표시됨). 켬: 최댓값으로, 확장 프로그램이 모든 요소 위에 표시됩니다.",
     "reversedPostOrderLabel": "게시물 순서 반전",
     "reversedPostOrderHint": "Mattermost 기본 동작과 동일하게 최신 게시물을 아래쪽에 표시합니다.",
+    "persistMentionCacheLabel": "재시작 후에도 멘션 표시",
+    "persistMentionCacheHint": "브라우저를 시작하면 마지막으로 불러온 멘션을 즉시 표시하고 백그라운드에서 갱신합니다. 게시물 본문은 이 브라우저의 로컬 저장소에 기록되며 Chrome은 이를 암호화하지 않습니다.",
     "paneIdentityLabel": "패널 식별 색상",
     "paneIdentityHint": "패널 제목 옆 종류 아이콘에 설정한 색상을 적용합니다. 색상을 사용하지 않아도 아이콘 모양과 이름으로 종류를 확인할 수 있습니다.",
     "colorAccentsLabel": "패널 종류를 색상으로 구분",

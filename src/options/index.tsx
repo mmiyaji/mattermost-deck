@@ -256,6 +256,8 @@ function useOptionsText() {
     highZIndexHint: t("options.highZIndexHint"),
     reversedPostOrderLabel: t("options.reversedPostOrderLabel"),
     reversedPostOrderHint: t("options.reversedPostOrderHint"),
+    persistMentionCacheLabel: t("options.persistMentionCacheLabel"),
+    persistMentionCacheHint: t("options.persistMentionCacheHint"),
     paneIdentityLabel: t("options.paneIdentityLabel"),
     paneIdentityHint: t("options.paneIdentityHint"),
     colorAccentsLabel: t("options.colorAccentsLabel"),
@@ -3699,6 +3701,19 @@ function OptionsApp(): React.JSX.Element {
                       onChange={(e) => setSettings((s) => ({ ...s, reversedPostOrder: e.target.checked }))}
                     />
                     <span id="reversed-post-order-hint">{text.reversedPostOrderHint}</span>
+                  </label>
+                </div>
+                <div className="options-field">
+                  <span id="persist-mention-cache-label" className="options-label">{text.persistMentionCacheLabel}</span>
+                  <label className="options-choice">
+                    <input
+                      type="checkbox"
+                      checked={settings.persistMentionCache}
+                      aria-labelledby="persist-mention-cache-label"
+                      aria-describedby="persist-mention-cache-hint"
+                      onChange={(e) => setSettings((s) => ({ ...s, persistMentionCache: e.target.checked }))}
+                    />
+                    <span id="persist-mention-cache-hint">{text.persistMentionCacheHint}</span>
                   </label>
                 </div>
               </div>

@@ -172,6 +172,7 @@ import {
 } from "./mentionFeed";
 import {
   buildMentionCacheEntryId,
+  clearPersistedMentionCache,
   loadMentionCache,
   removeMentionCache,
   saveMentionCache,
@@ -2609,6 +2610,7 @@ function useDeckSettingsState(): {
   columnColors: ColumnColorSettings;
   showImagePreviews: boolean;
   reversedPostOrder: boolean;
+  persistMentionCache: boolean;
 } {
   const [settings, setSettings] = useState<{
     loaded: boolean;
@@ -2628,6 +2630,7 @@ function useDeckSettingsState(): {
     columnColors: ColumnColorSettings;
     showImagePreviews: boolean;
     reversedPostOrder: boolean;
+    persistMentionCache: boolean;
   }>({
     loaded: false,
     wsPat: "",
@@ -2646,6 +2649,7 @@ function useDeckSettingsState(): {
     columnColors: DEFAULT_COLUMN_COLORS,
     showImagePreviews: DEFAULT_SETTINGS.showImagePreviews,
     reversedPostOrder: DEFAULT_SETTINGS.reversedPostOrder,
+    persistMentionCache: DEFAULT_SETTINGS.persistMentionCache,
   });
 
   useEffect(() => {
@@ -4854,6 +4858,7 @@ function MentionsColumn({
   language,
   reversedPostOrder,
   highlightKeywords,
+  persistMentionCache,
   isFocusedPane,
   onToggleFocus,
 }: {
@@ -4895,6 +4900,8 @@ function MentionsColumn({
   language: DeckLanguage;
   reversedPostOrder: boolean;
   highlightKeywords: string;
+  /** null until the saved settings load, so no fetch picks the wrong area. */
+  persistMentionCache: boolean | null;
   isFocusedPane: boolean;
   onToggleFocus: (id: string) => void;
 }): React.JSX.Element {
@@ -5440,6 +5447,12 @@ function MentionsColumn({
         : null,
     [mentionCacheContext],
   );
+  // Read through a ref so that toggling persistence picks up on the next load
+  // or save without restarting the feed and refetching every team. Only
+  // readiness reaches the poll's dependencies, for the same reason.
+  const persistMentionCacheRef = useRef(persistMentionCache);
+  persistMentionCacheRef.current = persistMentionCache;
+  const mentionCachePersistenceReady = persistMentionCache !== null;
   const shouldShowLoadingState = !exclusions.loaded || (Boolean(column.mentionReview) && !review.ready) ||
     visiblePosts.length === 0 &&
     (
@@ -6191,7 +6204,10 @@ function MentionsColumn({
 
   useColumnPolling(
     async (isCancelled) => {
-      if (!currentUserId) {
+      // Wait for the saved persistence choice as well as the user. Hydrating
+      // from the wrong storage area would claim the one hydration this entry
+      // gets and leave a persisted snapshot unread until the next reload.
+      if (!currentUserId || !mentionCachePersistenceReady) {
         return;
       }
       const resolvedCurrentUserId = currentUserId;
@@ -6430,7 +6446,11 @@ function MentionsColumn({
         mentionCacheHydratedEntryIdRef.current !== mentionCacheEntryId
       ) {
         mentionCacheHydratedEntryIdRef.current = mentionCacheEntryId;
-        const cached = await loadMentionCache(mentionCacheContext);
+        const cached = await loadMentionCache(
+          mentionCacheContext,
+          Date.now(),
+          persistMentionCacheRef.current === true,
+        );
         if (!canPublishProgress()) {
           return;
         }
@@ -6942,6 +6962,7 @@ function MentionsColumn({
         loadUnreadThreadMentionPosts,
         mentionCacheContext,
         mentionCacheEntryId,
+        mentionCachePersistenceReady,
         mentionSearchTerms,
         paused,
         readRefreshNonce,
@@ -6986,6 +7007,7 @@ function MentionsColumn({
       posts,
       readState,
       savedAt,
+      persistMentionCacheRef.current === true,
     ).then(() => {
       if (!cancelled) {
         setMentionCacheLastSavedAt(savedAt);
@@ -10087,6 +10109,15 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const initialDeckLanguageRef = useRef(deckSettings.language);
   const text = useAppText();
   useEffect(() => { void i18n.changeLanguage(deckSettings.language); }, [deckSettings.language]);
+  // Disabling persistence has to remove what was already written, not just
+  // stop writing. Wait for the saved value: the default is off, so acting
+  // before the load would wipe a cache the reader asked to keep.
+  useEffect(() => {
+    if (!deckSettings.loaded || deckSettings.persistMentionCache) {
+      return;
+    }
+    void clearPersistedMentionCache();
+  }, [deckSettings.loaded, deckSettings.persistMentionCache]);
   const effectiveRealtimeEnabled = deckSettings.wsPat.trim().length > 0 && !realtimeAuthError;
   const state = useDeckState(currentRouteKey, stateRefreshNonce, effectiveRealtimeEnabled, deckSettings.pollingIntervalSeconds);
   useEffect(() => {
@@ -12582,6 +12613,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           language={deckSettings.language}
                           reversedPostOrder={deckSettings.reversedPostOrder}
                           highlightKeywords={deckSettings.highlightKeywords}
+                          persistMentionCache={deckSettings.loaded ? deckSettings.persistMentionCache : null}
                           isFocusedPane={isFocusedPane}
                           onToggleFocus={(id) => setFocusedColumnId((current) => (current === id ? null : id))}
                         />

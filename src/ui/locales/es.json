@@ -400,6 +400,8 @@
     "highZIndexHint": "Desactivado: orden Z 999 (los menús desplegables y los popovers de Mattermost aparecen encima). Activado: valor máximo, la extensión se muestra por encima de todo.",
     "reversedPostOrderLabel": "Invertir el orden de las publicaciones",
     "reversedPostOrderHint": "Muestra las publicaciones más recientes abajo, igual que el comportamiento estándar de Mattermost.",
+    "persistMentionCacheLabel": "Conservar las menciones tras reiniciar",
+    "persistMentionCacheHint": "Muestra de inmediato las últimas menciones cargadas al iniciar el navegador y las actualiza en segundo plano. El texto de las publicaciones se guarda en el almacenamiento local de este navegador, que Chrome no cifra.",
     "paneIdentityLabel": "Colores de identidad de los paneles",
     "paneIdentityHint": "Los colores elegidos se aplican a los iconos junto a los títulos. Las formas y los nombres identifican cada tipo incluso sin colores.",
     "colorAccentsLabel": "Distinguir los tipos de panel por color",

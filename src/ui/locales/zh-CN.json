@@ -390,6 +390,8 @@
     "highZIndexHint": "\u5173\u95ed\uff1aZ \u987a\u5e8f 999\uff08Mattermost \u4e0b\u62c9\u83dc\u5355\u548c\u5f39\u51fa\u6846\u663e\u793a\u5728\u9876\u90e8\uff09\u3002\u5f00\u542f\uff1a\u6700\u5927\u503c\uff0c\u6269\u5c55\u6e32\u67d3\u5728\u6240\u6709\u5185\u5bb9\u4e4b\u4e0a\u3002",
     "reversedPostOrderLabel": "反转帖子顺序",
     "reversedPostOrderHint": "将最新帖子显示在底部（与 Mattermost 标准行为一致）。",
+    "persistMentionCacheLabel": "重启后仍显示提及",
+    "persistMentionCacheHint": "浏览器启动后立即显示上次加载的提及，并在后台更新。帖子正文会写入此浏览器的本地存储，而 Chrome 不会对其加密。",
     "paneIdentityLabel": "\u9762\u677f\u6807\u8bc6\u989c\u8272",
     "paneIdentityHint": "将所选颜色应用于窗格标题旁的类型图标。即使不使用颜色，也能通过图标形状和名称识别类型。",
     "colorAccentsLabel": "用颜色区分窗格类型",

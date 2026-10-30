@@ -395,6 +395,8 @@
     "highZIndexHint": "Off: Z-order 999 (Mattermost dropdowns and popovers appear on top). On: maximum value, the extension renders above everything.",
     "reversedPostOrderLabel": "Reverse Post Order",
     "reversedPostOrderHint": "Display newest posts at the bottom, matching standard Mattermost behavior.",
+    "persistMentionCacheLabel": "Keep mentions after a restart",
+    "persistMentionCacheHint": "Show the last loaded mentions immediately when the browser starts, then refresh them in the background. Post bodies are written to this browser's local storage, which Chrome does not encrypt.",
     "paneIdentityLabel": "Pane Identity Colors",
     "paneIdentityHint": "Apply the selected colors to the type icons beside pane titles. Icon shapes and names identify each type even when colors are disabled.",
     "colorAccentsLabel": "Distinguish pane types by color",
