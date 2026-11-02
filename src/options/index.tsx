@@ -43,6 +43,7 @@ import { clearTraceEntries, getTraceEntries, isTraceCaptureEnabled, setTraceCapt
 import { localizePerformancePurpose } from "./performancePurpose";
 import { hasSettingsChanges } from "./settingsDraft";
 import { AppearancePreview, WidthDiagram } from "./AppearancePreview";
+import { PerformanceOverview } from "./PerformanceOverview";
 import { settingsExperienceCss } from "./settingsExperienceStyles";
 
 const PRODUCT_SITE_URL = "https://mattermost-deck.ruhenheim.org/";
@@ -427,7 +428,7 @@ function computeP95(values: number[]): number {
     return 0;
   }
   const sorted = values.slice().sort((left, right) => left - right);
-  const index = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95));
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * 0.95) - 1));
   return sorted[index] ?? 0;
 }
 
@@ -437,48 +438,6 @@ function formatMs(value: number): string {
 
 function formatPercent(value: number): string {
   return `${Math.round(value * 100)}%`;
-}
-
-function buildBucketSeries(entries: TraceLogEntry[], bucketMs: number, buckets: number, filter: (entry: TraceLogEntry) => boolean): number[] {
-  const now = Date.now();
-  const series = Array.from({ length: buckets }, () => 0);
-
-  for (const entry of entries) {
-    if (!filter(entry)) {
-      continue;
-    }
-    const age = now - entry.timestamp;
-    if (age < 0 || age >= bucketMs * buckets) {
-      continue;
-    }
-    const index = buckets - 1 - Math.floor(age / bucketMs);
-    if (index >= 0 && index < buckets) {
-      series[index] += 1;
-    }
-  }
-
-  return series;
-}
-
-function MiniBarChart({ values, ariaLabel }: { values: number[]; ariaLabel: string }): React.JSX.Element {
-  const width = 320;
-  const height = 88;
-  const maxValue = Math.max(...values, 1);
-  const barWidth = width / Math.max(values.length, 1);
-
-  return (
-    <svg className="options-chart" viewBox={`0 0 ${width} ${height}`} role="img">
-      <title>{ariaLabel}</title>
-      <desc>{values.map((value) => Math.round(value)).join(", ")}</desc>
-      {values.map((value, index) => {
-        const normalized = value / maxValue;
-        const barHeight = Math.max(2, normalized * (height - 12));
-        const x = index * barWidth + 2;
-        const y = height - barHeight - 4;
-        return <rect key={index} x={x} y={y} width={Math.max(4, barWidth - 4)} height={barHeight} rx="3" />;
-      })}
-    </svg>
-  );
 }
 
 function SortableHeader({
@@ -805,7 +764,7 @@ const pageCss = `
   }
 
   .options-panel--wide {
-    max-width: min(1480px, calc(100vw - 120px));
+    max-width: none;
   }
 
   /* Save footer */
@@ -2009,7 +1968,7 @@ function OptionsApp(): React.JSX.Element {
   const [releaseNotice, setReleaseNotice] = useState<ReleaseNotice | null>(null);
   const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
   const [activePanel, setActivePanel] = useState<ActivePanel>("conn");
-  const [performanceWide, setPerformanceWide] = useState(false);
+  const [performanceWide, setPerformanceWide] = useState(true);
   const installBannerRef = useRef<HTMLDivElement>(null);
   const releaseNotesTriggerRef = useRef<HTMLButtonElement>(null);
   const releaseNotesModalRef = useRef<HTMLDivElement>(null);
@@ -2223,45 +2182,20 @@ function OptionsApp(): React.JSX.Element {
     direction: "desc",
   });
   const apiTraceEntries = useMemo(
-    () => traceEntries.filter((entry): entry is TraceApiEntry => entry.source === "api" && entry.event === "request.complete"),
+    () => traceEntries.filter((entry): entry is TraceApiEntry => entry.source === "api" && (entry.event === "request.complete" || entry.event === "request.error")),
     [traceEntries],
   );
   const apiTraceLogEntries = useMemo(
     () => traceEntries.filter((entry): entry is TraceApiEntry => entry.source === "api" && (entry.event === "request.complete" || entry.event === "request.error")),
     [traceEntries],
   );
-  const requestTimeline = useMemo(
-    () => buildBucketSeries(traceEntries, 60_000, 20, (entry) => entry.source === "api" && entry.event === "request.complete"),
-    [traceEntries],
-  );
-  const latencyTimeline = useMemo(
-    () =>
-      Array.from({ length: 20 }, (_, index) => {
-        const now = Date.now();
-        const bucketEnd = now - ((19 - index) * 60_000);
-        const bucketStart = bucketEnd - 60_000;
-        const values = apiTraceEntries
-          .filter((entry) => entry.timestamp >= bucketStart && entry.timestamp < bucketEnd)
-          .map((entry) => Number(entry.payload?.durationMs ?? 0))
-          .filter((value) => Number.isFinite(value) && value > 0);
-        return values.length > 0 ? computeAverage(values) : 0;
-      }),
-    [apiTraceEntries],
-  );
   const performanceSummary = useMemo(() => {
-    const durations = apiTraceEntries
-      .map((entry) => Number(entry.payload?.durationMs ?? 0))
-      .filter((value) => Number.isFinite(value) && value > 0);
-    const queueWaits = apiTraceEntries
-      .map((entry) => Number(entry.payload?.queueWaitMs ?? 0))
-      .filter((value) => Number.isFinite(value) && value >= 0);
-    const failures = apiTraceEntries.filter((entry) => Boolean(entry.payload?.failed)).length;
     const endpointCounts = new Map<string, number>();
     const endpointPurpose = new Map<string, string>();
     const endpointDurations = new Map<string, number[]>();
     const endpointErrors = new Map<string, number>();
-    let getCount = 0;
-    let postCount = 0;
+    const endpointWaits = new Map<string, number[]>();
+    const endpointNetworks = new Map<string, number[]>();
 
     for (const entry of apiTraceEntries) {
       const path = entry.payload?.path ?? "(unknown)";
@@ -2273,17 +2207,15 @@ function OptionsApp(): React.JSX.Element {
       if (Number.isFinite(duration) && duration > 0) {
         endpointDurations.set(path, [...(endpointDurations.get(path) ?? []), duration]);
       }
-      if (Boolean(entry.payload?.failed)) {
+      const wait = entry.payload?.queueWaitMs;
+      if (entry.event === "request.complete" && typeof wait === "number" && Number.isFinite(wait) && wait >= 0 && Number.isFinite(duration) && duration >= wait) {
+        endpointWaits.set(path, [...(endpointWaits.get(path) ?? []), wait]);
+        endpointNetworks.set(path, [...(endpointNetworks.get(path) ?? []), duration - wait]);
+      }
+      if (entry.event === "request.error" || Boolean(entry.payload?.failed) || Number(entry.payload?.status) >= 400) {
         endpointErrors.set(path, (endpointErrors.get(path) ?? 0) + 1);
       }
-      if (entry.payload?.method === "GET") {
-        getCount += 1;
-      } else if (entry.payload?.method === "POST") {
-        postCount += 1;
-      }
     }
-
-    const rateLimitWaits = traceEntries.filter((entry) => entry.source === "api" && entry.event === "request.rate_limit_wait").length;
 
     const endpointRows = [...endpointCounts.entries()]
       .map(([path, count]) => ({
@@ -2293,22 +2225,15 @@ function OptionsApp(): React.JSX.Element {
         avgLatencyMs: computeAverage(endpointDurations.get(path) ?? []),
         p95LatencyMs: computeP95(endpointDurations.get(path) ?? []),
         errorCount: endpointErrors.get(path) ?? 0,
+        avgWaitMs: endpointWaits.has(path) ? computeAverage(endpointWaits.get(path)!) : null,
+        avgNetworkMs: endpointNetworks.has(path) ? computeAverage(endpointNetworks.get(path)!) : null,
       }))
       .filter((row) => row.count > 0);
 
     return {
-      totalEntries: traceEntries.length,
-      apiRequests: apiTraceEntries.length,
-      errorRate: apiTraceEntries.length > 0 ? failures / apiTraceEntries.length : 0,
-      avgLatencyMs: computeAverage(durations),
-      p95LatencyMs: computeP95(durations),
-      avgQueueWaitMs: computeAverage(queueWaits),
-      getCount,
-      postCount,
-      rateLimitWaits,
       endpointRows,
     };
-  }, [apiTraceEntries, formatPerformancePurpose, traceEntries]);
+  }, [apiTraceEntries, formatPerformancePurpose]);
   const endpointSummaryRows = useMemo(() => {
     const multiplier = endpointSummarySort.direction === "asc" ? 1 : -1;
     return performanceSummary.endpointRows
@@ -3826,57 +3751,7 @@ function OptionsApp(): React.JSX.Element {
                 </div>
               </div>
 
-              <div className="options-metric-grid">
-                <article className="options-metric-card">
-                  <strong>{text.performanceEntries}</strong>
-                  <p>{performanceSummary.totalEntries.toLocaleString(settings.language)}</p>
-                </article>
-                <article className="options-metric-card">
-                  <strong>{text.performanceApiRequests}</strong>
-                  <p>{performanceSummary.apiRequests.toLocaleString(settings.language)}</p>
-                </article>
-                <article className="options-metric-card">
-                  <strong>{text.performanceErrorRate}</strong>
-                  <p>{formatPercent(performanceSummary.errorRate)}</p>
-                </article>
-                <article className="options-metric-card">
-                  <strong>{text.performanceAvgLatency}</strong>
-                  <p>{formatMs(performanceSummary.avgLatencyMs)}</p>
-                </article>
-                <article className="options-metric-card">
-                  <strong>{text.performanceP95Latency}</strong>
-                  <p>{formatMs(performanceSummary.p95LatencyMs)}</p>
-                </article>
-                <article className="options-metric-card">
-                  <strong>{text.performanceQueueWait}</strong>
-                  <p>{formatMs(performanceSummary.avgQueueWaitMs)}</p>
-                </article>
-                <article className="options-metric-card">
-                  <strong>{text.performanceMethodMix}</strong>
-                  <p>{performanceSummary.getCount} / {performanceSummary.postCount}</p>
-                </article>
-                <article className="options-metric-card">
-                  <strong>{text.performanceRateLimitWaits}</strong>
-                  <p>{performanceSummary.rateLimitWaits.toLocaleString(settings.language)}</p>
-                </article>
-              </div>
-
-              <div className="options-grid">
-                <article className="options-analysis-card">
-                  <div className="options-analysis-header">
-                    <strong>{text.performanceApiRate}</strong>
-                    <span>{performanceSummary.apiRequests.toLocaleString(settings.language)}</span>
-                  </div>
-                  <MiniBarChart values={requestTimeline} ariaLabel={text.performanceApiRate} />
-                </article>
-                <article className="options-analysis-card">
-                  <div className="options-analysis-header">
-                    <strong>{text.performanceLatencyTrend}</strong>
-                    <span>{formatMs(performanceSummary.p95LatencyMs)}</span>
-                  </div>
-                  <MiniBarChart values={latencyTimeline} ariaLabel={text.performanceLatencyTrend} />
-                </article>
-              </div>
+              <PerformanceOverview entries={traceEntries} language={settings.language} capturing={traceCaptureEnabled} />
 
               <div className="options-grid">
                 <article className="options-analysis-card options-analysis-card--full">
@@ -3918,7 +3793,7 @@ function OptionsApp(): React.JSX.Element {
                               <SortableHeader
                                 active={endpointSummarySort.key === "avgLatencyMs"}
                                 direction={endpointSummarySort.direction}
-                                label={text.performanceAvg}
+                                label={settings.language === "ja" ? "所要時間 平均" : "Mean total time"}
                                 onClick={() => setEndpointSummarySort((current) => ({
                                   key: "avgLatencyMs",
                                   direction: current.key === "avgLatencyMs" && current.direction === "desc" ? "asc" : "desc",
@@ -3929,13 +3804,15 @@ function OptionsApp(): React.JSX.Element {
                               <SortableHeader
                                 active={endpointSummarySort.key === "p95LatencyMs"}
                                 direction={endpointSummarySort.direction}
-                                label={text.performanceP95}
+                                label={settings.language === "ja" ? "所要時間 p95" : "Total time p95"}
                                 onClick={() => setEndpointSummarySort((current) => ({
                                   key: "p95LatencyMs",
                                   direction: current.key === "p95LatencyMs" && current.direction === "desc" ? "asc" : "desc",
                                 }))}
                               />
                             </th>
+                            <th>{settings.language === "ja" ? "拡張内の待ち 平均" : "Mean queue wait"}</th>
+                            <th>{settings.language === "ja" ? "通信・応答 平均" : "Mean network / response"}</th>
                             <th aria-sort={endpointSummarySort.key === "errorRate" ? (endpointSummarySort.direction === "asc" ? "ascending" : "descending") : "none"}>
                               <SortableHeader
                                 active={endpointSummarySort.key === "errorRate"}
@@ -3950,7 +3827,7 @@ function OptionsApp(): React.JSX.Element {
                           </tr>
                         </thead>
                         <tbody>
-                          {endpointSummaryRows.map(({ path, count, purpose, avgLatencyMs, p95LatencyMs, errorCount }) => (
+                          {endpointSummaryRows.map(({ path, count, purpose, avgLatencyMs, p95LatencyMs, avgWaitMs, avgNetworkMs, errorCount }) => (
                             <tr key={path}>
                               <td>
                                 <div className="options-table-main" title={`${purpose}\n${path}`}>{purpose}</div>
@@ -3961,6 +3838,8 @@ function OptionsApp(): React.JSX.Element {
                               <td>{count}</td>
                               <td>{formatMs(avgLatencyMs)}</td>
                               <td>{formatMs(p95LatencyMs)}</td>
+                              <td>{avgWaitMs === null ? "—" : formatMs(avgWaitMs)}</td>
+                              <td>{avgNetworkMs === null ? "—" : formatMs(avgNetworkMs)}</td>
                               <td>{formatPercent(count > 0 ? errorCount / count : 0)}</td>
                             </tr>
                           ))}

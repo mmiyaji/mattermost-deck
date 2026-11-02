@@ -1,4 +1,33 @@
 export const settingsExperienceCss = `
+  .perf-overview { display: grid; gap: 20px; }
+  .perf-finding { padding: 18px 20px; border: 1px solid #496583; border-radius: 8px; }
+  .perf-finding h3 { font-size: 18px; margin: 8px 0; }
+  .perf-finding p { margin: 8px 0 0; line-height: 1.6; }
+  .perf-finding--errors { border-color: #e59b94; }
+  .perf-finding--queue, .perf-finding--network { border-color: #c6a664; }
+  .perf-period { font-size: 12px; }
+  .perf-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+  .perf-facts { display: flex; flex-wrap: wrap; gap: 12px 24px; font-size: 12px; line-height: 1.6; }
+  .perf-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr)); gap: 16px; }
+  .perf-charts figure { margin: 0; min-width: 0; }
+  .perf-charts figcaption strong { font-size: 14px; }
+  .perf-charts figcaption p { margin-top: 6px; }
+  .perf-chart { width: 100%; height: auto; display: block; }
+  .perf-chart text { fill: #b9cbe3; font-size: 12px; }
+  .perf-grid { stroke: #496583; fill: none; stroke-width: 1; }
+  .perf-bar-network { fill: #4f95d1; }
+  .perf-bar-wait { fill: #bc9251; }
+  .perf-bar-error { fill: #ce6960; }
+  .perf-hit { fill: transparent; }
+  .perf-chart g:focus { outline: 2px solid #7bc8ff; }
+  .perf-legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0; font-size: 12px; }
+  .perf-key::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 6px; background: #4f95d1; }
+  .perf-key--wait::before { background: #bc9251; }
+  .perf-key--error::before { background: #ce6960; }
+  body[data-theme="light"] .perf-chart text { fill: #496583; }
+  body[data-theme="light"] .perf-overview .options-hint { color: #496583; }
+  body[data-theme="light"] .perf-overview .options-metric-card strong { color: #365471; }
+  body[data-theme="light"] .perf-overview figcaption strong { color: #365471; }
   .options-content { min-width: 0; }
   .options-topbar { height: auto; min-height: 54px; flex-wrap: wrap; gap: 10px 24px; padding: 12px 20px; }
   .options-editing-target { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12px; min-width: 0; }
