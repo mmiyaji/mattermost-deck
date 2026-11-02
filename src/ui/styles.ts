@@ -1136,7 +1136,16 @@ export const railCssText = `
   .deck-review-note { margin: 0 0 12px; color: var(--deck-text-soft); font-size: calc(12px * var(--deck-font-scale)); line-height: 1.5; }
   .deck-review-post-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
   .deck-review-post-meta > span { min-width: 0; overflow-wrap: anywhere; }
-  .deck-review-confirm { flex: none; margin-left: auto; }
+  .deck-post-action-group { display: flex; align-items: center; gap: 4px; }
+  .deck-column .deck-review-confirm {
+    flex: none;
+    width: 26px;
+    min-width: 26px;
+    height: 26px;
+    margin: 0;
+    padding: 3px;
+    background: color-mix(in srgb, var(--deck-text) 5%, var(--deck-card));
+  }
   .deck-exclusion-settings { min-width: 0; padding: 12px 0; border-top: 1px solid var(--deck-border); }
   .deck-exclusion-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
   .deck-exclusion-heading > span, .deck-exclusion-note, .deck-exclusion-empty { color: var(--deck-text-soft); font-size: calc(11px * var(--deck-font-scale)); line-height: 1.5; }
