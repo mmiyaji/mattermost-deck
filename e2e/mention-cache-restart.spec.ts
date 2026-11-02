@@ -7,8 +7,8 @@ import os from "node:os";
 const MINUTES = 60_000;
 
 interface MentionCacheFixture {
-  save: (message: string, persist: boolean) => Promise<void>;
-  load: (persist: boolean, offsetMs?: number) => Promise<string[] | null>;
+  save: (message: string, persist: boolean, scope?: string) => Promise<void>;
+  load: (persist: boolean, offsetMs?: number, scope?: string) => Promise<string[] | null>;
   clear: () => Promise<void>;
   storedKeys: () => Promise<{ local: string[]; session: string[] }>;
 }
@@ -19,10 +19,8 @@ declare global {
   }
 }
 
-// The opt-in setting is only worth anything if Chrome itself keeps the two
-// storage areas apart the way the module assumes: session storage emptied with
-// the browser session, local storage carried into the next one. Exercise the
-// real areas rather than a stub, across an actual browser restart.
+// Exercise real extension-owned IndexedDB and session storage across a browser
+// restart. Content clients reach the database through the service worker.
 test("the mention cache survives a browser restart only when persistence is enabled", async () => {
   test.setTimeout(120_000);
   const directory = await fs.mkdtemp(
@@ -41,10 +39,24 @@ test("the mention cache survives a browser restart only when persistence is enab
       background: { service_worker: "background.js" },
     }),
   );
-  await fs.writeFile(
-    path.join(extension, "background.js"),
-    "chrome.runtime.onInstalled.addListener(() => {});",
-  );
+  await build({
+    stdin: {
+      contents: `import { handleMentionCacheStorageRequest } from "./src/mentionCacheDatabase";
+        import { handleMentionCacheSessionRequest } from "./src/mentionCacheSession";
+        import { MENTION_CACHE_STORAGE_MESSAGE } from "./src/mentionCacheProtocol";
+        chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+          if (message?.type !== MENTION_CACHE_STORAGE_MESSAGE) return;
+          (message.persist === false ? handleMentionCacheSessionRequest(message) : handleMentionCacheStorageRequest(message)).then(
+            result => sendResponse({success:true,...result}),
+            error => sendResponse({success:false,error:String(error)}));
+          return true;
+        });`,
+      resolveDir: process.cwd(),
+    },
+    outfile: path.join(extension, "background.js"),
+    bundle: true,
+    format: "iife",
+  });
   await fs.writeFile(
     path.join(extension, "test.html"),
     '<script type="module" src="test.js"></script>',
@@ -84,6 +96,9 @@ test("the mention cache survives a browser restart only when persistence is enab
     await page.evaluate(async () => {
       await window.mentionCacheFixture.save("persisted", true);
       await window.mentionCacheFixture.save("ephemeral", false);
+      for (let index = 0; index < 20; index++) {
+        await window.mentionCacheFixture.save(`scope-${index}`, true, `team-${index}`);
+      }
     });
 
     expect(
@@ -121,9 +136,13 @@ test("the mention cache survives a browser restart only when persistence is enab
     expect(
       await restarted.evaluate(() => window.mentionCacheFixture.storedKeys()),
     ).toEqual({
-      local: ["mattermostDeck.mentionFeedCache.v1"],
+      local: [],
       session: [],
     });
+
+    for (let index = 0; index < 20; index++) {
+      expect(await restarted.evaluate(index => window.mentionCacheFixture.load(true, 0, `team-${index}`), index)).toEqual([`scope-${index}`]);
+    }
 
     // Turning the setting off has to take the copy on disk with it.
     await restarted.evaluate(() => window.mentionCacheFixture.clear());

@@ -396,7 +396,7 @@
     "reversedPostOrderLabel": "Beitragsreihenfolge umkehren",
     "reversedPostOrderHint": "Neueste Beitr\u00e4ge unten anzeigen (entspricht dem Standardverhalten von Mattermost).",
     "persistMentionCacheLabel": "Erwähnungen nach einem Neustart behalten",
-    "persistMentionCacheHint": "Zeigt beim Start des Browsers sofort die zuletzt geladenen Erwähnungen und aktualisiert sie im Hintergrund. Beitragstexte werden in den lokalen Speicher dieses Browsers geschrieben, den Chrome nicht verschlüsselt.",
+    "persistMentionCacheHint": "Standardmäßig aktiviert. Speichert bis zu 100 aktuelle Beiträge je Feed-Bereich in der IndexedDB der Erweiterung und zeigt sie beim Aktualisieren nach einem Neustart. Maximal 64 Bereiche, insgesamt 16 MiB und 24 Stunden; lange nicht verwendete Bereiche werden zuerst entfernt. Keine zusätzliche Verschlüsselung durch die App. Deaktivieren löscht den persistenten Cache.",
     "paneIdentityLabel": "Bereichsidentifikationsfarben",
     "paneIdentityHint": "Die gewählten Farben werden auf die Typsymbole neben den Bereichstiteln angewendet. Symbolformen und Namen kennzeichnen die Typen auch ohne Farben.",
     "colorAccentsLabel": "Bereichstypen farblich unterscheiden",

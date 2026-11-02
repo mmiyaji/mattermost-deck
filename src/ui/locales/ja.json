@@ -391,7 +391,7 @@
     "reversedPostOrderLabel": "\u6295\u7a3f\u9806\u3092\u9006\u8ee2\u3059\u308b",
     "reversedPostOrderHint": "\u6700\u65b0\u6295\u7a3f\u3092\u4e0b\u306b\u8868\u793a\u3057\u307e\u3059\uff08Mattermost \u306e\u901a\u5e38\u8868\u793a\u306b\u5408\u308f\u305b\u305f\u9806\u756a\uff09\u3002",
     "persistMentionCacheLabel": "再起動後もメンションを表示",
-    "persistMentionCacheHint": "ブラウザー起動直後に前回のメンションをすぐ表示し、裏側で更新します。投稿本文はこのブラウザーのローカル保存領域に書き込まれます（Chrome は暗号化しません）。",
+    "persistMentionCacheHint": "既定で有効です。取得範囲ごとに最新100件を拡張機能のIndexedDBへ保存し、再起動後の取得中に表示します。最大64範囲・合計16MiB・24時間で管理し、上限時は使用の古い範囲から削除します。本文にアプリ独自の暗号化は行いません。無効にすると永続キャッシュを削除します。",
     "paneIdentityLabel": "\u30da\u30a4\u30f3\u8b58\u5225\u30ab\u30e9\u30fc",
     "paneIdentityHint": "ペイン名の横にある種類アイコンを設定色で表示します。色を使わない場合も、アイコンの形と名前で種類を確認できます。",
     "colorAccentsLabel": "ペインの種類を色で区別",

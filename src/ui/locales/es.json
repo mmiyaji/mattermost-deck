@@ -401,7 +401,7 @@
     "reversedPostOrderLabel": "Invertir el orden de las publicaciones",
     "reversedPostOrderHint": "Muestra las publicaciones más recientes abajo, igual que el comportamiento estándar de Mattermost.",
     "persistMentionCacheLabel": "Conservar las menciones tras reiniciar",
-    "persistMentionCacheHint": "Muestra de inmediato las últimas menciones cargadas al iniciar el navegador y las actualiza en segundo plano. El texto de las publicaciones se guarda en el almacenamiento local de este navegador, que Chrome no cifra.",
+    "persistMentionCacheHint": "Activado de forma predeterminada. Guarda hasta 100 publicaciones recientes por ámbito en IndexedDB de la extensión y las muestra mientras actualiza tras reiniciar. Límite de 64 ámbitos, 16 MiB en total y 24 horas; se eliminan primero los ámbitos usados hace más tiempo. Sin cifrado adicional de la aplicación. Desactivarlo elimina la caché persistente.",
     "paneIdentityLabel": "Colores de identidad de los paneles",
     "paneIdentityHint": "Los colores elegidos se aplican a los iconos junto a los títulos. Las formas y los nombres identifican cada tipo incluso sin colores.",
     "colorAccentsLabel": "Distinguir los tipos de panel por color",

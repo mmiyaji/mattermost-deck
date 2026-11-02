@@ -10176,17 +10176,15 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const initialDeckLanguageRef = useRef(deckSettings.language);
   const text = useAppText();
   useEffect(() => { void i18n.changeLanguage(deckSettings.language); }, [deckSettings.language]);
-  // Disabling persistence has to remove what was already written, not just
-  // stop writing. Wait for the saved value: the default is off, so acting
-  // before the load would wipe a cache the reader asked to keep.
-  useEffect(() => {
-    if (!deckSettings.loaded || deckSettings.persistMentionCache) {
-      return;
-    }
-    void clearPersistedMentionCache();
-  }, [deckSettings.loaded, deckSettings.persistMentionCache]);
   const effectiveRealtimeEnabled = deckSettings.wsPat.trim().length > 0 && !realtimeAuthError;
   const state = useDeckState(currentRouteKey, stateRefreshNonce, effectiveRealtimeEnabled, deckSettings.pollingIntervalSeconds);
+  const cacheServerScope = getMattermostUrl("/");
+  // Clear only this server/account after settings and identity have loaded.
+  // An opt-out on one connection must not erase other connections' caches.
+  useEffect(() => {
+    if (!deckSettings.loaded || deckSettings.persistMentionCache || state.status !== "ready" || !state.userId) return;
+    void clearPersistedMentionCache({ serverScope: cacheServerScope, userId: state.userId });
+  }, [deckSettings.loaded, deckSettings.persistMentionCache, cacheServerScope, state.status, state.userId]);
   useEffect(() => {
     setRealtimeReadMarkers({
       channelLastViewedAt: {},

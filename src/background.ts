@@ -2,6 +2,9 @@ import { SETTINGS_KEYS, normaliseServerUrl, originToPermissionPattern } from "./
 import { getProfileStorageKey, PROFILES_STORAGE_KEY } from "./ui/profiles";
 import { resolveDeckLanguage } from "./ui/language";
 import { handleReviewStorageRequest, REVIEW_STORAGE_MESSAGE } from "./reviewStorage";
+import { handleMentionCacheStorageRequest } from "./mentionCacheDatabase";
+import { handleMentionCacheSessionRequest } from "./mentionCacheSession";
+import { MENTION_CACHE_STORAGE_MESSAGE } from "./mentionCacheProtocol";
 
 const CONTENT_SCRIPT_ID = "mattermost-deck-content";
 const INSTALL_CONFIG_SCRIPT_ID = "mattermost-deck-pwa-install-config";
@@ -419,6 +422,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     try {
+      if (message?.type === MENTION_CACHE_STORAGE_MESSAGE) {
+        const result = await (message.persist === false
+          ? handleMentionCacheSessionRequest(message)
+          : handleMentionCacheStorageRequest(message));
+        sendResponse({ success: true, ...result });
+        return;
+      }
       if (message?.type === REVIEW_STORAGE_MESSAGE) {
         const result = await handleReviewStorageRequest(message);
         sendResponse({ success: true, ...result });

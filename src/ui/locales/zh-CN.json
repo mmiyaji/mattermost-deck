@@ -391,7 +391,7 @@
     "reversedPostOrderLabel": "反转帖子顺序",
     "reversedPostOrderHint": "将最新帖子显示在底部（与 Mattermost 标准行为一致）。",
     "persistMentionCacheLabel": "重启后仍显示提及",
-    "persistMentionCacheHint": "浏览器启动后立即显示上次加载的提及，并在后台更新。帖子正文会写入此浏览器的本地存储，而 Chrome 不会对其加密。",
+    "persistMentionCacheHint": "默认启用。每个获取范围最多保存最近100条帖子到扩展的IndexedDB，重启后在更新期间先行显示。最多64个范围、总计16 MiB、有效期24小时；达到上限时先移除最久未使用的范围。应用不进行额外加密。关闭后会删除持久缓存。",
     "paneIdentityLabel": "\u9762\u677f\u6807\u8bc6\u989c\u8272",
     "paneIdentityHint": "将所选颜色应用于窗格标题旁的类型图标。即使不使用颜色，也能通过图标形状和名称识别类型。",
     "colorAccentsLabel": "用颜色区分窗格类型",

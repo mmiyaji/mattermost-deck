@@ -80,6 +80,8 @@ Explicitly confirm a post to remove it from pending review. A five-second undo r
 
 Pending posts and confirmation state are saved in this browser per server/account and shared across review panes showing the same post. Collection continues after the original mentions pane is closed, and pending posts are retained independently of normal mention cache limits and expiry. Initially available historical posts are also pending; this is the collected range, not necessarily the server's complete history. Load older posts to extend it. Clearing extension data also clears confirmation state.
 
+Mention display caching is enabled by default: recent posts appear while the feed refreshes after restart. The extension service worker stores up to 100 compact posts per feed scope in IndexedDB, bounded to 64 scopes, 16 MiB total and 24 hours, with least recently used scopes evicted first. Settings → Behavior → Keep mentions after a restart disables persistent caching and deletes those snapshots; existing explicit opt-outs are preserved. This display cache is separate from pending posts and confirmation decisions. See [storage design](docs/mention-cache-storage.md).
+
 Confirmation decisions have no count limit or expiry. History bodies are retained for the latest 200 confirmations; under storage pressure, confirmed bodies are removed before retrying the save. Removed bodies no longer appear in history, but fetching those posts again never makes them pending. Pending posts are never removed by this cleanup. If storage cannot be freed, a save error is shown.
 
 ## Mention Display Exclusions

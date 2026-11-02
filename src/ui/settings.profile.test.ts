@@ -123,6 +123,17 @@ describe("profile-aware settings", () => {
     });
   });
 
+  it("enables persistent mention caching by default while preserving an explicit opt-out", async () => {
+    const origin = "https://mattermost.example.test";
+    expect(DEFAULT_SETTINGS.persistMentionCache).toBe(true);
+    expect((await loadDeckSettings(origin)).persistMentionCache).toBe(true);
+    await saveDeckSettings({ ...DEFAULT_SETTINGS, serverUrl: origin, persistMentionCache: false }, origin);
+    expect((await loadDeckSettings(origin)).persistMentionCache).toBe(false);
+    const copy = await duplicateDeckProfile((await loadDeckProfiles(origin)).activeProfileId);
+    expect(copy).not.toBeNull();
+    expect((await loadDeckSettings(origin)).persistMentionCache).toBe(false);
+  });
+
   it("persists every performance field locally across restart and profile copy/switch/delete", async () => {
     const origin = "https://mattermost.example.test";
     expect(await loadDeckSettings(origin)).toMatchObject(PERFORMANCE_DEFAULTS);

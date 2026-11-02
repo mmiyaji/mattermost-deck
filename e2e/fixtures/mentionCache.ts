@@ -29,11 +29,11 @@ const post = (message: string) => ({
 });
 
 (window as unknown as Record<string, unknown>).mentionCacheFixture = {
-  save: (message: string, persist: boolean) =>
-    saveMentionCache(context, [post(message)], readState, Date.now(), persist),
-  load: async (persist: boolean, offsetMs = 0) => {
+  save: (message: string, persist: boolean, scope?: string) =>
+    saveMentionCache({ ...context, scopeTeamId: scope ?? null }, [post(message)], readState, Date.now(), persist),
+  load: async (persist: boolean, offsetMs = 0, scope?: string) => {
     const snapshot = await loadMentionCache(
-      context,
+      { ...context, scopeTeamId: scope ?? null },
       Date.now() + offsetMs,
       persist,
     );

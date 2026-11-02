@@ -120,10 +120,9 @@ export const DEFAULT_SETTINGS: DeckSettings = {
   showImagePreviews: true,
   highZIndex: false,
   reversedPostOrder: false,
-  // Opt-in. The mention feed cache is session-only by default so that post
-  // bodies never reach the profile directory unless the reader asks for a
-  // list that survives a browser restart.
-  persistMentionCache: false,
+  // Reuse the bounded extension-owned display cache after browser restarts.
+  // Loading settings still preserves an existing explicit opt-out.
+  persistMentionCache: true,
 };
 export const MIN_POLLING_INTERVAL_SECONDS = 15;
 export const MAX_POLLING_INTERVAL_SECONDS = 300;

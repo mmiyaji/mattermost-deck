@@ -1,3 +1,5 @@
+import { MENTION_CACHE_STORAGE_MESSAGE, MENTION_CACHE_MAX_ENTRIES, MENTION_CACHE_HARD_TTL_MS } from "../mentionCacheProtocol";
+export { MENTION_CACHE_HARD_TTL_MS } from "../mentionCacheProtocol";
 import type { MattermostPost } from "../mattermost/api";
 import {
   compactMentionReadState,
@@ -6,11 +8,10 @@ import {
 
 const MENTION_CACHE_STORAGE_KEY = "mattermostDeck.mentionFeedCache.v1";
 const MENTION_CACHE_VERSION = 1;
-const MENTION_CACHE_MAX_ENTRIES = 4;
+const MENTION_CACHE_SESSION_MAX_BYTES = 4 * 1024 * 1024;
 const MENTION_CACHE_MAX_POSTS = 100;
 const MENTION_CACHE_POST_BYTES = 240 * 1024;
 export const MENTION_CACHE_SOFT_TTL_MS = 15 * 60_000;
-export const MENTION_CACHE_HARD_TTL_MS = 24 * 60 * 60_000;
 
 /**
  * How old a snapshot may be and still be shown while the feed reloads.
@@ -365,18 +366,44 @@ function normaliseRegistry(value: unknown, now: number): MentionCacheRegistry {
   return { version: MENTION_CACHE_VERSION, entries };
 }
 
-/**
- * Session storage is the default because it never reaches the profile
- * directory: `chrome.storage.local` is not encrypted at rest, so a snapshot
- * written there exposes mention bodies to anything that can read the Chrome
- * profile. The reader opts in per connection profile when they want the pane
- * filled again after a browser restart.
+/** Content scripts must use the service worker's extension-origin IndexedDB.
+ * Opening IndexedDB here would put message bodies in the Mattermost site's database.
+ * Explicit opt-out keeps a short-lived snapshot in extension session storage only.
  */
-function getCacheStorage(persist: boolean): chrome.storage.StorageArea | null {
-  if (typeof chrome === "undefined") {
-    return null;
+function getSessionStorage(): chrome.storage.StorageArea | null {
+  return typeof chrome !== "undefined" ? chrome.storage?.session ?? null : null;
+}
+
+async function cacheStorageRequest(operation: "get" | "put" | "remove" | "clear", context?: MentionCacheContext, snapshot?: MentionCacheSnapshot, now = Date.now(), persist = true): Promise<unknown> {
+  if (typeof chrome === "undefined" || typeof chrome.runtime?.sendMessage !== "function") {
+    throw new Error("Mention cache service is unavailable");
   }
-  return (persist ? chrome.storage?.local : chrome.storage?.session) ?? null;
+  const response = await chrome.runtime.sendMessage({
+    type: MENTION_CACHE_STORAGE_MESSAGE,
+    operation,
+    persist,
+    ...(context ? { key: buildMentionCacheEntryId(context) } : {}),
+    ...(snapshot ? { snapshot } : {}),
+    now,
+  });
+  if (!response?.success) throw new Error(response?.error ?? "Mention cache storage is unavailable");
+  return response.snapshot;
+}
+
+function boundSessionRegistry(registry: MentionCacheRegistry): void {
+  let usedBytes = 0;
+  const encoder = new TextEncoder();
+  registry.entries = Object.fromEntries(
+    Object.entries(registry.entries)
+      .sort(([, left], [, right]) => right.savedAt - left.savedAt)
+      .filter(([, snapshot]) => {
+        const size = encoder.encode(JSON.stringify(snapshot)).byteLength;
+        if (usedBytes + size > MENTION_CACHE_SESSION_MAX_BYTES) return false;
+        usedBytes += size;
+        return true;
+      })
+      .slice(0, MENTION_CACHE_MAX_ENTRIES),
+  );
 }
 
 export async function loadMentionCache(
@@ -384,11 +411,12 @@ export async function loadMentionCache(
   now = Date.now(),
   persist = false,
 ): Promise<MentionCacheSnapshot | null> {
-  const storage = getCacheStorage(persist);
-  if (!storage) {
-    return null;
-  }
   try {
+    if (persist || (typeof chrome !== "undefined" && typeof chrome.runtime?.sendMessage === "function")) {
+      return normaliseMentionCacheSnapshot(await cacheStorageRequest("get", context, undefined, now, persist), context, now, mentionCacheDisplayTtlMs(persist));
+    }
+    const storage = getSessionStorage();
+    if (!storage) return null;
     const payload = await storage.get(MENTION_CACHE_STORAGE_KEY);
     const registry = normaliseRegistry(
       payload[MENTION_CACHE_STORAGE_KEY],
@@ -411,10 +439,12 @@ async function writeMentionCache(
   now: number,
   persist: boolean,
 ): Promise<void> {
-  const storage = getCacheStorage(persist);
-  if (!storage) {
+  if (persist || (typeof chrome !== "undefined" && typeof chrome.runtime?.sendMessage === "function")) {
+    await cacheStorageRequest("put", context, snapshot, now, persist);
     return;
   }
+  const storage = getSessionStorage();
+  if (!storage) return;
 
   const payload = await storage.get(MENTION_CACHE_STORAGE_KEY);
   const registry = normaliseRegistry(
@@ -436,11 +466,7 @@ async function writeMentionCache(
   }
 
   registry.entries[entryId] = snapshot;
-  registry.entries = Object.fromEntries(
-    Object.entries(registry.entries)
-      .sort(([, left], [, right]) => right.savedAt - left.savedAt)
-      .slice(0, MENTION_CACHE_MAX_ENTRIES),
-  );
+  boundSessionRegistry(registry);
   await storage.set({ [MENTION_CACHE_STORAGE_KEY]: registry });
 }
 
@@ -494,8 +520,10 @@ async function removeMentionCacheEntry(
   now: number,
 ): Promise<void> {
   const results = await Promise.allSettled([
-    removeMentionCacheEntryFrom(getCacheStorage(false), context, now),
-    removeMentionCacheEntryFrom(getCacheStorage(true), context, now),
+    typeof chrome !== "undefined" && typeof chrome.runtime?.sendMessage === "function"
+      ? cacheStorageRequest("remove", context, undefined, now, false)
+      : removeMentionCacheEntryFrom(getSessionStorage(), context, now),
+    cacheStorageRequest("remove", context, undefined, now),
   ]);
   const failure = results.find((result) => result.status === "rejected");
   if (failure?.status === "rejected") {
@@ -520,14 +548,11 @@ export async function removeMentionCache(
  * copies already on disk with it, otherwise the reader has disabled a
  * behaviour while the data it wrote stays behind.
  */
-export async function clearPersistedMentionCache(): Promise<void> {
-  const storage = getCacheStorage(true);
-  if (!storage) {
-    return;
-  }
+export async function clearPersistedMentionCache(scope?: Pick<MentionCacheContext, "serverScope" | "userId">): Promise<void> {
+  const context = scope ? { ...scope, scopeTeamId: null, teamIds: [], mentionSignature: "" } : undefined;
   const clear = mentionCacheWriteQueue.then(
-    () => storage.remove(MENTION_CACHE_STORAGE_KEY),
-    () => storage.remove(MENTION_CACHE_STORAGE_KEY),
+    () => cacheStorageRequest("clear", context),
+    () => cacheStorageRequest("clear", context),
   );
   mentionCacheWriteQueue = clear.then(() => undefined, () => undefined);
   await clear.catch(() => undefined);

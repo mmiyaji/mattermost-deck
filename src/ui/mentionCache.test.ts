@@ -232,7 +232,7 @@ describe("mention cache session storage", () => {
     expect(session.set).toHaveBeenCalledTimes(1);
   });
 
-  it("retains only the four most recently verified scopes", async () => {
+  it("retains more than four scopes and bounds the session registry to 64", async () => {
     const stored: Record<string, unknown> = {};
     const session = {
       get: vi.fn(async (key: string) => ({ [key]: stored[key] })),
@@ -244,7 +244,7 @@ describe("mention cache session storage", () => {
       storage: { session },
     });
 
-    const contexts = Array.from({ length: 5 }, (_, index) =>
+    const contexts = Array.from({ length: 65 }, (_, index) =>
       createContext({ userId: `user-${index}` }),
     );
     for (const [index, context] of contexts.entries()) {
@@ -256,10 +256,25 @@ describe("mention cache session storage", () => {
       );
     }
 
-    expect(await loadMentionCache(contexts[0], NOW + 10)).toBeNull();
+    expect(await loadMentionCache(contexts[0], NOW + 100)).toBeNull();
     expect(
-      (await loadMentionCache(contexts[4], NOW + 10))?.posts[0].id,
-    ).toBe("cached-4");
+      (await loadMentionCache(contexts[64], NOW + 100))?.posts[0].id,
+    ).toBe("cached-64");
+  });
+
+  it("bounds session snapshots by total bytes as well as scope count", async () => {
+    const stored: Record<string, unknown> = {};
+    vi.stubGlobal("chrome", { storage: { session: {
+      get: async (key: string) => ({ [key]: stored[key] }),
+      set: async (payload: Record<string, unknown>) => { Object.assign(stored, payload); },
+    } } });
+    for (let index = 0; index < 20; index++) {
+      await saveMentionCache(createContext({ scopeTeamId: `team-${index}` }),
+        [createPost(`post-${index}`, { message: "x".repeat(230 * 1024) })], createReadState(), NOW + index);
+    }
+    expect(new TextEncoder().encode(JSON.stringify(stored)).byteLength).toBeLessThan(4 * 1024 * 1024);
+    expect(await loadMentionCache(createContext({ scopeTeamId: "team-0" }), NOW + 100)).toBeNull();
+    expect((await loadMentionCache(createContext({ scopeTeamId: "team-19" }), NOW + 100))?.posts[0].id).toBe("post-19");
   });
 
   it("loads only the snapshot owned by the requested user", async () => {
@@ -354,6 +369,15 @@ describe("mention cache session storage", () => {
 });
 
 describe("mention cache persistence", () => {
+  it("treats a failed database service as a cache miss without local fallback", async () => {
+    const { local, sendMessage } = stubAreas();
+    sendMessage.mockRejectedValue(new Error("database unavailable"));
+    await expect(saveMentionCache(createContext(), [createPost("cached")], createReadState(), NOW, true)).resolves.toBeUndefined();
+    expect(await loadMentionCache(createContext(), NOW, true)).toBeNull();
+    expect(local.get).not.toHaveBeenCalled();
+    expect(local.set).not.toHaveBeenCalled();
+  });
+
   function stubAreas() {
     const localStored: Record<string, unknown> = {};
     const sessionStored: Record<string, unknown> = {};
@@ -368,12 +392,28 @@ describe("mention cache persistence", () => {
     });
     const local = area(localStored);
     const session = area(sessionStored);
-    vi.stubGlobal("chrome", { storage: { local, session } });
-    return { local, session, localStored, sessionStored };
+    const snapshots = new Map<string, unknown>();
+    const sendMessage = vi.fn(async (request: { operation: string; key: string; snapshot?: unknown; persist?: boolean }) => {
+      if (request.persist === false) {
+        const registryKey = "mattermostDeck.mentionFeedCache.v1";
+        const payload = await session.get(registryKey);
+        const registry = (payload[registryKey] as { version: number; entries: Record<string, unknown> } | undefined) ?? { version: 1, entries: {} };
+        if (request.operation === "put") registry.entries[request.key] = request.snapshot;
+        if (request.operation === "remove") delete registry.entries[request.key];
+        if (request.operation !== "get") await session.set({ [registryKey]: registry });
+        return { success: true, snapshot: registry.entries[request.key] };
+      }
+      if (request.operation === "put") snapshots.set(request.key, request.snapshot);
+      if (request.operation === "remove") snapshots.delete(request.key);
+      if (request.operation === "clear") snapshots.clear();
+      return { success: true, snapshot: snapshots.get(request.key) };
+    });
+    vi.stubGlobal("chrome", { runtime: { sendMessage }, storage: { local, session } });
+    return { local, session, localStored, sessionStored, sendMessage, snapshots };
   }
 
-  it("writes to local storage only when persistence is enabled", async () => {
-    const { local, session } = stubAreas();
+  it("uses the extension database service instead of chrome.storage.local", async () => {
+    const { local, session, sendMessage } = stubAreas();
     const context = createContext();
 
     await saveMentionCache(
@@ -384,7 +424,8 @@ describe("mention cache persistence", () => {
       true,
     );
 
-    expect(local.set).toHaveBeenCalledTimes(1);
+    expect(local.set).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ operation: "put", key: buildMentionCacheEntryId(context) }));
     expect(session.set).not.toHaveBeenCalled();
     expect(
       (await loadMentionCache(context, NOW + 1, true))?.posts.map(
@@ -471,8 +512,18 @@ describe("mention cache persistence", () => {
     ).toBeNull();
   });
 
+  it("scopes an opt-out clear request to the current server and account", async () => {
+    const { sendMessage } = stubAreas();
+    const context = createContext();
+    await clearPersistedMentionCache(context);
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      operation: "clear", persist: true,
+      key: buildMentionCacheEntryId({ ...context, scopeTeamId: null }),
+    }));
+  });
+
   it("deletes the persisted registry when persistence is turned off", async () => {
-    const { local, session, localStored, sessionStored } = stubAreas();
+    const { local, session, localStored, sessionStored, sendMessage } = stubAreas();
     const context = createContext();
     await saveMentionCache(
       context,
@@ -490,7 +541,8 @@ describe("mention cache persistence", () => {
 
     await clearPersistedMentionCache();
 
-    expect(local.remove).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ operation: "clear" }));
+    expect(local.set).not.toHaveBeenCalled();
     expect(Object.keys(localStored)).toEqual([]);
     expect(session.remove).not.toHaveBeenCalled();
     expect(Object.keys(sessionStored)).not.toEqual([]);
