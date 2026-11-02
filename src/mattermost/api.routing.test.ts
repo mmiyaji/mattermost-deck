@@ -536,7 +536,7 @@ describe("Mattermost base path", () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps the REST scheduler serial while mention metadata is invalidated", async () => {
+  it("preserves start spacing while mention metadata is invalidated", async () => {
     const api = await loadApi();
     let resolveFirstRequest!: (value: Response) => void;
     vi.mocked(fetch)

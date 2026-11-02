@@ -1,5 +1,6 @@
 import { addTraceEntry } from "../traceLog";
 import { ApiRequestTimeoutError, MattermostApiError } from "./errors";
+import { PERFORMANCE_DEFAULTS, normalizePerformanceSettings, type PerformanceSettings } from "../performanceSettings";
 
 export interface MattermostUser {
   id: string;
@@ -159,6 +160,8 @@ export interface ApiPerformanceSnapshot {
   totalPostRequests: number;
   totalFailedRequests: number;
   inFlightRequests: number;
+  activeRequestSlots: number;
+  queuedRequests: number;
   recentRequestsPerMinute: number;
   recentFailedRequestsPerMinute: number;
   recentErrorRate: number;
@@ -175,9 +178,11 @@ type ApiLogLevel = "info" | "warn" | "error";
 
 const GET_BURST_GUARD_TTL_MS = 1_000;
 const RECENT_GET_RESPONSE_MAX_ENTRIES = 200;
-const API_REQUEST_MIN_GAP_MS = 120;
-const API_REQUEST_TIMEOUT_MS = 20_000;
-const API_QUEUE_WAIT_TIMEOUT_MS = 30_000;
+let performanceSettings = { ...PERFORMANCE_DEFAULTS };
+let API_REQUEST_MIN_GAP_MS = performanceSettings.apiMinStartGapMs;
+let API_MAX_CONCURRENT_REQUESTS = performanceSettings.apiMaxConcurrentRequests;
+let API_REQUEST_TIMEOUT_MS = performanceSettings.apiRequestTimeoutSeconds * 1000;
+let API_QUEUE_WAIT_TIMEOUT_MS = performanceSettings.apiQueueTimeoutSeconds * 1000;
 const API_METRICS_RETENTION_MS = 60_000;
 const API_METRICS_TPS_BUCKET_MS = 3_000;
 const API_METRICS_TPS_BUCKETS = 20;
@@ -298,6 +303,12 @@ function describeApiPath(pathname: string, method: "GET" | "POST"): string {
   if (/^\/users\/[^/]+\/teams\/unread$/.test(normalized)) {
     return "Team unread counts";
   }
+  if (/^\/posts\/[^/]+\/thread$/.test(normalized)) {
+    return "Thread replies";
+  }
+  if (/^\/users\/[^/]+\/teams\/[^/]+\/threads$/.test(normalized)) {
+    return "User thread read state";
+  }
   if (/^\/teams\/[^/]+\/posts\/search$/.test(normalized) && method === "POST") {
     return "Team post search";
   }
@@ -335,7 +346,57 @@ const methodRateBuckets: Record<"GET" | "POST", ApiRateBucket> = {
   GET: createRateBucket(API_GET_RATE_LIMIT_BURST, API_GET_RATE_LIMIT_PER_MINUTE),
   POST: createRateBucket(API_POST_RATE_LIMIT_BURST, API_POST_RATE_LIMIT_PER_MINUTE),
 };
-let requestQueue = Promise.resolve();
+
+export function configureApiPerformanceSettings(settings: Partial<PerformanceSettings>): void {
+  const next = normalizePerformanceSettings({ ...performanceSettings, ...settings });
+  const now = Date.now();
+  for (const [bucket, limit] of [[globalRateBucket, next.apiGlobalRequestsPerMinute],
+    [methodRateBuckets.GET, next.apiGetRequestsPerMinute], [methodRateBuckets.POST, next.apiPostRequestsPerMinute]] as const) {
+    // Reconfigure existing buckets without granting a new burst or discarding
+    // requests that already own a slot.
+    refillRateBucket(bucket, now);
+    bucket.refillPerMs = limit / 60_000;
+  }
+  if (next.mentionThreadCacheSeconds !== performanceSettings.mentionThreadCacheSeconds) {
+    mentionThreadLoads.clear(); threadContextLoads.clear();
+  }
+  performanceSettings = next;
+  API_REQUEST_MIN_GAP_MS = next.apiMinStartGapMs;
+  API_MAX_CONCURRENT_REQUESTS = next.apiMaxConcurrentRequests;
+  API_REQUEST_TIMEOUT_MS = next.apiRequestTimeoutSeconds * 1000;
+  API_QUEUE_WAIT_TIMEOUT_MS = next.apiQueueTimeoutSeconds * 1000;
+  dispatchRequestSlot();
+}
+
+export function getPerformanceSettings(): Readonly<PerformanceSettings> {
+  return { ...performanceSettings };
+}
+type ApiRequestPriority = "interactive" | "normal" | "background";
+interface RequestSlot {
+  priority: ApiRequestPriority;
+  enter: () => void;
+}
+const requestSlots: RequestSlot[] = [];
+let requestSlotActive = false;
+let occupiedRequestSlots = 0;
+
+function dispatchRequestSlot(): void {
+  // One admission gate reserves rate tokens and start spacing. Network/body
+  // reads can overlap, but never exceed the shared concurrency limit.
+  if (requestSlotActive || occupiedRequestSlots >= API_MAX_CONCURRENT_REQUESTS) return;
+  // Preserve FIFO ordering within each priority.
+  requestSlots.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+  const next = requestSlots.shift();
+  if (next) {
+    requestSlotActive = true;
+    occupiedRequestSlots += 1;
+    next.enter();
+  }
+}
+
+function priorityRank(priority: ApiRequestPriority): number {
+  return priority === "interactive" ? 0 : priority === "normal" ? 1 : 2;
+}
 let nextRequestAt = 0;
 let totalRequests = 0;
 let totalGetRequests = 0;
@@ -352,6 +413,8 @@ const requestSamples: Array<{
 
 function clearMattermostResponseCaches(includePostLookups = true): void {
   inflightGetRequests.clear();
+  mentionThreadLoads.clear();
+  threadContextLoads.clear();
   recentGetResponses.clear();
   userLookupCache.clear();
   inflightUserLookups.clear();
@@ -371,18 +434,15 @@ function clearMattermostApiCaches(): void {
     controller.abort();
   }
   clearMattermostResponseCaches();
-  // Keep the scheduler chain intact while aborted requests unwind. Replacing
-  // it here would let a request for the new server run concurrently with an
-  // older request that has not reached its finally block yet.
+  // Keep slot accounting intact while aborted requests unwind, so changing
+  // servers cannot bypass the shared concurrency limit or admission gate.
 }
 
 export function invalidateMentionMetadataCaches(): void {
   // Bump the request generation so in-flight metadata requests cannot
   // repopulate the short-lived GET cache after an invalidation event.
   apiServerGeneration += 1;
-  // Preserve the scheduler chain and its request gap. Resetting either while
-  // an older request is in flight would allow two supposedly serial chains to
-  // run concurrently.
+  // Cache invalidation must not reset occupied slots or start spacing.
   clearMattermostResponseCaches(false);
 }
 
@@ -499,10 +559,11 @@ function schedulerNow(): number {
 async function waitForDurationWithinDeadline(
   durationMs: number,
   deadline: number,
+  timeoutMs = API_QUEUE_WAIT_TIMEOUT_MS,
 ): Promise<void> {
   const remainingMs = deadline - schedulerNow();
   if (remainingMs <= 0 || durationMs > remainingMs) {
-    throw new ApiRequestTimeoutError("queue", API_QUEUE_WAIT_TIMEOUT_MS);
+    throw new ApiRequestTimeoutError("queue", timeoutMs);
   }
   await new Promise((resolve) => window.setTimeout(resolve, durationMs));
 }
@@ -510,10 +571,11 @@ async function waitForDurationWithinDeadline(
 async function waitForPromiseWithinDeadline(
   promise: Promise<void>,
   deadline: number,
+  timeoutMs = API_QUEUE_WAIT_TIMEOUT_MS,
 ): Promise<void> {
   const remainingMs = deadline - schedulerNow();
   if (remainingMs <= 0) {
-    throw new ApiRequestTimeoutError("queue", API_QUEUE_WAIT_TIMEOUT_MS);
+    throw new ApiRequestTimeoutError("queue", timeoutMs);
   }
 
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -522,7 +584,7 @@ async function waitForPromiseWithinDeadline(
       promise,
       new Promise<void>((_, reject) => {
         timer = setTimeout(
-          () => reject(new ApiRequestTimeoutError("queue", API_QUEUE_WAIT_TIMEOUT_MS)),
+          () => reject(new ApiRequestTimeoutError("queue", timeoutMs)),
           remainingMs,
         );
       }),
@@ -538,6 +600,7 @@ async function waitForRateLimit(
   method: "GET" | "POST",
   deadline: number,
   serverConfigurationGeneration: number,
+  timeoutMs = API_QUEUE_WAIT_TIMEOUT_MS,
 ): Promise<number> {
   const buckets = [globalRateBucket, methodRateBuckets[method]];
   let waitedMs = 0;
@@ -559,7 +622,7 @@ async function waitForRateLimit(
 
     const waitMs = Math.max(50, Math.ceil((1 - blockingBucket.tokens) / blockingBucket.refillPerMs));
     waitedMs += waitMs;
-    await waitForDurationWithinDeadline(waitMs, deadline);
+    await waitForDurationWithinDeadline(waitMs, deadline, timeoutMs);
   }
 }
 
@@ -573,6 +636,7 @@ async function fetchWithTimeout<T>(
   init: RequestInit,
   consume: (response: Response) => Promise<T>,
 ): Promise<ConsumedResponse<T>> {
+  const timeoutMs = API_REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
   activeRequestControllers.add(controller);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -592,8 +656,8 @@ async function fetchWithTimeout<T>(
       new Promise<ConsumedResponse<T>>((_, reject) => {
         timer = setTimeout(() => {
           controller.abort();
-          reject(new ApiRequestTimeoutError("network", API_REQUEST_TIMEOUT_MS));
-        }, API_REQUEST_TIMEOUT_MS);
+          reject(new ApiRequestTimeoutError("network", timeoutMs));
+        }, timeoutMs);
       }),
     ]);
   } finally {
@@ -610,6 +674,8 @@ async function performMeasuredFetch<T>(
   request: () => Promise<ConsumedResponse<T>>,
   serverConfigurationGeneration:
     number = apiServerConfigurationGeneration,
+  priority: ApiRequestPriority = "normal",
+  reason: string = describeApiPath(pathname, method),
 ): Promise<ConsumedResponse<T>> {
   totalRequests += 1;
   if (method === "GET") {
@@ -619,6 +685,7 @@ async function performMeasuredFetch<T>(
   }
 
   const startedAt = Date.now();
+  const queueDepth = requestSlots.length + occupiedRequestSlots;
   inFlightRequests += 1;
   let failed = false;
   let queueWaitMs = 0;
@@ -632,6 +699,7 @@ async function performMeasuredFetch<T>(
         return await request();
       },
       serverConfigurationGeneration,
+      priority,
     );
     const finishedAt = Date.now();
     const durationMs = finishedAt - startedAt;
@@ -650,9 +718,12 @@ async function performMeasuredFetch<T>(
         path: pathname.replace(/\?.*$/, ""),
         fullPath: pathname,
         purpose,
+        reason,
         status: response.status,
         durationMs,
         queueWaitMs,
+        priority,
+        queueDepth,
         failed,
       },
     });
@@ -676,6 +747,9 @@ async function performMeasuredFetch<T>(
         path: pathname.replace(/\?.*$/, ""),
         fullPath: pathname,
         purpose,
+        reason,
+        priority,
+        queueDepth,
         durationMs,
         queueWaitMs,
         error: error instanceof Error ? error.message : String(error),
@@ -701,18 +775,21 @@ async function scheduleApiRequest<T>(
   method: "GET" | "POST",
   task: () => Promise<T>,
   serverConfigurationGeneration: number,
+  priority: ApiRequestPriority = "normal",
 ): Promise<T> {
-  const deadline = schedulerNow() + API_QUEUE_WAIT_TIMEOUT_MS;
-  let release!: () => void;
+  const queueTimeoutMs = API_QUEUE_WAIT_TIMEOUT_MS;
+  const deadline = schedulerNow() + queueTimeoutMs;
+  let entered = false;
+  let slot!: RequestSlot;
   const waitTurn = new Promise<void>((resolve) => {
-    release = () => resolve();
+    slot = { priority, enter: () => { entered = true; resolve(); } };
   });
-  const previous = requestQueue;
-  requestQueue = previous.then(() => waitTurn);
-  let requestSlotUsed = false;
+  requestSlots.push(slot);
+  dispatchRequestSlot();
+  let admissionReleased = false;
 
   try {
-    await waitForPromiseWithinDeadline(previous, deadline);
+    await waitForPromiseWithinDeadline(waitTurn, deadline, queueTimeoutMs);
     // Drop requests queued for a previous profile before they consume rate
     // tokens or the inter-request gap. This lets the first request for the
     // newly configured server run as soon as the active request unwinds.
@@ -724,6 +801,7 @@ async function scheduleApiRequest<T>(
       method,
       deadline,
       serverConfigurationGeneration,
+      queueTimeoutMs,
     );
     assertApiServerConfiguration(
       serverConfigurationGeneration,
@@ -748,25 +826,34 @@ async function scheduleApiRequest<T>(
       Math.max(0, nextRequestAt - Date.now()),
     );
     if (delay > 0) {
-      await waitForDurationWithinDeadline(delay, deadline);
+      await waitForDurationWithinDeadline(delay, deadline, queueTimeoutMs);
     }
     assertApiServerConfiguration(
       serverConfigurationGeneration,
     );
 
-    requestSlotUsed = true;
+    // Space starts rather than completions. The admission gate is released
+    // here; the concurrency slot remains occupied through response-body reads.
+    nextRequestAt = Date.now() + API_REQUEST_MIN_GAP_MS;
+    admissionReleased = true;
+    requestSlotActive = false;
+    dispatchRequestSlot();
     return await task();
   } finally {
-    if (requestSlotUsed) {
-      nextRequestAt = Date.now() + API_REQUEST_MIN_GAP_MS;
+    if (entered) {
+      occupiedRequestSlots -= 1;
+      if (!admissionReleased) requestSlotActive = false;
+    } else {
+      const index = requestSlots.indexOf(slot);
+      if (index >= 0) requestSlots.splice(index, 1);
     }
-    release();
+    dispatchRequestSlot();
   }
 }
 
 async function apiGet<T>(
   pathname: string,
-  { fresh = false }: { fresh?: boolean } = {},
+  { fresh = false, priority = "normal", reason }: { fresh?: boolean; priority?: ApiRequestPriority; reason?: string } = {},
 ): Promise<T> {
   const generation = apiServerGeneration;
   const serverConfigurationGeneration =
@@ -814,6 +901,8 @@ async function apiGet<T>(
         }, async (response) => response.ok ? await response.json() as T : null);
       },
       serverConfigurationGeneration,
+      priority,
+      reason,
     );
 
     if (!response.ok) {
@@ -867,11 +956,13 @@ async function apiGetAbsolute(pathname: string): Promise<Response> {
       }, async () => undefined);
     },
     serverConfigurationGeneration,
+    "interactive",
+    "health-check",
   );
   return response;
 }
 
-async function apiPost<T>(pathname: string, body: unknown): Promise<T> {
+async function apiPost<T>(pathname: string, body: unknown, options: { priority?: ApiRequestPriority; reason?: string } = {}): Promise<T> {
   const serverConfigurationGeneration =
     apiServerConfigurationGeneration;
   const requestPath = getApiPath(pathname);
@@ -900,6 +991,8 @@ async function apiPost<T>(pathname: string, body: unknown): Promise<T> {
       }, async (response) => response.ok ? await response.json() as T : null);
     },
     serverConfigurationGeneration,
+    options.priority,
+    options.reason,
   );
 
   if (!response.ok) {
@@ -945,7 +1038,7 @@ export async function searchUsers(term: string): Promise<MattermostUser[]> {
     term: query,
     limit: 20,
     allow_inactive: false,
-  });
+  }, { priority: "interactive", reason: "user-picker" });
 }
 
 export async function checkApiHealth(pathname: string): Promise<boolean> {
@@ -1164,9 +1257,10 @@ export async function getChannelsByIds(channelIds: string[]): Promise<Mattermost
   return await Promise.all(channelIds.map((id) => getCachedChannel(id)));
 }
 
-export async function getRecentPosts(channelId: string, page = 0, perPage = 20): Promise<MattermostPost[]> {
+export async function getRecentPosts(channelId: string, page = 0, perPage = 20, priority: ApiRequestPriority = "normal"): Promise<MattermostPost[]> {
   const payload = await apiGet<MattermostPostList>(
     `/channels/${encodeURIComponent(channelId)}/posts?page=${page}&per_page=${perPage}`,
+    { priority },
   );
 
   return payload.order
@@ -1478,6 +1572,9 @@ export async function getPostsByIds(
 }
 
 export function invalidatePostByIdCache(postId: string): void {
+  // Edits/deletes do not necessarily change last_reply_at.
+  mentionThreadLoads.clear();
+  threadContextLoads.clear();
   postByIdCache.delete(postId);
   inflightPostByIdLookups.delete(postId);
   postByIdLookupTokens.delete(postId);
@@ -1488,11 +1585,117 @@ export interface PostThreadSinceResult {
   truncated: boolean;
 }
 
+const mentionThreadLoads = new Map<string, {
+  threadId: string;
+  since: number;
+  lastReplyAt: number;
+  maxPosts: number;
+  result?: PostThreadSinceResult;
+  expiresAt: number;
+  postCount: number;
+  request: Promise<MattermostPost[]>;
+}>();
+
+const threadContextLoads = new Map<string, { rootId: string; expiresAt: number; postCount: number; request: Promise<PostThreadSinceResult> }>();
+
+export function invalidatePostThreadContext(rootId: string): void {
+  for (const [key, entry] of threadContextLoads) if (entry.rootId === rootId) threadContextLoads.delete(key);
+}
+
+export async function getCachedPostThreadContext(rootId: string, maxPosts: number): Promise<PostThreadSinceResult> {
+  const now = Date.now();
+  const key = JSON.stringify([apiServerGeneration, rootId, maxPosts]);
+  for (const [id, entry] of threadContextLoads) if (entry.expiresAt <= now) threadContextLoads.delete(id);
+  const cached = threadContextLoads.get(key);
+  if (cached) return cached.request;
+  const request = loadPostThreadSince(rootId, 0, 200, maxPosts, true, undefined, "mention-thread-participation");
+  const entry = { rootId, expiresAt: now + performanceSettings.mentionThreadCacheSeconds * 1000, postCount: 0, request };
+  threadContextLoads.set(key, entry);
+  while (threadContextLoads.size > 200) threadContextLoads.delete(threadContextLoads.keys().next().value!);
+  try {
+    const result = await request;
+    entry.postCount = result.posts.length;
+    let retained = Array.from(threadContextLoads.values()).reduce((sum, value) => sum + value.postCount, 0);
+    for (const [id, value] of threadContextLoads) {
+      if (retained <= 5000) break;
+      threadContextLoads.delete(id); retained -= value.postCount;
+    }
+    return result;
+  } catch (error) {
+    if (threadContextLoads.get(key) === entry) threadContextLoads.delete(key);
+    throw error;
+  }
+}
+
+/** Share scans while the server's thread/read state is unchanged. The short
+ * TTL also reconciles edits or deletes missed while WebSocket is disconnected. */
+export async function getMentionThreadPosts(
+  thread: MattermostUserThread,
+  maxPosts: number,
+): Promise<MattermostPost[]> {
+  const key = JSON.stringify([apiServerGeneration, thread.id, thread.last_reply_at,
+    thread.reply_count, thread.last_viewed_at, thread.unread_mentions, thread.unread_replies, maxPosts]);
+  const now = Date.now();
+  for (const [id, value] of mentionThreadLoads) {
+    if (value.expiresAt <= now) mentionThreadLoads.delete(id);
+  }
+  const cached = mentionThreadLoads.get(key);
+  if (cached) return cached.request;
+  // This cache owns freshness: a changed marker or explicit invalidation
+  // must not reuse the generic one-second GET response from the old state.
+  const since = thread.last_viewed_at ?? 0;
+  const previous = Array.from(mentionThreadLoads.values()).filter(value => value.threadId === thread.id
+    && value.since === since && value.maxPosts === maxPosts && value.result && !value.result.truncated
+    && value.lastReplyAt < thread.last_reply_at).sort((a, b) => b.lastReplyAt - a.lastReplyAt)[0];
+  let result: PostThreadSinceResult | undefined;
+  let reusedDelta = false;
+  const request = (async () => {
+    if (previous?.result) {
+      // Overlap one millisecond: multiple replies can share a timestamp.
+      const delta = await loadPostThreadSince(thread.id, Math.max(since, previous.lastReplyAt - 1), 200, maxPosts, true, false, "mention-thread-delta");
+      if (!delta.truncated) {
+        reusedDelta = true;
+        const merged = new Map([...previous.result.posts, ...delta.posts].map(post => [post.id, post]));
+        const posts = Array.from(merged.values()).filter(post => post.create_at > since && !post.delete_at).sort((a, b) => b.create_at - a.create_at);
+        result = { posts: posts.slice(0, maxPosts), truncated: posts.length > maxPosts };
+      }
+    }
+    result ??= await loadPostThreadSince(thread.id, since, 200, maxPosts, true, undefined, "mention-thread-unread");
+    return result.posts;
+  })();
+  const entry = { threadId: thread.id, since, lastReplyAt: thread.last_reply_at, maxPosts,
+    result: undefined as PostThreadSinceResult | undefined,
+    expiresAt: now + performanceSettings.mentionThreadCacheSeconds * 1000, postCount: 0, request };
+  mentionThreadLoads.set(key, entry);
+  while (mentionThreadLoads.size > 500) mentionThreadLoads.delete(mentionThreadLoads.keys().next().value!);
+  try {
+    const posts = await request;
+    // Delta results inherit the full snapshot's expiry. A busy thread must
+    // periodically reconcile old edits/deletions even if WebSocket missed them.
+    if (reusedDelta && previous) entry.expiresAt = Math.min(entry.expiresAt, previous.expiresAt);
+    entry.result = result;
+    entry.postCount = posts.length;
+    let retainedPosts = Array.from(mentionThreadLoads.values()).reduce((sum, value) => sum + value.postCount, 0);
+    for (const [id, value] of mentionThreadLoads) {
+      if (retainedPosts <= 5_000) break;
+      mentionThreadLoads.delete(id);
+      retainedPosts -= value.postCount;
+    }
+    return posts;
+  } catch (error) {
+    if (mentionThreadLoads.get(key) === entry) mentionThreadLoads.delete(key);
+    throw error;
+  }
+}
+
 async function loadPostThreadSince(
   postId: string,
   since: number,
   perPage = 200,
   maxPosts?: number,
+  fresh = false,
+  newestFirstOverride?: boolean,
+  reason = "thread-context",
 ): Promise<PostThreadSinceResult> {
   const safeSince = Math.max(0, Math.floor(since));
   const safePerPage = Math.min(200, Math.max(1, Math.floor(perPage)));
@@ -1503,7 +1706,7 @@ async function loadPostThreadSince(
   if (safeMaxPosts === 0) {
     return { posts: [], truncated: true };
   }
-  const newestFirst = safeMaxPosts !== null;
+  const newestFirst = newestFirstOverride ?? safeMaxPosts !== null;
   const collected = new Map<string, MattermostPost>();
   let truncated = false;
   let fromCreateAt = newestFirst ? Number.MAX_SAFE_INTEGER : safeSince;
@@ -1520,6 +1723,7 @@ async function loadPostThreadSince(
       : `&fromCreateAt=${fromCreateAt}`;
     const payload = await apiGet<MattermostPostList>(
       `/posts/${encodeURIComponent(postId)}/thread?direction=${newestFirst ? "up" : "down"}&perPage=${requestPerPage}${cursor}`,
+      { fresh, priority: fresh ? "background" : "normal", reason },
     );
     const rawPage = payload.order
       .map((threadPostId) => payload.posts[threadPostId])
@@ -1622,7 +1826,7 @@ export async function searchPostsInTeam(
   terms: string,
   page = 0,
   perPage = 20,
-  options?: { isOrSearch?: boolean },
+  options?: { isOrSearch?: boolean; reason?: string },
 ): Promise<MattermostPost[]> {
   const payload = await apiPost<MattermostPostList>(
     `/teams/${encodeURIComponent(teamId)}/posts/search`,
@@ -1633,6 +1837,7 @@ export async function searchPostsInTeam(
       page,
       per_page: perPage,
     },
+    { priority: options?.reason === "mention-team-search" ? "background" : "interactive", reason: options?.reason ?? "user-search" },
   );
 
   return payload.order
@@ -1654,12 +1859,12 @@ export async function getMyChannelMember(
 }
 
 export async function viewChannel(channelId: string): Promise<void> {
-  await apiPost<unknown>("/channels/members/me/view", { channel_id: channelId });
+  await apiPost<unknown>("/channels/members/me/view", { channel_id: channelId }, { priority: "interactive", reason: "user-view-channel" });
   recentGetResponses.delete(getGenerationCacheKey(`/channels/${encodeURIComponent(channelId)}/members/me`));
 }
 
 export async function fetchPostFileInfos(postId: string): Promise<MattermostFileInfo[]> {
-  const payload = await apiGet<MattermostFileInfo[]>(`/posts/${encodeURIComponent(postId)}/files/info`);
+  const payload = await apiGet<MattermostFileInfo[]>(`/posts/${encodeURIComponent(postId)}/files/info`, { priority: "interactive", reason: "post-attachments" });
   return Array.isArray(payload) ? payload : [];
 }
 
@@ -1697,6 +1902,8 @@ export function getApiPerformanceSnapshot(): ApiPerformanceSnapshot {
     totalPostRequests,
     totalFailedRequests,
     inFlightRequests,
+    activeRequestSlots: occupiedRequestSlots,
+    queuedRequests: requestSlots.length,
     recentRequestsPerMinute: recent.length,
     recentFailedRequestsPerMinute,
     recentErrorRate: recent.length > 0 ? recentFailedRequestsPerMinute / recent.length : 0,
