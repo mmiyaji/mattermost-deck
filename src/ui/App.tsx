@@ -9898,6 +9898,13 @@ function SavedPostsColumn({
   );
 }
 
+const ADAPTATION_REASON_JA: Record<string, string> = {
+  configured: "設定を適用", initial: "初期値", probing: "応答を計測中",
+  "healthy-load": "応答が安定・並列数を増加", "at-ceiling": "設定上限内で実行",
+  congestion: "混雑・並列数を削減", "latency-inflation": "応答遅延・並列数を削減",
+  cooldown: "減速後の回復を確認中", "under-utilized": "処理量に余裕あり", "latency-pressure": "応答の悪化を監視",
+};
+
 function DiagnosticsColumn({
   column,
   wsStatus,
@@ -10060,8 +10067,19 @@ function DiagnosticsColumn({
           </article>
           <article className="deck-card deck-card--metric">
             <strong>{text.diagnosticsInFlight}</strong>
-            <p>{runtimeMetrics.api.inFlightRequests}</p>
+            <p>{runtimeMetrics.api.activeRequestSlots}</p>
+            <span>{language === "ja" ? "自動並列数 / 設定上限" : "Adaptive concurrency / ceiling"}: {runtimeMetrics.api.adaptiveConcurrency} / {runtimeMetrics.api.configuredConcurrency}</span>
+            <span>{language === "ja" ? ADAPTATION_REASON_JA[runtimeMetrics.api.adaptationReason] ?? runtimeMetrics.api.adaptationReason : runtimeMetrics.api.adaptationReason}</span>
             <span>{runtimeMetrics.api.totalGetRequests} GET / {runtimeMetrics.api.totalPostRequests} POST / {runtimeMetrics.api.totalFailedRequests} {text.diagnosticsFailedSuffix}</span>
+          </article>
+          <article className="deck-card deck-card--metric">
+            <strong>{language === "ja" ? "待機中のリクエスト" : "Queued requests"}</strong>
+            <p>{runtimeMetrics.api.queuedRequests}</p>
+            <span>{language === "ja" ? "最古の待機" : "Oldest queued"}: {formatLatency(runtimeMetrics.api.oldestQueuedMs)}</span>
+            <span>{language === "ja" ? "レート待ち / 実行枠待ち（重複あり）" : "Rate / concurrency blocked (may overlap)"}: {runtimeMetrics.api.waitingForRate} / {runtimeMetrics.api.waitingForConcurrency}</span>
+            <span>{language === "ja" ? "開始間隔待ち / サーバー指定待機" : "Start spacing / server backoff"}: {formatLatency(runtimeMetrics.api.startGapWaitMs)} / {formatLatency(runtimeMetrics.api.serverBackoffMs)}</span>
+            <span>{language === "ja" ? "重複取得を集約" : "Coalesced requests"}: {runtimeMetrics.api.coalescedRequests}</span>
+            <span>{language === "ja" ? "平均待ち時間" : "Average queue wait"} {formatLatency(runtimeMetrics.api.averageQueueWaitMs)}</span>
           </article>
           <article className="deck-card deck-card--metric">
             <strong>{text.diagnosticsWsReconnects}</strong>

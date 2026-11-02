@@ -1,3 +1,4 @@
+import { AdaptiveConcurrencyController } from "./adaptiveConcurrency";
 import { addTraceEntry } from "../traceLog";
 import { ApiRequestTimeoutError, MattermostApiError } from "./errors";
 import { PERFORMANCE_DEFAULTS, normalizePerformanceSettings, type PerformanceSettings } from "../performanceSettings";
@@ -170,6 +171,15 @@ export interface ApiPerformanceSnapshot {
   averageLatencyMs: number;
   p95LatencyMs: number;
   lastLatencyMs: number;
+  adaptiveConcurrency: number;
+  configuredConcurrency: number;
+  adaptationReason: string;
+  oldestQueuedMs: number;
+  waitingForRate: number;
+  startGapWaitMs: number;
+  serverBackoffMs: number;
+  waitingForConcurrency: number;
+  coalescedRequests: number;
   latencySeries: number[];
   tpsSeries: number[];
 }
@@ -350,12 +360,11 @@ const methodRateBuckets: Record<"GET" | "POST", ApiRateBucket> = {
 
 export function configureApiPerformanceSettings(settings: Partial<PerformanceSettings>): void {
   const next = normalizePerformanceSettings({ ...performanceSettings, ...settings });
-  const now = Date.now();
   for (const [bucket, limit] of [[globalRateBucket, next.apiGlobalRequestsPerMinute],
     [methodRateBuckets.GET, next.apiGetRequestsPerMinute], [methodRateBuckets.POST, next.apiPostRequestsPerMinute]] as const) {
     // Reconfigure existing buckets without granting a new burst or discarding
     // requests that already own a slot.
-    refillRateBucket(bucket, now);
+    refillRateBucket(bucket, schedulerNow());
     bucket.refillPerMs = limit / 60_000;
   }
   if (next.mentionThreadCacheSeconds !== performanceSettings.mentionThreadCacheSeconds) {
@@ -366,6 +375,8 @@ export function configureApiPerformanceSettings(settings: Partial<PerformanceSet
   API_MAX_CONCURRENT_REQUESTS = next.apiMaxConcurrentRequests;
   API_REQUEST_TIMEOUT_MS = next.apiRequestTimeoutSeconds * 1000;
   API_QUEUE_WAIT_TIMEOUT_MS = next.apiQueueTimeoutSeconds * 1000;
+  if (API_MAX_CONCURRENT_REQUESTS > adaptive.snapshot().maxLimit) adaptive = new AdaptiveConcurrencyController(API_MAX_CONCURRENT_REQUESTS, API_MAX_CONCURRENT_REQUESTS);
+  else adaptive.configure(API_MAX_CONCURRENT_REQUESTS);
   dispatchRequestSlot();
 }
 
@@ -374,29 +385,82 @@ export function getPerformanceSettings(): Readonly<PerformanceSettings> {
 }
 type ApiRequestPriority = "interactive" | "normal" | "background";
 interface RequestSlot {
+  method: "GET" | "POST";
+  key?: string;
   priority: ApiRequestPriority;
+  queuedAt: number;
+  deadline: number;
+  timeoutMs: number;
+  generation: number;
+  rateBlockedAt?: number;
+  rateWaitMs: number;
   enter: () => void;
+  reject: (error: Error) => void;
 }
 const requestSlots: RequestSlot[] = [];
-let requestSlotActive = false;
 let occupiedRequestSlots = 0;
-
-function dispatchRequestSlot(): void {
-  // One admission gate reserves rate tokens and start spacing. Network/body
-  // reads can overlap, but never exceed the shared concurrency limit.
-  if (requestSlotActive || occupiedRequestSlots >= API_MAX_CONCURRENT_REQUESTS) return;
-  // Preserve FIFO ordering within each priority.
-  requestSlots.sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
-  const next = requestSlots.shift();
-  if (next) {
-    requestSlotActive = true;
-    occupiedRequestSlots += 1;
-    next.enter();
-  }
-}
+let priorityStreak = 0;
+let schedulerTimer: ReturnType<typeof setTimeout> | undefined;
+let retryAfterUntil = 0;
+let adaptive = new AdaptiveConcurrencyController(API_MAX_CONCURRENT_REQUESTS, API_MAX_CONCURRENT_REQUESTS);
+const endpointLatency = new Map<string, number>();
+let coalescedRequests = 0;
+const inflightReadPosts = new Map<string, Promise<unknown>>();
 
 function priorityRank(priority: ApiRequestPriority): number {
   return priority === "interactive" ? 0 : priority === "normal" ? 1 : 2;
+}
+function promoteQueuedRequest(key: string, priority: ApiRequestPriority): void {
+  for (const slot of requestSlots) if (slot.key === key && priorityRank(priority) < priorityRank(slot.priority)) slot.priority = priority;
+  dispatchRequestSlot();
+}
+function rateDelay(method: "GET" | "POST", now: number): number {
+  return Math.max(0, retryAfterUntil - now, ...[globalRateBucket, methodRateBuckets[method]].map(bucket => {
+    refillRateBucket(bucket, schedulerNow());
+    return bucket.tokens >= 1 ? 0 : Math.ceil((1 - bucket.tokens) / bucket.refillPerMs);
+  }));
+}
+function dispatchRequestSlot(): void {
+  if (schedulerTimer !== undefined) { clearTimeout(schedulerTimer); schedulerTimer = undefined; }
+  // Invalidated requests never reserve rate tokens or a concurrency slot.
+  for (let i = requestSlots.length - 1; i >= 0; i--) {
+    const slot = requestSlots[i];
+    if (slot.generation !== apiServerConfigurationGeneration) requestSlots.splice(i, 1)[0].reject(new ApiServerChangedError());
+    else if (schedulerNow() >= slot.deadline) requestSlots.splice(i, 1)[0].reject(new ApiRequestTimeoutError("queue", slot.timeoutMs));
+  }
+  while (requestSlots.length && occupiedRequestSlots < adaptive.snapshot().limit) {
+    const now = Date.now(), monotonic = schedulerNow();
+    const gap = Math.min(API_REQUEST_MIN_GAP_MS, Math.max(0, nextRequestAt - monotonic));
+    let chosen = -1, rank = Infinity, earliest = Infinity, aged = -1;
+    for (let i = 0; i < requestSlots.length; i++) {
+      const slot = requestSlots[i];
+      const rate = rateDelay(slot.method, now);
+      if (rate > 0 && slot.rateBlockedAt === undefined) slot.rateBlockedAt = monotonic;
+      if (rate === 0 && slot.rateBlockedAt !== undefined) {
+        slot.rateWaitMs += Math.max(0, monotonic - slot.rateBlockedAt); slot.rateBlockedAt = undefined;
+      }
+      const delay = Math.max(gap, rate);
+      earliest = Math.min(earliest, delay);
+      if (delay > 0) continue;
+      const candidateRank = priorityRank(slot.priority);
+      if (candidateRank < rank) { chosen = i; rank = candidateRank; }
+      if (aged < 0 && candidateRank > 0 && monotonic - slot.queuedAt >= 2000) aged = i;
+    }
+    if (chosen < 0) {
+      schedulerTimer = setTimeout(dispatchRequestSlot, Math.min(60000, Math.max(1, earliest)));
+      return;
+    }
+    // Reserve one turn in four for an aged request; promoting every old scan
+    // to interactive priority would instead delay new user actions in bulk.
+    if (aged >= 0 && priorityStreak >= 3) chosen = aged;
+    const slot = requestSlots.splice(chosen, 1)[0];
+    priorityStreak = chosen === aged || slot.priority === "background" ? 0 : priorityStreak + 1;
+    for (const bucket of [globalRateBucket, methodRateBuckets[slot.method]]) bucket.tokens = Math.max(0, bucket.tokens - 1);
+    nextRequestAt = monotonic + API_REQUEST_MIN_GAP_MS;
+    occupiedRequestSlots++;
+    if (slot.rateWaitMs > 0) addTraceEntry({ source: "api", level: "warn", event: "request.rate_limit_wait", payload: { method: slot.method, waitMs: Math.round(slot.rateWaitMs) } });
+    slot.enter();
+  }
 }
 let nextRequestAt = 0;
 let totalRequests = 0;
@@ -436,8 +500,13 @@ function clearMattermostApiCaches(): void {
     controller.abort();
   }
   clearMattermostResponseCaches();
+  inflightReadPosts.clear();
+  endpointLatency.clear();
+  adaptive = new AdaptiveConcurrencyController(API_MAX_CONCURRENT_REQUESTS, API_MAX_CONCURRENT_REQUESTS);
+  retryAfterUntil = 0;
+  dispatchRequestSlot();
   // Keep slot accounting intact while aborted requests unwind, so changing
-  // servers cannot bypass the shared concurrency limit or admission gate.
+  // servers cannot bypass the concurrency ceiling while aborted bodies unwind.
 }
 
 export function invalidateMentionMetadataCaches(): void {
@@ -523,7 +592,7 @@ function createRateBucket(capacity: number, refillPerMinute: number): ApiRateBuc
     capacity,
     refillPerMs: refillPerMinute / 60_000,
     tokens: capacity,
-    lastRefillAt: Date.now(),
+    lastRefillAt: schedulerNow(),
   };
 }
 
@@ -558,18 +627,6 @@ function schedulerNow(): number {
     : Date.now();
 }
 
-async function waitForDurationWithinDeadline(
-  durationMs: number,
-  deadline: number,
-  timeoutMs = API_QUEUE_WAIT_TIMEOUT_MS,
-): Promise<void> {
-  const remainingMs = deadline - schedulerNow();
-  if (remainingMs <= 0 || durationMs > remainingMs) {
-    throw new ApiRequestTimeoutError("queue", timeoutMs);
-  }
-  await new Promise((resolve) => window.setTimeout(resolve, durationMs));
-}
-
 async function waitForPromiseWithinDeadline(
   promise: Promise<void>,
   deadline: number,
@@ -595,36 +652,6 @@ async function waitForPromiseWithinDeadline(
     if (timer !== undefined) {
       clearTimeout(timer);
     }
-  }
-}
-
-async function waitForRateLimit(
-  method: "GET" | "POST",
-  deadline: number,
-  serverConfigurationGeneration: number,
-  timeoutMs = API_QUEUE_WAIT_TIMEOUT_MS,
-): Promise<number> {
-  const buckets = [globalRateBucket, methodRateBuckets[method]];
-  let waitedMs = 0;
-
-  while (true) {
-    assertApiServerConfiguration(
-      serverConfigurationGeneration,
-    );
-    const now = Date.now();
-    buckets.forEach((bucket) => refillRateBucket(bucket, now));
-    const blockingBucket = buckets.find((bucket) => bucket.tokens < 1);
-
-    if (!blockingBucket) {
-      buckets.forEach((bucket) => {
-        bucket.tokens = Math.max(0, bucket.tokens - 1);
-      });
-      return waitedMs;
-    }
-
-    const waitMs = Math.max(50, Math.ceil((1 - blockingBucket.tokens) / blockingBucket.refillPerMs));
-    waitedMs += waitMs;
-    await waitForDurationWithinDeadline(waitMs, deadline, timeoutMs);
   }
 }
 
@@ -678,6 +705,7 @@ async function performMeasuredFetch<T>(
     number = apiServerConfigurationGeneration,
   priority: ApiRequestPriority = "normal",
   reason: string = describeApiPath(pathname, method),
+  requestKey?: string,
 ): Promise<ConsumedResponse<T>> {
   totalRequests += 1;
   if (method === "GET") {
@@ -698,10 +726,35 @@ async function performMeasuredFetch<T>(
       method,
       async () => {
         queueWaitMs = Date.now() - queueEnteredAt;
-        return await request();
+        const networkStart = schedulerNow();
+        const inFlightAtStart = occupiedRequestSlots;
+        try {
+          const result = await request();
+          if (serverConfigurationGeneration === apiServerConfigurationGeneration) {
+            const elapsed = Math.max(1, schedulerNow() - networkStart);
+            const endpoint = describeApiPath(pathname, method);
+            const baseline = endpointLatency.get(endpoint) ?? elapsed;
+            const congested = result.response.status === 429 || result.response.status === 503;
+            adaptive.sample({ latencyMs: 100 * elapsed / Math.max(1, baseline), inFlight: inFlightAtStart, congested });
+            if (result.response.ok) endpointLatency.set(endpoint, baseline * .98 + elapsed * .02);
+            if (result.response.status === 429 || result.response.status === 503) {
+              const retry = result.response.headers?.get("Retry-After");
+              const seconds = retry?.trim() ? Number(retry) : NaN;
+              const until = Number.isFinite(seconds) ? Date.now() + Math.max(0, seconds) * 1000 : retry ? Date.parse(retry) : NaN;
+              retryAfterUntil = Math.max(retryAfterUntil, Number.isFinite(until) ? until : Date.now() + 1000);
+            }
+          }
+          return result;
+        } catch (error) {
+          if (serverConfigurationGeneration === apiServerConfigurationGeneration && error instanceof ApiRequestTimeoutError && error.message.startsWith("mattermost_api_timeout:network:")) {
+            adaptive.sample({ latencyMs: 100, inFlight: inFlightAtStart, congested: true });
+          }
+          throw error;
+        }
       },
       serverConfigurationGeneration,
       priority,
+      requestKey,
     );
     const finishedAt = Date.now();
     const durationMs = finishedAt - startedAt;
@@ -726,6 +779,9 @@ async function performMeasuredFetch<T>(
         queueWaitMs,
         priority,
         queueDepth,
+        networkMs: Math.max(0, durationMs - queueWaitMs),
+        adaptiveLimit: adaptive.snapshot().limit,
+        adaptationReason: adaptive.snapshot().reason,
         failed,
       },
     });
@@ -778,77 +834,26 @@ async function scheduleApiRequest<T>(
   task: () => Promise<T>,
   serverConfigurationGeneration: number,
   priority: ApiRequestPriority = "normal",
+  key?: string,
 ): Promise<T> {
-  const queueTimeoutMs = API_QUEUE_WAIT_TIMEOUT_MS;
-  const deadline = schedulerNow() + queueTimeoutMs;
+  const timeoutMs = API_QUEUE_WAIT_TIMEOUT_MS;
+  const deadline = schedulerNow() + timeoutMs;
   let entered = false;
   let slot!: RequestSlot;
-  const waitTurn = new Promise<void>((resolve) => {
-    slot = { priority, enter: () => { entered = true; resolve(); } };
+  const waitTurn = new Promise<void>((resolve, reject) => {
+    slot = { method, key, priority, generation: serverConfigurationGeneration, queuedAt: schedulerNow(), deadline, timeoutMs, rateWaitMs: 0,
+      enter: () => { entered = true; resolve(); }, reject };
   });
   requestSlots.push(slot);
   dispatchRequestSlot();
-  let admissionReleased = false;
-
   try {
-    await waitForPromiseWithinDeadline(waitTurn, deadline, queueTimeoutMs);
-    // Drop requests queued for a previous profile before they consume rate
-    // tokens or the inter-request gap. This lets the first request for the
-    // newly configured server run as soon as the active request unwinds.
-    assertApiServerConfiguration(
-      serverConfigurationGeneration,
-    );
-
-    const rateLimitWaitMs = await waitForRateLimit(
-      method,
-      deadline,
-      serverConfigurationGeneration,
-      queueTimeoutMs,
-    );
-    assertApiServerConfiguration(
-      serverConfigurationGeneration,
-    );
-    if (rateLimitWaitMs > 0) {
-      addTraceEntry({
-        source: "api",
-        level: "warn",
-        event: "request.rate_limit_wait",
-        payload: {
-          method,
-          waitMs: Math.round(rateLimitWaitMs),
-        },
-      });
-      emitApiLog("warn", `${method} rate-limit ${Math.round(rateLimitWaitMs)}ms`);
-    }
-
-    // nextRequestAt uses wall time so a normal forward clock adjustment does
-    // not stall the queue. Clamp a backwards adjustment to one normal gap.
-    const delay = Math.min(
-      API_REQUEST_MIN_GAP_MS,
-      Math.max(0, nextRequestAt - Date.now()),
-    );
-    if (delay > 0) {
-      await waitForDurationWithinDeadline(delay, deadline, queueTimeoutMs);
-    }
-    assertApiServerConfiguration(
-      serverConfigurationGeneration,
-    );
-
-    // Space starts rather than completions. The admission gate is released
-    // here; the concurrency slot remains occupied through response-body reads.
-    nextRequestAt = Date.now() + API_REQUEST_MIN_GAP_MS;
-    admissionReleased = true;
-    requestSlotActive = false;
-    dispatchRequestSlot();
+    await waitForPromiseWithinDeadline(waitTurn, deadline, timeoutMs);
+    assertApiServerConfiguration(serverConfigurationGeneration);
+    if (schedulerNow() >= deadline) throw new ApiRequestTimeoutError("queue", timeoutMs);
     return await task();
   } finally {
-    if (entered) {
-      occupiedRequestSlots -= 1;
-      if (!admissionReleased) requestSlotActive = false;
-    } else {
-      const index = requestSlots.indexOf(slot);
-      if (index >= 0) requestSlots.splice(index, 1);
-    }
+    if (entered) occupiedRequestSlots--;
+    else { const index = requestSlots.indexOf(slot); if (index >= 0) requestSlots.splice(index, 1); }
     dispatchRequestSlot();
   }
 }
@@ -874,6 +879,8 @@ async function apiGet<T>(
 
     const inflight = inflightGetRequests.get(cacheKey);
     if (inflight) {
+      coalescedRequests++;
+      promoteQueuedRequest(cacheKey, priority);
       return (await inflight) as T;
     }
   } else {
@@ -905,6 +912,7 @@ async function apiGet<T>(
       serverConfigurationGeneration,
       priority,
       reason,
+      cacheKey,
     );
 
     if (!response.ok) {
@@ -965,6 +973,18 @@ async function apiGetAbsolute(pathname: string): Promise<Response> {
 }
 
 async function apiPost<T>(pathname: string, body: unknown, options: { priority?: ApiRequestPriority; reason?: string } = {}): Promise<T> {
+  if (pathname.endsWith("/posts/search") || pathname === "/users/ids") {
+    const key = `${apiServerConfigurationGeneration}:${apiServerGeneration}:${pathname}:${JSON.stringify(body)}`;
+    const existing = inflightReadPosts.get(key);
+    if (existing) { coalescedRequests++; promoteQueuedRequest(key, options.priority ?? "normal"); return await existing as T; }
+    const request = apiPostUnshared<T>(pathname, body, options);
+    inflightReadPosts.set(key, request);
+    try { return await request; }
+    finally { if (inflightReadPosts.get(key) === request) inflightReadPosts.delete(key); }
+  }
+  return await apiPostUnshared<T>(pathname, body, options);
+}
+async function apiPostUnshared<T>(pathname: string, body: unknown, options: { priority?: ApiRequestPriority; reason?: string } = {}): Promise<T> {
   const serverConfigurationGeneration =
     apiServerConfigurationGeneration;
   const requestPath = getApiPath(pathname);
@@ -995,6 +1015,7 @@ async function apiPost<T>(pathname: string, body: unknown, options: { priority?:
     serverConfigurationGeneration,
     options.priority,
     options.reason,
+    `${apiServerConfigurationGeneration}:${apiServerGeneration}:${pathname}:${JSON.stringify(body)}`,
   );
 
   if (!response.ok) {
@@ -1914,6 +1935,15 @@ export function getApiPerformanceSnapshot(): ApiPerformanceSnapshot {
     totalPostRequests,
     totalFailedRequests,
     inFlightRequests,
+    adaptiveConcurrency: adaptive.snapshot().limit,
+    configuredConcurrency: API_MAX_CONCURRENT_REQUESTS,
+    adaptationReason: adaptive.snapshot().reason,
+    oldestQueuedMs: requestSlots.length ? Math.max(...requestSlots.map(slot => schedulerNow() - slot.queuedAt)) : 0,
+    startGapWaitMs: requestSlots.length ? Math.max(0, nextRequestAt - schedulerNow()) : 0,
+    serverBackoffMs: Math.max(0, retryAfterUntil - Date.now()),
+    waitingForRate: requestSlots.filter(slot => rateDelay(slot.method, Date.now()) > 0).length,
+    waitingForConcurrency: occupiedRequestSlots >= adaptive.snapshot().limit ? requestSlots.length : 0,
+    coalescedRequests,
     activeRequestSlots: occupiedRequestSlots,
     queuedRequests: requestSlots.length,
     recentRequestsPerMinute: recent.length,

@@ -512,7 +512,7 @@ describe("Mattermost API request timeout", () => {
     const api = await loadApi();
     vi.mocked(fetch).mockImplementation(() => new Promise<Response>(() => undefined));
     const stalled = Array.from({ length: 6 }, (_, i) => api.getTeamByName(`stalled-${i}`));
-    const expectations = stalled.map(request => expect(request).rejects.toThrow("mattermost_api_timeout:network:20000"));
+    const expectations = stalled.map((request, index) => expect(request).rejects.toThrow(index < 4 ? "mattermost_api_timeout:network:20000" : "mattermost_api_timeout:queue:30000"));
     const queuedRequest = api.getTeamByName("queued");
     const queuedExpectation = expect(queuedRequest).rejects.toThrow(
       "mattermost_api_timeout:queue:30000",
@@ -520,11 +520,11 @@ describe("Mattermost API request timeout", () => {
 
     await vi.advanceTimersByTimeAsync(30_000);
     await queuedExpectation;
-    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(6);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(4);
 
     await vi.advanceTimersByTimeAsync(10_500);
     await Promise.all(expectations);
-    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(6);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(4);
     vi.mocked(fetch).mockResolvedValue(response({ id: "recovered" }));
     const recovered = api.getTeamByName("recovered");
     await vi.advanceTimersByTimeAsync(120);

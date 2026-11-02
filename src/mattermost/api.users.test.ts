@@ -116,10 +116,10 @@ describe("getUsersByIds", () => {
         })]));
 
       await getUsersByIds(["expired"]);
-      vi.setSystemTime(initialTime + 4 * 60_000);
+      await vi.advanceTimersByTimeAsync(4 * 60_000);
       await getUsersByIds(["active"]);
 
-      vi.setSystemTime(initialTime + 5 * 60_000 + 1);
+      await vi.advanceTimersByTimeAsync(60_000 + 1);
       await expect(getUsersByIds(["active"])).resolves.toEqual([
         mockUser("active"),
       ]);

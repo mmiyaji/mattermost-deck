@@ -121,9 +121,11 @@ test(`opening a reply during ${phase} preserves every mention pane`, async ({}, 
     }
     if (phase === 'refreshing') {
       await expect.poll(() => inspect('[data-deck-column-id="mentions"] [role="progressbar"]')).toBeNull();
+      const beforeRefreshSearches = searchRequests;
       holdSearch = true;
       await inspect('[data-deck-column-id="mentions"] .deck-column-header [aria-expanded]:not(.deck-pane-search-toggle)', true);
       await inspect('[data-deck-column-id="mentions"] button[title="Refresh"]', true);
+      await expect.poll(() => searchRequests, { timeout: 15000 }).toBeGreaterThan(beforeRefreshSearches);
     }
     if (phase !== 'ready') {
       // A reconnect and a manual refresh each reconcile the feed on their own
@@ -135,7 +137,9 @@ test(`opening a reply during ${phase} preserves every mention pane`, async ({}, 
         await new Promise(resolve => setTimeout(resolve, 500));
         return seen > 0 && searchRequests === seen;
       }, { timeout: 30_000, message: "Feed reconciliation settles" }).toBe(true);
-      await expect.poll(() => inspect('[data-deck-column-id="mentions"] [role="progressbar"]')).not.toBeNull();
+      // Reconnect can cancel the old scan while its shared HTTP request is
+      // still held. The socket and server request above establish that phase.
+      if (phase !== 'reconnecting') await expect.poll(() => inspect('[data-deck-column-id="mentions"] [role="progressbar"]')).not.toBeNull();
     } else {
       await expect.poll(() => inspect(`${source} [role="progressbar"]`)).toBeNull();
     }
