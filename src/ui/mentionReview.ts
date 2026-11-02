@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react";
 import type { MattermostPost } from "../mattermost/api";
+import { reviewStorageClient, usesReviewDatabase, REVIEW_CHANGED_MESSAGE } from "./reviewStorageClient";
 
 export interface ReviewEntry { post: MattermostPost; confirmedAt: number | null }
 interface Snapshot { values: Record<string, unknown>; ready: boolean; error: string | null }
@@ -14,7 +15,7 @@ export function isReviewableMentionPost(post: MattermostPost): boolean {
   return !post.type?.startsWith("system_") || post.type === "system_add_to_channel";
 }
 export const reviewScope = (team?: string) => encodeURIComponent(team ?? "*");
-const storage = () => typeof chrome !== "undefined" && chrome.storage?.local ? chrome.storage.local : null;
+const storage = (prefix: string) => usesReviewDatabase() ? reviewStorageClient(prefix) : typeof chrome !== "undefined" && chrome.storage?.local ? chrome.storage.local : null;
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 function publish(store: Store, snapshot: Snapshot) { store.snapshot = snapshot; store.listeners.forEach(listener => listener()); }
 
@@ -68,11 +69,18 @@ function getStore(prefix: string): Store {
     try { accept({ [event.key]: event.newValue === null ? null : JSON.parse(event.newValue) }); } catch { accept({ [event.key]: null }); }
   };
   // Listen before reading so changes arriving during hydration win over its snapshot.
-  if (storage()) { chrome.storage.onChanged?.addListener(changed); store.unlisten = () => chrome.storage.onChanged?.removeListener(changed); }
+  if (usesReviewDatabase()) {
+    const remoteChanged = (event: { type?: string; prefix?: string; changes?: Record<string, unknown> }) => {
+      if (event?.type === REVIEW_CHANGED_MESSAGE && event.prefix === prefix && event.changes) accept(event.changes);
+    };
+    chrome.runtime.onMessage.addListener(remoteChanged);
+    store.unlisten = () => chrome.runtime.onMessage.removeListener(remoteChanged);
+  }
+  else if (storage(prefix)) { chrome.storage.onChanged?.addListener(changed); store.unlisten = () => chrome.storage.onChanged?.removeListener(changed); }
   else if (typeof window !== "undefined") { window.addEventListener("storage", localChanged); store.unlisten = () => window.removeEventListener("storage", localChanged); }
   store.loaded = (async () => {
     try {
-      const area = storage();
+      const area = storage(prefix);
       const all = area ? await area.get(null) : Object.fromEntries(Object.keys(localStorage).filter(key => key.startsWith(prefix)).flatMap(key => {
         try { return [[key, JSON.parse(localStorage.getItem(key)!)]]; } catch { return []; }
       }));
@@ -154,7 +162,7 @@ async function persistReview(prefix: string, store: Store, sets: Record<string, 
   const keys = [...Object.keys(sets), ...removes];
   if (!keys.length) return;
   const revisions = new Map(keys.map(key => [key, store.revisions.get(key) ?? 0]));
-  const area = storage();
+  const area = storage(prefix);
   if (area) {
     if (Object.keys(sets).length) await area.set(sets);
     if (removes.length) await area.remove(removes);

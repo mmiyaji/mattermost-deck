@@ -12,6 +12,32 @@ function mockStorage(initial: Record<string, unknown> = {}) {
 }
 afterEach(() => vi.unstubAllGlobals());
 describe("durable mention review", () => {
+  it("uses the background database and receives decisions from another tab even when local storage is full", async () => {
+    const prefix = reviewPrefix("https://chat.example", "database-client");
+    const values: Record<string, unknown> = {};
+    let listener: (message: unknown) => void = () => {};
+    const localSet = vi.fn(async () => { throw new Error("QUOTA_BYTES quota exceeded"); });
+    vi.stubGlobal("chrome", { storage: { local: { get: vi.fn(), set: localSet, remove: vi.fn() } }, runtime: {
+      onMessage: { addListener: (fn: typeof listener) => { listener = fn; }, removeListener: vi.fn() },
+      sendMessage: async (request: { operation: string; sets?: Record<string, unknown>; removes?: string[] }) => {
+        if (request.operation === "get") return { success: true, values: { ...values } };
+        Object.assign(values, request.sets);
+        for (const key of request.removes ?? []) delete values[key];
+        listener({ type: "mattermost-deck:review-changed", prefix, changes: { ...request.sets, ...Object.fromEntries((request.removes ?? []).map(key => [key, null])) } });
+        return { success: true };
+      },
+    } });
+    await ingestReview(prefix, "*", [post("pending"), post("confirmed")]);
+    await writeReview(prefix, { [`${prefix}confirmed:confirmed`]: 50 });
+    values[`${prefix}confirmed:pending`] = 75;
+    listener({ type: "mattermost-deck:review-changed", prefix, changes: { [`${prefix}confirmed:pending`]: 75 } });
+    let seen: Record<string, unknown> = {};
+    await writeReview(prefix, current => { seen = current; return {}; });
+    expect(selectReview(seen, prefix, "*").map(entry => entry.confirmedAt).sort()).toEqual([50, 75]);
+    expect(localSet).not.toHaveBeenCalled();
+    await writeReview(prefix, { [`${prefix}confirmed:pending`]: undefined });
+    expect(selectReview(values, prefix, "*").find(entry => entry.post.id === "pending")?.confirmedAt).toBeNull();
+  });
   it("does not replace a newer body when migrating older overlapping scope records", async () => {
     const prefix = reviewPrefix("server", "migration-newest");
     const { values } = mockStorage({

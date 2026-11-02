@@ -1,6 +1,7 @@
 import { SETTINGS_KEYS, normaliseServerUrl, originToPermissionPattern } from "./ui/settings";
 import { getProfileStorageKey, PROFILES_STORAGE_KEY } from "./ui/profiles";
 import { resolveDeckLanguage } from "./ui/language";
+import { handleReviewStorageRequest, REVIEW_STORAGE_MESSAGE } from "./reviewStorage";
 
 const CONTENT_SCRIPT_ID = "mattermost-deck-content";
 const INSTALL_CONFIG_SCRIPT_ID = "mattermost-deck-pwa-install-config";
@@ -418,6 +419,11 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     try {
+      if (message?.type === REVIEW_STORAGE_MESSAGE) {
+        const result = await handleReviewStorageRequest(message);
+        sendResponse({ success: true, ...result });
+        return;
+      }
       if (message?.type === "mattermost-deck:open-options") {
         await chrome.runtime.openOptionsPage();
         sendResponse({ success: true });
