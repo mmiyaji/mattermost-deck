@@ -8031,7 +8031,10 @@ function ChannelWatchColumn({
   onToggleFocus: (id: string) => void;
 }): React.JSX.Element {
   const text = useAppText();
-  const [channelState, setChannelState] = useState<ChannelState>({ status: "idle", channels: [], error: null });
+  const channelDirectoryScope = `${mode}|${column.teamId ?? ""}`;
+  const [channelState, setChannelState] = useState<ChannelState & { scope?: string }>({ status: "idle", channels: [], error: null });
+  const deletedPostIdsRef = useRef(deletedPostIds);
+  deletedPostIdsRef.current = deletedPostIds;
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
     posts: [],
@@ -8146,10 +8149,7 @@ function ChannelWatchColumn({
           void ensureUsers(Object.values(nextMemberDirectory).flat());
         }
 
-        setChannelState({ status: "ready", channels, error: null });
-        if (column.channelId && !channels.some((channel) => channel.id === column.channelId)) {
-          onUpdate(column.id, { channelId: undefined });
-        }
+        setChannelState({ status: "ready", channels, error: null, scope: channelDirectoryScope });
         finishRefresh();
       } catch (error) {
         if (cancelled) {
@@ -8169,7 +8169,6 @@ function ChannelWatchColumn({
       cancelled = true;
     };
   }, [
-    column.channelId,
     column.id,
     column.teamId,
     ensureUsers,
@@ -8179,6 +8178,17 @@ function ChannelWatchColumn({
     reconnectNonce,
     refreshNonce,
   ]);
+
+  useEffect(() => {
+    // A team change can render before its directory request has completed.
+    // Validate the selected channel only against a successful load for its scope.
+    if (channelState.status !== "ready" || channelState.scope !== channelDirectoryScope) {
+      return;
+    }
+    if (column.channelId && !channelState.channels.some((channel) => channel.id === column.channelId)) {
+      onUpdate(column.id, { channelId: undefined });
+    }
+  }, [channelDirectoryScope, channelState, column.channelId, column.id, onUpdate]);
 
   // Fetch lastViewedAt for the channel
   useEffect(() => {
@@ -8280,7 +8290,7 @@ function ChannelWatchColumn({
           return;
         }
         void ensureUsers(latestPosts.map((post) => post.user_id));
-        const deletedPostIdSet = new Set(deletedPostIds);
+        const deletedPostIdSet = new Set(deletedPostIdsRef.current);
         setPostState((current) => {
           const posts = replacePolledPostWindow(latestPosts, current.posts, {
             maxPosts: POSTS_MAX_BUFFER,
@@ -8333,7 +8343,6 @@ function ChannelWatchColumn({
       dependencies: [
         column.channelId,
         column.teamId,
-        deletedPostIds,
         ensureUsers,
         finishRefresh,
         mode,
@@ -8401,7 +8410,7 @@ function ChannelWatchColumn({
         }
         const merged = appendPostPage(
           current.posts,
-          posts.filter((post) => !deletedPostIds.includes(post.id)),
+          posts.filter((post) => !deletedPostIdsRef.current.includes(post.id)),
           POSTS_PAGE_SIZE,
           POSTS_MAX_BUFFER,
         );
@@ -8905,6 +8914,8 @@ function SearchLikeColumn({
 }): React.JSX.Element {
   const text = useAppText();
   const [searchChannelDirectory, setSearchChannelDirectory] = useState<Record<string, MattermostChannel>>({});
+  const deletedPostIdsRef = useRef(deletedPostIds);
+  deletedPostIdsRef.current = deletedPostIds;
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
     posts: [],
@@ -9056,7 +9067,7 @@ function SearchLikeColumn({
         ensureUsers(latestPosts.map((post) => post.user_id));
         const posts = replacePolledPostWindow(latestPosts, [], {
           maxPosts: POSTS_MAX_BUFFER,
-          deletedPostIds: new Set(deletedPostIds),
+          deletedPostIds: new Set(deletedPostIdsRef.current),
         });
         setPostState((current) => reuseUnchangedPostState(current, {
           status: "ready",
@@ -9103,7 +9114,6 @@ function SearchLikeColumn({
       dependencies: [
         apiQuery,
         column.teamId,
-        deletedPostIds,
         ensureUsers,
         finishRefresh,
         paused,
@@ -9153,7 +9163,7 @@ function SearchLikeColumn({
         }
         const merged = appendPostPage(
           current.posts,
-          posts.filter((post) => !deletedPostIds.includes(post.id)),
+          posts.filter((post) => !deletedPostIdsRef.current.includes(post.id)),
           POSTS_PAGE_SIZE,
           POSTS_MAX_BUFFER,
         );
@@ -9540,6 +9550,8 @@ function SavedPostsColumn({
 }): React.JSX.Element {
   const text = useAppText();
   const [savedChannelDirectory, setSavedChannelDirectory] = useState<Record<string, MattermostChannel>>({});
+  const deletedPostIdsRef = useRef(deletedPostIds);
+  deletedPostIdsRef.current = deletedPostIds;
   const [postState, setPostState] = useState<PostState>({
     status: "idle",
     posts: [],
@@ -9592,7 +9604,7 @@ function SavedPostsColumn({
         ensureUsers(latestPosts.map((post) => post.user_id));
         const posts = replacePolledPostWindow(latestPosts, [], {
           maxPosts: POSTS_MAX_BUFFER,
-          deletedPostIds: new Set(deletedPostIds),
+          deletedPostIds: new Set(deletedPostIdsRef.current),
         });
         setPostState((current) => reuseUnchangedPostState(current, {
           status: "ready",
@@ -9625,7 +9637,6 @@ function SavedPostsColumn({
       paused,
       dependencies: [
         ensureUsers,
-        deletedPostIds,
         finishRefresh,
         paused,
         reconnectNonce,
@@ -9702,7 +9713,7 @@ function SavedPostsColumn({
         }
         const merged = appendPostPage(
           current.posts,
-          posts.filter((post) => !deletedPostIds.includes(post.id)),
+          posts.filter((post) => !deletedPostIdsRef.current.includes(post.id)),
           POSTS_PAGE_SIZE,
           POSTS_MAX_BUFFER,
         );

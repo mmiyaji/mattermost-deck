@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 
 for (const phase of ["ready", "initial loading", "refreshing", "reconnecting"] as const) {
-test(`opening a reply during ${phase} preserves every mention pane`, async () => {
+test(`opening a reply during ${phase} preserves every mention pane`, async ({}, testInfo) => {
   const user = { id: "u".repeat(26), username: "reviewuser", notify_props: { mention_keys: "reviewuser", channel: "true" } };
   const author = { id: "a".repeat(26), username: "author", notify_props: {} };
   const team = { id: "t".repeat(26), name: "testteam", display_name: "Test team" };
@@ -72,6 +72,7 @@ test(`opening a reply during ${phase} preserves every mention pane`, async () =>
     await sw.evaluate(({ origin, post, userId, phase }) => chrome.storage.local.set({
       "mattermostDeck.serverUrl.v1": origin, "mattermostDeck.language.v1": "en", "mattermostDeck.theme.v1": "light",
       "mattermostDeck.pollingIntervalSeconds.v1": 3600,
+      "mattermostDeck.traceCapture.v1": true,
       "mattermostDeck.allowedRouteKinds.v1": "channels",
       "mattermostDeck.postClickAction.v1": "navigate",
       "mattermostDeck.wsPat.v1": phase === "reconnecting" ? "fixture-token" : "",
@@ -107,9 +108,13 @@ test(`opening a reply during ${phase} preserves every mention pane`, async () =>
     if (phase === 'reconnecting') {
       await expect.poll(() => connections).toBe(1);
       await expect.poll(() => inspect('[data-deck-column-id="mentions"] [role="progressbar"]')).toBeNull();
+      const beforeReconnectSearches = searchRequests;
       holdSearch = true;
       disconnect!();
       await expect.poll(() => connections, { timeout: 15000 }).toBe(2);
+      // The reconnect schedules a scan before its queued HTTP request reaches
+      // the server. Establish the baseline after that request actually starts.
+      await expect.poll(() => searchRequests, { timeout: 15000 }).toBeGreaterThan(beforeReconnectSearches);
     }
     if (phase === 'refreshing') {
       await expect.poll(() => inspect('[data-deck-column-id="mentions"] [role="progressbar"]')).toBeNull();
@@ -161,6 +166,12 @@ test(`opening a reply during ${phase} preserves every mention pane`, async () =>
     holdSearch = false; releaseSearch!();
     expect(pageErrors).toEqual([]);
   } finally {
+    const worker = context.serviceWorkers()[0];
+    if (worker) {
+      await new Promise(resolve => setTimeout(resolve, 350));
+      const trace = await worker.evaluate(() => chrome.storage.local.get("mattermostDeck.traceEntries.v1"));
+      await fs.writeFile(testInfo.outputPath("navigation-trace.json"), JSON.stringify({ requests, searchRequests, connections, trace }, null, 2));
+    }
     releaseSearch!();
     await context.close();
     for (const socket of sockets) socket.destroy();
