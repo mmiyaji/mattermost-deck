@@ -80,6 +80,9 @@ test(`opening a reply during ${phase} preserves every mention pane`, async ({}, 
       [`mattermostDeck.mentionReview.v1:${encodeURIComponent(origin + "/")}:${encodeURIComponent(userId)}:post:*:${post.id}`]: post,
       "mattermostDeck.layout.v1": [{ id: "mentions", type: "mentions" }, { id: "review", type: "mentions", mentionReview: true }],
     }), { origin, post, userId: user.id, phase });
+    if (process.env.MM_DECK_VIRTUAL_LIST === "1") {
+      await sw.evaluate(() => chrome.storage.local.set({ "mattermostDeck.virtualPostListExperiment.v1": true }));
+    }
     const page = await context.newPage();
     const pageErrors: string[] = [];
     page.on("pageerror", error => pageErrors.push(error.message));

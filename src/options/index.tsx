@@ -1,4 +1,5 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useVirtualPostListExperiment, setVirtualPostListExperiment } from "../ui/postListExperiment";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useTranslation } from "react-i18next";
 import { CustomSelect, type CustomSelectOption } from "../ui/CustomSelect";
@@ -2173,6 +2174,8 @@ function OptionsApp(): React.JSX.Element {
     [t],
   );
   const [traceEntries, traceCaptureEnabled] = useTraceLogSnapshot();
+  const virtualPostList = useVirtualPostListExperiment();
+  const [virtualListError, setVirtualListError] = useState<string | null>(null);
   const [endpointSummarySort, setEndpointSummarySort] = useState<{ key: EndpointSummarySortKey; direction: "asc" | "desc" }>({
     key: "count",
     direction: "desc",
@@ -3752,6 +3755,18 @@ function OptionsApp(): React.JSX.Element {
               </div>
 
               <PerformanceOverview entries={traceEntries} language={settings.language} capturing={traceCaptureEnabled} />
+              <details className="options-connection-advanced">
+                <summary>{settings.language === "ja" ? "投稿リストの描画方式を比較（試験）" : "Compare post list rendering (experimental)"}</summary>
+                <div className="options-subsection">
+                  <label className="options-choice"><input type="checkbox" data-testid="virtual-post-list-toggle" checked={virtualPostList} onChange={event => {
+                    setVirtualListError(null);
+                    void setVirtualPostListExperiment(event.target.checked).catch(error => setVirtualListError(String(error)));
+                  }} /><span>React Virtuoso</span></label>
+                  <p className="options-hint">{settings.language === "ja" ? "OFFは従来方式、ONはライブラリによる仮想化です。このブラウザーの全ペインに即時反映し、切り替え時はスクロール位置をリセットします。確認状態や投稿データは変更しません。" : "OFF uses the existing renderer; ON uses library virtualization. Applies immediately to all panes in this browser and resets scroll position when switched. Confirmation and post data are preserved."}</p>
+                  {virtualListError ? <p role="alert">{virtualListError}</p> : null}
+                </div>
+              </details>
+
 
               <div className="options-grid">
                 <article className="options-analysis-card options-analysis-card--full">

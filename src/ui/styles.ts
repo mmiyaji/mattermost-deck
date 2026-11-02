@@ -2606,6 +2606,10 @@ export const railCssText = `
       transition: none;
     }
   }
+  .deck-virtual-list [data-item-index] { padding-bottom: 8px; }
+  .deck-virtual-list--compact [data-item-index] { padding-bottom: 2px; }
+  .deck-virtual-list .deck-card--post { content-visibility: visible; }
+  .deck-virtual-list .deck-list-separator { margin: 0; }
   .deck-post-item { position: relative; list-style: none; }
   .deck-column .deck-pane-search-toggle {
     min-width: 28px;

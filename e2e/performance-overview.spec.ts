@@ -28,6 +28,13 @@ test("performance overview explains queue delays, failures, chart periods, and d
     await expect(overview.getByRole("img")).toHaveCount(2);
     await expect(overview.getByText(/保存済み最大500ログ/)).toBeVisible();
     await expect(overview.getByText("記録OFF", { exact: false })).toBeVisible();
+    await page.getByText("投稿リストの描画方式を比較（試験）", { exact: true }).click();
+    const toggle = page.getByTestId("virtual-post-list-toggle");
+    await expect(toggle).not.toBeChecked();
+    await toggle.check();
+    await expect.poll(() => worker.evaluate(async () => (await chrome.storage.local.get("mattermostDeck.virtualPostListExperiment.v1"))["mattermostDeck.virtualPostListExperiment.v1"])).toBe(true);
+    await toggle.uncheck();
+    await expect.poll(() => worker.evaluate(async () => (await chrome.storage.local.get("mattermostDeck.virtualPostListExperiment.v1"))["mattermostDeck.virtualPostListExperiment.v1"])).toBe(false);
     await page.screenshot({ path: testInfo.outputPath("performance-overview-ja-dark.png"), fullPage: true });
     await worker.evaluate(async entry => {
       const data = await chrome.storage.local.get("mattermostDeck.traceEntries.v1");

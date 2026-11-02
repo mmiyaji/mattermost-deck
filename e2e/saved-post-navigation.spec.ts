@@ -124,6 +124,9 @@ test("saved posts open in their owning team despite missing or colliding channel
       "mattermostDeck.preferredRailWidth.v1": "360",
       "mattermostDeck.layout.v1": [{ id: "saved", type: "saved" }],
     }), { baseUrl });
+    if (process.env.MM_DECK_VIRTUAL_LIST === "1") {
+      await worker.evaluate(() => chrome.storage.local.set({ "mattermostDeck.virtualPostListExperiment.v1": true }));
+    }
     const page = await context.newPage();
     activePage = page;
     page.setDefaultTimeout(15_000);

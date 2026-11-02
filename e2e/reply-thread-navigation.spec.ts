@@ -244,6 +244,9 @@ test("reply posts open in permalink thread view without getting stuck in loading
       });
     }, baseUrl);
 
+    if (process.env.MM_DECK_VIRTUAL_LIST === "1") {
+      await sw.evaluate(() => chrome.storage.local.set({ "mattermostDeck.virtualPostListExperiment.v1": true }));
+    }
     const page = await context.newPage();
     await page.addInitScript(() => {
       window.localStorage.setItem("mattermostDeck.debugLogs", "1");

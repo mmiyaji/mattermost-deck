@@ -1,3 +1,5 @@
+import { VirtualPostList } from "./VirtualPostList";
+import { useVirtualPostListExperiment } from "./postListExperiment";
 import { useSharedMentionState } from "./sharedMentionState";
 import { mentionFeedOwnerKey, reconcileMentionFeedOwners } from "./mentionFeedOwners";
 import { useMentionExclusions, isMentionExcluded } from "./mentionExclusions";
@@ -4248,6 +4250,7 @@ function PostListItem({
   currentUserId,
   deferRemoteContent,
   viewport,
+  virtualized = false,
 }: {
   entry: Extract<PostListEntry, { type: "post" }>;
   entryIndex: number;
@@ -4265,22 +4268,24 @@ function PostListItem({
   currentUserId?: string | null;
   deferRemoteContent: boolean;
   viewport: HTMLDivElement | null;
+  virtualized?: boolean;
 }): React.JSX.Element {
   const [node, setNode] = useState<HTMLDivElement | null>(null);
-  const isVisible = useElementVisibility(node, { root: viewport, rootMargin: "320px 0px", defaultVisible: false });
+  const isVisible = useElementVisibility(virtualized ? null : node, { root: viewport, rootMargin: "320px 0px", defaultVisible: virtualized });
   const [focusWithin, setFocusWithin] = useState(false);
   // Retain row heights for native scroll anchoring while releasing offscreen
   // content. Focused controls must stay mounted when their row leaves view.
   const measuredHeightRef = useRef<number | null>(null);
-  const renderDetails = isVisible || focusWithin;
+  const renderDetails = virtualized || isVisible || focusWithin;
+  const Row = virtualized ? "div" : "li";
   useLayoutEffect(() => {
-    if (!node || !renderDetails) return;
+    if (virtualized || !node || !renderDetails) return;
     const measure = () => { measuredHeightRef.current = node.getBoundingClientRect().height; };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [node, renderDetails]);
+  }, [node, renderDetails, virtualized]);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragDetectedRef = useRef(false);
   const { post } = entry;
@@ -4304,7 +4309,7 @@ function PostListItem({
   };
 
   return (
-    <li className="deck-post-item" data-deck-post-id={post.id} data-deck-post-rendered={renderDetails ? "true" : "false"}
+    <Row data-deck-entry-key={virtualized ? entry.key : undefined} role={virtualized ? "listitem" : undefined} className="deck-post-item" data-deck-post-id={post.id} data-deck-post-rendered={renderDetails ? "true" : "false"}
       onFocusCapture={() => setFocusWithin(true)}
       onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusWithin(false); }}>
     <div
@@ -4428,7 +4433,7 @@ function PostListItem({
       </> : null}
     </div>
     {renderDetails ? <FavoriteButton post={post} /> : null}
-    </li>
+    </Row>
   );
 }
 
@@ -4494,6 +4499,9 @@ function PostList({
   listId?: string;
 }): React.JSX.Element {
   const text = useAppText();
+  const virtualListEnabled = useVirtualPostListExperiment();
+  const [virtualViewport, setVirtualViewport] = useState<HTMLDivElement | null>(null);
+  const setViewport = useCallback((node: HTMLDivElement | null) => { viewportRef.current = node; setVirtualViewport(node); }, []);
   const posts = paneSearch?.posts ?? originalPosts;
   const filterQuery = paneSearch?.query.trim() ?? "";
   const previousFilterQueryRef = useRef(filterQuery);
@@ -4549,6 +4557,13 @@ function PostList({
     setShowJumpToLatest(false);
     markInteraction();
   }, [markInteraction]);
+
+  useLayoutEffect(() => {
+    // Explicit renderer switches start at the latest edge in either mode.
+    const viewport = viewportRef.current;
+    if (viewport) viewport.scrollTop = reversedPostOrderRef.current ? viewport.scrollHeight : 0;
+    hasInitialScrolledRef.current = false;
+  }, [virtualListEnabled]);
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -4661,18 +4676,19 @@ function PostList({
     }
   }, [posts, suppressNewPostNotifications, filterQuery]);
 
+  const Separator = virtualListEnabled ? "div" : "li";
   const renderEntry = (entry: PostListEntry, entryIndex: number): React.ReactNode => {
     if (entry.type === "separator") {
       return (
-        <li key={entry.key} className="deck-list-separator" aria-hidden="true">
+        <Separator key={entry.key} className="deck-list-separator" aria-hidden="true">
           <span>{entry.label}</span>
-        </li>
+        </Separator>
       );
     }
 
     if (entry.type === "unread-separator") {
       return (
-        <li key={entry.key} className="deck-list-separator deck-list-separator--unread">
+        <Separator key={entry.key} className="deck-list-separator deck-list-separator--unread">
           {onMarkRead && !filterQuery ? (
             <button
               type="button"
@@ -4694,7 +4710,7 @@ function PostList({
           ) : (
             <span>{resolvedUnreadSeparatorLabel}</span>
           )}
-        </li>
+        </Separator>
       );
     }
 
@@ -4719,6 +4735,7 @@ function PostList({
         currentUserId={currentUserId}
         deferRemoteContent={deferRemoteContent}
         viewport={viewportRef.current}
+        virtualized={virtualListEnabled}
       />
     );
   };
@@ -4761,7 +4778,7 @@ function PostList({
         </div>
       ) : null}
       <div
-        ref={viewportRef}
+        ref={setViewport}
         className="deck-list-viewport"
         tabIndex={listId ? -1 : undefined}
         onScroll={(event) => {
@@ -4781,12 +4798,12 @@ function PostList({
         onPointerDown={markInteraction}
       >
         {reversedPostOrder && footerNode}
-        <ul
+        {virtualListEnabled && virtualViewport ? <VirtualPostList key={`${reversedPostOrder}:${filterQuery}`} entries={displayEntries} viewport={virtualViewport} compact={compactMode} reversed={reversedPostOrder} id={listId} renderEntry={renderEntry} /> : <ul
           id={listId}
           className={`deck-list${compactMode ? " deck-list--post-compact" : ""}`}
         >
           {displayEntries.map((entry, index) => renderEntry(entry, index))}
-        </ul>
+        </ul>}
         {!reversedPostOrder && footerNode}
       </div>
     </div>
