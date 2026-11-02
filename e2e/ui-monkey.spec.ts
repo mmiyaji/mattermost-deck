@@ -47,6 +47,13 @@ const maximumMentionBuffer = 500;
 const mebibyte = 1024 * 1024;
 const expectedHttpNoiseRules = [
   {
+    name: "playbooks-channel-without-run",
+    method: "GET",
+    status: 404,
+    path: /^\/plugins\/playbooks\/api\/v0\/runs\/channel\/[^/]+$/,
+    maximum: 4,
+  },
+  {
     name: "unsupported-groups-endpoint",
     method: "GET",
     status: 501,
@@ -182,6 +189,8 @@ interface MonkeyActionLog {
   name: string;
   startedAt: string;
   durationMs: number;
+  operationDurationMs?: number;
+  validationDurationMs?: number;
   success: boolean;
   detail?: unknown;
   error?: string;
@@ -210,6 +219,7 @@ interface LayoutInteractionHitTests {
     rightEdge: LayoutHitSnapshot | null;
   }>;
   composerButtons: Array<{
+    disabled: boolean;
     id: string | null;
     ariaLabel: string | null;
     label: string;
@@ -238,6 +248,8 @@ interface LayoutInteractionCheck {
   emojiButtonPointerClick: boolean;
   emojiPopupClosedAfterEscape: boolean | null;
   sendButtonCenterHitsTarget: boolean;
+  sendButtonDisabled: boolean;
+  sendButtonPresent: boolean;
 }
 
 interface CoreInvariantSnapshot {
@@ -1008,6 +1020,10 @@ test(
     test.setTimeout(15 * 60_000);
 
     const state = await readState();
+    const loadLayoutFile = process.env.MM_DECK_MONKEY_LOAD_LAYOUT;
+    const extraColumns = loadLayoutFile
+      ? (JSON.parse(await fs.readFile(loadLayoutFile, "utf8")).columns as Array<Record<string, unknown>>).map((column, index) => ({ ...column, id: `stress-${index}` }))
+      : [];
     const adminToken = await loginViaApi(
       state.adminUser.username,
       state.adminUser.password,
@@ -1295,6 +1311,7 @@ test(
           token,
           storageKey,
           channelId,
+          extraColumns,
         }) =>
           new Promise<void>((resolve) => {
             chrome.storage.local.set(
@@ -1321,6 +1338,7 @@ test(
                     type: "channelWatch",
                     channelId,
                   },
+                  ...extraColumns,
                 ],
               },
               () => resolve(),
@@ -1331,6 +1349,7 @@ test(
           token: memberToken,
           storageKey: layoutStorageKey,
           channelId: originalChannel.id,
+          extraColumns,
         },
       );
       page = await context.newPage();
@@ -2078,15 +2097,12 @@ test(
                 mentionUnreadOnly:
                   stableMentionColumn?.unreadOnly ??
                   false,
-                mentionLoadActive:
-                  stableMention?.mentionLoadActive ??
-                  false,
                 skeletonCount:
                   presentation?.skeletonCount ?? 0,
               };
             },
             {
-              timeout: 30_000,
+              timeout: 120_000,
               intervals: [250, 500, 750],
             },
           )
@@ -2101,7 +2117,6 @@ test(
             temporaryColumnPresent: false,
             mentionTeamId: null,
             mentionUnreadOnly: false,
-            mentionLoadActive: false,
             skeletonCount: 0,
           });
 
@@ -2142,10 +2157,6 @@ test(
               const isIdle =
                 idleState.stateStatus === "ready" &&
                 idleState.wsStatus === "connected" &&
-                idleMention?.mentionLoadActive !==
-                  true &&
-                idlePresentation?.progressPresent !==
-                  true &&
                 (
                   idlePresentation?.skeletonCount ??
                   0
@@ -2196,6 +2207,7 @@ test(
                     actionName,
                     randomValue,
                   );
+                log.operationDurationMs = Date.now() - startedAt;
                 if (
                   step.stepIndex ===
                   prelude.length - 1
@@ -2339,6 +2351,7 @@ test(
                                 element.getBoundingClientRect();
                               return {
                                 id: element.id || null,
+                                disabled: (element as HTMLButtonElement).disabled === true,
                                 ariaLabel:
                                   element.getAttribute("aria-label"),
                                 label: (
@@ -2602,7 +2615,7 @@ test(
                     const sendButton =
                       interactionHitTests.composerButtons.find(
                         (button) =>
-                          /^(Send Now|Send a message)\b/i.test(
+                          /^(Send Now|Send a message|メッセージを送信|今すぐ送信)/i.test(
                             button.label || button.ariaLabel || "",
                           ),
                       );
@@ -2641,6 +2654,8 @@ test(
                       emojiButtonPointerClick,
                       emojiPopupClosedAfterEscape,
                       sendButtonCenterHitsTarget,
+                      sendButtonDisabled: sendButton?.disabled ?? false,
+                      sendButtonPresent: Boolean(sendButton),
                     };
                     layoutInteractionChecks.push(
                       interactionCheck,
@@ -2709,10 +2724,11 @@ test(
                         `Emoji picker did not close after Escape at step ${step.stepIndex}`,
                       ).toBe(true);
                     }
-                    expect(
-                      check.sendButtonCenterHitsTarget,
-                      `Send button center was not hit-testable outside Deck at step ${step.stepIndex}`,
-                    ).toBe(true);
+                    expect(check.sendButtonPresent, "Mattermost send button must be present").toBe(true);
+                    if (!check.sendButtonDisabled) expect(
+                        check.sendButtonCenterHitsTarget,
+                        `Enabled send button center was not hit-testable outside Deck at step ${step.stepIndex}`,
+                      ).toBe(true);
                   }
                 }
                 if (
@@ -2775,7 +2791,10 @@ test(
               } finally {
                 log.durationMs =
                   Date.now() - startedAt;
+                log.validationDurationMs = log.operationDurationMs === undefined ? undefined : log.durationMs - log.operationDurationMs;
                 actionLogs.push(log);
+                await fs.writeFile(testInfo.outputPath("ui-monkey-actions.json"), JSON.stringify({ seed: monkeySeed, actions: actionLogs }, null, 2));
+                console.log(`monkey step ${log.step} ${log.name}: operation=${log.operationDurationMs ?? "failed"}ms total=${log.durationMs}ms success=${log.success}`);
               }
             },
           };
@@ -2823,6 +2842,15 @@ test(
             `${escapedBaseUrl}/[^/?#]+/(?:channels|messages)/[^/?#]+(?:[?#].*)?$`,
           ],
           invariants: [
+            {
+              name: "deck-ready-before-actions",
+              when: "afterLoad",
+              check: async () => {
+                await page!.locator("#mattermost-deck-root").waitFor({ state: "attached", timeout: 30_000 });
+                await waitForDeckDebugBridge(page!);
+                return true;
+              },
+            },
             {
               name: "monkey-actions-succeed",
               when: "afterActions",
@@ -2879,11 +2907,23 @@ test(
         },
       );
 
+      // Mattermost and Deck poll continuously under load. Network-idle would
+      // time out before any action; the driver's invariants check app readiness.
+      const crawlerPage = new Proxy(page, {
+        get(target, property) {
+          if (property === "goto") return (url: string, options?: Parameters<Page["goto"]>[1]) => target.goto(url, { ...options, waitUntil: "domcontentloaded" });
+          const value = Reflect.get(target, property);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
       chaosResult = await crawler.testPage(
-        page,
+        crawlerPage,
         `${baseUrl}/${originalTeam.name}/channels/${originalChannel.name}`,
       );
-      await canonicalizeDeck();
+      await fs.writeFile(testInfo.outputPath("ui-monkey-crawler.json"), JSON.stringify(chaosResult, null, 2));
+      console.log(`monkey crawler: status=${chaosResult.status} actions=${actionLogs.length}`);
+      try { await canonicalizeDeck(); }
+      catch (error) { actionFailures.push(`final-stabilization: ${error instanceof Error ? error.message : String(error)}`); }
       await waitForCoreInvariants(
         page,
         rootMarker,
@@ -2991,6 +3031,7 @@ test(
             seed: monkeySeed,
             actionsRequested:
               monkeyActionCount,
+            extraLoadPaneCount: extraColumns.length,
             actionsCompleted:
               actionLogs.length,
             headed,

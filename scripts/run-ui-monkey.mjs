@@ -12,6 +12,7 @@ const child = spawn(
     "e2e/ui-monkey.spec.ts",
     "--workers=1",
     "--retries=0",
+    ...process.argv.slice(2),
   ],
   {
     stdio: "inherit",
