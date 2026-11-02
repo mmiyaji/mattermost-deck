@@ -80,7 +80,7 @@ Explicitly confirm a post to remove it from pending review. A five-second undo r
 
 Pending posts and confirmation state are saved in this browser per server/account and shared across review panes showing the same post. Collection continues after the original mentions pane is closed, and pending posts are retained independently of normal mention cache limits and expiry. Initially available historical posts are also pending; this is the collected range, not necessarily the server's complete history. Load older posts to extend it. Clearing extension data also clears confirmation state.
 
-Mention display caching is enabled by default: recent posts appear while the feed refreshes after restart. The extension service worker stores up to 100 compact posts per feed scope in IndexedDB, bounded to 64 scopes, 16 MiB total and 24 hours, with least recently used scopes evicted first. Settings → Behavior → Keep mentions after a restart disables persistent caching and deletes those snapshots; existing explicit opt-outs are preserved. This display cache is separate from pending posts and confirmation decisions. See [storage design](docs/mention-cache-storage.md).
+Mention display caching is enabled by default: recent posts appear while the feed refreshes after restart. The extension service worker stores up to 100 compact posts per feed scope in IndexedDB, bounded to 64 scopes, 16 MiB total and 24 hours, with least recently used scopes evicted first. Settings → Behavior → Keep mentions after a restart disables persistent caching and deletes those snapshots; existing explicit opt-outs are preserved. This display cache is separate from pending posts and confirmation decisions. See [storage design](docs/mention-cache-storage.md). The [store retention policy](docs/storage-policy.md) covers favorites, diagnostics, settings and in-memory metadata as well.
 
 Confirmation decisions have no count limit or expiry. History bodies are retained for the latest 200 confirmations; under storage pressure, confirmed bodies are removed before retrying the save. Removed bodies no longer appear in history, but fetching those posts again never makes them pending. Pending posts are never removed by this cleanup. If storage cannot be freed, a save error is shown.
 
@@ -221,7 +221,7 @@ npm run capture:readme
 
 ## Release
 
-Push a tag in `v` format, such as `v1.3.2`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
+Push a tag in `v` format, such as `v1.3.3`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
 
 - Runs type checks, unit tests, the full Mattermost 9.5.4 Playwright suite, and the release compatibility matrix for 9.5.11, 10.11.22, and 11.8.2
 - Builds the Chrome Web Store archive with `STORE_BUILD=true`, extracts that exact archive, and smoke-tests its ungranted first-run state and safe handling when Chrome cannot approve the native permission prompt
@@ -238,12 +238,12 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.3.2"
+$env:EXT_VERSION = "v1.3.3"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.3.2.zip -Force
-$releaseHash = (Get-FileHash mattermost-deck-v1.3.2.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-"$releaseHash  mattermost-deck-v1.3.2.zip" | Set-Content mattermost-deck-v1.3.2.zip.sha256 -Encoding ascii
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.3.3.zip -Force
+$releaseHash = (Get-FileHash mattermost-deck-v1.3.3.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+"$releaseHash  mattermost-deck-v1.3.3.zip" | Set-Content mattermost-deck-v1.3.3.zip.sha256 -Encoding ascii
 ```
 
 The archive must contain `manifest.json` at its root. Store builds intentionally omit the localhost-only static content script; local development builds retain it for E2E testing.

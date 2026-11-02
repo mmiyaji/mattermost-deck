@@ -8,6 +8,15 @@ Use this copy when maintaining the Chrome Web Store listing and its Privacy prac
 - Privacy policy URL: https://mattermost-deck.ruhenheim.org/privacy/
 - Store screenshot (1280 x 800): `docs/assets/readme-overview-dark-store.png`
 
+## v1.3.3 release notes
+
+- Show recent mentions while refreshing after restart, enabled by default. Extension-owned IndexedDB keeps up to 100 posts per scope, 64 scopes, 16 MiB total and 24 hours; existing opt-outs are preserved.
+- Keep favorite membership separate from cached bodies, bounded to 16 MiB and 5,000 bodies globally for seven days. Expiration never removes a favorite.
+- Retry review storage after worker failures and safely migrate legacy data, preserving pending posts and confirmation decisions during history cleanup.
+- Show mention results as teams finish, with adaptive API concurrency, fair scheduling and per-profile advanced performance settings.
+- Render visible post rows promptly and use placeholders for offscreen content to reduce initial work.
+- No additional extension permissions.
+
 ## v1.3.2 release notes
 
 - Keep the deck in place when a mention opens a reply, instead of reloading every pane.

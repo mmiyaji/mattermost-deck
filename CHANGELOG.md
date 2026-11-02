@@ -7,19 +7,26 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-11-03
+
 ### Added
 
-- Optional "Keep mentions after a restart". The mention pane fills from the last loaded feed as soon as the browser starts and refreshes it in the background, instead of waiting for a full fetch. It is off by default because an enabled cache is written to extension local storage, which Chrome does not encrypt; turning it off deletes what was already stored.
+- Mention display caching enabled by default: show recent posts while refreshing after restart. Extension-owned IndexedDB keeps up to 100 posts per feed scope, bounded to 64 scopes, 16 MiB total and 24 hours. Existing explicit opt-outs are preserved; disabling persistent caching removes those snapshots.
 
 ### Changed
 
-- Document the mention review store and the mention feed cache in the privacy policy, and state that extension local storage is not encrypted at rest.
+- Separate durable favorite membership from cached bodies in extension-owned IndexedDB, bounded to 16 MiB and 5,000 bodies globally with a seven-day lifetime. Expired bodies never remove favorite membership.
+- Retry review storage after worker failures, migrate legacy records before cleanup, and preserve pending posts and confirmation decisions when cleaning confirmed history bodies.
+- Stream mention results as teams finish, with adaptive API concurrency, fair request scheduling and per-profile advanced performance settings.
+- Render the first visible post rows promptly and use placeholders for offscreen content to reduce initial rendering work.
+- Document the review store, display caches and bounded diagnostic logs in the privacy policy and storage policy. Cached post bodies have no additional app-level encryption.
 - Name every settings panel in its own navigation tooltip, so an icon-only sidebar on a narrow window is readable without a screen reader, and make those targets comfortable to tap.
 - Align a checkbox with the first line of its description instead of centring it, so a long hint no longer pushes the control away from its label.
 - Mark the update method that is actually saved, rather than always emphasising realtime updates.
 - Show the appearance controls before the preview on a narrow window, and keep every panel heading on the same line so switching panels does not shift the page.
 - Point from the security panel to the settings that decide what is written to this browser, and describe the appearance and behavior panels by what they now contain.
 - Drop the save footer on panels that hold nothing to save, while keeping it whenever a draft is pending elsewhere.
+- This release requests no additional extension permissions.
 
 ## [1.3.2] - 2026-10-30
 
