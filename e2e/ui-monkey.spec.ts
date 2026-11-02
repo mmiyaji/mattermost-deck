@@ -182,6 +182,8 @@ interface MemorySample {
   nodes: number;
   documents: number;
   eventListeners: number;
+  postRows: number;
+  renderedPostRows: number;
 }
 
 interface MonkeyActionLog {
@@ -747,6 +749,7 @@ async function collectMemory(
   cdp: CDPSession,
   label: string,
   step: number,
+  page: Page,
 ): Promise<MemorySample> {
   await cdp.send("Runtime.discardConsoleEntries");
   await cdp.send("HeapProfiler.collectGarbage");
@@ -761,6 +764,7 @@ async function collectMemory(
       jsEventListeners: number;
     }>,
   ]);
+  const rows = await debugRequest<{ postRows: number; renderedPostRows: number }>(page, "getPostWindowMetrics");
   return {
     label,
     step,
@@ -770,6 +774,8 @@ async function collectMemory(
     nodes: dom.nodes,
     documents: dom.documents,
     eventListeners: dom.jsEventListeners,
+    postRows: rows.postRows,
+    renderedPostRows: rows.renderedPostRows,
   };
 }
 
@@ -2758,6 +2764,7 @@ test(
                       cdp!,
                       `step-${step.stepIndex}`,
                       step.stepIndex,
+                      page!,
                     ),
                   );
                 }
@@ -2929,11 +2936,35 @@ test(
         rootMarker,
         false,
       );
+      if (process.env.MM_DECK_MONKEY_CHECK_WINDOWING === "1") {
+        try {
+          const target = await debugRequest<{ id: string; count: number; ids: string[] }>(page, "getPostWindowMetrics");
+          expect(target.count).toBeGreaterThanOrEqual(50);
+          const beforeIds = target.ids;
+          const inspectRows = () => debugRequest<{ first: string; last: string; count: number; rendered: number; ids: string[] }>(page!, "getPostWindowMetrics", { id: target.id });
+          await debugRequest(page, "scrollPostWindow", { id: target.id, edge: "start", focus: "first" });
+          await expect.poll(async () => (await inspectRows()).first).toBe("true");
+          await debugRequest(page, "scrollPostWindow", { id: target.id, edge: "end" });
+          await expect.poll(async () => (await inspectRows()).last).toBe("true");
+          await expect.poll(async () => (await inspectRows()).first).toBe("true");
+          await debugRequest(page, "scrollPostWindow", { id: target.id, edge: "end", focus: "clear" });
+          await expect.poll(async () => (await inspectRows()).first).toBe("false");
+          const bottom = await inspectRows();
+          expect(bottom.ids).toEqual(beforeIds);
+          expect(bottom.rendered).toBeLessThan(bottom.count / 2);
+          await debugRequest(page, "scrollPostWindow", { id: target.id, edge: "start" });
+          await expect.poll(async () => (await inspectRows()).first).toBe("true");
+          console.log(`post windowing: ${bottom.rendered}/${bottom.count} rows rendered at bottom; IDs and return-to-top preserved`);
+        } catch (error) {
+          actionFailures.push(`post-windowing: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
       memorySamples.push(
         await collectMemory(
           cdp,
           "final",
           monkeyActionCount,
+          page,
         ),
       );
       await capture(

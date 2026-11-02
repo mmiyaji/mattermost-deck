@@ -4267,7 +4267,20 @@ function PostListItem({
   viewport: HTMLDivElement | null;
 }): React.JSX.Element {
   const [node, setNode] = useState<HTMLDivElement | null>(null);
-  const isVisible = useElementVisibility(node, { root: viewport, rootMargin: "320px 0px", defaultVisible: true });
+  const isVisible = useElementVisibility(node, { root: viewport, rootMargin: "320px 0px", defaultVisible: false });
+  const [focusWithin, setFocusWithin] = useState(false);
+  // Retain row heights for native scroll anchoring while releasing offscreen
+  // content. Focused controls must stay mounted when their row leaves view.
+  const measuredHeightRef = useRef<number | null>(null);
+  const renderDetails = isVisible || focusWithin;
+  useLayoutEffect(() => {
+    if (!node || !renderDetails) return;
+    const measure = () => { measuredHeightRef.current = node.getBoundingClientRect().height; };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [node, renderDetails]);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragDetectedRef = useRef(false);
   const { post } = entry;
@@ -4276,10 +4289,10 @@ function PostListItem({
   const isReplyPost = Boolean(post.root_id?.trim());
   const hasFiles = (post.file_ids?.length ?? 0) > 0;
   const defaultBody = useMemo(
-    () => renderBody ? null : (isVisible ? renderPostSnippet(post.message, highlightTerms) : summarisePost(post.message)),
-    [renderBody, isVisible, post.message, highlightTerms],
+    () => !renderDetails || renderBody ? null : renderPostSnippet(post.message, highlightTerms),
+    [renderBody, renderDetails, post.message, highlightTerms],
   );
-  const body = renderBody ? renderBody(post, { isVisible }) : defaultBody;
+  const body = renderDetails && renderBody ? renderBody(post, { isVisible }) : defaultBody;
   const isEmpty = !renderBody && !post.message.trim();
   const canOpenPost = Boolean(onOpenPost && postClickAction !== "none");
   const activatePost = () => {
@@ -4291,12 +4304,16 @@ function PostListItem({
   };
 
   return (
-    <li className="deck-post-item">
+    <li className="deck-post-item" data-deck-post-id={post.id} data-deck-post-rendered={renderDetails ? "true" : "false"}
+      onFocusCapture={() => setFocusWithin(true)}
+      onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusWithin(false); }}>
     <div
       ref={setNode}
       key={entry.key}
       role={canOpenPost ? "button" : undefined}
       tabIndex={canOpenPost ? 0 : undefined}
+      aria-label={!renderDetails ? `${getUserLabel(userDirectory[post.user_id], post.user_id)}: ${summarisePost(post.message)}` : undefined}
+      style={!renderDetails ? { height: measuredHeightRef.current ?? (compactMode ? 34 : 120), boxSizing: "border-box" } : undefined}
       data-deck-post-excluded={isPostExcluded?.(post) ? "true" : undefined}
       className={`deck-card deck-card--post${renderActions ? " deck-card--mention-actions" : ""}${isPostExcluded?.(post) ? " deck-card--excluded" : ""}${compactMode ? " deck-card--post-compact" : ""}${groupedWithPrevious ? " deck-card--post-grouped" : ""}${isReplyPost ? " deck-card--reply" : ""}${onOpenPost && postClickAction !== "none" ? " deck-card--clickable" : ""}`}
       onPointerDown={
@@ -4362,6 +4379,7 @@ function PostListItem({
           : undefined
       }
     >
+      {renderDetails ? <>
       {renderActions ? <div className="deck-mention-actions">{renderActions(post)}</div> : null}
       {!compactMode && !groupedWithPrevious ? (
         <div className="deck-card-header">
@@ -4407,8 +4425,9 @@ function PostListItem({
       {!deferRemoteContent && post.file_ids && post.file_ids.length > 0 ? (
         <PostFileAttachments fileIds={post.file_ids} postId={post.id} showImagePreviews={showImagePreviews} viewport={viewport} />
       ) : null}
+      </> : null}
     </div>
-    <FavoriteButton post={post} />
+    {renderDetails ? <FavoriteButton post={post} /> : null}
     </li>
   );
 }
@@ -11658,6 +11677,24 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         removeColumn(payload.id as string);
       } else if (action === "getColumnState") {
         result = window.__mattermostDeckDebugColumnState?.[payload.id as string] ?? null;
+      } else if ((action === "getPostWindowMetrics" || action === "scrollPostWindow") && debugShadowRoot) {
+        const allLists = Array.from(debugShadowRoot.querySelectorAll<HTMLElement>(".deck-list-viewport"));
+        const scope = payload.id ? getDebugColumnScope(payload.id) : debugShadowRoot;
+        const list = Array.from(scope?.querySelectorAll<HTMLElement>(".deck-list-viewport") ?? [])
+          .sort((a, b) => b.querySelectorAll("[data-deck-post-id]").length - a.querySelectorAll("[data-deck-post-id]").length)[0];
+        if (list && action === "scrollPostWindow") {
+          list.closest(".deck-column")?.scrollIntoView({ block: "nearest", inline: "center" });
+          if (payload.focus === "first") list.querySelector<HTMLElement>(".deck-card--post")?.focus();
+          if (payload.focus === "clear" && debugShadowRoot.activeElement instanceof HTMLElement) debugShadowRoot.activeElement.blur();
+          list.scrollTop = payload.edge === "end" ? list.scrollHeight : 0;
+        }
+        const rows = Array.from(list?.querySelectorAll<HTMLElement>("[data-deck-post-id]") ?? []);
+        result = { id: list?.closest("[data-deck-column-id]")?.getAttribute("data-deck-column-id") ?? null,
+          postRows: allLists.reduce((count, item) => count + item.querySelectorAll("[data-deck-post-id]").length, 0),
+          renderedPostRows: allLists.reduce((count, item) => count + item.querySelectorAll('[data-deck-post-rendered="true"]').length, 0),
+          count: rows.length, rendered: rows.filter(row => row.dataset.deckPostRendered === "true").length,
+          first: rows[0]?.dataset.deckPostRendered, last: rows.at(-1)?.dataset.deckPostRendered,
+          ids: rows.map(row => row.dataset.deckPostId) };
       } else if (action === "getRenderedText" && debugShadowRoot) {
         result = debugShadowRoot.textContent?.replace(/\s+/g, " ").trim() ?? "";
       } else if (action === "getHighlightTexts" && debugShadowRoot) {
