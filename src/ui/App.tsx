@@ -1,3 +1,9 @@
+import { isInitialPostWindow } from "./postListWindow";
+import { isReviewContextInvalidated } from "./reviewStorageClient";
+import { persistUiSetting, STORAGE_ERROR_EVENT } from "./storageFailure";
+import { useChannelDirectory } from "./useChannelDirectory";
+import { useUserDirectory } from "./useUserDirectory";
+import { MEMORY_METADATA_TTL_MS } from "./memoryDirectory";
 import { VirtualPostList } from "./VirtualPostList";
 import { useVirtualPostListExperiment } from "./postListExperiment";
 import { useSharedMentionState } from "./sharedMentionState";
@@ -5,6 +11,7 @@ import { mentionFeedOwnerKey, reconcileMentionFeedOwners } from "./mentionFeedOw
 import { useMentionExclusions, isMentionExcluded } from "./mentionExclusions";
 import { MentionExclusionControls, MentionPostMenu, type ExclusionFeedback } from "./MentionExclusionControls";
 import { useMentionReview } from "./mentionReview";
+import { shouldReuseMentionTeamScan, mentionTeamUnreadSignature, canSkipEmptyMentionTeamSearch } from "./mentionScanPlan";
 import { mentionScanSignature, rememberMentionScan } from "./mentionScanCache";
 import { startVisiblePolling } from "./visiblePolling";
 import { ColumnTypeIcon } from "./ColumnTypeIcon";
@@ -39,13 +46,16 @@ import {
   getMentionGroupsForUser,
   getPostsByIds,
   getPostThreadSince,
+  getMentionThreadPosts,
+  getCachedPostThreadContext,
+  invalidatePostThreadContext,
+  getPerformanceSettings,
   getPostThreadSinceWithMetadata,
   getRecentPosts,
   getTeamUnread,
   getTeamsForCurrentUser,
   getUserPreferences,
   getUserThreads,
-  getUsersByIds,
   invalidateMentionMetadataCaches,
   invalidatePostByIdCache,
   getMyChannelMember,
@@ -290,6 +300,15 @@ interface MentionTeamLoadAccumulator {
   completedPipelines: Set<MentionLoadPipeline>;
 }
 
+interface CachedMentionTeamScan {
+  signature: string;
+  completedAt: number;
+  posts: MattermostPost[];
+  channelContext: NonNullable<MentionTeamLoadAccumulator["channelContext"]>;
+  threads: MattermostUserThread[];
+  searchHasMore: boolean;
+}
+
 interface MentionActiveChannelSnapshot {
   channels: MattermostChannel[] | null;
   activeChannelIds: Record<string, true> | null;
@@ -399,7 +418,6 @@ const MENTIONS_MAX_BUFFER = 500;
 const MENTION_THREAD_POST_SCAN_LIMIT = 500;
 const MENTION_UNREAD_THREAD_SCAN_LIMIT = 500;
 const MENTION_FULL_THREAD_LOOKUP_LIMIT = 50;
-const USER_DIRECTORY_MAX_ENTRIES = 2_000;
 const MENTION_METADATA_DIRECTORY_MAX_ENTRIES = 2_000;
 const MENTION_UNREAD_RECONCILE_CACHE_MAX_MS = 5_000;
 const MENTION_HISTORY_RECONCILE_CACHE_MS = 5 * 60_000;
@@ -428,7 +446,6 @@ const SPECIAL_MENTION_MEMBER_TTL_MS = 45_000;
 const SPECIAL_MENTION_MEMBER_TTL_WS_MS = 180_000;
 const SPECIAL_MENTION_MEMBER_CACHE_MAX_TEAMS = 12;
 const SPECIAL_MENTION_SCAN_CACHE_MAX_CHANNELS = 200;
-const TEAM_FANOUT_BATCH_SIZE = 2;
 const TEAM_FANOUT_GAP_MS = 250;
 const CHANNEL_FANOUT_BATCH_SIZE = 3;
 const CHANNEL_FANOUT_GAP_MS = 150;
@@ -499,9 +516,9 @@ declare global {
       };
       addColumn: (
         type: DeckColumnType,
-        defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>,
+  defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "teamLabel" | "channelLabel" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>,
       ) => string;
-      updateColumn: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => void;
+      updateColumn: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "teamLabel" | "channelLabel" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => void;
       moveColumn: (id: string, direction: "left" | "right") => void;
       removeColumn: (id: string) => void;
     };
@@ -2279,7 +2296,7 @@ function useMentionsLastReadAt(): [number | null, (value: number | null) => void
 
   const updateLastReadAt = useCallback((value: number | null) => {
     setLastReadAt(value && value > 0 ? value : null);
-    void saveMentionsLastReadAt(value && value > 0 ? value : null);
+    void persistUiSetting(saveMentionsLastReadAt(value && value > 0 ? value : null));
   }, []);
 
   return [lastReadAt, updateLastReadAt];
@@ -2352,14 +2369,15 @@ function buildDiagnosticsLogEntries(logs: SyncLogEntry[], limit = 5): Diagnostic
 
 function useDeckLayout(): [
   DeckColumn[] | null,
-  (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>, groupRows?: boolean) => string,
+  (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "teamLabel" | "channelLabel" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>, groupRows?: boolean) => string,
   (id: string) => void,
-  (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => void,
+  (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "teamLabel" | "channelLabel" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => void,
   (id: string, direction: "left" | "right") => void,
   (nextColumns: DeckColumn[]) => void,
   (source: string, target: string | null, after: boolean, row?: 0 | 1) => void,
 ] {
   const [columns, setColumns] = useState<DeckColumn[] | null>(null);
+  const layoutLoadedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -2367,11 +2385,12 @@ function useDeckLayout(): [
     const run = async () => {
       const layout = await loadDeckLayout(STORAGE_KEY);
       if (!cancelled) {
+        layoutLoadedRef.current = true;
         setColumns(layout);
       }
     };
 
-    void run();
+    void persistUiSetting(run().catch(error => { if (!cancelled) setColumns([]); throw error; }));
 
     return () => {
       cancelled = true;
@@ -2379,15 +2398,17 @@ function useDeckLayout(): [
   }, []);
 
   const persist = useCallback((nextColumns: DeckColumn[]): void => {
+    if (!layoutLoadedRef.current) { void persistUiSetting(Promise.reject(new Error("Layout is not loaded"))); return; }
     setColumns(nextColumns);
-    void saveDeckLayout(STORAGE_KEY, nextColumns);
+    void persistUiSetting(saveDeckLayout(STORAGE_KEY, nextColumns));
   }, []);
 
   const persistFromCurrent = useCallback((transform: (current: DeckColumn[]) => DeckColumn[]): void => {
+    if (!layoutLoadedRef.current) { void persistUiSetting(Promise.reject(new Error("Layout is not loaded"))); return; }
     setColumns((current) => {
       const base = current ?? createDefaultLayout();
       const next = transform(base);
-      void saveDeckLayout(STORAGE_KEY, next);
+      void persistUiSetting(saveDeckLayout(STORAGE_KEY, next));
       return next;
     });
   }, []);
@@ -2395,7 +2416,7 @@ function useDeckLayout(): [
   const addColumn = useCallback(
     (
       type: DeckColumnType,
-      defaults: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">> = {},
+      defaults: Partial<Pick<DeckColumn, "teamId" | "channelId" | "teamLabel" | "channelLabel" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">> = {},
       groupRows = false,
     ): string => {
       const nextColumn = createColumn(type, defaults);
@@ -2415,7 +2436,7 @@ function useDeckLayout(): [
     });
   }, [persistFromCurrent]);
 
-  const updateColumn = useCallback((id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>): void => {
+  const updateColumn = useCallback((id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "teamLabel" | "channelLabel" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>): void => {
     persistFromCurrent((current) =>
       current.map((column) =>
         column.id === id
@@ -2476,12 +2497,12 @@ function useRecentTargets(): [RecentChannelTarget[], (target: RecentChannelTarge
         const deduped = dedupeRecentTargets(filtered);
         setTargets(deduped);
         if (filtered.length !== deduped.length) {
-          void saveStoredJson(RECENT_TARGETS_STORAGE_KEY, deduped);
+          void persistUiSetting(saveStoredJson(RECENT_TARGETS_STORAGE_KEY, deduped));
         }
       }
     };
 
-    void run();
+    void persistUiSetting(run());
     return () => {
       cancelled = true;
     };
@@ -2493,7 +2514,7 @@ function useRecentTargets(): [RecentChannelTarget[], (target: RecentChannelTarge
         target,
         ...current,
       ]);
-      void saveStoredJson(RECENT_TARGETS_STORAGE_KEY, next);
+      void persistUiSetting(saveStoredJson(RECENT_TARGETS_STORAGE_KEY, next));
       return next;
     });
   }, []);
@@ -2517,6 +2538,7 @@ function useSavedViews(): [
   (id: string) => SavedDeckView | undefined,
 ] {
   const [views, setViews] = useState<SavedDeckView[]>([]);
+  const viewsLoadedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -2524,17 +2546,19 @@ function useSavedViews(): [
     const run = async () => {
       const stored = await loadStoredJson<SavedDeckView[]>(SAVED_VIEWS_STORAGE_KEY, []);
       if (!cancelled) {
+        viewsLoadedRef.current = true;
         setViews(Array.isArray(stored) ? stored.filter(isSavedView).slice(0, MAX_SAVED_VIEWS) : []);
       }
     };
 
-    void run();
+    void persistUiSetting(run());
     return () => {
       cancelled = true;
     };
   }, []);
 
   const saveView = useCallback((name: string, columns: DeckColumn[], layoutMode: "row" | "twoRows", rowSplit: number) => {
+    if (!viewsLoadedRef.current) { void persistUiSetting(Promise.reject(new Error("Views are not loaded"))); return; }
     const normalized = name.trim();
     if (!normalized) {
       return;
@@ -2546,15 +2570,16 @@ function useSavedViews(): [
         ? { ...existing, columns, layoutMode, rowSplit }
         : { id: crypto.randomUUID(), name: normalized, columns, layoutMode, rowSplit };
       const next = [nextEntry, ...current.filter((entry) => entry.id !== nextEntry.id)].slice(0, MAX_SAVED_VIEWS);
-      void saveStoredJson(SAVED_VIEWS_STORAGE_KEY, next);
+      void persistUiSetting(saveStoredJson(SAVED_VIEWS_STORAGE_KEY, next));
       return next;
     });
   }, []);
 
   const removeView = useCallback((id: string) => {
+    if (!viewsLoadedRef.current) { void persistUiSetting(Promise.reject(new Error("Views are not loaded"))); return; }
     setViews((current) => {
       const next = current.filter((entry) => entry.id !== id);
-      void saveStoredJson(SAVED_VIEWS_STORAGE_KEY, next);
+      void persistUiSetting(saveStoredJson(SAVED_VIEWS_STORAGE_KEY, next));
       return next;
     });
   }, []);
@@ -2581,17 +2606,17 @@ function useStoredBoolean(storageKey: string, defaultValue: boolean): [boolean, 
       }
     };
 
-    void run();
+    void persistUiSetting(run());
     return () => {
       cancelled = true;
     };
   }, [storageKey]);
 
-  useEffect(() => {
-    void saveStoredNumber(storageKey, value ? 1 : 0);
-  }, [storageKey, value]);
-
-  return [value, setValue];
+  const update = useCallback((nextValue: boolean) => {
+    setValue(nextValue);
+    void persistUiSetting(saveStoredNumber(storageKey, nextValue ? 1 : 0));
+  }, [storageKey]);
+  return [value, update];
 }
 
 function useDeckSettingsState(): {
@@ -2667,7 +2692,7 @@ function useDeckSettingsState(): {
       }
     };
 
-    void apply();
+    void persistUiSetting(apply());
     const unsubscribe = subscribeDeckSettings((next) => {
       setSettings({
         loaded: true,
@@ -3433,7 +3458,7 @@ function useRailWidth(
       }
     };
 
-    void run();
+    void persistUiSetting(run());
 
     return () => {
       cancelled = true;
@@ -3617,7 +3642,7 @@ function useRailWidth(
     setHasManualOverride(true);
     requestedRailWidthRef.current = normalizedWidth;
     setRequestedRailWidth(normalizedWidth);
-    void saveStoredNumber(RAIL_WIDTH_STORAGE_KEY, normalizedWidth);
+    void persistUiSetting(saveStoredNumber(RAIL_WIDTH_STORAGE_KEY, normalizedWidth));
   }, [clampInteractiveRailWidth]);
 
   return [
@@ -4251,6 +4276,7 @@ function PostListItem({
   deferRemoteContent,
   viewport,
   virtualized = false,
+  initiallyVisible = false,
 }: {
   entry: Extract<PostListEntry, { type: "post" }>;
   entryIndex: number;
@@ -4269,9 +4295,11 @@ function PostListItem({
   deferRemoteContent: boolean;
   viewport: HTMLDivElement | null;
   virtualized?: boolean;
+  initiallyVisible?: boolean;
 }): React.JSX.Element {
   const [node, setNode] = useState<HTMLDivElement | null>(null);
-  const isVisible = useElementVisibility(virtualized ? null : node, { root: viewport, rootMargin: "320px 0px", defaultVisible: virtualized });
+  const initialVisibilityRef = useRef(initiallyVisible);
+  const isVisible = useElementVisibility(virtualized ? null : node, { root: viewport, rootMargin: "320px 0px", defaultVisible: virtualized || initialVisibilityRef.current });
   const [focusWithin, setFocusWithin] = useState(false);
   // Retain row heights for native scroll anchoring while releasing offscreen
   // content. Focused controls must stay mounted when their row leaves view.
@@ -4309,7 +4337,7 @@ function PostListItem({
   };
 
   return (
-    <Row data-deck-entry-key={virtualized ? entry.key : undefined} role={virtualized ? "listitem" : undefined} className="deck-post-item" data-deck-post-id={post.id} data-deck-post-rendered={renderDetails ? "true" : "false"}
+    <Row data-deck-entry-key={virtualized ? entry.key : undefined} role={virtualized ? "listitem" : undefined} className="deck-post-item" data-deck-post-id={post.id} data-deck-post-rendered={renderDetails ? "true" : "false"} data-deck-post-initial-visible={initialVisibilityRef.current ? "true" : "false"}
       onFocusCapture={() => setFocusWithin(true)}
       onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusWithin(false); }}>
     <div
@@ -4430,7 +4458,7 @@ function PostListItem({
       {!deferRemoteContent && post.file_ids && post.file_ids.length > 0 ? (
         <PostFileAttachments fileIds={post.file_ids} postId={post.id} showImagePreviews={showImagePreviews} viewport={viewport} />
       ) : null}
-      </> : null}
+      </> : <span className="deck-post-placeholder" aria-hidden="true">{summarisePost(post.message) || "…"}</span>}
     </div>
     {renderDetails ? <FavoriteButton post={post} /> : null}
     </Row>
@@ -4736,6 +4764,7 @@ function PostList({
         deferRemoteContent={deferRemoteContent}
         viewport={viewportRef.current}
         virtualized={virtualListEnabled}
+        initiallyVisible={isInitialPostWindow(entryIndex, displayEntries.length, compactMode, viewportHeight, reversedPostOrder)}
       />
     );
   };
@@ -4861,6 +4890,7 @@ function MentionsColumn({
   column,
   feedOwner,
   feedHasReview,
+  feedRequiresReadMentions,
   onCreateReview,
   username,
   currentUser,
@@ -4880,7 +4910,6 @@ function MentionsColumn({
   reconnectNonce,
   mentionReconcileNonce,
   mentionMetadataNonce,
-  readRefreshNonce,
   realtimeReadMarkers,
   pollingIntervalSeconds,
   canMoveLeft,
@@ -4903,6 +4932,7 @@ function MentionsColumn({
   column: DeckColumn;
   feedOwner: boolean;
   feedHasReview: boolean;
+  feedRequiresReadMentions: boolean;
   onCreateReview: () => void;
   username: string | null;
   currentUser: MattermostUser | null;
@@ -4922,13 +4952,12 @@ function MentionsColumn({
   reconnectNonce: number;
   mentionReconcileNonce: number;
   mentionMetadataNonce: number;
-  readRefreshNonce: number;
   realtimeReadMarkers: MentionReadMarkers;
   pollingIntervalSeconds: number;
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "teamLabel" | "channelLabel" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
@@ -4983,9 +5012,15 @@ function MentionsColumn({
   // so apply the same filter here and never store channel noise. Being added
   // to a channel stays a mention; every other system message is not.
   const isReviewablePost = (post: MattermostPost) => {
+    if (post.user_id === currentUserId) return false;
     if (post.type?.startsWith("system_")) {
       return post.type === "system_add_to_channel" && post.props?.addedUserId === currentUserId;
     }
+    const channelType = channelDirectory[post.channel_id]?.type;
+    if (!postMatchesMentionCandidate(post, channelType, currentUserId ?? "", mentionKeys, {
+      channelMetadataAvailable: Boolean(channelType),
+      serverCountedChannel: false,
+    })) return false;
     const activeChannelIds = reviewReadStateRef.current?.activeChannelIds ?? null;
     return activeChannelIds === null || activeChannelIds[post.channel_id] === true;
   };
@@ -5028,6 +5063,12 @@ function MentionsColumn({
   const [sectionNode, setSectionNode] = useState<HTMLElement | null>(null);
   const specialMentionMembersCacheRef = useRef<Record<string, { expiresAt: number; members: MattermostChannelMember[] }>>({});
   const specialMentionScanCacheRef = useRef(new Map<string, string>());
+  const mentionChannelTimesRef = useRef(new Map<string, number>());
+  const teamScanCacheRef = useRef(new Map<string, CachedMentionTeamScan>());
+  const teamScanForceRef = useRef("");
+  const latestRealtimeReadMarkersRef = useRef(realtimeReadMarkers);
+  latestRealtimeReadMarkersRef.current = realtimeReadMarkers;
+  const threadReadContextCacheRef = useRef(new Map<string, { scope: string; threads: MattermostUserThread[]; savedAt: number }>());
   const mentionPostsRef = useRef<MattermostPost[]>([]);
   const mentionLoadRunIdRef = useRef(0);
   const mentionCacheHydratedEntryIdRef = useRef<string | null>(null);
@@ -5250,15 +5291,15 @@ function MentionsColumn({
       ) ?? null,
     [deletedPostIds, deletedPostIdsRef, mentionDisplaySnapshot],
   );
-  const reviewPosts = useMemo(() => review.entries.filter(entry => showConfirmed ? entry.confirmedAt !== null : entry.confirmedAt === null).map(entry => entry.post).filter(post => !deletedPostIdsRef.current?.has(post.id)), [review.entries, showConfirmed, deletedPostIds, deletedPostIdsRef]);
+  const reviewPosts = useMemo(() => review.entries.filter(entry => (showConfirmed ? entry.confirmedAt !== null : entry.confirmedAt === null) && entry.post.user_id !== currentUserId).map(entry => entry.post).filter(post => !deletedPostIdsRef.current?.has(post.id)), [review.entries, showConfirmed, currentUserId, deletedPostIds, deletedPostIdsRef]);
   const visiblePosts = useMemo(() => {
     if (!exclusions.loaded) return [];
     const posts = column.mentionReview ? reviewPosts : snapshotPosts ?? resolvedVisiblePosts;
     return showExcluded || !exclusions.ready ? posts : posts.filter(post => !isExcluded(post));
   }, [exclusions.loaded, exclusions.ready, column.mentionReview, reviewPosts, snapshotPosts, resolvedVisiblePosts, showExcluded, isExcluded]);
   const reviewPendingCount = useMemo(
-    () => exclusions.loaded ? review.entries.filter(entry => entry.confirmedAt === null && !(exclusions.ready && isExcluded(entry.post))).length : 0,
-    [exclusions.loaded, exclusions.ready, review.entries, isExcluded],
+    () => exclusions.loaded ? review.entries.filter(entry => entry.confirmedAt === null && entry.post.user_id !== currentUserId && !(exclusions.ready && isExcluded(entry.post))).length : 0,
+    [exclusions.loaded, exclusions.ready, review.entries, currentUserId, isExcluded],
   );
   const visibleDeferredMentionPostIds = useMemo(
     () =>
@@ -5491,7 +5532,7 @@ function MentionsColumn({
   const persistMentionCacheRef = useRef(persistMentionCache);
   persistMentionCacheRef.current = persistMentionCache;
   const mentionCachePersistenceReady = persistMentionCache !== null;
-  const shouldShowLoadingState = !exclusions.loaded || (Boolean(column.mentionReview) && !review.ready) ||
+  const shouldShowLoadingState = !exclusions.loaded || (Boolean(column.mentionReview) && !review.ready && !review.error) ||
     visiblePosts.length === 0 &&
     (
       mentionLoadProgress.active ||
@@ -5606,6 +5647,7 @@ function MentionsColumn({
         teamId: activeTeamId,
         channelId: activeChannelId,
       } = currentRouteRef.current;
+      let hadScanFailure = false;
       const now = Date.now();
       const memberCache = specialMentionMembersCacheRef.current;
       for (const [cachedTeamId, cachedEntry] of Object.entries(memberCache)) {
@@ -5934,10 +5976,8 @@ function MentionsColumn({
                   }
                   try {
                     const { posts: threadPosts, truncated } =
-                      await getPostThreadSinceWithMetadata(
+                      await getCachedPostThreadContext(
                         rootId,
-                        0,
-                        200,
                         MENTION_THREAD_POST_SCAN_LIMIT,
                       );
                     let firstCurrentUserPostAt: number | null = null;
@@ -5958,6 +5998,7 @@ function MentionsColumn({
                       truncated,
                     });
                   } catch {
+                    hadScanFailure = true;
                     fullThreadParticipationCache.set(rootId, "failed");
                   }
                 },
@@ -6053,6 +6094,7 @@ function MentionsColumn({
             // channels in the mentions feed. Leaving its cache entry untouched
             // also means the next poll retries it rather than replaying a
             // partial result.
+            hadScanFailure = true;
             return;
           }
         },
@@ -6078,7 +6120,7 @@ function MentionsColumn({
           scannedChannels +
           (cachedMembers && cachedMembers.expiresAt > now ? 0 : 1),
       });
-      return { posts, members, activeChannelIds };
+      return { posts, members, activeChannelIds, failed: hadScanFailure };
     },
     [
       currentUserId,
@@ -6104,16 +6146,18 @@ function MentionsColumn({
 
       let hasReportedContext = false;
       try {
+        const previousContext = threadReadContextCacheRef.current.get(teamId);
+        const reuseContext = previousContext?.scope === feedContext && Date.now() - previousContext.savedAt < MEMORY_METADATA_TTL_MS;
         const [recentPage, firstUnreadPage] = await Promise.all([
-          getUserThreads(currentUserId, teamId, {
-            unread: false,
-            perPage: THREADS_PAGE_SIZE,
+          reuseContext ? Promise.resolve({ threads: previousContext.threads }) : getUserThreads(currentUserId, teamId, {
+            unread: false, perPage: THREADS_PAGE_SIZE,
           }),
           getUserThreads(currentUserId, teamId, {
             unread: true,
             perPage: THREADS_PAGE_SIZE,
           }),
         ]);
+        const unreadContext = new Map(firstUnreadPage.threads.map(thread => [thread.id, thread]));
         if (shouldCancel()) {
           return {
             posts: [] as MattermostPost[],
@@ -6123,12 +6167,15 @@ function MentionsColumn({
         const serverMentionThreads =
           await collectUnreadMentionThreads(
             firstUnreadPage,
-            async (before) =>
-              await getUserThreads(currentUserId, teamId, {
+            async (before) => {
+              const page = await getUserThreads(currentUserId, teamId, {
                 unread: true,
                 perPage: THREADS_PAGE_SIZE,
                 before,
-              }),
+              });
+              for (const thread of page.threads) unreadContext.set(thread.id, thread);
+              return page;
+            },
             {
               perPage: THREADS_PAGE_SIZE,
               maxMentionThreads:
@@ -6158,16 +6205,34 @@ function MentionsColumn({
         const readStateThreadDirectory = new Map(
           recentPage.threads.map((thread) => [thread.id, thread]),
         );
-        for (const thread of serverMentionThreads) {
+        const completeUnreadContext = unreadContext.size >= firstUnreadPage.total_unread_threads;
+        if (reuseContext && !completeUnreadContext) {
+          const fallback = await getUserThreads(currentUserId, teamId, { unread: false, perPage: THREADS_PAGE_SIZE });
+          for (const thread of fallback.threads) readStateThreadDirectory.set(thread.id, thread);
+        }
+        if (reuseContext && completeUnreadContext) {
+          for (const [id, thread] of readStateThreadDirectory) {
+            if (!unreadContext.has(id)) readStateThreadDirectory.set(id, {
+              ...thread, unread_mentions: 0, unread_replies: 0,
+              last_viewed_at: Math.max(thread.last_viewed_at ?? 0, thread.last_reply_at ?? 0),
+            });
+          }
+        }
+        for (const thread of unreadContext.values()) {
           readStateThreadDirectory.set(thread.id, thread);
         }
         const readStateThreads = Array.from(
           readStateThreadDirectory.values(),
         );
+        threadReadContextCacheRef.current.set(teamId, { scope: feedContext, threads: [...readStateThreads].sort((a, b) => b.last_reply_at - a.last_reply_at).slice(0, MENTION_UNREAD_THREAD_SCAN_LIMIT), savedAt: Date.now() });
+        for (const [id, cached] of threadReadContextCacheRef.current) {
+          if (cached.scope !== feedContext || Date.now() - cached.savedAt >= MEMORY_METADATA_TTL_MS || threadReadContextCacheRef.current.size > 32) threadReadContextCacheRef.current.delete(id);
+        }
         onProgress?.({ type: "context", threads: readStateThreads });
         hasReportedContext = true;
 
         let posts: MattermostPost[] = [];
+        let failed = false;
         await mapInBatches(
           candidateThreads,
           CHANNEL_FANOUT_BATCH_SIZE,
@@ -6176,10 +6241,8 @@ function MentionsColumn({
               return;
             }
             try {
-              const threadPosts = await getPostThreadSince(
-                thread.id,
-                thread.last_viewed_at ?? 0,
-                200,
+              const threadPosts = await getMentionThreadPosts(
+                thread,
                 MENTION_THREAD_POST_SCAN_LIMIT,
               );
               if (shouldCancel()) {
@@ -6199,6 +6262,7 @@ function MentionsColumn({
               );
               onProgress?.({ type: "posts", posts: unreadPosts });
             } catch {
+              failed = true;
               return;
             }
           },
@@ -6209,6 +6273,7 @@ function MentionsColumn({
         return {
           posts,
           threads: readStateThreads,
+          failed,
         };
       } catch {
         // Threads were introduced after the first supported Mattermost
@@ -6217,10 +6282,10 @@ function MentionsColumn({
         if (!hasReportedContext && !shouldCancel()) {
           onProgress?.({ type: "context", threads: [] });
         }
-        return { posts: [] as MattermostPost[], threads: [] as MattermostUserThread[] };
+        return { posts: [] as MattermostPost[], threads: [] as MattermostUserThread[], failed: true };
       }
     },
-    [currentUserId, mentionKeys],
+    [currentUserId, mentionKeys, feedContext],
   );
 
   // Panes sharing a feed share its fetch, so throttle only when none of them is on screen.
@@ -6229,16 +6294,10 @@ function MentionsColumn({
   useEffect(() => () => setFeedVisibility(previous => { if (!(column.id in previous)) return previous; const { [column.id]: _removed, ...rest } = previous; return rest; }), [column.id, setFeedVisibility]);
   const feedVisibilityValues = Object.values(feedVisibility);
   const anyPaneVisible = !feedVisibilityValues.length || feedVisibilityValues.some(Boolean);
-  const mentionPollingIntervalMs = useMemo(
-    () => {
-      const syncInterval = getSyncInterval(realtimeEnabled, pollingIntervalSeconds, anyPaneVisible);
-      if (column.teamId || !realtimeEnabled) {
-        return syncInterval;
-      }
-      return Math.max(syncInterval, 120_000);
-    },
-    [column.teamId, anyPaneVisible, pollingIntervalSeconds, realtimeEnabled],
-  );
+  const mentionSyncInterval = getSyncInterval(realtimeEnabled, pollingIntervalSeconds, anyPaneVisible);
+  const mentionPollingIntervalMs = anyPaneVisible && !document.hidden
+    ? Math.min(mentionSyncInterval, getPerformanceSettings().mentionFullScanIntervalSeconds * 1000)
+    : mentionSyncInterval;
 
   useColumnPolling(
     async (isCancelled) => {
@@ -6514,30 +6573,96 @@ function MentionsColumn({
       }
 
       try {
+        const tuning = getPerformanceSettings();
+        const forceKey = JSON.stringify([feedContext, mentionSearchTerms, collapsedReplyThreads, commentsNotify, feedRequiresReadMentions, refreshNonce, reconnectNonce, mentionMetadataNonce]);
+        const forceScan = teamScanForceRef.current !== forceKey;
+        let latestUnreads: TeamUnread[] | null = null;
+        try { latestUnreads = await getTeamUnread(resolvedCurrentUserId); } catch { /* Unknown counters require a full scan. */ }
+        const activeSnapshot = await activeChannelSnapshotPromise;
+        // TeamUnread excludes DM/GM. One membership request supplies their
+        // read markers even in polling mode, so unchanged team counters cannot
+        // hide a new direct message or retain one that was read elsewhere.
+        const directIds = new Set(activeSnapshot.channels?.filter(channel => channel.type === "D" || channel.type === "G").map(channel => channel.id));
+        let directMembers: MattermostChannelMember[] | null = directIds.size ? null : [];
+        if (directIds.size && teamIds[0]) {
+          try {
+            const members = await getChannelMembersForCurrentUser(teamIds[0]);
+            directMembers = members.filter(member => directIds.has(member.channel_id));
+            specialMentionMembersCacheRef.current[teamIds[0]] = { members, expiresAt: Date.now() + specialMentionMemberTtlMs };
+            for (const [id, cache] of Object.entries(specialMentionMembersCacheRef.current)) {
+              if (id === teamIds[0]) continue;
+              cache.members = [...cache.members.filter(member => !directIds.has(member.channel_id)), ...directMembers];
+            }
+          } catch { /* Unknown direct read state requires the normal scans. */ }
+        }
+        if (!canPublishProgress()) return;
+        const nextTeamScans = new Map<string, CachedMentionTeamScan>();
+        const failedTeams = new Set<string>();
+        for (const id of teamScanCacheRef.current.keys()) if (!teamIds.includes(id)) teamScanCacheRef.current.delete(id);
         await mapInBatches(
           teamIds,
-          TEAM_FANOUT_BATCH_SIZE,
+          tuning.mentionTeamConcurrency,
           async (teamId) => {
             if (!canPublishProgress()) {
               return;
             }
+            const cached = teamScanCacheRef.current.get(teamId);
+            const unread = latestUnreads?.find(entry => entry.team_id === teamId);
+            const counterSignature = mentionTeamUnreadSignature(unread);
+            const channelIds = new Set(cached?.channelContext.members.map(member => member.channel_id));
+            const threadIds = new Set(cached?.threads.map(thread => thread.id));
+            const markers = latestRealtimeReadMarkersRef.current;
+            const signature = JSON.stringify([forceKey, counterSignature,
+              teamId === teamIds[0] ? directMembers?.map(member => [member.channel_id, member.last_viewed_at, member.msg_count, member.mention_count]).sort() ?? null : [],
+              activeSnapshot.channels?.filter(channel => channel.team_id === teamId || !channel.team_id).map(channel => channel.id).sort() ?? null,
+              postedEventsRef.current.filter(event => event.teamId === teamId || channelIds.has(event.channelId))
+                .map(event => [event.post.id, event.eventType, event.post.update_at, event.post.edit_at, event.post.message]),
+              cached?.posts.filter(post => deletedPostIdsRef.current?.has(post.id)).map(post => post.id) ?? [],
+              Object.entries(markers.channelLastViewedAt).filter(([id]) => channelIds.has(id)).sort(),
+              Object.entries(markers.threadLastViewedAt).filter(([id]) => threadIds.has(id)).sort(),
+            ]);
+            const reuse = shouldReuseMentionTeamScan(cached, signature, Date.now(), tuning.mentionFullScanIntervalSeconds * 1000,
+              forceScan || counterSignature === null || activeSnapshot.channels === null || directMembers === null);
+            if (isDebugEnabled()) {
+              const previousParts = cached ? JSON.parse(cached.signature) as unknown[] : [];
+              debugLog("app.mentions.team-plan", { teamId, reuse, forceScan, knownCounters: counterSignature !== null,
+                cached: Boolean(cached), ageMs: cached ? Date.now() - cached.completedAt : null,
+                changedParts: cached ? (JSON.parse(signature) as unknown[]).map((part, index) => JSON.stringify(part) === JSON.stringify(previousParts[index]) ? null : index).filter(index => index !== null) : [] });
+            }
+            if (reuse) {
+              successfulSearchCount++;
+              searchHasMore ||= cached!.searchHasMore;
+              searchPosts = mergePosts(cached!.posts, searchPosts, MENTIONS_MAX_BUFFER);
+              appendTeamProgressPosts(teamId, cached!.posts);
+              setTeamChannelContext(teamId, cached!.channelContext.members, cached!.channelContext.activeChannelIds);
+              setTeamThreadContext(teamId, cached!.threads);
+              for (const pipeline of ["search", "channel", "thread"] as const) completeTeamPipeline(teamId, pipeline);
+              return;
+            }
+            let teamSearchHasMore = false;
+            let scanPosts: MattermostPost[] = [];
+            let scanChannelContext: CachedMentionTeamScan["channelContext"] | null = null;
+            let scanThreads: MattermostUserThread[] | null = null;
             await Promise.all([
               (async () => {
                 if (!canPublishProgress()) {
                   return;
                 }
                 try {
-                  const posts = await searchPostsInTeam(
+                  const posts = canSkipEmptyMentionTeamSearch(unread, !feedRequiresReadMentions, feedHasReview)
+                    ? [] : await searchPostsInTeam(
                     teamId,
                     mentionSearchTerms,
                     0,
                     MENTIONS_PAGE_SIZE,
-                    { isOrSearch: true },
+                    { isOrSearch: true, reason: "mention-team-search" },
                   );
                   if (!canPublishProgress()) {
                     return;
                   }
                   captureReview(posts);
+                  scanPosts = mergePosts(posts, scanPosts, MENTIONS_MAX_BUFFER);
+                  teamSearchHasMore = posts.length === MENTIONS_PAGE_SIZE;
                   successfulSearchCount += 1;
                   searchHasMore =
                     searchHasMore ||
@@ -6549,6 +6674,7 @@ function MentionsColumn({
                   );
                   appendTeamProgressPosts(teamId, posts);
                 } catch (error) {
+                  failedTeams.add(teamId);
                   if (firstSearchError === null) {
                     firstSearchError = error;
                   }
@@ -6589,6 +6715,9 @@ function MentionsColumn({
                     unreadChannelPosts,
                     MENTIONS_MAX_BUFFER,
                   );
+                  scanPosts = mergePosts(result.posts, scanPosts, MENTIONS_MAX_BUFFER);
+                  scanChannelContext = { members: result.members, activeChannelIds: result.activeChannelIds };
+                  if ("failed" in result && result.failed) failedTeams.add(teamId);
                   if (
                     !teamProgressById.get(teamId)?.channelContext
                   ) {
@@ -6599,6 +6728,7 @@ function MentionsColumn({
                     );
                   }
                 } catch {
+                  failedTeams.add(teamId);
                   if (canPublishProgress()) {
                     setTeamChannelContext(teamId, [], null);
                   }
@@ -6632,17 +6762,21 @@ function MentionsColumn({
                   if (!canPublishProgress()) {
                     return;
                   }
+                  if ("failed" in result && result.failed) failedTeams.add(teamId);
                   unreadThreadPosts = mergePosts(
                     result.posts,
                     unreadThreadPosts,
                     MENTIONS_MAX_BUFFER,
                   );
+                  scanPosts = mergePosts(result.posts, scanPosts, MENTIONS_MAX_BUFFER);
+                  scanThreads = result.threads;
                   if (
                     teamProgressById.get(teamId)?.threadContext === null
                   ) {
                     setTeamThreadContext(teamId, result.threads);
                   }
                 } catch {
+                  failedTeams.add(teamId);
                   if (canPublishProgress()) {
                     setTeamThreadContext(teamId, []);
                   }
@@ -6651,8 +6785,12 @@ function MentionsColumn({
                 }
               })(),
             ]);
+            if (!failedTeams.has(teamId) && scanChannelContext && scanThreads) {
+              nextTeamScans.set(teamId, { signature, completedAt: Date.now(), posts: scanPosts,
+                channelContext: scanChannelContext, threads: scanThreads, searchHasMore: teamSearchHasMore });
+            } else teamScanCacheRef.current.delete(teamId);
           },
-          teamIds.length > TEAM_FANOUT_BATCH_SIZE
+          teamIds.length > tuning.mentionTeamConcurrency
             ? TEAM_FANOUT_GAP_MS
             : 0,
           () => !canPublishProgress(),
@@ -6677,6 +6815,9 @@ function MentionsColumn({
           [...unreadChannelPosts, ...unreadThreadPosts],
           MENTIONS_MAX_BUFFER,
         );
+        for (const member of directMembers ?? []) {
+          if (member.last_viewed_at !== undefined) completedMentionReadState.channelLastViewedAt[member.channel_id] = member.last_viewed_at;
+        }
         const nextMentionReadState = compactMentionReadState(
           completedMentionReadState,
           [...rawLatestPosts, ...mentionPostsRef.current],
@@ -6934,6 +7075,15 @@ function MentionsColumn({
             : current,
         );
         setHasCompletedInitialLoad(true);
+        teamScanForceRef.current = forceKey;
+        for (const [id, scan] of nextTeamScans) teamScanCacheRef.current.set(id, scan);
+        debugLog("app.mentions.team-cache", { entries: teamScanCacheRef.current.size, failedTeams: Array.from(failedTeams) });
+        let retained = Array.from(teamScanCacheRef.current.values()).reduce((sum, scan) => sum + scan.posts.length, 0);
+        for (const [id, scan] of teamScanCacheRef.current) {
+          if (retained <= 5000 && teamScanCacheRef.current.size <= 128) break;
+          retained -= scan.posts.length;
+          teamScanCacheRef.current.delete(id);
+        }
         mentionCacheSaveEntryIdRef.current = mentionCacheEntryId;
         setMentionCacheSaveVersion((current) => current + 1);
         finishRefresh();
@@ -6992,6 +7142,7 @@ function MentionsColumn({
       },
       dependencies: [
         feedOwner,
+        feedRequiresReadMentions,
         column.teamId,
         currentUserId,
         ensureUsers,
@@ -7003,7 +7154,6 @@ function MentionsColumn({
         mentionCachePersistenceReady,
         mentionSearchTerms,
         paused,
-        readRefreshNonce,
         reconnectNonce,
         mentionReconcileNonce,
         refreshNonce,
@@ -7296,7 +7446,7 @@ function MentionsColumn({
         .map((post) => post.channel_id)
         .filter(Boolean),
     );
-    const missingChannelIds = [...requiredChannelIds].filter((channelId) => !channelDirectory[channelId]);
+    const missingChannelIds = [...requiredChannelIds].filter((channelId) => !channelDirectory[channelId] || Date.now() - (mentionChannelTimesRef.current.get(channelId) ?? 0) >= MEMORY_METADATA_TTL_MS);
     if (missingChannelIds.length === 0) {
       return;
     }
@@ -7309,6 +7459,11 @@ function MentionsColumn({
           return;
         }
 
+        for (const channel of channels) {
+          mentionChannelTimesRef.current.delete(channel.id);
+          mentionChannelTimesRef.current.set(channel.id, Date.now());
+        }
+        while (mentionChannelTimesRef.current.size > MENTION_METADATA_DIRECTORY_MAX_ENTRIES) mentionChannelTimesRef.current.delete(mentionChannelTimesRef.current.keys().next().value!);
         setChannelDirectory((current) => {
           const next = { ...current };
           for (const channel of channels) {
@@ -7431,7 +7586,7 @@ function MentionsColumn({
       await Promise.all([
         mapInBatches(
           teamIds,
-          TEAM_FANOUT_BATCH_SIZE,
+          getPerformanceSettings().mentionTeamConcurrency,
           async (teamId) => {
             const teamPosts = await searchPostsInTeam(
               teamId,
@@ -7451,7 +7606,7 @@ function MentionsColumn({
               MENTIONS_MAX_BUFFER,
             );
           },
-          teamIds.length > TEAM_FANOUT_BATCH_SIZE ? TEAM_FANOUT_GAP_MS : 0,
+          teamIds.length > getPerformanceSettings().mentionTeamConcurrency ? TEAM_FANOUT_GAP_MS : 0,
         ),
         new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
       ]);
@@ -7691,7 +7846,7 @@ function MentionsColumn({
           )}
         </div>
         <div className="deck-badge" title={column.mentionReview ? reviewText.pending : text.mentionBadge(mentionCount, Boolean(column.teamId))}>
-          {column.mentionReview ? reviewPendingCount : mentionCount}
+          {column.mentionReview ? (review.ready ? reviewPendingCount : "—") : mentionCount}
         </div>
         <div className="deck-column-actions">
           <PaneSearchToggle search={paneSearch} icon={<SearchIcon />} />
@@ -7727,7 +7882,12 @@ function MentionsColumn({
         </> : null}
         {reviewBusy ? <span>{reviewText.saving}</span> : null}
       </div> : null}
-      {(column.mentionReview || (feedOwner && feedHasReview)) && review.error ? <p role="alert">{reviewText.error}: {review.error}</p> : null}
+      {(column.mentionReview || (feedOwner && feedHasReview)) && review.error ? <div className="deck-exclusion-error" role="alert" data-deck-review-error>
+        <span>{language === "ja" ? "確認状態を読み込み・保存できませんでした" : "Could not load or save review state"}: {review.error}</span>
+        {isReviewContextInvalidated(review.error)
+          ? <button type="button" className="deck-exclusion-link" onClick={() => window.location.reload()}>{language === "ja" ? "ページを再読み込み" : "Reload page"}</button>
+          : <button type="button" className="deck-exclusion-link" onClick={() => void review.retry()}>{language === "ja" ? "再試行" : "Retry"}</button>}
+      </div> : null}
       {exclusions.error ? <div className="deck-exclusion-error" role="alert"><span>{language === "ja" ? "表示の除外を読み込み・保存できませんでした" : "Could not load or save display exclusions"}: {exclusions.error}</span><button type="button" className="deck-exclusion-link" onClick={() => void exclusions.retry()}>{language === "ja" ? "再試行" : "Retry"}</button></div> : null}
       {exclusionFeedback ? <div className="deck-exclusion-feedback" role="status"><span>{exclusionFeedback.text}</span><button type="button" className="deck-exclusion-link" disabled={exclusionUndoBusy} onClick={async () => { setExclusionUndoBusy(true); try { await exclusionFeedback.undo(); setExclusionFeedback(null); } catch { /* Shared store exposes the failure. */ } finally { setExclusionUndoBusy(false); } }}>{language === "ja" ? "取り消す" : "Undo"}</button></div> : null}
       {showControls ? (
@@ -7867,7 +8027,7 @@ function MentionsColumn({
               }}
             />
           ) : null}
-          {visiblePosts.length === 0 &&
+          {visiblePosts.length === 0 && (!column.mentionReview || review.ready) &&
           !mentionLoadProgress.active &&
           (!mentionDisplaySnapshot || column.mentionReview) ? (
             <article className="deck-card">
@@ -8032,9 +8192,9 @@ function ChannelWatchColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onAddColumn: (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => string;
+  onAddColumn: (type: DeckColumnType, defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "teamLabel" | "channelLabel" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => string;
   onRememberTarget: (target: RecentChannelTarget) => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "teamLabel" | "channelLabel" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
@@ -8203,7 +8363,7 @@ function ChannelWatchColumn({
       return;
     }
     if (column.channelId && !channelState.channels.some((channel) => channel.id === column.channelId)) {
-      onUpdate(column.id, { channelId: undefined });
+      onUpdate(column.id, { channelId: undefined, channelLabel: undefined });
     }
   }, [channelDirectoryScope, channelState, column.channelId, column.id, onUpdate]);
 
@@ -8260,9 +8420,9 @@ function ChannelWatchColumn({
   );
   const selectedChannelLabel = selectedChannel
     ? getChannelLabel(selectedChannel, userDirectory, memberDirectory, currentUserId)
-    : undefined;
+    : column.channelLabel;
   const selectedChannelKindLabel = getChannelKindLabel(selectedChannel);
-  const selectedTeamLabel = selectedTeam ? selectedTeam.display_name || selectedTeam.name : undefined;
+  const selectedTeamLabel = selectedTeam ? selectedTeam.display_name || selectedTeam.name : column.teamLabel;
   const highlightTerms = useMemo(() => resolveHighlightTerms(highlightKeywords, currentUsername), [currentUsername, highlightKeywords]);
   const canWatchCurrentChannel = Boolean(currentChannelId) && (mode === "dm" || Boolean(currentTeamId));
   const currentWatchLabel = currentChannelLabel ?? (mode === "dm" ? text.directMessage : text.channelLabel);
@@ -8302,7 +8462,7 @@ function ChannelWatchColumn({
         loadingMore: false,
       }));
       try {
-        const latestPosts = await getRecentPosts(column.channelId as string, 0, refreshLimit);
+        const latestPosts = await getRecentPosts(column.channelId as string, 0, refreshLimit, "interactive");
         if (isCancelled()) {
           return;
         }
@@ -8411,7 +8571,7 @@ function ChannelWatchColumn({
     setPostState((current) => ({ ...current, loadingMore: true, error: null }));
     try {
       const [posts] = await Promise.all([
-        getRecentPosts(column.channelId, requestPage, POSTS_PAGE_SIZE),
+        getRecentPosts(column.channelId, requestPage, POSTS_PAGE_SIZE, "interactive"),
         new Promise((resolve) => window.setTimeout(resolve, MIN_LOAD_MORE_MS)),
       ]);
       if (
@@ -8607,7 +8767,14 @@ function ChannelWatchColumn({
                 value={column.channelId ?? ""}
                 disabled={(mode === "channel" && !column.teamId) || channelState.status === "loading"}
                 placeholder={mode === "dm" ? text.selectDm : text.selectChannel}
-                onChange={(channelId) => onUpdate(column.id, { channelId: channelId || undefined })}
+                onChange={(channelId) => {
+                  const channel = channelState.channels.find((entry) => entry.id === channelId);
+                  onUpdate(column.id, {
+                    channelId: channelId || undefined,
+                    channelLabel: channel ? getChannelLabel(channel, userDirectory, memberDirectory, currentUserId) : undefined,
+                    teamLabel: selectedTeam ? selectedTeam.display_name || selectedTeam.name : undefined,
+                  });
+                }}
               />
             </label>
           </div>
@@ -8916,7 +9083,7 @@ function SearchLikeColumn({
   canMoveLeft: boolean;
   canMoveRight: boolean;
   onMove: (id: string, direction: "left" | "right") => void;
-  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<DeckColumn, "teamId" | "channelId" | "teamLabel" | "channelLabel" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>) => void;
   onRemove: (id: string) => void;
   onOpenPost: (post: MattermostPost, target?: OpenPostTarget) => void;
   postClickAction: PostClickAction;
@@ -8930,7 +9097,6 @@ function SearchLikeColumn({
   onToggleFocus: (id: string) => void;
 }): React.JSX.Element {
   const text = useAppText();
-  const [searchChannelDirectory, setSearchChannelDirectory] = useState<Record<string, MattermostChannel>>({});
   const deletedPostIdsRef = useRef(deletedPostIds);
   deletedPostIdsRef.current = deletedPostIds;
   const [postState, setPostState] = useState<PostState>({
@@ -8950,25 +9116,28 @@ function SearchLikeColumn({
   const [showControls, setShowControls] = useState(!(column.teamId && column.query?.trim()));
   const [draftQuery, setDraftQuery] = useState(column.query ?? "");
   const [savedSearches, setSavedSearches] = useState<string[]>([]);
+  const searchesLoadedRef = useRef(false);
   const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
   const [sectionNode, setSectionNode] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
-    void loadStoredJson<string[]>(SAVED_SEARCHES_KEY, []).then(setSavedSearches);
+    void persistUiSetting(loadStoredJson<string[]>(SAVED_SEARCHES_KEY, []).then(value => { searchesLoadedRef.current = true; setSavedSearches(value); }));
   }, []);
 
   const handleSaveSearch = () => {
+    if (!searchesLoadedRef.current) { void persistUiSetting(Promise.reject(new Error("Searches are not loaded"))); return; }
     const q = draftQuery.trim();
     if (!q || savedSearches.includes(q)) return;
     const next = [...savedSearches, q];
     setSavedSearches(next);
-    void saveStoredJson(SAVED_SEARCHES_KEY, next);
+    void persistUiSetting(saveStoredJson(SAVED_SEARCHES_KEY, next));
   };
 
   const handleDeleteSavedSearch = (q: string) => {
+    if (!searchesLoadedRef.current) { void persistUiSetting(Promise.reject(new Error("Searches are not loaded"))); return; }
     const next = savedSearches.filter((s) => s !== q);
     setSavedSearches(next);
-    void saveStoredJson(SAVED_SEARCHES_KEY, next);
+    void persistUiSetting(saveStoredJson(SAVED_SEARCHES_KEY, next));
   };
   const selectedTeam = teams.find((team) => team.id === column.teamId);
   const query = column.query?.trim() ?? "";
@@ -9022,38 +9191,7 @@ function SearchLikeColumn({
     setDraftQuery(column.query ?? "");
   }, [column.query]);
 
-  useEffect(() => {
-    const missingChannelIds = Array.from(
-      new Set(postState.posts.map((post) => post.channel_id).filter((channelId) => channelId && !searchChannelDirectory[channelId])),
-    );
-    if (missingChannelIds.length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-    const run = async () => {
-      try {
-        const channels = await getChannelsByIds(missingChannelIds);
-        if (cancelled) {
-          return;
-        }
-        setSearchChannelDirectory((current) => {
-          const next = { ...current };
-          for (const channel of channels) {
-            next[channel.id] = channel;
-          }
-          return next;
-        });
-      } catch {
-        return;
-      }
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [postState.posts, searchChannelDirectory]);
+  const searchChannelDirectory = useChannelDirectory(postState.posts, currentUserId);
 
   const searchPollingIntervalMs = useMemo(
     () => Math.max(getSyncInterval(false, pollingIntervalSeconds, isPaneVisible), SEARCH_SYNC_INTERVAL_FLOOR_MS),
@@ -9440,30 +9578,19 @@ function FavoritesColumn(props: React.ComponentProps<typeof SavedPostsColumn> & 
   const text = useAppText();
   const { column, userDirectory, ensureUsers, onOpenPost, compactMode, postClickAction,
     showImagePreviews, language, currentUserId, columnColors } = props;
-  const posts = useMemo(() => favorites.entries.flatMap(f => f.post ? [f.post] : [])
-    .sort((a, b) => b.create_at - a.create_at), [favorites.entries]);
+  const posts = useMemo(() => favorites.entries.flatMap(f => f.post && !props.deletedPostIds.includes(f.id) ? [f.post] : [])
+    .sort((a, b) => b.create_at - a.create_at), [favorites.entries, props.deletedPostIds]);
   const unavailable = favorites.entries.filter(f => !f.post);
-  const [channels, setChannels] = useState<Record<string, MattermostChannel>>({});
+  const channels = useChannelDirectory(posts, currentUserId);
   const [paused, setPaused] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const controlsId = `mattermost-deck-favorites-controls-${column.id}`;
   useEffect(() => { void ensureUsers(posts.map(p => p.user_id)).catch(() => undefined); }, [ensureUsers, posts]);
-  useEffect(() => {
-    const missing = [...new Set(posts.map(p => p.channel_id))].filter(id => !channels[id]);
-    if (!missing.length) return;
-    let cancelled = false;
-    void getChannelsByIds(missing).then(result => {
-      if (!cancelled) setChannels(current => ({ ...current, ...Object.fromEntries(result.map(c => [c.id, c])) }));
-    }).catch(() => undefined);
-    return () => { cancelled = true; };
-  }, [posts, channels]);
+
   useEffect(() => {
     if (paused) return;
     return startVisiblePolling(() => favorites.refresh(), FAVORITES_REFRESH_MS, { refreshOnOnline: true });
   }, [favorites.refresh, paused, props.reconnectNonce]);
-  useEffect(() => {
-    if (props.deletedPostIds.some(id => favorites.entries.some(f => f.id === id && f.post))) void favorites.refresh(true);
-  }, [props.deletedPostIds, favorites.entries, favorites.refresh]);
   const paneSearch = usePaneSearch(posts, userDirectory);
 
   return <section className={`deck-column deck-column--favorites${props.isFocusedPane ? " deck-column--pane-focused" : ""}`}
@@ -9566,7 +9693,6 @@ function SavedPostsColumn({
   onToggleFocus: (id: string) => void;
 }): React.JSX.Element {
   const text = useAppText();
-  const [savedChannelDirectory, setSavedChannelDirectory] = useState<Record<string, MattermostChannel>>({});
   const deletedPostIdsRef = useRef(deletedPostIds);
   deletedPostIdsRef.current = deletedPostIds;
   const [postState, setPostState] = useState<PostState>({
@@ -9673,38 +9799,7 @@ function SavedPostsColumn({
     });
   }, [deletedPostIds]);
 
-  useEffect(() => {
-    const missingChannelIds = Array.from(
-      new Set(postState.posts.map((post) => post.channel_id).filter((channelId) => channelId && !savedChannelDirectory[channelId])),
-    );
-    if (missingChannelIds.length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-    const run = async () => {
-      try {
-        const channels = await getChannelsByIds(missingChannelIds);
-        if (cancelled) {
-          return;
-        }
-        setSavedChannelDirectory((current) => {
-          const next = { ...current };
-          for (const channel of channels) {
-            next[channel.id] = channel;
-          }
-          return next;
-        });
-      } catch {
-        return;
-      }
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [postState.posts, savedChannelDirectory]);
+  const savedChannelDirectory = useChannelDirectory(postState.posts, currentUserId);
 
   const handleLoadMore = async () => {
     if (postState.loadingMore || !postState.hasMore) {
@@ -10066,20 +10161,21 @@ function DiagnosticsColumn({
             <span>{runtimeMetrics.api.recentFailedRequestsPerMinute} / {runtimeMetrics.api.recentRequestsPerMinute} {text.diagnosticsRecentSuffix}</span>
           </article>
           <article className="deck-card deck-card--metric">
-            <strong>{text.diagnosticsInFlight}</strong>
+            <strong>{text.diagnosticsActiveSlots}</strong>
             <p>{runtimeMetrics.api.activeRequestSlots}</p>
             <span>{language === "ja" ? "自動並列数 / 設定上限" : "Adaptive concurrency / ceiling"}: {runtimeMetrics.api.adaptiveConcurrency} / {runtimeMetrics.api.configuredConcurrency}</span>
             <span>{language === "ja" ? ADAPTATION_REASON_JA[runtimeMetrics.api.adaptationReason] ?? runtimeMetrics.api.adaptationReason : runtimeMetrics.api.adaptationReason}</span>
+            <span>{runtimeMetrics.api.inFlightRequests} {text.diagnosticsInFlight.toLowerCase()}</span>
             <span>{runtimeMetrics.api.totalGetRequests} GET / {runtimeMetrics.api.totalPostRequests} POST / {runtimeMetrics.api.totalFailedRequests} {text.diagnosticsFailedSuffix}</span>
           </article>
           <article className="deck-card deck-card--metric">
-            <strong>{language === "ja" ? "待機中のリクエスト" : "Queued requests"}</strong>
+            <strong>{text.diagnosticsQueuedRequests}</strong>
             <p>{runtimeMetrics.api.queuedRequests}</p>
             <span>{language === "ja" ? "最古の待機" : "Oldest queued"}: {formatLatency(runtimeMetrics.api.oldestQueuedMs)}</span>
             <span>{language === "ja" ? "レート待ち / 実行枠待ち（重複あり）" : "Rate / concurrency blocked (may overlap)"}: {runtimeMetrics.api.waitingForRate} / {runtimeMetrics.api.waitingForConcurrency}</span>
             <span>{language === "ja" ? "開始間隔待ち / サーバー指定待機" : "Start spacing / server backoff"}: {formatLatency(runtimeMetrics.api.startGapWaitMs)} / {formatLatency(runtimeMetrics.api.serverBackoffMs)}</span>
             <span>{language === "ja" ? "重複取得を集約" : "Coalesced requests"}: {runtimeMetrics.api.coalescedRequests}</span>
-            <span>{language === "ja" ? "平均待ち時間" : "Average queue wait"} {formatLatency(runtimeMetrics.api.averageQueueWaitMs)}</span>
+            <span>{text.diagnosticsAvgQueueWait} {formatLatency(runtimeMetrics.api.averageQueueWaitMs)}</span>
           </article>
           <article className="deck-card deck-card--metric">
             <strong>{text.diagnosticsWsReconnects}</strong>
@@ -10143,7 +10239,6 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
   const currentRoute = useMemo(() => readDeckCurrentRoute(), [currentRouteKey]);
   const [reconnectNonce, setReconnectNonce] = useState(0);
-  const [mentionReadRefreshNonce, setMentionReadRefreshNonce] = useState(0);
   const [realtimeReadMarkers, setRealtimeReadMarkers] = useState<MentionReadMarkers>({
     channelLastViewedAt: {},
     threadLastViewedAt: {},
@@ -10167,17 +10262,25 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const [realtimeAuthError, setRealtimeAuthError] = useState<string | null>(null);
   const mentionReconcileTimerRef = useRef<number | null>(null);
   const mentionReconcileStartedAtRef = useRef<number | null>(null);
-  const [userDirectory, setUserDirectory] = useState<Record<string, MattermostUser>>({});
-  const userDirectoryRef = useRef<Record<string, MattermostUser>>({});
+  const mentionReconcileLastRunAtRef = useRef(0);
   const [drawerOpen, setDrawerOpen] = useStoredBoolean(DRAWER_OPEN_STORAGE_KEY, true);
   const [contentMounted, setContentMounted] = useState(true);
   const unmountTimerRef = useRef<number | null>(null);
+  const [storageFailure, setStorageFailure] = useState(false);
+  useLayoutEffect(() => {
+    const failed = () => setStorageFailure(true);
+    window.addEventListener(STORAGE_ERROR_EVENT, failed);
+    return () => window.removeEventListener(STORAGE_ERROR_EVENT, failed);
+  }, []);
   const deckSettings = useDeckSettingsState();
   const initialDeckLanguageRef = useRef(deckSettings.language);
   const text = useAppText();
   useEffect(() => { void i18n.changeLanguage(deckSettings.language); }, [deckSettings.language]);
   const effectiveRealtimeEnabled = deckSettings.wsPat.trim().length > 0 && !realtimeAuthError;
   const state = useDeckState(currentRouteKey, stateRefreshNonce, effectiveRealtimeEnabled, deckSettings.pollingIntervalSeconds);
+  const { directory: userDirectory, ensureUsers, updateUsers } = useUserDirectory(getMattermostUrl("/"), state.currentUser, mentionMetadataNonce);
+  const updateUsersRef = useRef(updateUsers);
+  useLayoutEffect(() => { updateUsersRef.current = updateUsers; }, [updateUsers]);
   const cacheServerScope = getMattermostUrl("/");
   // Clear only this server/account after settings and identity have loaded.
   // An opt-out on one connection must not erase other connections' caches.
@@ -10200,9 +10303,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const [rowSplit, setRowSplit] = useState(50);
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([loadStoredJson("mattermostDeck.layoutMode.v1", "row"), loadStoredJson("mattermostDeck.rowSplit.v1", 50)]).then(([mode, split]) => {
+    void persistUiSetting(Promise.all([loadStoredJson("mattermostDeck.layoutMode.v1", "row"), loadStoredJson("mattermostDeck.rowSplit.v1", 50)]).then(([mode, split]) => {
       if (!cancelled) { setLayoutMode(mode === "twoRows" ? "twoRows" : "row"); setRowSplit(normaliseRowSplit(split)); setLayoutModeReady(true); }
-    });
+    }));
     return () => { cancelled = true; };
   }, []);
   useEffect(() => {
@@ -10220,12 +10323,12 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   };
   const changeLayoutMode = (mode: "row" | "twoRows") => {
     setLayoutMode(mode);
-    void saveStoredJson("mattermostDeck.layoutMode.v1", mode);
+    void persistUiSetting(saveStoredJson("mattermostDeck.layoutMode.v1", mode));
   };
   const changeRowSplit = (value: number) => {
     const next = normaliseRowSplit(value);
     setRowSplit(next);
-    void saveStoredJson("mattermostDeck.rowSplit.v1", next);
+    void persistUiSetting(saveStoredJson("mattermostDeck.rowSplit.v1", next));
   };
   const layoutModeControls = <><div className="deck-layout-mode" role="group" aria-label={i18n.t("deck.layoutMode")}>
     {(["row", "twoRows"] as const).map(mode => <button key={mode} type="button"
@@ -10349,9 +10452,6 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     [deckSettings.compactMode, deckSettings.fontScalePercent, deckSettings.preferredColumnWidth, mattermostThemeStyle],
   );
 
-  useEffect(() => {
-    userDirectoryRef.current = userDirectory;
-  }, [userDirectory]);
 
   const scheduleMentionReconcile = useCallback((reason: string) => {
     const now = Date.now();
@@ -10361,13 +10461,17 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       0,
       MENTION_RECONCILE_MAX_WAIT_MS - (now - startedAt),
     );
-    const delayMs = Math.min(MENTION_RECONCILE_DEBOUNCE_MS, remainingMs);
+    const delayMs = Math.max(
+      Math.min(MENTION_RECONCILE_DEBOUNCE_MS, remainingMs),
+      getPerformanceSettings().mentionReconcileMinIntervalSeconds * 1000 - (now - mentionReconcileLastRunAtRef.current),
+    );
     if (mentionReconcileTimerRef.current !== null) {
       window.clearTimeout(mentionReconcileTimerRef.current);
     }
     mentionReconcileTimerRef.current = window.setTimeout(() => {
       mentionReconcileTimerRef.current = null;
       mentionReconcileStartedAtRef.current = null;
+      mentionReconcileLastRunAtRef.current = Date.now();
       debugLog("app.ws.mention-reconcile", { reason });
       setMentionReconcileNonce((current) => current + 1);
     }, delayMs);
@@ -10457,67 +10561,6 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     setPostedEvents([]);
     setDeletedPostIds([]);
   }, [state.userId]);
-  useEffect(() => {
-    if (!state.userId || !state.username) {
-      return;
-    }
-    const userId = state.userId;
-    const username = state.username;
-
-    setUserDirectory((current) => {
-      if (current[userId]) {
-        return current;
-      }
-
-      return {
-        ...current,
-        [userId]: {
-          id: userId,
-          username,
-        },
-      };
-    });
-  }, [state.userId, state.username]);
-
-  const ensureUsers = useCallback(
-    async (userIds: string[]) => {
-      const missing = Array.from(
-        new Set(userIds.filter((userId) => userId && !userDirectoryRef.current[userId])),
-      );
-      if (missing.length === 0) {
-        return;
-      }
-
-      try {
-        const users = await getUsersByIds(missing);
-        setUserDirectory((current) => {
-          const next = { ...current };
-          for (const user of users) {
-            delete next[user.id];
-            next[user.id] = user;
-          }
-          const directoryUserIds = Object.keys(next);
-          while (
-            directoryUserIds.length > USER_DIRECTORY_MAX_ENTRIES
-          ) {
-            const oldestUserId = directoryUserIds.shift();
-            if (!oldestUserId) {
-              break;
-            }
-            if (oldestUserId === state.userId) {
-              directoryUserIds.push(oldestUserId);
-              continue;
-            }
-            delete next[oldestUserId];
-          }
-          return next;
-        });
-      } catch {
-        return;
-      }
-    },
-    [state.userId],
-  );
   const statusText = useMemo(() => {
     if (state.status === "error") {
       return state.sessionExpired ? text.sessionExpired : state.error ?? text.failedToLoad;
@@ -10824,6 +10867,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       setPostedEvents((current) =>
         appendPostedEvent(current, localEvent, POSTED_EVENT_BUFFER_SIZE),
       );
+      invalidatePostThreadContext(localEvent.post.root_id || localEvent.post.id);
       if (localEvent.eventType === "post_edited") {
         invalidatePostByIdCache(localEvent.post.id);
       }
@@ -11000,6 +11044,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         deletedPostIdsRef.current = new Set(nextDeletedPostIds);
         setDeletedPostIds(nextDeletedPostIds);
       },
+      onUserUpdated: (user) => { updateUsersRef.current([user]); },
       onMentionMetadataChanged: () => {
         debugLog("app.ws.mention-metadata-refresh", {
           reason: "mention-definition-changed",
@@ -11105,7 +11150,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
             eventType: change.eventType,
             reason: "read-marker-not-in-event",
           });
-          setMentionReadRefreshNonce((current) => current + 1);
+          scheduleMentionReconcile("read-marker-not-in-event");
           return;
         }
 
@@ -11303,7 +11348,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
   const handleAddColumn = (
     type: DeckColumnType,
-    defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>,
+    defaults?: Partial<Pick<DeckColumn, "teamId" | "channelId" | "teamLabel" | "channelLabel" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>,
   ): string => {
     const row = layoutMode === "twoRows" || columns?.some(column => column.row !== undefined)
       ? (showRailAddMenu && railAddButtonRef.current?.dataset.addRow === "1" ? 1 : 0) : undefined;
@@ -11685,6 +11730,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       let result: unknown = null;
       if (action === "getState") {
         result = debugApi?.getState() ?? null;
+      } else if (action === "getPerformanceSettings") {
+        result = getPerformanceSettings();
+      } else if (action === "reconcileMentions") {
+        scheduleMentionReconcile("e2e-reconcile");
+        result = true;
       } else if (action === "setHorizontalScrollLeft") {
         const next = Number(payload.value);
         if (scrollWrapRef.current && Number.isFinite(next)) {
@@ -11708,12 +11758,12 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       } else if (action === "addColumn") {
         result = handleAddColumn(
           payload.type as DeckColumnType,
-          payload.defaults as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">> | undefined,
+          payload.defaults as Partial<Pick<DeckColumn, "teamId" | "channelId" | "teamLabel" | "channelLabel" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">> | undefined,
         );
       } else if (action === "updateColumn") {
         updateColumn(
           payload.id as string,
-          payload.patch as Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>,
+          payload.patch as Partial<Pick<DeckColumn, "teamId" | "channelId" | "teamLabel" | "channelLabel" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">>,
         );
       } else if (action === "moveColumn") {
         moveColumn(payload.id as string, payload.direction as "left" | "right");
@@ -12064,6 +12114,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     deckSettings.theme,
     drawerOpen,
     effectiveDrawerOpen,
+    scheduleMentionReconcile,
     handleAddColumn,
     hostLayout,
     focusedColumnId,
@@ -12092,7 +12143,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
 
   return (
     <ShadowRootContext.Provider value={shadowRoot}>
-    <FavoritesProvider key={`${getMattermostUrl("/")}:${state.userId ?? ""}`} server={getMattermostUrl("/")} userId={state.userId}>
+    <FavoritesProvider key={`${getMattermostUrl("/")}:${state.userId ?? ""}`} server={getMattermostUrl("/")} userId={state.userId} deletedPostIds={deletedPostIds}>
     <aside
       ref={shellRef}
       className={`deck-shell${effectiveDrawerOpen ? "" : " deck-shell--collapsed"}`}
@@ -12109,6 +12160,11 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       }
       style={shellStyle}
     >
+      {storageFailure ? <div className="deck-favorites-error" role="alert">
+        {deckSettings.language === "ja" ? "設定の読み込み・保存に失敗しました。ページを再読み込みして再試行してください。" : "Settings could not be loaded or saved. Reload the page and try again."}
+        <button type="button" className="deck-button" onClick={() => window.location.reload()}>{deckSettings.language === "ja" ? "再読み込み" : "Reload"}</button>
+        <button type="button" className="deck-button" onClick={() => setStorageFailure(false)}>{text.close}</button>
+      </div> : null}
       <input
         ref={importFileInputRef}
         type="file"
@@ -12654,6 +12710,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
           column={column}
           feedOwner={mentionFeedOwnersRef.current.get(mentionFeedOwnerKey(getMattermostUrl("/"), state.userId, column.teamId)) === column.id}
           feedHasReview={(columns ?? []).some(candidate => candidate.type === "mentions" && candidate.teamId === column.teamId && candidate.mentionReview)}
+          feedRequiresReadMentions={(columns ?? []).some(candidate => candidate.type === "mentions" && candidate.teamId === column.teamId && (!candidate.unreadOnly || candidate.mentionReview))}
           onCreateReview={() => {
             const { id: _sourceId, type: _sourceType, ...defaults } = column;
             const next = createColumn("mentions", { ...defaults, customTitle: undefined, mentionReview: true });
@@ -12680,7 +12737,6 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
                           reconnectNonce={reconnectNonce}
                           mentionReconcileNonce={mentionReconcileNonce}
                           mentionMetadataNonce={mentionMetadataNonce}
-                          readRefreshNonce={mentionReadRefreshNonce}
                           realtimeReadMarkers={realtimeReadMarkers}
                           pollingIntervalSeconds={deckSettings.pollingIntervalSeconds}
                           canMoveLeft={siblingIndex > 0}

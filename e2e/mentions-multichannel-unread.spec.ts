@@ -548,6 +548,54 @@ test("polling includes a plain direct message and clears it at the channel read 
       visible: false,
       mentionCount: countWithMarker - 1,
     });
+    // TeamUnread stays zero for DMs. A new message after the empty snapshot
+    // must invalidate the DM read-state signature even without WebSocket.
+    const followupMarker = `${marker}-after-read`;
+    const followup = await apiPost<{ id: string }>(adminToken, "/posts", {
+      channel_id: directChannel.id,
+      message: followupMarker,
+    });
+    createdPostIds.push(followup.id);
+    type FollowupState = { postMessages?: string[]; visiblePostMessages?: string[]; mentionCount?: number;
+      mentionPendingUpdateCount?: number; mentionRefreshPhase?: string; postStatus?: string; mentionLoadActive?: boolean };
+    const followupState = async () => {
+      const column = await debugRequest<FollowupState | null>(page, "getColumnState", { id: "mentions-direct-polling" });
+      return {
+        fetched: column?.postMessages?.some(message => message.includes(followupMarker)) ?? false,
+        visible: column?.visiblePostMessages?.some(message => message.includes(followupMarker)) ?? false,
+        mentionCount: column?.mentionCount,
+        pending: column?.mentionPendingUpdateCount ?? 0,
+        phase: column?.mentionRefreshPhase,
+        status: column?.postStatus,
+        loading: column?.mentionLoadActive,
+      };
+    };
+    // A verified list stays fixed while new messages are collected. Confirm
+    // collection and its update affordance before explicitly applying the list.
+    await expect.poll(async () => {
+      const result = await followupState();
+      return { fetched: result.fetched, mentionCount: result.mentionCount,
+        available: result.visible || (result.pending > 0 && result.phase === "pending") };
+    }, { timeout: 45_000 }).toEqual({ fetched: true, mentionCount: countWithMarker, available: true }).catch(async error => {
+      const member = await apiGet<ChannelMember>(state.memberUser.token, `/channels/${directChannel.id}/members/${state.memberUser.id}`);
+      await testInfo.attach("followup DM failure checkpoint", {
+        body: JSON.stringify({ column: await followupState(), path: new URL(page.url()).pathname,
+          server: { lastViewedAt: member.last_viewed_at, mentionCount: member.mention_count },
+          postCreatedAt: (followup as { create_at?: number }).create_at }, null, 2), contentType: "application/json",
+      });
+      throw error;
+    });
+    const beforeApply = await followupState();
+    await testInfo.attach("followup DM before applying display updates", {
+      body: JSON.stringify(beforeApply, null, 2), contentType: "application/json",
+    });
+    if (!beforeApply.visible) {
+      expect(await debugRequest<boolean>(page, "applyMentionUpdates", { id: "mentions-direct-polling" })).toBe(true);
+    }
+    await expect.poll(async () => {
+      const result = await followupState();
+      return { visible: result.visible, mentionCount: result.mentionCount };
+    }, { timeout: 10_000 }).toEqual({ visible: true, mentionCount: countWithMarker });
   } finally {
     await context?.close();
     await fs.rm(userDataDir, { recursive: true, force: true });

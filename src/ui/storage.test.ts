@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   hasStoredValue,
+  saveDeckLayout, loadStoredNumber, saveStoredNumber, loadStoredJson, saveStoredJson, saveStoredStrings,
   loadDeckLayout,
   loadStoredString,
   normaliseColumns,
@@ -54,7 +55,7 @@ describe("loadDeckLayout", () => {
     vi.unstubAllGlobals();
   });
 
-  it("falls back to window localStorage when chrome storage has no layout", async () => {
+  it("does not read page storage when extension storage has no layout", async () => {
     vi.stubGlobal("window", {
       localStorage: createLocalStorage({
         "mattermostDeck.layout.v1": JSON.stringify({ columns: layout }),
@@ -68,7 +69,7 @@ describe("loadDeckLayout", () => {
       },
     });
 
-    await expect(loadDeckLayout("mattermostDeck.layout.v1")).resolves.toEqual(layout);
+    expect(await loadDeckLayout("mattermostDeck.layout.v1")).not.toEqual(layout);
   });
 });
 
@@ -132,5 +133,63 @@ describe("pane aliases in imported and saved layouts", () => {
     expect(normaliseColumns([{ id: "a", type: "favorites", customTitle: 123 }])).toHaveLength(1);
     expect(normaliseColumns([{ id: "a", type: "favorites", customTitle: "   " }])[0].customTitle).toBeUndefined();
     expect(normaliseColumns([{ id: "a", type: "favorites", customTitle: "x".repeat(120) }])[0].customTitle).toHaveLength(100);
+  });
+});
+
+
+describe("extension storage failures", () => {
+  beforeEach(() => vi.unstubAllGlobals());
+  it("rejects failed writes and keeps the previous authoritative values", async () => {
+    const page = createLocalStorage();
+    const stored = { setting: { enabled: false }, layout, text: "old", number: 2 };
+    const local = { get: vi.fn(async () => stored), set: vi.fn(async () => { throw new Error("quota"); }),
+      remove: vi.fn(async () => { throw new Error("quota"); }) };
+    vi.stubGlobal("window", { localStorage: page });
+    vi.stubGlobal("chrome", { storage: { local } });
+    for (const write of [() => saveStoredJson("setting", { enabled: true }),
+      () => saveDeckLayout("layout", [{ id: "new", type: "favorites" }]),
+      () => saveStoredString("text", "new"), () => saveStoredString("text", ""),
+      () => saveStoredStrings({ text: "new" }), () => saveStoredNumber("number", 3)]) {
+      await expect(write()).rejects.toThrow("quota");
+    }
+    expect(await loadStoredJson("setting", {})).toEqual({ enabled: false });
+    expect(await loadDeckLayout("layout")).toEqual(layout);
+    expect(await loadStoredString("text")).toBe("old");
+    expect(await loadStoredNumber("number")).toBe(2);
+    expect(page.setItem).not.toHaveBeenCalled();
+    expect(page.removeItem).not.toHaveBeenCalled();
+    expect(page.getItem).not.toHaveBeenCalled();
+  });
+  it("surfaces genuine read failures without consulting page storage", async () => {
+    const page = createLocalStorage({ key: "page" });
+    vi.stubGlobal("window", { localStorage: page });
+    vi.stubGlobal("chrome", { storage: { local: { get: vi.fn(async () => { throw new Error("context invalidated"); }) } } });
+    for (const read of [() => loadStoredString("key"), () => loadStoredJson("key", {}),
+      () => loadDeckLayout("key"), () => loadStoredNumber("key"), () => hasStoredValue("key")]) {
+      await expect(read()).rejects.toThrow("context invalidated");
+    }
+    expect(page.getItem).not.toHaveBeenCalled();
+  });
+  it("does not use page storage when an extension context has lost its storage API", async () => {
+    const page = createLocalStorage();
+    vi.stubGlobal("window", { localStorage: page });
+    vi.stubGlobal("chrome", { runtime: { id: "extension-context", sendMessage: vi.fn() } });
+    await expect(saveStoredJson("setting", { enabled: true })).rejects.toThrow("Extension storage is unavailable");
+    await expect(loadDeckLayout("layout")).rejects.toThrow("Extension storage is unavailable");
+    expect(page.setItem).not.toHaveBeenCalled();
+    expect(page.getItem).not.toHaveBeenCalled();
+  });
+  it("uses the page adapter only when the extension storage API is absent", async () => {
+    const page = createLocalStorage();
+    vi.stubGlobal("window", { localStorage: page });
+    vi.stubGlobal("chrome", {});
+    await saveStoredJson("setting", { enabled: true });
+    await saveDeckLayout("layout", layout);
+    await saveStoredString("text", "new");
+    await saveStoredNumber("number", 3);
+    expect(await loadStoredJson("setting", {})).toEqual({ enabled: true });
+    expect(await loadDeckLayout("layout")).toEqual(layout);
+    expect(await loadStoredString("text")).toBe("new");
+    expect(await loadStoredNumber("number")).toBe(3);
   });
 });

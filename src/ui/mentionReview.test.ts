@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MattermostPost } from "../mattermost/api";
-import { ingestReview, reviewPrefix, reviewScopeIndex, reviewScope, selectReview, writeReview } from "./mentionReview";
+import { ingestReview, retryReview, reviewSnapshot, reviewPrefix, reviewScopeIndex, reviewScope, selectReview, writeReview } from "./mentionReview";
 
 const post = (id: string, update_at = 1): MattermostPost => ({ id, channel_id: "channel", user_id: "author", message: `mention ${update_at}`, create_at: 1, update_at });
 function mockStorage(initial: Record<string, unknown> = {}) {
@@ -368,4 +368,90 @@ describe("durable mention review", () => {
     await writeReview(prefix, { [`${prefix}confirmed:old`]: undefined });
     expect(selectReview(values, prefix, "*")).toEqual([{ post: post("old"), confirmedAt: null }]);
   });
+  it("continues confirmation after failed legacy compaction and retries compaction later", async () => {
+    const prefix = reviewPrefix("server", "best-effort-compaction");
+    const { values, set } = mockStorage({ [`${prefix}post:*:id`]: post("id"), [`${prefix}post:team:id`]: post("id") });
+    set.mockRejectedValueOnce(new Error("compaction unavailable"));
+    await expect(writeReview(prefix, { [`${prefix}confirmed:id`]: 123 })).resolves.toBeUndefined();
+    expect(values[`${prefix}confirmed:id`]).toBe(123);
+    expect(values[`${prefix}post:*:id`]).toEqual(post("id"));
+    await writeReview(prefix, { [`${prefix}confirmed:id`]: undefined });
+    expect(values[`${prefix}post:*:id`]).toBe(true);
+    expect(values[`${prefix}body:id`]).toEqual(post("id"));
+    expect(reviewSnapshot(prefix).error).toBeNull();
+  });
+
+  it.each(["before", "after"])("does not fail a committed confirmation when %s cleanup fails", async phase => {
+    const prefix = reviewPrefix("server", `best-effort-cleanup-${phase}`);
+    const initial: Record<string, unknown> = { [`${prefix}post:*:pending`]: post("pending") };
+    for (let i = 0; i < (phase === "before" ? 201 : 200); i++) {
+      initial[`${prefix}confirmed:old${i}`] = i + 1;
+      initial[`${prefix}body:old${i}`] = post(`old${i}`);
+    }
+    const { values, remove } = mockStorage(initial);
+    remove.mockRejectedValue(new Error("cleanup unavailable"));
+    await expect(writeReview(prefix, { [`${prefix}confirmed:pending`]: 1000 })).resolves.toBeUndefined();
+    expect(remove).toHaveBeenCalled();
+    expect(values[`${prefix}confirmed:pending`]).toBe(1000);
+    expect(reviewSnapshot(prefix).error).toBeNull();
+  });
+
+  it("reports the actual quota failure when emergency history cleanup also fails", async () => {
+    const prefix = reviewPrefix("server", "quota-cleanup-failure");
+    const { values, set, remove } = mockStorage({ [`${prefix}post:*:pending`]: post("pending"),
+      [`${prefix}body:confirmed`]: post("confirmed"), [`${prefix}confirmed:confirmed`]: 1 });
+    set.mockRejectedValue(new Error("QUOTA_BYTES exceeded"));
+    remove.mockRejectedValue(new Error("cleanup failed"));
+    await expect(writeReview(prefix, { [`${prefix}confirmed:pending`]: 2 })).rejects.toThrow("QUOTA_BYTES");
+    expect(values[`${prefix}post:*:pending`]).toEqual(post("pending"));
+    expect(values).not.toHaveProperty([`${prefix}confirmed:pending`]);
+    expect(reviewSnapshot(prefix).error).toContain("QUOTA_BYTES");
+  });
+
+  it("blocks writes after a failed authoritative read and recovers decisions on retry", async () => {
+    const prefix = reviewPrefix("server", "hydrate-retry-runtime");
+    const values: Record<string, unknown> = { [`${prefix}post:*:id`]: post("id"), [`${prefix}confirmed:id`]: 123 };
+    let fail = true;
+    const local = { get: vi.fn(), set: vi.fn(), remove: vi.fn() };
+    const sendMessage = vi.fn(async (request: { operation: string; sets?: Record<string, unknown> }) => {
+      if (fail) throw new Error("Receiving end does not exist");
+      if (request.operation === "get") return { success: true, values: { ...values } };
+      Object.assign(values, request.sets);
+      return { success: true };
+    });
+    vi.stubGlobal("chrome", { storage: { local }, runtime: { sendMessage,
+      onMessage: { addListener: vi.fn(), removeListener: vi.fn() } } });
+    await expect(ingestReview(prefix, "*", [post("id", 2)])).rejects.toThrow("Receiving end");
+    expect(reviewSnapshot(prefix)).toMatchObject({ ready: false, error: "Receiving end does not exist" });
+    await expect(writeReview(prefix, { [`${prefix}confirmed:id`]: undefined })).rejects.toThrow("Receiving end");
+    expect(sendMessage.mock.calls.every(([request]) => request.operation === "get")).toBe(true);
+    expect(values[`${prefix}confirmed:id`]).toBe(123);
+    fail = false;
+    await retryReview(prefix);
+    expect(reviewSnapshot(prefix)).toMatchObject({ ready: true, error: null });
+    expect(selectReview(reviewSnapshot(prefix).values, prefix, "*")[0].confirmedAt).toBe(123);
+    expect(local.get).not.toHaveBeenCalled();
+    expect(local.set).not.toHaveBeenCalled();
+    fail = true;
+    await retryReview(prefix);
+    expect(reviewSnapshot(prefix)).toMatchObject({ ready: true, error: "Receiving end does not exist" });
+    expect(reviewSnapshot(prefix).values[`${prefix}confirmed:id`]).toBe(123);
+  });
+
+  it("merges live remote decisions into a retried hydration snapshot", async () => {
+    const prefix = reviewPrefix("server", "hydrate-retry-race");
+    let listener!: (changes: Record<string, { newValue?: unknown }>, area: string) => void;
+    let release!: (values: Record<string, unknown>) => void;
+    const get = vi.fn<() => Promise<Record<string, unknown>>>().mockRejectedValueOnce(new Error("temporarily unavailable"))
+      .mockImplementation(() => new Promise(resolve => { release = resolve; }));
+    vi.stubGlobal("chrome", { storage: { local: { get, set: vi.fn(), remove: vi.fn() }, onChanged: {
+      addListener: (fn: typeof listener) => { listener = fn; }, removeListener: vi.fn() } } });
+    await expect(ingestReview(prefix, "*", [post("id")])).rejects.toThrow("temporarily");
+    const retry = retryReview(prefix);
+    listener({ [`${prefix}confirmed:id`]: { newValue: 456 } }, "local");
+    release({ [`${prefix}post:*:id`]: post("id"), [`${prefix}confirmed:id`]: 123 });
+    await retry;
+    expect(selectReview(reviewSnapshot(prefix).values, prefix, "*")[0].confirmedAt).toBe(456);
+  });
+
 });

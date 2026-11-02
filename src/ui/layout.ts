@@ -13,6 +13,8 @@ export interface DeckColumn {
   type: DeckColumnType;
   teamId?: string;
   channelId?: string;
+  teamLabel?: string;
+  channelLabel?: string;
   query?: string;
   unreadOnly?: boolean;
   mentionReview?: boolean;
@@ -32,7 +34,7 @@ export function createDefaultLayout(): DeckColumn[] {
 
 export function createColumn(
   type: DeckColumnType,
-  defaults: Partial<Pick<DeckColumn, "teamId" | "channelId" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">> = {},
+  defaults: Partial<Pick<DeckColumn, "teamId" | "channelId" | "teamLabel" | "channelLabel" | "query" | "unreadOnly" | "mentionReview" | "width" | "row" | "customTitle">> = {},
 ): DeckColumn {
   return {
     id: `${type}-${crypto.randomUUID()}`,

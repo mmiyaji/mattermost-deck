@@ -1,4 +1,4 @@
-import { getWebSocketUrl, type MattermostPost } from "./api";
+import { getWebSocketUrl, type MattermostPost, type MattermostUser } from "./api";
 import { recordWebSocketReconnectAttempt } from "../diagnostics";
 import { addTraceEntry } from "../traceLog";
 import { hasMattermostMention } from "./mentions";
@@ -48,6 +48,7 @@ interface HookOptions {
   onPosted: (event: PostedEvent) => void;
   onPostDeleted?: (postId: string) => void;
   onMentionMetadataChanged?: () => void;
+  onUserUpdated?: (user: MattermostUser) => void;
   onUnreadChanged?: (change: UnreadStateChange) => void;
   onAuthFailure: (message: string) => void;
 }
@@ -244,6 +245,12 @@ export function parseUnreadStateChange(
     channelIds: Array.from(channelIds),
     threadIds: Array.from(threadIds),
   };
+}
+
+export function parseUpdatedUser(data?: Record<string, unknown>): MattermostUser | null {
+  const user = asEventRecord(data?.user);
+  return typeof user?.id === "string" && user.id.length > 0 && typeof user.username === "string"
+    ? user as unknown as MattermostUser : null;
 }
 
 export function isMentionMetadataEvent(
@@ -633,6 +640,10 @@ export function connectMattermostWebSocket(options: HookOptions): () => void {
           return;
         }
 
+        if (authenticated && payload.event === "user_updated") {
+          const user = parseUpdatedUser(payload.data);
+          if (user) options.onUserUpdated?.(user);
+        }
         const posted = parsePostedEvent(payload, options.username, options.userId);
         const deletedPostId = authenticated
           ? getDeletedPostId(

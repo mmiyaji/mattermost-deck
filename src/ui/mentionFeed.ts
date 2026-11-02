@@ -145,6 +145,11 @@ export function postMatchesServerMention(
   currentUserId: string,
   mentionKeys: MattermostMentionKey[],
 ): boolean {
+  // Search can match a username in join/leave notifications. Only the
+  // targeted channel invitation is an actionable system mention.
+  if (post.type?.startsWith("system_")) {
+    return post.type === "system_add_to_channel" && post.props?.addedUserId === currentUserId;
+  }
   if (channelType === "D" || channelType === "G") {
     // Mattermost treats every post from another user in a DM or GM as a
     // mention, even when the message contains no @-token.
@@ -164,6 +169,9 @@ export function postMatchesMentionCandidate(
     serverCountedChannel: boolean;
   },
 ): boolean {
+  if (post.type?.startsWith("system_")) {
+    return postMatchesServerMention(post, channelType, currentUserId, mentionKeys);
+  }
   if (!options.channelMetadataAvailable && options.serverCountedChannel) {
     return post.user_id !== currentUserId;
   }
@@ -183,6 +191,9 @@ export function postMatchesRealtimeMentionCandidate(
   serverMentionsUser: boolean,
   channelWideMentionsEnabled: boolean,
 ): boolean {
+  if (post.type?.startsWith("system_")) {
+    return postMatchesServerMention(post, channelType, currentUserId, mentionKeys);
+  }
   const isDisabledChannelWideMention =
     !channelWideMentionsEnabled &&
     hasSpecialMattermostMention(post.message);

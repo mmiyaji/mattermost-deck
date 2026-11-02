@@ -59,6 +59,8 @@ function normaliseColumnsOrNull(value: unknown): DeckColumn[] | null {
     type: column.type,
     teamId: column.teamId,
     channelId: column.channelId,
+    ...(typeof column.teamLabel === "string" ? { teamLabel: column.teamLabel } : {}),
+    ...(typeof column.channelLabel === "string" ? { channelLabel: column.channelLabel } : {}),
     query: column.query,
     ...(normalisePaneTitle(column.customTitle) ? { customTitle: normalisePaneTitle(column.customTitle) } : {}),
     unreadOnly: column.unreadOnly,
@@ -103,11 +105,13 @@ function decodeBase64(input: string): Uint8Array<ArrayBuffer> {
 }
 
 function getStorageArea(area: StorageAreaName): chrome.storage.StorageArea | null {
-  if (!chrome.storage) {
-    return null;
+  const storageArea = typeof chrome === "undefined" ? null :
+    (area === "session" ? chrome.storage?.session : chrome.storage?.local) ?? null;
+  if (!storageArea && area === "local" && typeof chrome !== "undefined" &&
+      (chrome.runtime?.id || typeof chrome.runtime?.sendMessage === "function")) {
+    throw new Error("Extension storage is unavailable");
   }
-
-  return area === "session" ? chrome.storage.session ?? null : chrome.storage.local ?? null;
+  return storageArea;
 }
 
 async function getRawStoredString(storageKey: string, area: StorageAreaName = "local"): Promise<string | null> {
@@ -124,12 +128,11 @@ async function getRawStoredString(storageKey: string, area: StorageAreaName = "l
     const payload = await storageArea.get(storageKey);
     const value = payload[storageKey];
     return typeof value === "string" && value.length > 0 ? value : null;
-  } catch {
+  } catch (error) {
     if (area === "session") {
       return null;
     }
-    const raw = window.localStorage.getItem(storageKey);
-    return raw && raw.length > 0 ? raw : null;
+    throw error;
   }
 }
 
@@ -160,24 +163,11 @@ async function setRawStoredStrings(values: Record<string, string>, area: Storage
     }
   }
 
-  try {
-    if (Object.keys(payload).length > 0) {
-      await storageArea.set(payload);
-    }
-    if (removeKeys.length > 0) {
-      await storageArea.remove(removeKeys);
-    }
-  } catch (error) {
-    if (area === "session") {
-      throw error;
-    }
-    for (const [storageKey, normalized] of normalizedEntries) {
-      if (normalized) {
-        window.localStorage.setItem(storageKey, normalized);
-      } else {
-        window.localStorage.removeItem(storageKey);
-      }
-    }
+  if (Object.keys(payload).length > 0) {
+    await storageArea.set(payload);
+  }
+  if (removeKeys.length > 0) {
+    await storageArea.remove(removeKeys);
   }
 }
 
@@ -272,34 +262,25 @@ async function decryptString(value: string): Promise<string | null> {
 }
 
 export async function loadDeckLayout(storageKey: string): Promise<DeckColumn[]> {
-  if (!chrome.storage?.local) {
+  if (!getStorageArea("local")) {
     return readLocalStorage(storageKey);
   }
 
-  try {
-    const payload = await chrome.storage.local.get(storageKey);
-    const columns = normaliseColumnsOrNull(payload[storageKey]);
-    return columns ?? readLocalStorage(storageKey);
-  } catch {
-    return readLocalStorage(storageKey);
-  }
+  const payload = await chrome.storage.local.get(storageKey);
+  return normaliseColumnsOrNull(payload[storageKey]) ?? createDefaultLayout();
 }
 
 export async function saveDeckLayout(storageKey: string, columns: DeckColumn[]): Promise<void> {
-  if (!chrome.storage?.local) {
+  if (!getStorageArea("local")) {
     writeLocalStorage(storageKey, columns);
     return;
   }
 
-  try {
-    await chrome.storage.local.set({ [storageKey]: columns });
-  } catch {
-    writeLocalStorage(storageKey, columns);
-  }
+  await chrome.storage.local.set({ [storageKey]: columns });
 }
 
 export async function loadStoredNumber(storageKey: string): Promise<number | null> {
-  if (!chrome.storage?.local) {
+  if (!getStorageArea("local")) {
     const raw = window.localStorage.getItem(storageKey);
     if (!raw) {
       return null;
@@ -309,32 +290,18 @@ export async function loadStoredNumber(storageKey: string): Promise<number | nul
     return Number.isFinite(parsed) ? parsed : null;
   }
 
-  try {
-    const payload = await chrome.storage.local.get(storageKey);
-    const value = payload[storageKey];
-    return typeof value === "number" && Number.isFinite(value) ? value : null;
-  } catch {
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) {
-      return null;
-    }
-
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
+  const payload = await chrome.storage.local.get(storageKey);
+  const value = payload[storageKey];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 export async function saveStoredNumber(storageKey: string, value: number): Promise<void> {
-  if (!chrome.storage?.local) {
+  if (!getStorageArea("local")) {
     window.localStorage.setItem(storageKey, String(value));
     return;
   }
 
-  try {
-    await chrome.storage.local.set({ [storageKey]: value });
-  } catch {
-    window.localStorage.setItem(storageKey, String(value));
-  }
+  await chrome.storage.local.set({ [storageKey]: value });
 }
 
 export async function hasStoredValue(storageKey: string, area: StorageAreaName = "local"): Promise<boolean> {
@@ -349,11 +316,11 @@ export async function hasStoredValue(storageKey: string, area: StorageAreaName =
   try {
     const payload = await storageArea.get(storageKey);
     return Object.prototype.hasOwnProperty.call(payload, storageKey);
-  } catch {
+  } catch (error) {
     if (area === "session") {
       return false;
     }
-    return window.localStorage.getItem(storageKey) !== null;
+    throw error;
   }
 }
 export async function loadStoredString(storageKey: string, area: StorageAreaName = "local"): Promise<string | null> {
@@ -397,7 +364,7 @@ export async function saveStoredEncryptedString(
 }
 
 export async function loadStoredJson<T>(storageKey: string, fallback: T): Promise<T> {
-  if (!chrome.storage?.local) {
+  if (!getStorageArea("local")) {
     try {
       const raw = window.localStorage.getItem(storageKey);
       return raw ? (JSON.parse(raw) as T) : fallback;
@@ -406,29 +373,16 @@ export async function loadStoredJson<T>(storageKey: string, fallback: T): Promis
     }
   }
 
-  try {
-    const payload = await chrome.storage.local.get(storageKey);
-    const value = payload[storageKey];
-    return value !== undefined ? (value as T) : fallback;
-  } catch {
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      return raw ? (JSON.parse(raw) as T) : fallback;
-    } catch {
-      return fallback;
-    }
-  }
+  const payload = await chrome.storage.local.get(storageKey);
+  const value = payload[storageKey];
+  return value !== undefined ? (value as T) : fallback;
 }
 
 export async function saveStoredJson<T>(storageKey: string, value: T): Promise<void> {
-  if (!chrome.storage?.local) {
+  if (!getStorageArea("local")) {
     window.localStorage.setItem(storageKey, JSON.stringify(value));
     return;
   }
 
-  try {
-    await chrome.storage.local.set({ [storageKey]: value });
-  } catch {
-    window.localStorage.setItem(storageKey, JSON.stringify(value));
-  }
+  await chrome.storage.local.set({ [storageKey]: value });
 }

@@ -56,6 +56,21 @@ describe("encrypted storage seed coordination", () => {
     expect(sendMessage).toHaveBeenCalledTimes(3);
   });
 
+  it("rejects encrypted persistence failures without writing a page copy", async () => {
+    const { local } = installChrome(vi.fn(async () => ({ success: true, seed })));
+    const page = { setItem: vi.fn(), getItem: vi.fn() };
+    vi.stubGlobal("window", { localStorage: page });
+    const storage = await import("./storage");
+    await storage.saveStoredEncryptedString("secret", "previous");
+    vi.mocked(local.set).mockRejectedValueOnce(new Error("quota"));
+    await expect(storage.saveStoredEncryptedString("secret", "replacement")).rejects.toThrow("quota");
+    expect(await storage.loadStoredEncryptedString("secret")).toBe("previous");
+    vi.mocked(local.get).mockRejectedValueOnce(new Error("context invalidated"));
+    await expect(storage.loadStoredEncryptedString("secret")).rejects.toThrow("context invalidated");
+    expect(page.setItem).not.toHaveBeenCalled();
+    expect(page.getItem).not.toHaveBeenCalled();
+  });
+
   it("rejects encryption when the background cannot provide a persisted seed", async () => {
     const sendMessage = vi.fn(async () => ({ success: false, error: "storage unavailable" }));
     const { local, values } = installChrome(sendMessage);

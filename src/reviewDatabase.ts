@@ -42,7 +42,7 @@ function openDatabase(): Promise<IDBDatabase> {
 async function transact<T>(
   stores: string[],
   mode: IDBTransactionMode,
-  operation: (transaction: IDBTransaction) => () => T,
+  operation: (transaction: IDBTransaction, fail: (error: unknown) => void) => () => T,
 ): Promise<T> {
   const database = await openDatabase();
   return new Promise<T>((resolve, reject) => {
@@ -54,11 +54,12 @@ async function transact<T>(
       failure ??= (event.target as IDBRequest | null)?.error ?? transaction.error;
     };
     transaction.onabort = () => reject(failure ?? transaction.error ?? new Error("Review database transaction aborted"));
-    try { result = operation(transaction); }
-    catch (error) {
+    const fail = (error: unknown) => {
       failure = error;
       transaction.abort();
-    }
+    };
+    try { result = operation(transaction, fail); }
+    catch (error) { fail(error); }
   });
 }
 
@@ -98,33 +99,87 @@ export async function writeReviewRecords(sets: Record<string, unknown>, removes:
   });
 }
 
+interface ReviewMigrationMetadata {
+  version: 1;
+  migrated: true;
+  // Keys and fingerprints only; pending/confirmed bodies live in RECORDS.
+  cleanup: Record<string, string>;
+}
+
+function migrationMetadata(value: unknown): ReviewMigrationMetadata | null {
+  // Older releases wrote a boolean after completing their import. They have
+  // no proven cleanup plan, so later legacy writes must be left untouched.
+  if (value === true) return { version: 1, migrated: true, cleanup: {} };
+  if (!value || typeof value !== "object") return null;
+  const state = value as Partial<ReviewMigrationMetadata>;
+  return state.version === 1 && state.migrated === true && state.cleanup &&
+    typeof state.cleanup === "object" && !Array.isArray(state.cleanup)
+    ? state as ReviewMigrationMetadata : null;
+}
+
+export async function fingerprintReviewValue(value: unknown): Promise<string> {
+  const serialized = JSON.stringify(value) ?? "undefined";
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(serialized));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export async function isReviewMigrated(prefix: string): Promise<boolean> {
   return transact([METADATA], "readonly", transaction => {
     const request = transaction.objectStore(METADATA).get(prefix);
-    return () => request.result === true;
+    return () => migrationMetadata(request.result) !== null;
+  });
+}
+
+export async function readReviewMigrationCleanup(prefix: string): Promise<Record<string, string>> {
+  return transact([METADATA], "readonly", transaction => {
+    const request = transaction.objectStore(METADATA).get(prefix);
+    return () => Object.fromEntries(Object.entries(migrationMetadata(request.result)?.cleanup ?? {})
+      .filter(([key, fingerprint]) => key.startsWith(prefix) && typeof fingerprint === "string"));
+  });
+}
+
+export async function completeReviewMigrationCleanup(prefix: string): Promise<void> {
+  return transact([METADATA], "readwrite", transaction => {
+    const metadata = transaction.objectStore(METADATA);
+    const request = metadata.get(prefix);
+    request.onsuccess = () => {
+      const state = migrationMetadata(request.result);
+      if (state && Object.keys(state.cleanup).length) metadata.put({ ...state, cleanup: {} }, prefix);
+    };
+    return () => undefined;
   });
 }
 
 export async function importLegacyReviewRecords(prefix: string, legacy: Record<string, unknown>): Promise<void> {
-  return transact([RECORDS, METADATA], "readwrite", transaction => {
+  // Hash before opening a transaction: awaiting WebCrypto inside an IndexedDB
+  // transaction would let it become inactive before the imports are enqueued.
+  const entries = await Promise.all(Object.entries(legacy).filter(([key]) => key.startsWith(prefix))
+    .map(async ([key, value]) => ({ key, value, fingerprint: await fingerprintReviewValue(value) })));
+  return transact([RECORDS, METADATA], "readwrite", (transaction, fail) => {
     const records = transaction.objectStore(RECORDS);
     const metadata = transaction.objectStore(METADATA);
     const migrated = metadata.get(prefix);
     migrated.onsuccess = () => {
       // Repeated migration must not resurrect keys removed after migration.
-      if (migrated.result === true) return;
-      for (const [key, value] of Object.entries(legacy)) {
-        if (!key.startsWith(prefix)) continue;
-        const existing = records.getKey(key);
+      if (migrationMetadata(migrated.result)) return;
+      const cleanup: Record<string, string> = Object.create(null);
+      let remaining = entries.length;
+      const finish = () => metadata.put({ version: 1, migrated: true, cleanup } satisfies ReviewMigrationMetadata, prefix);
+      if (!remaining) { finish(); return; }
+      for (const entry of entries) {
+        const existing = records.getKey(entry.key);
         existing.onsuccess = () => {
-          // Preserve newer decisions already written to the destination,
-          // including a deliberately stored undefined value.
-          if (existing.result === undefined) records.add(value, key);
+          try {
+            // Existing decisions remain authoritative. A skipped legacy key
+            // was not imported, so it is deliberately absent from cleanup.
+            if (existing.result === undefined) {
+              records.add(entry.value, entry.key);
+              cleanup[entry.key] = entry.fingerprint;
+            }
+            if (--remaining === 0) finish();
+          } catch (error) { fail(error); }
         };
       }
-      // This marker and every imported record commit together. Callers can
-      // remove legacy storage only after this function's promise resolves.
-      metadata.put(true, prefix);
     };
     return () => undefined;
   });

@@ -5,6 +5,10 @@ import { handleReviewStorageRequest, REVIEW_STORAGE_MESSAGE } from "./reviewStor
 import { handleMentionCacheStorageRequest } from "./mentionCacheDatabase";
 import { handleMentionCacheSessionRequest } from "./mentionCacheSession";
 import { MENTION_CACHE_STORAGE_MESSAGE } from "./mentionCacheProtocol";
+import { FAVORITE_CACHE_STORAGE_MESSAGE } from "./favoriteCacheProtocol";
+import { handleFavoriteCacheStorageRequest } from "./favoriteCacheDatabase";
+import { TRACE_STORAGE_MESSAGE } from "./traceProtocol";
+import { handleTraceStorageRequest } from "./traceStorage";
 
 const CONTENT_SCRIPT_ID = "mattermost-deck-content";
 const INSTALL_CONFIG_SCRIPT_ID = "mattermost-deck-pwa-install-config";
@@ -422,6 +426,16 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     try {
+      if (message?.type === FAVORITE_CACHE_STORAGE_MESSAGE) {
+        const result = await handleFavoriteCacheStorageRequest(message);
+        sendResponse({ success: true, ...result });
+        return;
+      }
+      if (message?.type === TRACE_STORAGE_MESSAGE) {
+        const result = await handleTraceStorageRequest(message, sender);
+        sendResponse({ success: true, ...result });
+        return;
+      }
       if (message?.type === MENTION_CACHE_STORAGE_MESSAGE) {
         const result = await (message.persist === false
           ? handleMentionCacheSessionRequest(message)

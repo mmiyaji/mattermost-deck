@@ -125,6 +125,47 @@ describe("background mention session cache", () => {
     expect(await request({ operation: "get", key: key("healthy") })).toEqual({ snapshot: snapshot(key("healthy")) });
   });
 
+  it.each(["remove", "clear", "global"] as const)("persists %s invalidation across background restarts", async operation => {
+    const { request, put, stored } = await harness();
+    const target = key("one"), sibling = key("two"), other = key("one", "https://other.test/");
+    await Promise.all([target, sibling, other].map(entry => put(entry)));
+    await request(operation === "global" ? { operation: "clear" } : { operation, key: target });
+    vi.resetModules();
+    const restarted = await import("./mentionCacheSession.js");
+    for (const entry of operation === "remove" ? [target] : operation === "clear" ? [target, sibling] : [target, sibling, other]) {
+      await restarted.handleMentionCacheSessionRequest({ operation: "put", key: entry, snapshot: snapshot(entry) });
+      expect(await restarted.handleMentionCacheSessionRequest({ operation: "get", key: entry })).toEqual({});
+    }
+    if (operation !== "global") expect(await request({ operation: "get", key: other })).toEqual({ snapshot: snapshot(other) });
+    if (operation === "remove") expect(await request({ operation: "get", key: sibling })).toEqual({ snapshot: snapshot(sibling) });
+    await restarted.handleMentionCacheSessionRequest({ operation: "put", key: target, snapshot: snapshot(target, NOW + 1) });
+    expect(await request({ operation: "get", key: target })).toEqual({ snapshot: snapshot(target, NOW + 1) });
+    vi.mocked(Date.now).mockReturnValue(NOW + TTL_MS + 1);
+    await request({ operation: "get", key: target });
+    expect((stored[STORAGE_KEY] as { invalidations: object }).invalidations).toEqual({});
+  });
+
+  it("bounds active invalidations without allowing stale snapshots back", async () => {
+    const { request, put, stored } = await harness();
+    for (let index = 0; index < 260; index++) await request({ operation: "remove", key: key(`scope-${index}`) });
+    const tokens = (stored[STORAGE_KEY] as { invalidations: object }).invalidations;
+    expect(Object.keys(tokens).length).toBeLessThanOrEqual(256);
+    expect(new TextEncoder().encode(JSON.stringify(tokens)).byteLength).toBeLessThanOrEqual(256 * 1024);
+    await put(key("scope-0"));
+    expect(await request({ operation: "get", key: key("scope-0") })).toEqual({});
+    await put(key("scope-0"), NOW + 1);
+    expect(await request({ operation: "get", key: key("scope-0") })).toHaveProperty("snapshot");
+  });
+
+  it("recovers the queue after failed invalidation persistence", async () => {
+    const { request, session, put } = await harness();
+    session.set.mockRejectedValueOnce(new Error("session unavailable"));
+    await expect(request({ operation: "remove", key: key("all") })).rejects.toThrow("session unavailable");
+    await request({ operation: "remove", key: key("all") });
+    await put(key("all"));
+    expect(await request({ operation: "get", key: key("all") })).toEqual({});
+  });
+
   it("rejects noncanonical keys, wrong owners, future data and oversized snapshots", async () => {
     const { request, session } = await harness();
     const entryKey = key("all");

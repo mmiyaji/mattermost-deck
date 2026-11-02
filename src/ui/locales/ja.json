@@ -125,6 +125,9 @@
     "diagnosticsErrorRate": "\u30a8\u30e9\u30fc\u7387",
     "diagnosticsRecentSuffix": "\u76f4\u8fd1",
     "diagnosticsInFlight": "\u51e6\u7406\u4e2d",
+    "diagnosticsActiveSlots": "\u30ea\u30af\u30a8\u30b9\u30c8\u5b9f\u884c\u67a0",
+    "diagnosticsQueuedRequests": "\u5f85\u6a5f\u4e2d\u306e\u30ea\u30af\u30a8\u30b9\u30c8",
+    "diagnosticsAvgQueueWait": "\u5e73\u5747\u5f85\u3061\u6642\u9593",
     "diagnosticsFailedSuffix": "\u5931\u6557",
     "diagnosticsWsReconnects": "WS \u518d\u63a5\u7d9a",
     "diagnosticsRender": "\u63cf\u753b",
@@ -229,6 +232,27 @@
     "failedToLoadChannels": "\u30c1\u30e3\u30f3\u30cd\u30eb\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f"
   },
   "options": {
+    "performanceSettings": {
+      "title": "パフォーマンスの詳細設定",
+      "description": "現在のプロファイルに保存され、保存後に開いている Deck に反映されます。更新が遅くなった場合は既定値に戻してください。",
+      "apiHint": "同時リクエスト数は実行中の上限、開始間隔はリクエスト開始の間隔です。全体・メソッド別のトークンバケットは毎分の設定値に応じて継続的に補充され、短時間の集中を許容します。すべての枠に余裕ができると通信を開始します。リクエストのタイムアウトは通信時間、キューのタイムアウトは実行枠の待機時間の上限です。",
+      "mentionHint": "スレッドキャッシュの有効期間中は取得済みデータを再利用します。整合性確認の最小間隔は連続した更新をまとめ、全件走査は取得漏れを補うために全チームを定期的に確認します。チームの同時走査数は並列処理の上限です。間隔を長くすると通信は減りますが、状態の修正が遅れる場合があります。",
+      "restoreDefaults": "パフォーマンス設定を既定値に戻す",
+      "range": "設定範囲: {{min}}～{{max}}",
+      "fields": {
+        "apiMaxConcurrentRequests": "API の同時リクエスト数（件）",
+        "apiMinStartGapMs": "リクエスト開始の最小間隔（ミリ秒）",
+        "apiGlobalRequestsPerMinute": "API 全体のレート（件/分）",
+        "apiGetRequestsPerMinute": "GET のレート（件/分）",
+        "apiPostRequestsPerMinute": "POST のレート（件/分）",
+        "apiRequestTimeoutSeconds": "リクエストのタイムアウト（秒）",
+        "apiQueueTimeoutSeconds": "キューのタイムアウト（秒）",
+        "mentionThreadCacheSeconds": "メンションのスレッドキャッシュ有効期間（秒）",
+        "mentionReconcileMinIntervalSeconds": "メンション整合性確認の最小間隔（秒）",
+        "mentionFullScanIntervalSeconds": "メンションの全件走査間隔（秒）",
+        "mentionTeamConcurrency": "メンションの同時走査チーム数（チーム）"
+      }
+    },
     "editingTarget": "設定対象",
     "noServerConfigured": "サーバー未設定",
     "generalGroup": "通常設定",

@@ -3,12 +3,24 @@ import type { MattermostPost } from "../mattermost/api";
 export const FAVORITES_LIMIT = 100;
 export const FAVORITES_REFRESH_MS = 5 * 60_000;
 export const FAVORITES_CACHE_TTL_MS = 7 * 24 * 60 * 60_000;
-export interface Favorite {
+export interface FavoriteMembership {
   id: string;
   revision: string;
   addedAt: number;
+}
+export interface Favorite extends FavoriteMembership {
   checkedAt: number;
   post: MattermostPost | null;
+  requestStartedAt?: number;
+  deleted?: boolean;
+}
+
+export function favoriteMembership(entries: FavoriteMembership[]): FavoriteMembership[] {
+  return entries.map(({ id, revision, addedAt }) => ({ id, revision, addedAt }));
+}
+
+export function favoritePostVersion(post: MattermostPost | null | undefined): number {
+  return post ? Math.max(post.create_at, post.update_at ?? 0, post.edit_at ?? 0) : 0;
 }
 
 export function favoriteStorageKey(server: string, user: string): string {
@@ -37,10 +49,10 @@ export function readFavorites(value: unknown, now = Date.now()): Favorite[] {
   return value.flatMap((v): Favorite[] => {
     if (!v || typeof v !== "object" || typeof v.id !== "string" || !/^[a-z0-9_-]{1,128}$/i.test(v.id)
       || ids.has(v.id) || typeof v.revision !== "string" || v.revision.length > 128
-      || !Number.isFinite(v.addedAt) || !Number.isFinite(v.checkedAt)) return [];
+      || !Number.isFinite(v.addedAt)) return [];
     ids.add(v.id);
     const post = cacheFavoritePost(v.post);
-    const fresh = now - v.checkedAt < FAVORITES_CACHE_TTL_MS && v.checkedAt <= now + 60_000;
+    const fresh = Number.isFinite(v.checkedAt) && now - v.checkedAt < FAVORITES_CACHE_TTL_MS && v.checkedAt <= now + 60_000;
     return [{ id: v.id, revision: v.revision, addedAt: v.addedAt, checkedAt: fresh ? v.checkedAt : 0,
       post: fresh && post?.id === v.id ? post : null }];
   }).slice(0, FAVORITES_LIMIT).sort((a, b) => b.addedAt - a.addedAt);
@@ -48,10 +60,13 @@ export function readFavorites(value: unknown, now = Date.now()): Favorite[] {
 
 // Reconcile only the captured membership revision: removal/re-addition during
 // a request must never be undone by that request's stale response.
-export function reconcileFavorites(current: Favorite[], requested: Favorite[], posts: MattermostPost[], now: number): Favorite[] {
+export function reconcileFavorites(current: Favorite[], requested: Favorite[], posts: MattermostPost[], now: number, requestStartedAt = now): Favorite[] {
   const revisions = new Map(requested.map(f => [f.id, f.revision]));
   const byId = new Map(posts.map(p => [p.id, p]));
-  return current.map(f => revisions.get(f.id) === f.revision
-    ? { ...f, checkedAt: now, post: cacheFavoritePost(byId.get(f.id)) }
-    : f);
+  return current.map(f => {
+    if (revisions.get(f.id) !== f.revision || f.deleted || (f.requestStartedAt ?? f.checkedAt) > requestStartedAt) return f;
+    const post = cacheFavoritePost(byId.get(f.id));
+    if (post && favoritePostVersion(post) < favoritePostVersion(f.post)) return f;
+    return { ...f, checkedAt: now, requestStartedAt, post };
+  });
 }

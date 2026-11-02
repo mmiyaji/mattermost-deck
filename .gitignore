@@ -3,6 +3,10 @@ node_modules/
 playwright-report/
 test-results/
 artifacts/chaosbringer/
+artifacts/cache-consistency/
+artifacts/e2e-current/
+artifacts/review-followup/
+artifacts/commit-review/
 .tmp-*/
 .tmp-*.cjs
 .claude/

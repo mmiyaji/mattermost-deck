@@ -13,7 +13,16 @@ test("favorite cache uses real extension storage, tab locks and account boundari
     manifest_version: 3, name: "Favorite cache test", version: "1.0.0", permissions: ["storage"],
     background: { service_worker: "background.js" },
   }));
-  await fs.writeFile(path.join(extension, "background.js"), "chrome.runtime.onInstalled.addListener(() => {});");
+  await build({ stdin: { contents: `
+    import { handleFavoriteCacheStorageRequest } from './src/favoriteCacheDatabase';
+    import { FAVORITE_CACHE_STORAGE_MESSAGE } from './src/favoriteCacheProtocol';
+    chrome.storage.session.setAccessLevel({accessLevel:'TRUSTED_AND_UNTRUSTED_CONTEXTS'});
+    chrome.runtime.onMessage.addListener((message, _sender, respond) => {
+      if (message.type !== FAVORITE_CACHE_STORAGE_MESSAGE) return;
+      handleFavoriteCacheStorageRequest(message).then(result => respond({success:true,...result}), error => respond({success:false,error:String(error)}));
+      return true;
+    });
+  `, resolveDir: process.cwd() }, outfile: path.join(extension, "background.js"), bundle: true, format: "iife", platform: "browser" });
   await fs.writeFile(path.join(extension, "test.html"), '<div id="root"></div><script type="module" src="test.js"></script>');
   await build({
     entryPoints: ["e2e/fixtures/favorites.tsx"], outfile: path.join(extension, "test.js"), bundle: true, format: "esm",
@@ -89,18 +98,67 @@ test("favorite cache uses real extension storage, tab locks and account boundari
     await expect(page.getByTestId("entries")).toBeEmpty();
     await page.getByRole("button", { name: "Add to favorites" }).click();
     await expect(page.getByTestId("entries")).toContainText("Cached favorite");
-    await page.evaluate(async () => {
-      const values = await chrome.storage.local.get(null);
-      for (const [key, entries] of Object.entries(values)) {
-        if (key.startsWith("mattermostDeck.favorites.v1:")) {
-          await chrome.storage.local.set({ [key]: (entries as any[]).map(f => ({ ...f, checkedAt: Date.now() - 8 * 24 * 60 * 60_000 })) });
-        }
-      }
-    });
+    await sw.evaluate(() => new Promise<void>((resolve, reject) => {
+      const open = indexedDB.open("mattermostDeck.favoriteBodies", 1);
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const database = open.result, transaction = database.transaction("metadata", "readwrite"), store = transaction.objectStore("metadata"), rows = store.getAll();
+        rows.onsuccess = () => { for (const row of rows.result) store.put({ ...row, checkedAt: Date.now() - 8 * 24 * 60 * 60_000 }); };
+        transaction.oncomplete = () => { database.close(); resolve(); };
+      };
+    }));
     await page.reload();
     await expect(page.getByTestId("entries")).toHaveText("Unavailable");
     const stored = await page.evaluate(async () => Object.values(await chrome.storage.local.get(null)).flat());
-    expect(stored).toEqual(expect.arrayContaining([expect.objectContaining({ id: "post1", post: null })]));
+    expect(stored).toEqual(expect.arrayContaining([expect.objectContaining({ id: "post1" })]));
+    expect(stored.filter((value: any) => value?.id === "post1").every((value: any) => !Object.hasOwn(value, "post") && !Object.hasOwn(value, "checkedAt"))).toBe(true);
+
+    // A failed body migration must retain the old inline copy for retry, while
+    // adding another favorite still writes its durable metadata successfully.
+    const membershipKey = "mattermostDeck.favorites.v1:https%3A%2F%2Fexample.test%2Fteam%2F:userA";
+    await sw.evaluate(() => {
+      const original = IDBObjectStore.prototype.put;
+      (globalThis as any).favoriteDiskUnavailable = true;
+      IDBObjectStore.prototype.put = function (...args) {
+        if (this.name === "bodies" && (globalThis as any).favoriteDiskUnavailable) throw new Error("favorite cache disk unavailable");
+        return original.apply(this, args);
+      };
+    });
+    await sw.evaluate(async key => chrome.storage.local.set({ [key]: [{
+      id: "post1", revision: "legacy", addedAt: Date.now(), checkedAt: Date.now(),
+      post: { id: "post1", user_id: "author", channel_id: "channel", create_at: 1, message: "Legacy pending migration" },
+    }] }), membershipKey);
+    await expect(page.getByTestId("entries")).toContainText("Legacy pending migration");
+    await page.getByRole("button", { name: "Add another", exact: true }).click();
+    await expect(page.getByTestId("entries")).toContainText("Another cached favorite");
+    const pendingMigration = await sw.evaluate(async key => (await chrome.storage.local.get(key))[key], membershipKey);
+    expect(pendingMigration.find((value: any) => value.id === "post1").post.message).toBe("Legacy pending migration");
+    expect(pendingMigration.find((value: any) => value.id === "post2")).not.toHaveProperty("post");
+    await sw.evaluate(() => { (globalThis as any).favoriteDiskUnavailable = false; });
+    await page.reload();
+    await expect(page.getByTestId("entries")).toContainText("Legacy pending migration");
+    const migrated = await sw.evaluate(async key => (await chrome.storage.local.get(key))[key], membershipKey);
+    expect(migrated).toHaveLength(2);
+    expect(migrated.every((value: any) => !Object.hasOwn(value, "post") && !Object.hasOwn(value, "checkedAt"))).toBe(true);
+    await page.getByRole("button", { name: "Remove another", exact: true }).click();
+    await expect(page.getByTestId("entries")).toHaveText("Legacy pending migration");
+
+    // The provider receives deletion even without an App FavoritesColumn.
+    // It clears the body immediately and a response already in flight cannot
+    // recreate it locally, in IndexedDB, in another tab, or after reload.
+    await page.evaluate(() => {
+      (window as any).fixturePending = true;
+      (window as any).fixturePosts = [{ id: "post1", user_id: "author", channel_id: "channel", create_at: 1, update_at: 200, message: "Late response after deletion" }];
+    });
+    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => typeof (window as any).fixtureResolve)).toBe("function");
+    await page.getByRole("button", { name: "Delete known post", exact: true }).click();
+    await expect(page.getByTestId("entries")).toHaveText("Unavailable");
+    await page.evaluate(() => { (window as any).fixtureResolve(); (window as any).fixturePending = false; });
+    await expect(second.getByTestId("entries")).toHaveText("Unavailable");
+    await page.reload();
+    await expect(page.getByTestId("entries")).toHaveText("Unavailable");
+    expect((await sw.evaluate(async key => (await chrome.storage.local.get(key))[key], membershipKey)).map((value: any) => value.id)).toEqual(["post1"]);
     await page.evaluate(() => { chrome.storage.local.set = async () => { throw new Error("quota exceeded"); }; });
     await page.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("Could not save or refresh");

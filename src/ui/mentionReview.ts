@@ -4,7 +4,7 @@ import { reviewStorageClient, usesReviewDatabase, REVIEW_CHANGED_MESSAGE } from 
 
 export interface ReviewEntry { post: MattermostPost; confirmedAt: number | null }
 interface Snapshot { values: Record<string, unknown>; ready: boolean; error: string | null }
-interface Store { snapshot: Snapshot; listeners: Set<() => void>; loaded: Promise<void>; queue: Promise<void>; pending: Record<string, unknown> | null; revisions: Map<string, number>; postKeys: Map<string, Set<string>>; legacyCompactionChecked: boolean; unlisten: () => void; cleanup?: ReturnType<typeof setTimeout> }
+interface Store { snapshot: Snapshot; listeners: Set<() => void>; loaded: Promise<void>; queue: Promise<void>; pending: Record<string, unknown> | null; revisions: Map<string, number>; postKeys: Map<string, Set<string>>; legacyCompactionChecked: boolean; hydrating: boolean; unlisten: () => void; cleanup?: ReturnType<typeof setTimeout> }
 const stores = new Map<string, Store>();
 const CONFIRMED_BODY_CAP = 200;
 export const reviewPrefix = (server: string, user: string) => `mattermostDeck.mentionReview.v1:${encodeURIComponent(server)}:${encodeURIComponent(user)}:`;
@@ -54,7 +54,7 @@ export function reviewScopeIndex(prefix: string, scope: string): ReadonlySet<str
 function getStore(prefix: string): Store {
   const existing = stores.get(prefix);
   if (existing) return existing;
-  const store: Store = { snapshot: { values: {}, ready: false, error: null }, listeners: new Set(), loaded: Promise.resolve(), queue: Promise.resolve(), pending: {}, revisions: new Map(), postKeys: new Map(), legacyCompactionChecked: false, unlisten: () => {} };
+  const store: Store = { snapshot: { values: {}, ready: false, error: null }, listeners: new Set(), loaded: Promise.resolve(), queue: Promise.resolve(), pending: {}, revisions: new Map(), postKeys: new Map(), legacyCompactionChecked: false, hydrating: false, unlisten: () => {} };
   stores.set(prefix, store);
   const accept = (changes: Record<string, unknown>) => {
     const relevant = Object.entries(changes).filter(([key]) => key.startsWith(prefix));
@@ -78,6 +78,16 @@ function getStore(prefix: string): Store {
   }
   else if (storage(prefix)) { chrome.storage.onChanged?.addListener(changed); store.unlisten = () => chrome.storage.onChanged?.removeListener(changed); }
   else if (typeof window !== "undefined") { window.addEventListener("storage", localChanged); store.unlisten = () => window.removeEventListener("storage", localChanged); }
+  hydrateReview(prefix, store);
+  return store;
+}
+
+function hydrateReview(prefix: string, store: Store): Promise<void> {
+  if (store.hydrating) return store.loaded;
+  store.hydrating = true;
+  store.pending = {};
+  const previouslyReady = store.snapshot.ready;
+  publish(store, { ...store.snapshot, error: null });
   store.loaded = (async () => {
     try {
       const area = storage(prefix);
@@ -88,10 +98,25 @@ function getStore(prefix: string): Store {
       for (const key of Object.keys(values)) if (values[key] == null) delete values[key];
       rebuildPostKeys(store, prefix, values);
       publish(store, { values, ready: true, error: null });
-    } catch (error) { publish(store, { ...store.snapshot, ready: true, error: message(error) }); }
-    finally { store.pending = null; }
+    } catch (error) {
+      // Failed reads are never an authoritative empty snapshot. Keep the last
+      // good values (and live notifications) so a retry cannot reopen decisions.
+      publish(store, { ...store.snapshot, ready: previouslyReady, error: message(error) });
+    }
+    finally { store.pending = null; store.hydrating = false; }
   })();
-  return store;
+  return store.loaded;
+}
+
+/** Retry only the authoritative adapter; never switch a failed runtime to legacy storage. */
+export function retryReview(prefix: string): Promise<void> {
+  const store = getStore(prefix);
+  return hydrateReview(prefix, store);
+}
+
+/** Read the current immutable snapshot without initiating a mutation. */
+export function reviewSnapshot(prefix: string): Readonly<Snapshot> {
+  return getStore(prefix).snapshot;
 }
 
 // Decisions outlive history bodies. Neither pending posts nor confirmation/deletion
@@ -192,12 +217,13 @@ export async function writeReview(prefix: string, update: Record<string, unknown
   const operation = store.queue.catch(() => undefined).then(async () => {
     await store.loaded;
     try {
+      if (!store.snapshot.ready) throw new Error(store.snapshot.error ?? "Review storage has not loaded");
       if (!store.legacyCompactionChecked) {
         store.legacyCompactionChecked = true;
         const legacyCompaction = compactLegacyDuplicates(prefix, store.snapshot.values);
         if (Object.keys(legacyCompaction).length) {
           try { await persistReview(prefix, store, legacyCompaction, []); }
-          catch (error) { store.legacyCompactionChecked = false; throw error; }
+          catch { store.legacyCompactionChecked = false; }
         }
       }
       const requested = typeof update === "function" ? update(store.snapshot.values) : update;
@@ -207,7 +233,7 @@ export async function writeReview(prefix: string, update: Record<string, unknown
         .map(([key]) => key.slice(`${prefix}confirmed:`.length)));
       // Free already confirmed/deleted bodies before allocating new storage.
       // A newly requested confirmation is not eligible until its decision saves.
-      await cleanHistoryBodies(prefix, store, CONFIRMED_BODY_CAP, reopening);
+      await cleanHistoryBodies(prefix, store, CONFIRMED_BODY_CAP, reopening).catch(() => 0);
       const sets: Record<string, unknown> = {}, removes: string[] = [];
       for (const [key, value] of Object.entries(requested)) { if (value === undefined) removes.push(key); else sets[key] = value; }
       try {
@@ -215,11 +241,11 @@ export async function writeReview(prefix: string, update: Record<string, unknown
       } catch (error) {
         // Under storage pressure discard even recent confirmed bodies, but keep
         // every decision and every pending post. If none can be freed, surface it.
-        if (!/quota|exceed/i.test(message(error)) || !await cleanHistoryBodies(prefix, store, 0, reopening)) throw error;
+        if (!/quota|exceed/i.test(message(error)) || !await cleanHistoryBodies(prefix, store, 0, reopening).catch(() => 0)) throw error;
         await persistReview(prefix, store, sets, []);
       }
       await persistReview(prefix, store, {}, removes);
-      await cleanHistoryBodies(prefix, store, CONFIRMED_BODY_CAP);
+      await cleanHistoryBodies(prefix, store, CONFIRMED_BODY_CAP).catch(() => 0);
       if (store.snapshot.error !== null) publish(store, { ...store.snapshot, error: null });
     } catch (error) {
       publish(store, { ...store.snapshot, error: message(error) });
@@ -291,6 +317,7 @@ export function useMentionReview(server: string, user: string, team?: string) {
   }, () => store.snapshot);
   return {
     ...snapshot,
+    retry: () => retryReview(prefix),
     entries: useMemo(() => selectReview(snapshot.values, prefix, scope, reviewScopeIndex(prefix, scope)), [snapshot.values, prefix, scope]),
     ingest: (posts: MattermostPost[]) => ingestReview(prefix, scope, posts),
     confirm: (id: string, confirmed: boolean) => writeReview(prefix, { [`${prefix}confirmed:${id}`]: confirmed ? Date.now() : undefined }),

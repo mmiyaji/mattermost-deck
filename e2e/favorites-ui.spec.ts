@@ -61,7 +61,15 @@ test("built Deck displays and operates the favorites pane with a fixture server"
         if (click === "focus") el?.focus();
         else if (click === "compose-start" || click === "compose-end") el?.dispatchEvent(new CompositionEvent(click === "compose-start" ? "compositionstart" : "compositionend", { bubbles: true }));
         else if (click) el?.click();
-        return el ? { text: el.textContent, pressed: el.getAttribute("aria-pressed"), expanded: el.getAttribute("aria-expanded"), opacity: getComputedStyle(el).opacity, paddingLeft: getComputedStyle(el).paddingLeft, paddingRight: getComputedStyle(el).paddingRight, bottom: el.getBoundingClientRect().bottom, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
+        const postRow = el?.closest(".deck-post-item");
+        const siblingStar = postRow?.querySelector<HTMLElement>(".deck-favorite-button");
+        const siblingAuthor = postRow?.querySelector<HTMLElement>(".deck-card-author");
+        const rectangle = (node: HTMLElement | null | undefined) => {
+          if (!node) return null;
+          const rect = node.getBoundingClientRect();
+          return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, opacity: getComputedStyle(node).opacity };
+        };
+        return el ? { text: el.textContent, favorite: rectangle(siblingStar), author: rectangle(siblingAuthor), rendered: el.closest("[data-deck-post-rendered]")?.getAttribute("data-deck-post-rendered"), postId: el.closest("[data-deck-post-id]")?.getAttribute("data-deck-post-id"), pressed: el.getAttribute("aria-pressed"), expanded: el.getAttribute("aria-expanded"), opacity: getComputedStyle(el).opacity, paddingLeft: getComputedStyle(el).paddingLeft, paddingRight: getComputedStyle(el).paddingRight, bottom: el.getBoundingClientRect().bottom, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, right: el.getBoundingClientRect().right, left: el.getBoundingClientRect().left } : null;
       }, args: [selector, click] });
       return result.result;
     }, { origin, selector, click });
@@ -121,7 +129,12 @@ test("built Deck displays and operates the favorites pane with a fixture server"
     await expect.poll(async () => (await inspect(`${favoritePane} .deck-pane-search-count`))?.text).toBe("0 / 1");
     await page.keyboard.press("Escape");
     await expect.poll(async () => (await inspect(searchToggle))?.expanded).toBe("false");
-    expect((await inspect(`${favoritePane} .deck-card--post`))?.text).toContain(post.message);
+    // Clearing a filter remounts the row. The default renderer fills its body
+    // after IntersectionObserver reports visibility, independently of whether
+    // the search controls have already collapsed.
+    const afterEscape = await inspect(`${favoritePane} .deck-card--post`);
+    if (!afterEscape?.text) console.log("favorite row awaiting visibility after Escape", { rendered: afterEscape?.rendered, postId: afterEscape?.postId });
+    await expect.poll(async () => (await inspect(`${favoritePane} .deck-card--post`))?.text).toContain(post.message);
     expect(favoritesRequests).toBe(0);
     const controlsToggle = `${favoritePane} .deck-column-header [aria-expanded]:not(.deck-pane-search-toggle)`;
     expect((await inspect(controlsToggle))?.expanded).toBe("false");
@@ -139,9 +152,12 @@ test("built Deck displays and operates the favorites pane with a fixture server"
     await inspect(`${favoritePane} [aria-label="Refresh"]`, true);
     await expect.poll(async () => (await inspect(`${favoritePane} .deck-card--post`))?.text).toContain("edited");
     expect(favoritesRequests).toBe(1);
-    const author = await inspect(`${favoritePane} .deck-card-author`);
-    const star = await inspect(`${favoritePane} .deck-favorite-button`);
     const favoriteCard = await inspect(`${favoritePane} .deck-card--post`);
+    // Measure the card and its overlay in one browser task; cache and channel
+    // metadata updates may change their heights between separate round trips.
+    const author = favoriteCard!.author;
+    const star = favoriteCard!.favorite;
+    console.log("favorite overlay geometry", { cardBottom: favoriteCard!.bottom, starBottom: star?.bottom, bottomInset: favoriteCard!.bottom - star!.bottom });
     expect(favoriteCard!.paddingRight).toBe(favoriteCard!.paddingLeft);
     expect(favoriteCard!.right - author!.right).toBeLessThan(20);
     expect(favoriteCard!.bottom - star!.bottom).toBeCloseTo(6, 0);

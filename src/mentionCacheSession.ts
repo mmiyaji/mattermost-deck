@@ -15,7 +15,19 @@ export interface MentionCacheSessionRequest {
 }
 
 type Snapshot = Record<string, unknown> & { savedAt: number; fingerprint: string };
-type Registry = { version: 1; entries: Record<string, Snapshot> };
+type Registry = { version: 1; entries: Record<string, Snapshot>; invalidations: Record<string, number> };
+const GLOBAL_INVALIDATION = "global";
+const entryToken = (key: string) => `entry:${key}`;
+const accountToken = (key: string) => `account:${JSON.stringify(scopeTuple(key).slice(0, 2))}`;
+
+function invalidatedAt(registry: Registry, key: string): number {
+  return Math.max(registry.invalidations[GLOBAL_INVALIDATION] ?? -1,
+    registry.invalidations[entryToken(key)] ?? -1, registry.invalidations[accountToken(key)] ?? -1);
+}
+
+function invalidate(registry: Registry, token: string, now: number): void {
+  registry.invalidations[token] = Math.max(now, registry.invalidations[token] ?? 0);
+}
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -65,10 +77,27 @@ function normaliseRegistry(value: unknown, now: number): Registry {
       catch { /* Expired or malformed session snapshots are disposable. */ }
     }
   }
-  return { version: 1, entries };
+  const invalidations: Record<string, number> = {};
+  if (record(value) && record(value.invalidations)) {
+    for (const [token, at] of Object.entries(value.invalidations)) {
+      if (token.length <= 8200 && timestamp(at) && at <= now + FUTURE_TOLERANCE_MS && now - at <= TTL_MS &&
+          (token === GLOBAL_INVALIDATION || token.startsWith("entry:") || token.startsWith("account:"))) {
+        invalidations[token] = at;
+      }
+    }
+  }
+  return { version: 1, entries, invalidations };
 }
 
 function boundRegistry(registry: Registry): void {
+  // Collapse excessive tombstones conservatively rather than forgetting an active cutoff.
+  if (Object.keys(registry.invalidations).length > 256 ||
+      new TextEncoder().encode(JSON.stringify(registry.invalidations)).byteLength > 256 * 1024) {
+    registry.invalidations = { [GLOBAL_INVALIDATION]: Math.max(...Object.values(registry.invalidations)) };
+  }
+  for (const [key, snapshot] of Object.entries(registry.entries)) {
+    if (snapshot.savedAt <= invalidatedAt(registry, key)) delete registry.entries[key];
+  }
   let usedBytes = 0;
   const encoder = new TextEncoder();
   registry.entries = Object.fromEntries(Object.entries(registry.entries)
@@ -95,13 +124,15 @@ export async function handleMentionCacheSessionRequest(message: MentionCacheSess
     const registry = normaliseRegistry(payload[STORAGE_KEY], now);
     const existing = registry.entries[message.key!];
     if (message.operation === "clear") {
+      invalidate(registry, tuple ? accountToken(message.key!) : GLOBAL_INVALIDATION, now);
       for (const key of Object.keys(registry.entries)) {
         const scope = scopeTuple(key);
         if (!tuple || (scope[0] === tuple[0] && scope[1] === tuple[1])) delete registry.entries[key];
       }
     } else if (message.operation === "remove") {
       delete registry.entries[message.key!];
-    } else if (prepared && (!existing || prepared.savedAt >= existing.savedAt)) {
+      invalidate(registry, entryToken(message.key!), now);
+    } else if (prepared && prepared.savedAt > invalidatedAt(registry, message.key!) && (!existing || prepared.savedAt >= existing.savedAt)) {
       if (existing?.fingerprint !== prepared.fingerprint || now - existing.savedAt >= MIN_WRITE_INTERVAL_MS) {
         registry.entries[message.key!] = prepared;
       }

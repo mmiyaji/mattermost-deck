@@ -113,8 +113,11 @@ for (const scenario of ["search failure", "cancellation"] as const) {
       await expect.poll(() => inspect(`${pane} button[title="Resume polling"]`)).not.toBeNull();
       await expect.poll(() => Date.now() - lastScanAt).toBeGreaterThan(1100);
       await inspect(`${pane} button[title="Resume polling"]`, true);
-      await expect.poll(() => searches).toBe(teams.length * 3);
+      // The known, unchanged team now reuses its successful complete snapshot.
+      // Teams omitted from TeamUnread must still search because zero is unknown.
+      await expect.poll(() => searches).toBe(teams.length * 3 - 1);
       expect(scans).toBe(2);
+      await expect.poll(() => inspect(`${pane} .deck-card--post`)).toContain("Scan recovery fixture");
     } finally {
       releaseSearch!();
       await context.close();

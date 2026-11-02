@@ -324,7 +324,7 @@ describe("UI locale coverage", () => {
     for (const [locale, resource] of Object.entries(allLocales)) {
       for (const key of labelKeys) {
         expect(
-          (resource.options as Record<string, string>)[key]?.trim(),
+          resource.options[key]?.trim(),
           `${locale}.options.${key}`,
         ).toBeTruthy();
       }

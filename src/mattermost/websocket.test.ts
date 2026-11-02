@@ -9,6 +9,7 @@ import {
   mentionsPayloadIncludesUser,
   parseUnreadStateChange,
   parsePostedEvent,
+  parseUpdatedUser,
   resolvePostedEventTeamId,
   type PostedEvent,
 } from "./websocket";
@@ -253,5 +254,15 @@ describe("appendPostedEvent", () => {
 
     queue = appendPostedEvent(queue, event("c"), 2);
     expect(queue.map(({ post }) => post.id)).toEqual(["a", "c"]);
+  });
+});
+
+
+describe("updated user metadata", () => {
+  it("accepts object and serialized event users and ignores malformed payloads", () => {
+    expect(parseUpdatedUser({ user: JSON.stringify({ id: "u", username: "renamed" }) })).toMatchObject({ id: "u", username: "renamed" });
+    expect(parseUpdatedUser({ user: { id: "u", username: "renamed" } })).toMatchObject({ username: "renamed" });
+    expect(parseUpdatedUser({ user: "broken" })).toBeNull();
+    expect(parseUpdatedUser({ user: { id: "u" } })).toBeNull();
   });
 });

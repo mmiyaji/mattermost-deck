@@ -1848,6 +1848,16 @@ export const railCssText = `
     contain-intrinsic-block-size: auto 120px;
   }
 
+  .deck-post-placeholder {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--deck-text-faint);
+    font-size: calc(12px * var(--deck-font-scale));
+    line-height: 1.5;
+  }
+
   .deck-card--post-compact {
     padding: 5px 0;
     border: none;

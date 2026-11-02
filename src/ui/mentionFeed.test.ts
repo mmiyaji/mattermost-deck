@@ -268,7 +268,17 @@ describe("mention feed", () => {
     )).toBe(false);
   });
 
+  it("does not count a team-join notification as a mention of its named user", () => {
+    const systemJoin = { ...post("join-team", "channel", 100), type: "system_join_team", message: "me joined the team." };
+    expect(postMatchesServerMention(systemJoin, "O", "me", [{ key: "me" }])).toBe(false);
+    expect(postMatchesMentionCandidate(systemJoin, "O", "me", [], {
+      channelMetadataAvailable: false, serverCountedChannel: true,
+    })).toBe(false);
+    expect(postMatchesRealtimeMentionCandidate(systemJoin, "O", "me", [], true, true)).toBe(false);
+  });
+
   it("matches the system post that adds the current user to a channel", () => {
+    expect(postMatchesServerMention({ ...post("add", "channel", 100), type: "system_add_to_channel", props: { addedUserId: "me" } }, "O", "me", [])).toBe(true);
     expect(postMatchesImplicitMention(
       {
         ...post("join", "channel", 100),

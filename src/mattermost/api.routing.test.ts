@@ -28,6 +28,36 @@ async function loadApi(
 describe("Mattermost base path", () => {
   beforeEach(() => vi.useRealTimers());
 
+  it("rechecks identity and discards cached user metadata when the account changes", async () => {
+    const api = await loadApi();
+    api.configureApiPerformanceSettings({ apiMinStartGapMs: 0 });
+    let account = "alice";
+    vi.mocked(fetch).mockImplementation(async (url) => response(String(url).endsWith("/users/me")
+      ? { id: account, username: account }
+      : [{ id: "author", username: `${account}-view` }]));
+    await api.getCurrentUser();
+    expect((await api.getUsersByIds(["author"]))[0].username).toBe("alice-view");
+    account = "bob";
+    expect((await api.getCurrentUser()).id).toBe("bob");
+    expect((await api.getUsersByIds(["author"]))[0].username).toBe("bob-view");
+  });
+
+  it("rejects an old account lookup completing after an account switch", async () => {
+    const api = await loadApi();
+    api.configureApiPerformanceSettings({ apiMinStartGapMs: 0 });
+    api.configureMattermostAccount("alice");
+    let finish!: (value: Response) => void;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }));
+    const stale = api.getUsersByIds(["author"]);
+    const rejected = expect(stale).rejects.toThrow("mattermost_api_server_changed");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    api.configureMattermostAccount("bob");
+    finish(response([{ id: "author", username: "old" }]));
+    await rejected;
+    vi.mocked(fetch).mockResolvedValue(response([{ id: "author", username: "new" }]));
+    expect((await api.getUsersByIds(["author"]))[0].username).toBe("new");
+  });
+
   it("prefixes REST and WebSocket paths and strips the base path from routes", async () => {
     const api = await loadApi();
     vi.mocked(fetch).mockResolvedValue(response({ id: "u1", username: "alice" }));

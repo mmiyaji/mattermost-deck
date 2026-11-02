@@ -45,8 +45,8 @@ import { localizePerformancePurpose } from "./performancePurpose";
 import { hasSettingsChanges } from "./settingsDraft";
 import { AppearancePreview, WidthDiagram } from "./AppearancePreview";
 import { PerformanceOverview } from "./PerformanceOverview";
-import { RESPONSIVE_PERFORMANCE_PRESET } from "../performanceSettings";
 import { settingsExperienceCss } from "./settingsExperienceStyles";
+import { PERFORMANCE_DEFAULTS, PERFORMANCE_LIMITS, RESPONSIVE_PERFORMANCE_PRESET, normalizePerformanceSettings, type PerformanceSettings } from "../performanceSettings";
 
 const PRODUCT_SITE_URL = "https://mattermost-deck.ruhenheim.org/";
 const REPO_URL = "https://github.com/mmiyaji/mattermost-deck";
@@ -67,6 +67,45 @@ const READ_ONLY_PANELS: ReadonlySet<ActivePanel> = new Set<ActivePanel>([
   "guide",
   "security",
 ]);
+
+const PERFORMANCE_FIELDS = Object.keys(PERFORMANCE_DEFAULTS) as (keyof PerformanceSettings)[];
+
+function PerformanceNumberInput({ field, value, onChange }: {
+  field: keyof PerformanceSettings;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  const { t } = useTranslation();
+  const [input, setInput] = useState(String(value));
+  useEffect(() => setInput(String(value)), [value]);
+  const { min, max } = PERFORMANCE_LIMITS[field];
+  const hintId = `performance-${field}-hint`;
+  return (
+    <label className="options-field">
+      <span className="options-label">{t(`options.performanceSettings.fields.${field}`)}</span>
+      <input
+        className="options-input"
+        type="number"
+        min={min}
+        max={max}
+        step={1}
+        value={input}
+        aria-describedby={hintId}
+        onChange={(event) => {
+          const raw = event.target.value;
+          setInput(raw);
+          if (raw !== "" && Number.isFinite(Number(raw))) onChange(Number(raw));
+        }}
+        onBlur={() => {
+          const normalized = normalizePerformanceSettings({ [field]: input === "" ? value : Number(input) })[field];
+          setInput(String(normalized));
+          onChange(normalized);
+        }}
+      />
+      <span id={hintId} className="options-hint">{t("options.performanceSettings.range", { min, max })}</span>
+    </label>
+  );
+}
 
 type ReleaseNotice = {
   version: string;
@@ -1959,6 +1998,8 @@ function OptionsApp(): React.JSX.Element {
   const [newProfileName, setNewProfileName] = useState("");
   const [renameProfileName, setRenameProfileName] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [showPat, setShowPat] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
@@ -2032,25 +2073,28 @@ function OptionsApp(): React.JSX.Element {
 
   useEffect(() => {
     let cancelled = false;
+    setLoadError(false);
     const run = async () => {
-      const next = await loadDeckSettings();
-      const pendingReleaseNotice = await loadReleaseNotice();
-      if (!cancelled) {
-        acceptSettings(next);
-        setInitialServerUrl(next.serverUrl);
-        setProfileOrigin(next.serverUrl);
-        setReleaseNotice(pendingReleaseNotice);
+      try {
+        const next = await loadDeckSettings();
+        const pendingReleaseNotice = await loadReleaseNotice();
         const profileSnapshot = await loadDeckProfiles(next.serverUrl || undefined);
         if (!cancelled) {
+          acceptSettings(next);
+          setInitialServerUrl(next.serverUrl);
+          setProfileOrigin(next.serverUrl);
+          setReleaseNotice(pendingReleaseNotice);
           setProfiles(profileSnapshot.profiles);
           setActiveProfileId(profileSnapshot.activeProfileId);
           setLoaded(true);
         }
+      } catch {
+        if (!cancelled) setLoadError(true);
       }
     };
     void run();
     return () => { cancelled = true; };
-  }, []);
+  }, [loadAttempt]);
 
   const refreshProfiles = async (origin: string) => {
     const snapshot = await loadDeckProfiles(origin || undefined);
@@ -2286,6 +2330,7 @@ function OptionsApp(): React.JSX.Element {
     : (serverUrlMissing ? t("options.serverUrlRequiredHint") : null);
 
   const persistDraft = async (): Promise<boolean> => {
+    if (!loaded) return false;
     const normalizedServerUrl = normaliseServerUrl(settings.serverUrl);
     if (!normalizedServerUrl) {
       setSaveError(text.invalidServerUrl);
@@ -2744,6 +2789,17 @@ function OptionsApp(): React.JSX.Element {
           <span>{activeProfile ? formatProfileName(activeProfile) : text.profilesDefaultName}</span>
         </div>
       </header>
+
+      {loadError && (
+        <div role="alert" className="options-status options-status--error" data-testid="options-load-error">
+          <p>{settings.language === "ja"
+            ? "設定を読み込めませんでした。再試行してください。"
+            : "Settings could not be loaded. Please try again."}</p>
+          <button type="button" className="options-button" onClick={() => setLoadAttempt(attempt => attempt + 1)}>
+            {settings.language === "ja" ? "再試行" : "Retry"}
+          </button>
+        </div>
+      )}
 
       {/* Body */}
       <div className="options-body">
@@ -3784,6 +3840,25 @@ function OptionsApp(): React.JSX.Element {
               </details>
 
 
+              <details className="options-connection-advanced">
+                <summary>{t("options.performanceSettings.title")}</summary>
+                <div className="options-subsection">
+                  <p className="options-copy">{t("options.performanceSettings.description")}</p>
+                  <p className="options-hint">{t("options.performanceSettings.apiHint")}</p>
+                  <p className="options-hint">{t("options.performanceSettings.mentionHint")}</p>
+                  <div className="options-grid">
+                    {PERFORMANCE_FIELDS.map((field) => (
+                      <PerformanceNumberInput key={field} field={field} value={settings[field]}
+                        onChange={(value) => setSettings((current) => ({ ...current, [field]: value }))} />
+                    ))}
+                  </div>
+                  <button type="button" className="options-button options-button--ghost"
+                    onClick={() => setSettings((current) => ({ ...current, ...PERFORMANCE_DEFAULTS }))}>
+                    {t("options.performanceSettings.restoreDefaults")}
+                  </button>
+                </div>
+              </details>
+
               <div className="options-grid">
                 <article className="options-analysis-card options-analysis-card--full">
                   <div className="options-analysis-header">
@@ -4057,7 +4132,7 @@ function OptionsApp(): React.JSX.Element {
                           : undefined
                 }
               >
-                {loaded ? saveError ?? (hasUnsavedChanges ? t("options.unsavedChanges") : savedNotice ? text.saved : t("options.noUnsavedChanges")) : text.saving}
+                {loaded ? saveError ?? (hasUnsavedChanges ? t("options.unsavedChanges") : savedNotice ? text.saved : t("options.noUnsavedChanges")) : loadError ? "" : text.saving}
               </span>
               <div className="options-save-actions">
               <button type="button" className="options-button options-button--ghost"

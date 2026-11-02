@@ -120,8 +120,8 @@ export function CustomSelect({
   }, []);
 
   const selectItem = useCallback((itemValue: string) => {
-    onChange(itemValue);
     closeMenu(true);
+    onChange(itemValue);
   }, [closeMenu, onChange]);
 
   const handleMenuKeyDown = useCallback((e: React.KeyboardEvent | KeyboardEvent) => {
@@ -280,7 +280,10 @@ export function CustomSelect({
                     focusedIndex === index ? "mm-custom-select-option--focused" : "",
                   ].filter(Boolean).join(" ")}
                   onPointerMove={() => setFocusedIndex(index)}
-                  onClick={() => selectItem(option.value)}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    selectItem(option.value);
+                  }}
                 >
                   {option.label}
                 </div>
@@ -300,7 +303,10 @@ export function CustomSelect({
                     focusedIndex === filteredOptions.length ? "mm-custom-select-option--focused" : "",
                   ].filter(Boolean).join(" ")}
                   onPointerMove={() => setFocusedIndex(filteredOptions.length)}
-                  onClick={() => selectItem("")}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    selectItem("");
+                  }}
                 >
                   {placeholder}
                 </div>

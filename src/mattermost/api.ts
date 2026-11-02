@@ -206,6 +206,7 @@ const API_POST_RATE_LIMIT_BURST = 10;
 const USER_LOOKUP_CACHE_TTL_MS = 5 * 60 * 1_000;
 const USER_LOOKUP_CACHE_MAX_ENTRIES = 2_000;
 const CHANNEL_LOOKUP_CACHE_TTL_MS = 5 * 60 * 1_000;
+const CHANNEL_LOOKUP_CACHE_MAX_ENTRIES = 2_000;
 const MENTION_METADATA_CACHE_TTL_MS = 30 * 1_000;
 const POST_BY_ID_CACHE_RETENTION_MS = 5 * 60 * 1_000;
 const POST_BY_ID_CACHE_MAX_ENTRIES = 2_000;
@@ -215,6 +216,7 @@ let configuredMattermostServerUrl = "";
 let configuredMattermostBasePath = "";
 let apiServerGeneration = 0;
 let apiServerConfigurationGeneration = 0;
+let configuredMattermostAccount: string | null | undefined;
 
 export function configureMattermostBaseUrl(serverUrl: string): void {
   let nextServerUrl = "";
@@ -238,8 +240,22 @@ export function configureMattermostBaseUrl(serverUrl: string): void {
     return;
   }
 
+  configuredMattermostAccount = undefined;
   configuredMattermostServerUrl = nextServerUrl;
   configuredMattermostBasePath = nextBasePath;
+  apiServerGeneration += 1;
+  apiServerConfigurationGeneration += 1;
+  clearMattermostApiCaches();
+}
+
+/** Account changes invalidate in-flight work as well as settled response caches. */
+export function configureMattermostAccount(userId: string | null): void {
+  if (configuredMattermostAccount === undefined) {
+    configuredMattermostAccount = userId;
+    return;
+  }
+  if (configuredMattermostAccount === userId) return;
+  configuredMattermostAccount = userId;
   apiServerGeneration += 1;
   apiServerConfigurationGeneration += 1;
   clearMattermostApiCaches();
@@ -549,6 +565,7 @@ function pruneChannelLookupCache(now = Date.now()): void {
       channelLookupCache.delete(channelId);
     }
   }
+  while (channelLookupCache.size > CHANNEL_LOOKUP_CACHE_MAX_ENTRIES) channelLookupCache.delete(channelLookupCache.keys().next().value!);
 }
 
 function pruneUserLookupCache(now = Date.now()): void {
@@ -730,6 +747,7 @@ async function performMeasuredFetch<T>(
         const inFlightAtStart = occupiedRequestSlots;
         try {
           const result = await request();
+          assertApiServerConfiguration(serverConfigurationGeneration);
           if (serverConfigurationGeneration === apiServerConfigurationGeneration) {
             const elapsed = Math.max(1, schedulerNow() - networkStart);
             const endpoint = describeApiPath(pathname, method);
@@ -1051,7 +1069,17 @@ export function readCurrentRoute(): CurrentRoute {
 }
 
 export async function getCurrentUser(): Promise<MattermostUser> {
-  return await apiGet<MattermostUser>("/users/me");
+  const generation = apiServerConfigurationGeneration;
+  try {
+    // This is the authority for account changes; a burst-cache hit could hide one.
+    const user = await apiGet<MattermostUser>("/users/me", { fresh: true });
+    assertApiServerConfiguration(generation);
+    configureMattermostAccount(user.id);
+    return user;
+  } catch (error) {
+    if (error instanceof MattermostApiError && error.status === 401 && generation === apiServerConfigurationGeneration) configureMattermostAccount(null);
+    throw error;
+  }
 }
 
 export async function searchUsers(term: string): Promise<MattermostUser[]> {

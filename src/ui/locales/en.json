@@ -130,6 +130,9 @@
     "diagnosticsErrorRate": "Error rate",
     "diagnosticsRecentSuffix": "recent",
     "diagnosticsInFlight": "In flight",
+    "diagnosticsActiveSlots": "Active request slots",
+    "diagnosticsQueuedRequests": "Queued requests",
+    "diagnosticsAvgQueueWait": "Avg queue wait",
     "diagnosticsFailedSuffix": "failed",
     "diagnosticsWsReconnects": "WS reconnects",
     "diagnosticsRender": "Render",
@@ -234,6 +237,27 @@
     "failedToLoadChannels": "Failed to load channels"
   },
   "options": {
+    "performanceSettings": {
+      "title": "Advanced performance settings",
+      "description": "These settings are saved with the current profile and apply to open Decks after Save. Restore defaults if updates become too slow.",
+      "apiHint": "Concurrency limits active requests; the start gap spaces request starts. Global and method-specific token buckets refill continuously at the configured requests per minute, allow short bursts, and all must have capacity before a request starts. Request timeouts cover network work; queue timeouts limit waiting for a slot.",
+      "mentionHint": "Thread cache lifetime reuses thread data between refreshes. The minimum reconciliation interval groups rapid updates; full scans periodically recheck all teams for missed changes. Team concurrency limits teams scanned together. Longer intervals reduce requests but can delay corrections.",
+      "restoreDefaults": "Restore performance defaults",
+      "range": "Allowed range: {{min}}–{{max}}",
+      "fields": {
+        "apiMaxConcurrentRequests": "Concurrent API requests (requests)",
+        "apiMinStartGapMs": "Minimum request start gap (ms)",
+        "apiGlobalRequestsPerMinute": "Global API rate (requests/min)",
+        "apiGetRequestsPerMinute": "GET rate (requests/min)",
+        "apiPostRequestsPerMinute": "POST rate (requests/min)",
+        "apiRequestTimeoutSeconds": "Request timeout (seconds)",
+        "apiQueueTimeoutSeconds": "Queue timeout (seconds)",
+        "mentionThreadCacheSeconds": "Mention thread cache lifetime (seconds)",
+        "mentionReconcileMinIntervalSeconds": "Minimum mention reconciliation interval (seconds)",
+        "mentionFullScanIntervalSeconds": "Full mention scan interval (seconds)",
+        "mentionTeamConcurrency": "Concurrent mention team scans (teams)"
+      }
+    },
     "editingTarget": "Editing",
     "noServerConfigured": "Server not configured",
     "generalGroup": "General",
