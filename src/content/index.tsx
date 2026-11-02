@@ -7,7 +7,7 @@ import {
   addTraceEntry,
   disposeTraceLogRuntime,
 } from "../traceLog";
-import { configureMattermostBaseUrl } from "../mattermost/api";
+import { configureMattermostBaseUrl, configureApiPerformanceSettings } from "../mattermost/api";
 import { DialogMutationTracker } from "./dialogMutations";
 import { startVisibleInterval } from "./visibleInterval";
 
@@ -811,6 +811,7 @@ function startContentRuntime(): void {
       }
       currentSettings = settings;
       configureMattermostBaseUrl(settings.serverUrl);
+      configureApiPerformanceSettings(settings);
       invalidateMattermostSessionGuard();
       settingsLoaded = true;
       void render();
@@ -822,6 +823,7 @@ function startContentRuntime(): void {
     }
     currentSettings = settings;
     configureMattermostBaseUrl(settings.serverUrl);
+    configureApiPerformanceSettings(settings);
     invalidateMattermostSessionGuard();
     settingsLoaded = true;
     void render();

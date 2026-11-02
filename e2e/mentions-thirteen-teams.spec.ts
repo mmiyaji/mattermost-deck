@@ -2,6 +2,7 @@ import { test, expect, chromium, type Page, type BrowserContext, type Worker } f
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { RESPONSIVE_PERFORMANCE_PRESET } from "../src/performanceSettings";
 
 const origin = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 async function api(token: string, method: string, route: string, body?: unknown): Promise<any> {
@@ -40,6 +41,9 @@ test("13 real teams and 78 unread threads preserve mention IDs and badges", asyn
   const state = JSON.parse(await fs.readFile(process.env.MM95_STATE_FILE ?? "e2e/mm95-state.json", "utf8"));
   const admin = await loginToken(state.adminUser.username, state.adminUser.password);
   const suffix = Date.now().toString();
+  const responsive = process.env.DECK_PERF_RESPONSIVE === "1";
+  let restartFirstPaintMs: number | null = null;
+  let restartCachedRows: number | null = null;
   const password = `DeckLoad-${suffix}!aA`;
   let user: any;
   let context: BrowserContext | undefined;
@@ -113,15 +117,19 @@ test("13 real teams and 78 unread threads preserve mention IDs and badges", asyn
     context = await chromium.launchPersistentContext(profile, { channel: "chromium", headless: true, viewport: { width: 1600, height: 1000 },
       args: [`--disable-extensions-except=${path.resolve("dist")}`, `--load-extension=${path.resolve("dist")}`] });
     sw = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
-    await sw.evaluate(({ origin, token, accelerated }) => chrome.storage.local.set({
+    await sw.evaluate(({ origin, token, accelerated, responsiveSettings }) => chrome.storage.local.set({
       "mattermostDeck.serverUrl.v1": origin, "mattermostDeck.wsPat.v1": token, "mattermostDeck.persistPat.v1": "true",
       "mattermostDeck.language.v1": "en", "mattermostDeck.pollingIntervalSeconds.v1": "3600", "mattermostDeck.traceCapture.v1": true,
       ...(accelerated ? { "mattermostDeck.apiMinStartGapMs.v1": "0", "mattermostDeck.apiGlobalRequestsPerMinute.v1": "900",
         "mattermostDeck.apiGetRequestsPerMinute.v1": "600", "mattermostDeck.apiPostRequestsPerMinute.v1": "300",
         "mattermostDeck.mentionReconcileMinIntervalSeconds.v1": "1", "mattermostDeck.mentionFullScanIntervalSeconds.v1": "600" } : {}),
+      ...(responsiveSettings ? {
+        ...Object.fromEntries(Object.entries(responsiveSettings).map(([key, value]) => [`mattermostDeck.${key}.v1`, String(value)])),
+        "mattermostDeck.persistMentionCache.v1": "true",
+      } : {}),
       "mattermostDeck.layout.v1": [{ id: "normal", type: "mentions", unreadOnly: true },
         { id: "review", type: "mentions", mentionReview: true, unreadOnly: true }],
-    }), { origin, token, accelerated: process.env.DECK_PERF_FAST === "1" });
+    }), { origin, token, accelerated: process.env.DECK_PERF_FAST === "1", responsiveSettings: responsive ? RESPONSIVE_PERFORMANCE_PRESET : null });
     page = await context.newPage();
     page.on("pageerror", e => pageErrors.push({ message: e.message, stack: e.stack ?? "" }));
     page.on("response", r => { if (r.url().includes("/api/v4/")) requests.push({ path: new URL(r.url()).pathname, status: r.status(), phase }); });
@@ -152,7 +160,7 @@ test("13 real teams and 78 unread threads preserve mention IDs and badges", asyn
         }
         return Object.fromEntries(["normal", "review"].map(id => {
           const pane = root?.querySelector(`[data-deck-column-id="${id}"]`);
-          return [id, { badge: Number(pane?.querySelector(".deck-badge")?.textContent), text: pane?.textContent }];
+          return [id, { badge: Number(pane?.querySelector(".deck-badge")?.textContent), text: pane?.textContent, renderedRows: pane?.querySelectorAll('[data-deck-post-rendered="true"]').length ?? 0 }];
         }));
       } });
       return r.result as any;
@@ -232,8 +240,34 @@ test("13 real teams and 78 unread threads preserve mention IDs and badges", asyn
     pending.delete(confirmed);
     await assertState("confirmed: normal unchanged, review minus one");
     phase = "reload";
-    await page.reload();
-    await expect(page.locator("#mattermost-deck-root")).toBeAttached();
+    const restartStarted = Date.now();
+    if (responsive) {
+      // A real browser restart clears chrome.storage.session; only the explicitly
+      // enabled local cache should cover the first paint of this new process.
+      const url = page.url();
+      await context.close();
+      context = await chromium.launchPersistentContext(profile, { channel: "chromium", headless: true, viewport: { width: 1600, height: 1000 },
+        args: [`--disable-extensions-except=${path.resolve("dist")}`, `--load-extension=${path.resolve("dist")}`] });
+      sw = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
+      page = await context.newPage();
+      page.on("pageerror", e => pageErrors.push({ message: e.message, stack: e.stack ?? "" }));
+      page.on("response", r => { if (r.url().includes("/api/v4/")) requests.push({ path: new URL(r.url()).pathname, status: r.status(), phase }); });
+      await page.addInitScript(() => localStorage.setItem("mattermostDeck.debugLogs", "1"));
+      await page.goto(url);
+    } else await page.reload();
+    await expect(page.locator("#mattermost-deck-root")).toBeAttached({ timeout: 30000 });
+    if (responsive) {
+      await expect.poll(async () => (await dom()).normal.renderedRows, { timeout: 30000, intervals: [50, 100, 250] }).toBeGreaterThan(0);
+      restartFirstPaintMs = Date.now() - restartStarted;
+      const firstState = await debug(page, "getColumnState", { id: "normal" });
+      restartCachedRows = firstState?.visiblePostIds?.length ?? 0;
+      expect(firstState?.mentionCacheActive).toBe(true);
+      expect(firstState?.mentionLoadActive).toBe(true);
+      expect(restartCachedRows).toBeGreaterThan(0);
+      expect(restartCachedRows).toBeLessThanOrEqual(100);
+      console.log("browser restart: cached first paint", { restartFirstPaintMs, restartCachedRows });
+      await page.screenshot({ path: testInfo.outputPath("cached-first-paint.png"), fullPage: true });
+    }
     await assertState("reload: confirmation and badge survive");
 
     phase = "read-markers";
@@ -264,6 +298,7 @@ test("13 real teams and 78 unread threads preserve mention IDs and badges", asyn
     await expect.poll(async () => (await debug(page!, "getColumnState", { id: "normal" }))?.mentionLoadActive).toBe(true);
     await assertState("own mention: no added row or badge count");
     const summary = { teamCount: 13, unreadThreads: 78, seededMentions: 117,
+      responsivePreset: responsive, restartFirstPaintMs, restartCachedRows,
       initialReadyMs, refreshMs, refreshRequestCount: refreshRequests.length,
       unchangedTeamSearchCount: unchangedTeamSearches.length, changedTeamSearches,
       initialThreadRequests: requests.filter(r => r.phase === "initial" && /\/posts\/[^/]+\/thread$/.test(r.path)).length,

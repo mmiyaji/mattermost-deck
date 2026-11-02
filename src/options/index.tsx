@@ -45,6 +45,7 @@ import { localizePerformancePurpose } from "./performancePurpose";
 import { hasSettingsChanges } from "./settingsDraft";
 import { AppearancePreview, WidthDiagram } from "./AppearancePreview";
 import { PerformanceOverview } from "./PerformanceOverview";
+import { RESPONSIVE_PERFORMANCE_PRESET } from "../performanceSettings";
 import { settingsExperienceCss } from "./settingsExperienceStyles";
 
 const PRODUCT_SITE_URL = "https://mattermost-deck.ruhenheim.org/";
@@ -64,7 +65,6 @@ type ActivePanel = "guide" | "conn" | "profiles" | "realtime" | "appearance" | "
 /** Panels that only read: the trace switch writes on the spot, not on save. */
 const READ_ONLY_PANELS: ReadonlySet<ActivePanel> = new Set<ActivePanel>([
   "guide",
-  "performance",
   "security",
 ]);
 
@@ -3755,6 +3755,22 @@ function OptionsApp(): React.JSX.Element {
               </div>
 
               <PerformanceOverview entries={traceEntries} language={settings.language} capturing={traceCaptureEnabled} />
+              <div className="options-callout" role="note">
+                <strong>{settings.language === "ja" ? "初期表示を軽快にする" : "Make initial display more responsive"}</strong>
+                <p>{settings.language === "ja"
+                  ? "API の毎分上限を標準値の約2倍にし、リクエストの最短間隔を短くします。サーバーが 429 を返した場合は、既存の自動調整で通信を抑えます。"
+                  : "Raise API rate caps to about twice the defaults and shorten the minimum interval between requests. Existing adaptive controls still slow requests when the server returns 429."}</p>
+                <p>{settings.language === "ja"
+                  ? "最新100件の投稿をこのブラウザー内に保存し、次回は更新を確認している間から表示します。初回などキャッシュがない場合、この表示の高速化は利用できません。"
+                  : "Save the latest 100 posts locally in this browser and show them while checking for updates next time. This display speedup is unavailable on the first visit or whenever no cached data exists."}</p>
+                <div className="options-inline" style={{ marginTop: "12px" }}>
+                  <button type="button" className="options-button options-button--ghost"
+                    onClick={() => setSettings((current) => ({ ...current, ...RESPONSIVE_PERFORMANCE_PRESET, persistMentionCache: true }))}>
+                    {settings.language === "ja" ? "軽快設定と前回表示キャッシュを有効にする" : "Enable responsive settings and previous-view cache"}
+                  </button>
+                </div>
+                <p>{settings.language === "ja" ? "変更を適用するには、通常の「保存」を押してください。" : "Use the regular Save button to apply these changes."}</p>
+              </div>
               <details className="options-connection-advanced">
                 <summary>{settings.language === "ja" ? "投稿リストの描画方式を比較（試験）" : "Compare post list rendering (experimental)"}</summary>
                 <div className="options-subsection">

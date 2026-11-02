@@ -1,4 +1,5 @@
 import { hasStoredValue, loadStoredJson, loadStoredString, saveStoredJson, saveStoredString } from "./storage";
+import { PERFORMANCE_DEFAULTS } from "../performanceSettings";
 
 export interface DeckProfileSummary {
   id: string;
@@ -22,6 +23,7 @@ const DEFAULT_PROFILE_NAME = "Default";
 const DEFAULT_PROFILE_ORIGIN = "default";
 const SERVER_URL_STORAGE_KEY = "mattermostDeck.serverUrl.v1";
 const PROFILE_SCOPED_STORAGE_KEYS = [
+  ...Object.keys(PERFORMANCE_DEFAULTS).map((key) => `mattermostDeck.${key}.v1`),
   "mattermostDeck.serverUrl.v1",
   "mattermostDeck.teamSlug.v1",
   "mattermostDeck.wsPat.v1",
@@ -45,6 +47,7 @@ const PROFILE_SCOPED_STORAGE_KEYS = [
   "mattermostDeck.showImagePreviews.v1",
   "mattermostDeck.highZIndex.v1",
   "mattermostDeck.reversedPostOrder.v1",
+  "mattermostDeck.persistMentionCache.v1",
   PROFILE_SETTINGS_INITIALIZED_KEY,
 ] as const;
 

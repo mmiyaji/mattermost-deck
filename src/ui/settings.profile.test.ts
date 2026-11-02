@@ -7,15 +7,19 @@ import {
   normaliseServerUrl,
   originToPermissionPattern,
   saveDeckSettings,
+  subscribeDeckSettings,
 } from "./settings";
 import {
   createDeckProfile,
+  duplicateDeckProfile,
+  deleteDeckProfile,
   getProfileStorageKey,
   loadDeckProfiles,
   PROFILE_SETTINGS_INITIALIZED_KEY,
   PROFILES_STORAGE_KEY,
   switchDeckProfile,
 } from "./profiles";
+import { PERFORMANCE_DEFAULTS, PERFORMANCE_LIMITS, RESPONSIVE_PERFORMANCE_PRESET, type PerformanceSettings } from "../performanceSettings";
 
 let localValues: Map<string, unknown>;
 let sessionValues: Map<string, unknown>;
@@ -117,6 +121,97 @@ describe("profile-aware settings", () => {
         onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
       },
     });
+  });
+
+  it("persists every performance field locally across restart and profile copy/switch/delete", async () => {
+    const origin = "https://mattermost.example.test";
+    expect(await loadDeckSettings(origin)).toMatchObject(PERFORMANCE_DEFAULTS);
+    const custom = Object.fromEntries(
+      (Object.keys(PERFORMANCE_DEFAULTS) as (keyof PerformanceSettings)[])
+        .map((key) => [key, PERFORMANCE_LIMITS[key].max]),
+    ) as unknown as PerformanceSettings;
+    await saveDeckSettings({ ...DEFAULT_SETTINGS, ...custom, serverUrl: origin }, origin);
+    const original = (await loadDeckProfiles(origin)).activeProfileId;
+    sessionValues.clear();
+    vi.resetModules();
+    const restartedSettings = await import("./settings");
+    expect(await restartedSettings.loadDeckSettings(origin)).toMatchObject(custom);
+    for (const key of Object.keys(custom) as (keyof PerformanceSettings)[]) {
+      expect(localValues.get(getProfileStorageKey(original, SETTINGS_KEYS[key]))).toBe(String(custom[key]));
+    }
+
+    const copy = await duplicateDeckProfile(original);
+    expect(copy).not.toBeNull();
+    expect(await loadDeckSettings(origin)).toMatchObject(custom);
+    await saveDeckSettings({ ...DEFAULT_SETTINGS, serverUrl: origin }, origin);
+    await switchDeckProfile(original);
+    expect(await loadDeckSettings(origin)).toMatchObject(custom);
+    await switchDeckProfile(copy!.id);
+    expect(await loadDeckSettings(origin)).toMatchObject(PERFORMANCE_DEFAULTS);
+    await deleteDeckProfile(copy!.id);
+    for (const key of Object.keys(custom) as (keyof PerformanceSettings)[]) {
+      expect(localValues.has(getProfileStorageKey(copy!.id, SETTINGS_KEYS[key]))).toBe(false);
+    }
+  });
+
+  it("copies the responsive preset and cache flag together and removes the copied settings on delete", async () => {
+    const origin = "https://mattermost.example.test";
+    const responsiveSettings = {
+      ...DEFAULT_SETTINGS,
+      ...RESPONSIVE_PERFORMANCE_PRESET,
+      serverUrl: origin,
+      persistMentionCache: true,
+    };
+    await saveDeckSettings(responsiveSettings, origin);
+    const original = (await loadDeckProfiles(origin)).activeProfileId;
+    const copy = await duplicateDeckProfile(original);
+    expect(copy).not.toBeNull();
+    expect(await loadDeckSettings(origin)).toMatchObject({
+      ...RESPONSIVE_PERFORMANCE_PRESET,
+      persistMentionCache: true,
+    });
+    const copiedCacheKey = getProfileStorageKey(copy!.id, SETTINGS_KEYS.persistMentionCache);
+    expect(localValues.get(copiedCacheKey)).toBe("true");
+
+    expect((await deleteDeckProfile(copy!.id)).deleted).toBe(true);
+    expect(localValues.has(copiedCacheKey)).toBe(false);
+    for (const field of Object.keys(RESPONSIVE_PERFORMANCE_PRESET) as (keyof PerformanceSettings)[]) {
+      expect(localValues.has(getProfileStorageKey(copy!.id, SETTINGS_KEYS[field]))).toBe(false);
+    }
+    expect(await loadDeckSettings(origin)).toMatchObject({
+      ...RESPONSIVE_PERFORMANCE_PRESET,
+      persistMentionCache: true,
+    });
+    expect(localValues.get(getProfileStorageKey(original, SETTINGS_KEYS.persistMentionCache))).toBe("true");
+  });
+
+  it("clamps every performance field on save and falls back for malformed stored values", async () => {
+    const origin = "https://mattermost.example.test";
+    const keys = Object.keys(PERFORMANCE_DEFAULTS) as (keyof PerformanceSettings)[];
+    for (const edge of ["min", "max"] as const) {
+      const input = Object.fromEntries(keys.map((key) => [key, edge === "min" ? -100 : 100000]));
+      await saveDeckSettings({ ...DEFAULT_SETTINGS, ...input, serverUrl: origin }, origin);
+      const loaded = await loadDeckSettings(origin);
+      for (const key of keys) expect(loaded[key]).toBe(PERFORMANCE_LIMITS[key][edge]);
+    }
+    const { activeProfileId } = await loadDeckProfiles(origin);
+    for (const key of keys) localValues.set(getProfileStorageKey(activeProfileId, SETTINGS_KEYS[key]), "invalid");
+    expect(await loadDeckSettings(origin)).toMatchObject(PERFORMANCE_DEFAULTS);
+  });
+
+  it("reloads subscriptions for a profile-scoped performance change", async () => {
+    const origin = "https://mattermost.example.test";
+    await saveDeckSettings({ ...DEFAULT_SETTINGS, serverUrl: origin }, origin);
+    const { activeProfileId } = await loadDeckProfiles(origin);
+    const listener = vi.fn();
+    const unsubscribe = subscribeDeckSettings(listener);
+    const handleChange = vi.mocked(chrome.storage.onChanged.addListener).mock.calls[0][0];
+    const key = getProfileStorageKey(activeProfileId, SETTINGS_KEYS.apiMaxConcurrentRequests);
+    localValues.set(key, "6");
+    handleChange({ [key]: { oldValue: "3", newValue: "6" } }, "local");
+    await vi.waitFor(() => expect(listener).toHaveBeenCalledWith(expect.objectContaining({ apiMaxConcurrentRequests: 6 })));
+    unsubscribe();
+    expect(chrome.storage.onChanged.removeListener).toHaveBeenCalledWith(handleChange);
   });
 
   it("defaults new font settings to 95 percent and preserves saved legacy and profile values", async () => {

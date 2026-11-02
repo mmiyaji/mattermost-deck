@@ -15,6 +15,7 @@ import {
   switchDeckProfile,
 } from "./profiles";
 import { resolveDeckLanguage, type DeckLanguage } from "./language";
+import { PERFORMANCE_DEFAULTS, normalizePerformanceSettings, type PerformanceSettings } from "../performanceSettings";
 
 export type DeckTheme = "system" | "dark" | "light" | "mattermost";
 export type { DeckLanguage } from "./language";
@@ -30,7 +31,7 @@ export type ColumnColorKey =
 
 export type ColumnColorSettings = Record<ColumnColorKey, string>;
 
-export interface DeckSettings {
+export interface DeckSettings extends PerformanceSettings {
   serverUrl: string;
   teamSlug: string;
   wsPat: string;
@@ -56,6 +57,10 @@ export interface DeckSettings {
 }
 
 export const SETTINGS_KEYS = {
+  ...Object.fromEntries(
+    (Object.keys(PERFORMANCE_DEFAULTS) as (keyof PerformanceSettings)[])
+      .map((key) => [key, `mattermostDeck.${key}.v1`]),
+  ) as Record<keyof PerformanceSettings, string>,
   serverUrl: "mattermostDeck.serverUrl.v1",
   teamSlug: "mattermostDeck.teamSlug.v1",
   wsPat: "mattermostDeck.wsPat.v1",
@@ -93,6 +98,7 @@ export const DEFAULT_COLUMN_COLORS: ColumnColorSettings = {
 };
 
 export const DEFAULT_SETTINGS: DeckSettings = {
+  ...PERFORMANCE_DEFAULTS,
   serverUrl: "",
   teamSlug: "",
   wsPat: "",
@@ -434,6 +440,7 @@ export async function loadDeckSettings(origin?: string): Promise<DeckSettings> {
     highZIndex,
     reversedPostOrder,
     persistMentionCache,
+    performanceSettings,
   ] = await Promise.all([
     loadScopedStoredString(SETTINGS_KEYS.serverUrl, "local", origin),
     loadScopedStoredString(SETTINGS_KEYS.teamSlug, "local", origin),
@@ -459,9 +466,11 @@ export async function loadDeckSettings(origin?: string): Promise<DeckSettings> {
     loadScopedStoredString(SETTINGS_KEYS.highZIndex, "local", origin),
     loadScopedStoredString(SETTINGS_KEYS.reversedPostOrder, "local", origin),
     loadScopedStoredString(SETTINGS_KEYS.persistMentionCache, "local", origin),
+    loadPerformanceSettings(origin),
   ]);
 
   return {
+    ...performanceSettings,
     serverUrl: normaliseServerUrl(serverUrl),
     teamSlug: normaliseTeamSlug(teamSlug),
     wsPat: (normalisePersistPat(persistPat) ? wsPatPersistent : wsPatSession) ?? DEFAULT_SETTINGS.wsPat,
@@ -490,12 +499,23 @@ export async function loadDeckSettings(origin?: string): Promise<DeckSettings> {
   };
 }
 
+async function loadPerformanceSettings(origin?: string): Promise<PerformanceSettings> {
+  const entries = await Promise.all(
+    (Object.keys(PERFORMANCE_DEFAULTS) as (keyof PerformanceSettings)[]).map(async (key) => {
+      const stored = await loadScopedStoredString(SETTINGS_KEYS[key], "local", origin);
+      return [key, stored ?? PERFORMANCE_DEFAULTS[key]] as const;
+    }),
+  );
+  return normalizePerformanceSettings(Object.fromEntries(entries));
+}
+
 export async function saveDeckSettings(settings: DeckSettings, origin?: string): Promise<void> {
   const profile = await loadCurrentDeckProfile(origin);
   const profileKey = (baseKey: string) => getProfileStorageKey(profile.id, baseKey);
   const normalizedServerUrl = normaliseServerUrl(settings.serverUrl);
   const normalizedPat = settings.wsPat.trim();
   const persistPat = normalisePersistPat(settings.persistPat);
+  const performanceSettings = normalizePerformanceSettings(settings);
   const localPat = await encodeStoredEncryptedString(persistPat ? normalizedPat : "");
   const sessionPat = await encodeStoredEncryptedString(persistPat ? "" : normalizedPat);
 
@@ -509,6 +529,10 @@ export async function saveDeckSettings(settings: DeckSettings, origin?: string):
     // the service worker and popup. All remaining settings stay profile-scoped.
     saveStoredStrings({ [SETTINGS_KEYS.serverUrl]: normalizedServerUrl }),
     saveStoredStrings({
+      ...Object.fromEntries(
+        (Object.keys(PERFORMANCE_DEFAULTS) as (keyof PerformanceSettings)[])
+          .map((key) => [profileKey(SETTINGS_KEYS[key]), String(performanceSettings[key])]),
+      ),
       [profileKey(SETTINGS_KEYS.serverUrl)]: normalizedServerUrl,
       [profileKey(SETTINGS_KEYS.teamSlug)]: normaliseTeamSlug(settings.teamSlug),
       [profileKey(SETTINGS_KEYS.persistPat)]: persistPat ? "true" : "false",

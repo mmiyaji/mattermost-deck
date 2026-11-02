@@ -26,6 +26,13 @@ export const PERFORMANCE_DEFAULTS: PerformanceSettings = {
   mentionTeamConcurrency: 2,
 };
 
+export const RESPONSIVE_PERFORMANCE_PRESET: Partial<PerformanceSettings> = {
+  apiGlobalRequestsPerMinute: 360,
+  apiGetRequestsPerMinute: 300,
+  apiPostRequestsPerMinute: 90,
+  apiMinStartGapMs: 60,
+};
+
 export const PERFORMANCE_LIMITS: Record<keyof PerformanceSettings, { min: number; max: number }> = {
   apiMaxConcurrentRequests: { min: 1, max: 8 },
   apiMinStartGapMs: { min: 0, max: 2000 },
