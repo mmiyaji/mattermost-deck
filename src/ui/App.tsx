@@ -4275,9 +4275,11 @@ function PostListItem({
   const groupedWithPrevious = !compactMode && previousEntry?.type === "post" && shouldGroupAdjacentPosts(previousEntry.post, post);
   const isReplyPost = Boolean(post.root_id?.trim());
   const hasFiles = (post.file_ids?.length ?? 0) > 0;
-  const body = renderBody
-    ? renderBody(post, { isVisible })
-    : (isVisible ? renderPostSnippet(post.message, highlightTerms) : summarisePost(post.message));
+  const defaultBody = useMemo(
+    () => renderBody ? null : (isVisible ? renderPostSnippet(post.message, highlightTerms) : summarisePost(post.message)),
+    [renderBody, isVisible, post.message, highlightTerms],
+  );
+  const body = renderBody ? renderBody(post, { isVisible }) : defaultBody;
   const isEmpty = !renderBody && !post.message.trim();
   const canOpenPost = Boolean(onOpenPost && postClickAction !== "none");
   const activatePost = () => {

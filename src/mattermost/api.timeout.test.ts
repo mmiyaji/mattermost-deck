@@ -23,6 +23,23 @@ async function loadApi() {
 }
 
 describe("Mattermost API request timeout", () => {
+  it("reuses recent navigation targets and invalidates them with metadata", async () => {
+    const api = await loadApi();
+    vi.mocked(fetch).mockResolvedValue(response({ id: "channel", name: "town-square" }));
+    const first = api.getChannelByName("team", "town-square");
+    await vi.advanceTimersByTimeAsync(0); await first;
+    await vi.advanceTimersByTimeAsync(2000);
+    await api.getChannelByName("team", "town-square");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    api.invalidateMentionMetadataCaches();
+    const invalidated = api.getChannelByName("team", "town-square");
+    await vi.advanceTimersByTimeAsync(120); await invalidated;
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(30_001);
+    const expired = api.getChannelByName("team", "town-square");
+    await vi.advanceTimersByTimeAsync(0); await expired;
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
   it("reconciles missed old edits even when new replies keep arriving", async () => {
     const api = await loadApi();
     api.configureApiPerformanceSettings({ mentionThreadCacheSeconds: 10 });
@@ -240,10 +257,10 @@ describe("Mattermost API request timeout", () => {
     const active = [0, 1, 2].map(i => api.getRecentPosts(`active-${i}`));
     await vi.advanceTimersByTimeAsync(300);
     const background = api.getRecentPosts("background", 0, 20, "background");
-    const foreground = api.getRecentPosts("foreground", 0, 20, "interactive");
+    const foreground = api.getChannelByName("team", "foreground");
     releases.shift()!();
     await vi.advanceTimersByTimeAsync(120);
-    expect(String(vi.mocked(fetch).mock.calls[3][0])).toContain("/channels/foreground/");
+    expect(String(vi.mocked(fetch).mock.calls[3][0])).toContain("/channels/name/foreground");
     while (releases.length) { releases.shift()!(); await vi.advanceTimersByTimeAsync(120); }
     await Promise.all([...active, background, foreground]);
   });

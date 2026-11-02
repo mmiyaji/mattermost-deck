@@ -334,6 +334,7 @@ const recentGetResponses = new Map<string, { expiresAt: number; value: unknown }
 const userLookupCache = new Map<string, { expiresAt: number; user: MattermostUser }>();
 const inflightUserLookups = new Map<string, Promise<MattermostUser[]>>();
 const channelLookupCache = new Map<string, { expiresAt: number; channel: MattermostChannel }>();
+const routeChannelLookupCache = new Map<string, { expiresAt: number; channel: MattermostChannel }>();
 const inflightChannelLookups = new Map<string, Promise<MattermostChannel>>();
 const mentionGroupLookupCache = new Map<string, { expiresAt: number; groups: MattermostGroup[] }>();
 const clientConfigCache = new Map<string, { expiresAt: number; config: MattermostClientConfig }>();
@@ -419,6 +420,7 @@ function clearMattermostResponseCaches(includePostLookups = true): void {
   userLookupCache.clear();
   inflightUserLookups.clear();
   channelLookupCache.clear();
+  routeChannelLookupCache.clear();
   inflightChannelLookups.clear();
   mentionGroupLookupCache.clear();
   clientConfigCache.clear();
@@ -1245,9 +1247,19 @@ export async function getChannelByName(
   teamId: string,
   channelName: string,
 ): Promise<MattermostChannel> {
-  return await apiGet<MattermostChannel>(
-    `/teams/${encodeURIComponent(teamId)}/channels/name/${encodeURIComponent(channelName)}`,
-  );
+  const generation = apiServerGeneration;
+  const pathname = `/teams/${encodeURIComponent(teamId)}/channels/name/${encodeURIComponent(channelName)}`;
+  const cacheKey = getGenerationCacheKey(pathname, generation);
+  const cached = routeChannelLookupCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.channel;
+  const channel = await apiGet<MattermostChannel>(pathname, { priority: "interactive", reason: "route-channel-navigation" });
+  if (generation === apiServerGeneration) {
+    for (const [key, value] of routeChannelLookupCache) if (value.expiresAt <= Date.now()) routeChannelLookupCache.delete(key);
+    routeChannelLookupCache.delete(cacheKey);
+    routeChannelLookupCache.set(cacheKey, { channel, expiresAt: Date.now() + 30_000 });
+    while (routeChannelLookupCache.size > 200) routeChannelLookupCache.delete(routeChannelLookupCache.keys().next().value!);
+  }
+  return channel;
 }
 
 export async function getChannelsByIds(channelIds: string[]): Promise<MattermostChannel[]> {
