@@ -3,7 +3,7 @@ import type { MattermostPost } from "../mattermost/api";
 
 export interface ReviewEntry { post: MattermostPost; confirmedAt: number | null }
 interface Snapshot { values: Record<string, unknown>; ready: boolean; error: string | null }
-interface Store { snapshot: Snapshot; listeners: Set<() => void>; loaded: Promise<void>; queue: Promise<void>; pending: Record<string, unknown> | null; revisions: Map<string, number>; postKeys: Map<string, Set<string>>; unlisten: () => void; cleanup?: ReturnType<typeof setTimeout> }
+interface Store { snapshot: Snapshot; listeners: Set<() => void>; loaded: Promise<void>; queue: Promise<void>; pending: Record<string, unknown> | null; revisions: Map<string, number>; postKeys: Map<string, Set<string>>; legacyCompactionChecked: boolean; unlisten: () => void; cleanup?: ReturnType<typeof setTimeout> }
 const stores = new Map<string, Store>();
 const CONFIRMED_BODY_CAP = 200;
 export const reviewPrefix = (server: string, user: string) => `mattermostDeck.mentionReview.v1:${encodeURIComponent(server)}:${encodeURIComponent(user)}:`;
@@ -29,6 +29,12 @@ function postKeyScope(prefix: string, key: string): string | null {
   const end = rest.indexOf(":");
   return end < 0 ? null : rest.slice(0, end);
 }
+function postKeyId(key: string): string {
+  return key.slice(key.lastIndexOf(":") + 1);
+}
+function canonicalBodyKey(prefix: string, id: string): string {
+  return `${prefix}body:${id}`;
+}
 function indexPostKey(store: Store, prefix: string, key: string, present: boolean): void {
   const scope = postKeyScope(prefix, key);
   if (scope === null) return;
@@ -47,13 +53,13 @@ export function reviewScopeIndex(prefix: string, scope: string): ReadonlySet<str
 function getStore(prefix: string): Store {
   const existing = stores.get(prefix);
   if (existing) return existing;
-  const store: Store = { snapshot: { values: {}, ready: false, error: null }, listeners: new Set(), loaded: Promise.resolve(), queue: Promise.resolve(), pending: {}, revisions: new Map(), postKeys: new Map(), unlisten: () => {} };
+  const store: Store = { snapshot: { values: {}, ready: false, error: null }, listeners: new Set(), loaded: Promise.resolve(), queue: Promise.resolve(), pending: {}, revisions: new Map(), postKeys: new Map(), legacyCompactionChecked: false, unlisten: () => {} };
   stores.set(prefix, store);
   const accept = (changes: Record<string, unknown>) => {
     const relevant = Object.entries(changes).filter(([key]) => key.startsWith(prefix));
     if (!relevant.length) return;
     const values = { ...store.snapshot.values };
-    for (const [key, value] of relevant) { store.revisions.set(key, (store.revisions.get(key) ?? 0) + 1); if (store.pending) store.pending[key] = value; if (value == null) delete values[key]; else values[key] = value; indexPostKey(store, prefix, key, value != null); }
+    for (const [key, value] of relevant) { store.revisions.set(key, (store.revisions.get(key) ?? 0) + 1); if (store.pending) store.pending[key] = value; if (value == null) delete values[key]; else values[key] = value; indexPostKey(store, prefix, key, value != null); if (key.startsWith(`${prefix}post:`) && value !== null && typeof value === "object") store.legacyCompactionChecked = false; }
     publish(store, { ...store.snapshot, values });
   };
   const changed = (changes: Record<string, chrome.storage.StorageChange>, area: string) => { if (area === "local") accept(Object.fromEntries(Object.entries(changes).map(([key, change]) => [key, change.newValue]))); };
@@ -91,12 +97,56 @@ function retainedConfirmedIds(prefix: string, values: Record<string, unknown>, l
 }
 function historyBodyRemovals(prefix: string, values: Record<string, unknown>, limit: number): string[] {
   const retained = retainedConfirmedIds(prefix, values, limit);
-  return Object.keys(values).filter(key => {
-    if (!key.startsWith(`${prefix}post:`)) return false;
-    const id = key.slice(key.lastIndexOf(":") + 1);
-    return Boolean(values[`${prefix}deleted:${id}`]) ||
-      (typeof values[`${prefix}confirmed:${id}`] === "number" && !retained.has(id));
-  });
+  const removeBodies = new Set<string>();
+  const removeDeletedMemberships = new Set<string>();
+  for (const key of Object.keys(values)) {
+    if (key.startsWith(`${prefix}body:`)) {
+      const id = key.slice(`${prefix}body:`.length);
+      if (values[`${prefix}deleted:${id}`] ||
+        (typeof values[`${prefix}confirmed:${id}`] === "number" && !retained.has(id))) {
+        removeBodies.add(key);
+      }
+      continue;
+    }
+    if (!key.startsWith(`${prefix}post:`)) continue;
+    const id = postKeyId(key);
+    if (values[`${prefix}deleted:${id}`]) {
+      // Deleted decisions remain as small tombstones, so scope membership can
+      // be dropped along with any legacy duplicated body.
+      removeDeletedMemberships.add(key);
+      if (typeof values[key] === "object" && values[key] !== null) removeBodies.add(key);
+    } else if (typeof values[`${prefix}confirmed:${id}`] === "number" && !retained.has(id) &&
+      typeof values[key] === "object" && values[key] !== null) {
+      removeBodies.add(key);
+    }
+  }
+  return [...removeBodies, ...removeDeletedMemberships];
+}
+
+// Older releases copied a full post into every matching scope. Compact those
+// duplicates in-place before a new write so the migration frees quota instead
+// of temporarily requiring room for a second copy. Pending membership and all
+// confirmation/deletion decisions remain durable.
+function compactLegacyDuplicates(prefix: string, values: Record<string, unknown>): Record<string, unknown> {
+  const byId = new Map<string, Array<{ key: string; post: MattermostPost }>>();
+  for (const [key, value] of Object.entries(values)) {
+    if (!key.startsWith(`${prefix}post:`) || !value || typeof value !== "object" || typeof (value as MattermostPost).message !== "string") continue;
+    const id = postKeyId(key);
+    const group = byId.get(id) ?? [];
+    group.push({ key, post: value as MattermostPost });
+    byId.set(id, group);
+  }
+  const updates: Record<string, unknown> = {};
+  for (const [id, group] of byId) {
+    if (group.length < 2) continue;
+    const newest = group.reduce((latest, current) =>
+      (current.post.update_at ?? current.post.create_at) > (latest.post.update_at ?? latest.post.create_at) ? current : latest,
+    );
+    const canonical = values[canonicalBodyKey(prefix, id)] as MattermostPost | undefined;
+    updates[canonicalBodyKey(prefix, id)] = canonical && (canonical.update_at ?? canonical.create_at) > (newest.post.update_at ?? newest.post.create_at) ? canonical : newest.post;
+    for (const { key } of group) updates[key] = true;
+  }
+  return updates;
 }
 // Storage events can carry a later remote write before an earlier local promise
 // resolves. Only apply its result to keys that have received no event since then.
@@ -134,6 +184,14 @@ export async function writeReview(prefix: string, update: Record<string, unknown
   const operation = store.queue.catch(() => undefined).then(async () => {
     await store.loaded;
     try {
+      if (!store.legacyCompactionChecked) {
+        store.legacyCompactionChecked = true;
+        const legacyCompaction = compactLegacyDuplicates(prefix, store.snapshot.values);
+        if (Object.keys(legacyCompaction).length) {
+          try { await persistReview(prefix, store, legacyCompaction, []); }
+          catch (error) { store.legacyCompactionChecked = false; throw error; }
+        }
+      }
       const requested = typeof update === "function" ? update(store.snapshot.values) : update;
       if (!Object.keys(requested).length) return;
       const reopening = new Set(Object.entries(requested)
@@ -171,10 +229,19 @@ export async function ingestReview(prefix: string, scope: string, posts: Matterm
       if (!post.id || post.delete_at || !isReviewableMentionPost(post) || current[`${prefix}deleted:${post.id}`]) continue;
       if (typeof current[`${prefix}confirmed:${post.id}`] === "number" && !retained.has(post.id)) continue;
       const key = `${prefix}post:${scope}:${post.id}`;
-      const previous = current[key] as MattermostPost | undefined;
-      if (!previous || (post.update_at ?? post.create_at) >= (previous.update_at ?? previous.create_at)) {
-        if (!previous || previous.update_at !== post.update_at || previous.edit_at !== post.edit_at || previous.delete_at !== post.delete_at || previous.message !== post.message) values[key] = post;
+      const bodyKey = canonicalBodyKey(prefix, post.id);
+      const legacy = current[key] && typeof current[key] === "object" ? current[key] as MattermostPost : undefined;
+      const canonical = current[bodyKey] as MattermostPost | undefined;
+      const previous = legacy && (!canonical || (legacy.update_at ?? legacy.create_at) > (canonical.update_at ?? canonical.create_at)) ? legacy : canonical;
+      if (previous === legacy && legacy && canonical !== legacy) values[bodyKey] = legacy;
+      if (!current[bodyKey]) {
+        values[bodyKey] = previous && (post.update_at ?? post.create_at) < (previous.update_at ?? previous.create_at) ? previous : post;
+      } else if (!previous || (post.update_at ?? post.create_at) >= (previous.update_at ?? previous.create_at)) {
+        if (!previous || previous.update_at !== post.update_at || previous.edit_at !== post.edit_at || previous.delete_at !== post.delete_at || previous.message !== post.message) values[bodyKey] = post;
       }
+      // A single canonical body serves team and all-team feeds. Scope rows are
+      // small durable indexes; confirmation state remains keyed by post id.
+      if (current[key] == null || (typeof current[key] === "object" && current[key] !== null)) values[key] = true;
     }
     return values;
   });
@@ -189,7 +256,10 @@ export function selectReview(values: Record<string, unknown>, prefix: string, sc
     : Object.entries(values);
   return candidates.flatMap(([key, value]) => {
     if (!key.startsWith(start)) return [];
-    const post = value as MattermostPost;
+    const id = postKeyId(key);
+    const post = value && typeof value === "object"
+      ? value as MattermostPost // Legacy body kept readable during migration.
+      : values[canonicalBodyKey(prefix, id)] as MattermostPost | undefined;
     if (!post || typeof post.id !== "string" || typeof post.message !== "string" || typeof post.create_at !== "number" || !Number.isFinite(post.create_at) || post.delete_at || !isReviewableMentionPost(post) || values[`${prefix}deleted:${post.id}`]) return [];
     const confirmedAt = values[`${prefix}confirmed:${post.id}`];
     return [{ post, confirmedAt: typeof confirmedAt === "number" ? confirmedAt : null }];

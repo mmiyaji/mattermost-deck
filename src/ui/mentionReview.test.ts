@@ -12,6 +12,17 @@ function mockStorage(initial: Record<string, unknown> = {}) {
 }
 afterEach(() => vi.unstubAllGlobals());
 describe("durable mention review", () => {
+  it("does not replace a newer body when migrating older overlapping scope records", async () => {
+    const prefix = reviewPrefix("server", "migration-newest");
+    const { values } = mockStorage({
+      [`${prefix}post:*:id`]: post("id", 2),
+      [`${prefix}post:team:id`]: post("id", 3),
+      [`${prefix}body:id`]: post("id", 5),
+    });
+    await ingestReview(prefix, "*", [post("id", 1)]);
+    expect(selectReview(values, prefix, "*")[0].post.message).toBe("mention 5");
+    expect(selectReview(values, prefix, "team")[0].post.message).toBe("mention 5");
+  });
   it("retains over 500 pending posts without TTL and shares confirmations across scopes", async () => {
     const prefix = reviewPrefix("server", "retention");
     const { values } = mockStorage();
@@ -25,6 +36,72 @@ describe("durable mention review", () => {
     await writeReview(prefix, { [`${prefix}confirmed:0`]: undefined });
     expect(values).not.toHaveProperty([`${prefix}confirmed:0`]);
     expect(selectReview(values, prefix, reviewScope())[0].confirmedAt).toBeNull();
+  });
+  it("stores one canonical body when the same post belongs to multiple review scopes", async () => {
+    const prefix = reviewPrefix("server", "shared-body");
+    const { values } = mockStorage();
+    const shared = post("shared");
+    await ingestReview(prefix, "team-a", [shared]);
+    await ingestReview(prefix, "*", [shared]);
+    expect(values[`${prefix}post:team-a:shared`]).toBe(true);
+    expect(values[`${prefix}post:*:shared`]).toBe(true);
+    expect(values[`${prefix}body:shared`]).toEqual(shared);
+    expect(selectReview(values, prefix, "team-a")).toEqual([{ post: shared, confirmedAt: null }]);
+    await writeReview(prefix, { [`${prefix}confirmed:shared`]: 456 });
+    expect(selectReview(values, prefix, "*")[0].confirmedAt).toBe(456);
+  });
+  it("compacts legacy cross-scope copies before a confirmation would exceed the storage quota", async () => {
+    const prefix = reviewPrefix("server", "legacy-compaction");
+    const shared = { ...post("legacy"), message: "long pending post ".repeat(150) };
+    const initial = {
+      [`${prefix}post:team-a:legacy`]: shared,
+      [`${prefix}post:*:legacy`]: shared,
+    };
+    const values = { ...initial };
+    const limit = JSON.stringify(initial).length - 500;
+    const set = vi.fn(async (next: Record<string, unknown>) => {
+      if (JSON.stringify({ ...values, ...next }).length > limit) throw new Error("QUOTA_BYTES quota exceeded");
+      Object.assign(values, next);
+    });
+    const remove = vi.fn(async (keys: string[]) => { for (const key of keys) delete values[key]; });
+    vi.stubGlobal("chrome", { storage: { local: { get: vi.fn(async () => ({ ...values })), set, remove } } });
+
+    await writeReview(prefix, { [`${prefix}confirmed:legacy`]: 123 });
+
+    expect(values[`${prefix}post:team-a:legacy`]).toBe(true);
+    expect(values[`${prefix}post:*:legacy`]).toBe(true);
+    expect(values[`${prefix}body:legacy`]).toEqual(shared);
+    expect(values[`${prefix}confirmed:legacy`]).toBe(123);
+    expect(selectReview(values, prefix, "team-a")[0].post).toEqual(shared);
+  });
+  it("keeps a 13-team-scale pending feed below the local storage quota when scopes overlap", async () => {
+    const prefix = reviewPrefix("server", "large-shared-feed");
+    const values: Record<string, unknown> = {};
+    const quotaBytes = 10 * 1024 * 1024;
+    const set = vi.fn(async (next: Record<string, unknown>) => {
+      const bytes = new TextEncoder().encode(JSON.stringify({ ...values, ...next })).length;
+      if (bytes > quotaBytes) throw new Error("QUOTA_BYTES quota exceeded");
+      Object.assign(values, next);
+    });
+    const remove = vi.fn(async (keys: string[]) => { for (const key of keys) delete values[key]; });
+    vi.stubGlobal("chrome", { storage: { local: { get: vi.fn(async () => ({ ...values })), set, remove } } });
+    const posts = Array.from({ length: 8400 }, (_, index) => ({
+      ...post(`load-${index}`, index + 1),
+      create_at: index + 1,
+      message: index % 7 === 0
+        ? `@mm95user [DECK-LOAD] 長文テスト\n${"取得・描画・確認状態を確認するためのダミーデータです。".repeat(14)}\n- status: pending\n\`\`\`json\n{"loadtest":true,"sample":${index}}\n\`\`\``
+        : `@all [DECK-LOAD] 通常の負荷テスト投稿です。${"件数バッジと履歴を確認します。".repeat(index % 5 + 1)}`,
+    }));
+
+    await ingestReview(prefix, "*", posts);
+    await ingestReview(prefix, "team-a", posts);
+    const persistedBytes = new TextEncoder().encode(JSON.stringify(values)).length;
+
+    expect(persistedBytes).toBeLessThan(quotaBytes);
+    expect(selectReview(values, prefix, "*")).toHaveLength(posts.length);
+    expect(selectReview(values, prefix, "team-a")).toHaveLength(posts.length);
+    expect(Object.keys(values).filter(key => key.startsWith(`${prefix}body:`))).toHaveLength(posts.length);
+    expect(set).toHaveBeenCalledTimes(2);
   });
   it("serializes concurrent ingestion without reverting a newer edit or resurrecting deletion", async () => {
     const prefix = reviewPrefix("server", "edits");
@@ -111,14 +188,16 @@ describe("durable mention review", () => {
     const confirmed = Object.keys(values).filter(key => key.startsWith(`${prefix}confirmed:`));
     expect(confirmed).toHaveLength(205);
     for (const id of ["p0", "p1", "p2", "p3", "p4"]) {
-      expect(values).not.toHaveProperty([`${prefix}post:*:${id}`]);
+      expect(values[`${prefix}post:*:${id}`]).toBe(true);
+      expect(values).not.toHaveProperty([`${prefix}body:${id}`]);
       expect(typeof values[`${prefix}confirmed:${id}`]).toBe("number");
       expect(values).not.toHaveProperty([`${prefix}deleted:${id}`]);
     }
-    expect(values).toHaveProperty([`${prefix}post:*:p5`]);
+    expect(values[`${prefix}post:*:p5`]).toBe(true);
+    expect(values).toHaveProperty([`${prefix}body:p5`]);
     expect(selectReview(values, prefix, "*").filter(entry => entry.confirmedAt === null).map(entry => entry.post.id)).toEqual(posts.slice(205).map(entry => entry.id));
     await ingestReview(prefix, "*", posts.slice(0, 5));
-    expect(values).not.toHaveProperty([`${prefix}post:*:p0`]);
+    expect(values[`${prefix}post:*:p0`]).toBe(true);
     expect(selectReview(values, prefix, "*")).toHaveLength(205);
   });
   it("retains deletion decisions beyond the former tombstone cap", async () => {
@@ -208,7 +287,7 @@ describe("durable mention review", () => {
     await ingestReview(prefix, "*", [{ ...post("new"), message: "y".repeat(2000) }]);
     expect(set).toHaveBeenCalledTimes(2);
     expect(remove).toHaveBeenCalled();
-    expect(remove.mock.calls.flat(2).every(key => key.startsWith(`${prefix}post:`) && !key.endsWith(":pending"))).toBe(true);
+    expect(remove.mock.calls.flat(2).every(key => (key.startsWith(`${prefix}post:`) || key.startsWith(`${prefix}body:`)) && !key.endsWith(":pending"))).toBe(true);
     expect(Object.keys(values).filter(key => key.startsWith(`${prefix}confirmed:`))).toHaveLength(200);
     expect(selectReview(values, prefix, "*").filter(entry => entry.confirmedAt === null).map(entry => entry.post.id).sort()).toEqual(["new", "pending"]);
   });
