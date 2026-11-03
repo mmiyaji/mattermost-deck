@@ -5,7 +5,6 @@ import { useChannelDirectory } from "./useChannelDirectory";
 import { useUserDirectory } from "./useUserDirectory";
 import { MEMORY_METADATA_TTL_MS } from "./memoryDirectory";
 import { VirtualPostList } from "./VirtualPostList";
-import { useVirtualPostListExperiment } from "./postListExperiment";
 import { useSharedMentionState } from "./sharedMentionState";
 import { mentionFeedOwnerKey, reconcileMentionFeedOwners } from "./mentionFeedOwners";
 import { useMentionExclusions, isMentionExcluded } from "./mentionExclusions";
@@ -57,6 +56,7 @@ import {
   getUserPreferences,
   getUserThreads,
   invalidateMentionMetadataCaches,
+  invalidateBodyResponseCaches,
   invalidatePostByIdCache,
   getMyChannelMember,
   getMattermostUrl,
@@ -159,6 +159,7 @@ import {
   type ResponsiveRailMode,
 } from "./railLayout";
 import { getLocalizedApiErrorMessage, isMattermostSessionExpiredError } from "./apiErrorMessage";
+import { bindBodyCacheIdentity, bodyCachePrivacyEpoch, bodyCacheScopeMatches, subscribeBodyCacheClears } from "../bodyCachePrivacyClient";
 import { getMattermostApiErrorStatus } from "../mattermost/errors";
 import {
   applyMentionReadMarkers,
@@ -193,6 +194,7 @@ import {
 import {
   shouldCaptureMentionDisplaySnapshot,
   summariseMentionPresentationChanges,
+  reconcileMentionPresentation,
 } from "./mentionPresentation";
 import {
   appendPostPage,
@@ -4527,7 +4529,6 @@ function PostList({
   listId?: string;
 }): React.JSX.Element {
   const text = useAppText();
-  const virtualListEnabled = useVirtualPostListExperiment();
   const [virtualViewport, setVirtualViewport] = useState<HTMLDivElement | null>(null);
   const setViewport = useCallback((node: HTMLDivElement | null) => { viewportRef.current = node; setVirtualViewport(node); }, []);
   const posts = paneSearch?.posts ?? originalPosts;
@@ -4585,13 +4586,6 @@ function PostList({
     setShowJumpToLatest(false);
     markInteraction();
   }, [markInteraction]);
-
-  useLayoutEffect(() => {
-    // Explicit renderer switches start at the latest edge in either mode.
-    const viewport = viewportRef.current;
-    if (viewport) viewport.scrollTop = reversedPostOrderRef.current ? viewport.scrollHeight : 0;
-    hasInitialScrolledRef.current = false;
-  }, [virtualListEnabled]);
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -4704,7 +4698,7 @@ function PostList({
     }
   }, [posts, suppressNewPostNotifications, filterQuery]);
 
-  const Separator = virtualListEnabled ? "div" : "li";
+  const Separator = "div";
   const renderEntry = (entry: PostListEntry, entryIndex: number): React.ReactNode => {
     if (entry.type === "separator") {
       return (
@@ -4763,7 +4757,7 @@ function PostList({
         currentUserId={currentUserId}
         deferRemoteContent={deferRemoteContent}
         viewport={viewportRef.current}
-        virtualized={virtualListEnabled}
+        virtualized={true}
         initiallyVisible={isInitialPostWindow(entryIndex, displayEntries.length, compactMode, viewportHeight, reversedPostOrder)}
       />
     );
@@ -4827,12 +4821,7 @@ function PostList({
         onPointerDown={markInteraction}
       >
         {reversedPostOrder && footerNode}
-        {virtualListEnabled && virtualViewport ? <VirtualPostList key={`${reversedPostOrder}:${filterQuery}`} entries={displayEntries} viewport={virtualViewport} compact={compactMode} reversed={reversedPostOrder} id={listId} renderEntry={renderEntry} /> : <ul
-          id={listId}
-          className={`deck-list${compactMode ? " deck-list--post-compact" : ""}`}
-        >
-          {displayEntries.map((entry, index) => renderEntry(entry, index))}
-        </ul>}
+        {virtualViewport ? <VirtualPostList key={`${reversedPostOrder}:${filterQuery}`} entries={displayEntries} viewport={virtualViewport} compact={compactMode} reversed={reversedPostOrder} id={listId} renderEntry={renderEntry} /> : null}
         {!reversedPostOrder && footerNode}
       </div>
     </div>
@@ -5071,6 +5060,9 @@ function MentionsColumn({
   const threadReadContextCacheRef = useRef(new Map<string, { scope: string; threads: MattermostUserThread[]; savedAt: number }>());
   const mentionPostsRef = useRef<MattermostPost[]>([]);
   const mentionLoadRunIdRef = useRef(0);
+  const mentionCacheRequestStartedAtRef = useRef(0);
+  const [bodyCacheRevision, setBodyCacheRevision] = useState(0);
+  const [bodyCacheSessionBlocked, setBodyCacheSessionBlocked] = useState(false);
   const mentionCacheHydratedEntryIdRef = useRef<string | null>(null);
   const mentionCacheSaveEntryIdRef = useRef<string | null>(null);
   const mentionCacheStoredPostIdsRef = useRef<Set<string>>(new Set());
@@ -5532,6 +5524,28 @@ function MentionsColumn({
   const persistMentionCacheRef = useRef(persistMentionCache);
   persistMentionCacheRef.current = persistMentionCache;
   const mentionCachePersistenceReady = persistMentionCache !== null;
+  useEffect(() => subscribeBodyCacheClears(change => {
+    if (!currentUserId || !bodyCacheScopeMatches(change, { serverScope: mentionCacheServerScope, userId: currentUserId })) return;
+    mentionLoadRunIdRef.current++;
+    // A later poll must verify access again instead of reusing a pre-clear
+    // team scan or a thread context that embeds post bodies.
+    mentionPostsRef.current = [];
+    teamScanCacheRef.current.clear();
+    teamScanForceRef.current = "";
+    specialMentionScanCacheRef.current.clear();
+    threadReadContextCacheRef.current.clear();
+    mentionCacheSaveEntryIdRef.current = null;
+    mentionCacheStoredPostIdsRef.current.clear();
+    setMentionCacheSaveVersion(0);
+    setMentionCacheState(createMentionCacheDisplayState(mentionCacheEntryId));
+    setMentionDisplaySnapshot(null);
+    setMentionLoadProgress(createMentionLoadProgressState(mentionLoadRunIdRef.current));
+    setPostState({ status: "idle", posts: [], error: null, nextPage: 1, hasMore: false, loadingMore: false });
+    if (change.reason === "auth" || change.reason === "logout") setBodyCacheSessionBlocked(true);
+    // Retry normal polling after access changes. Immediately restarting here
+    // would create a clear/refetch loop while the server still returns 403.
+    if (change.reason === "manual") setBodyCacheRevision(value => value + 1);
+  }), [currentUserId, mentionCacheServerScope, mentionCacheEntryId]);
   const shouldShowLoadingState = !exclusions.loaded || (Boolean(column.mentionReview) && !review.ready && !review.error) ||
     visiblePosts.length === 0 &&
     (
@@ -6208,6 +6222,7 @@ function MentionsColumn({
         const completeUnreadContext = unreadContext.size >= firstUnreadPage.total_unread_threads;
         if (reuseContext && !completeUnreadContext) {
           const fallback = await getUserThreads(currentUserId, teamId, { unread: false, perPage: THREADS_PAGE_SIZE });
+          if (shouldCancel()) return { posts: [] as MattermostPost[], threads: [] as MattermostUserThread[] };
           for (const thread of fallback.threads) readStateThreadDirectory.set(thread.id, thread);
         }
         if (reuseContext && completeUnreadContext) {
@@ -6310,12 +6325,16 @@ function MentionsColumn({
       const resolvedCurrentUserId = currentUserId;
       const runId = mentionLoadRunIdRef.current + 1;
       mentionLoadRunIdRef.current = runId;
+      const privacyEpoch = bodyCachePrivacyEpoch();
+      mentionCacheRequestStartedAtRef.current = Date.now();
       const activeChannelSnapshotPromise =
         loadMentionActiveChannelSnapshot();
       let successfulSearchCount = 0;
       let firstSearchError: unknown = null;
       let searchHasMore = false;
       let searchPosts: MattermostPost[] = [];
+      let cachedPostsForRun = mentionCacheActiveForContext ? mentionCacheState.posts : [];
+      const reusedSearchPostIds = new Set<string>();
       let unreadChannelPosts: MattermostPost[] = [];
       let unreadThreadPosts: MattermostPost[] = [];
       const completedScanSignatures: [string, string][] = [];
@@ -6336,7 +6355,7 @@ function MentionsColumn({
       const pendingTeamProgressIds = new Set<string>();
       let progressFlushTimer: number | null = null;
       const canPublishProgress = () =>
-        !isCancelled() && mentionLoadRunIdRef.current === runId;
+        !isCancelled() && mentionLoadRunIdRef.current === runId && privacyEpoch === bodyCachePrivacyEpoch();
       const publishTeamProgress = (teamId: string) => {
         if (!canPublishProgress()) {
           return;
@@ -6551,6 +6570,7 @@ function MentionsColumn({
         if (!canPublishProgress()) {
           return;
         }
+        cachedPostsForRun = cached?.posts ?? [];
         setMentionCacheState(
           cached && cached.posts.length > 0
             ? {
@@ -6630,6 +6650,7 @@ function MentionsColumn({
                 changedParts: cached ? (JSON.parse(signature) as unknown[]).map((part, index) => JSON.stringify(part) === JSON.stringify(previousParts[index]) ? null : index).filter(index => index !== null) : [] });
             }
             if (reuse) {
+              for (const post of cached!.posts) reusedSearchPostIds.add(post.id);
               successfulSearchCount++;
               searchHasMore ||= cached!.searchHasMore;
               searchPosts = mergePosts(cached!.posts, searchPosts, MENTIONS_MAX_BUFFER);
@@ -6795,7 +6816,7 @@ function MentionsColumn({
             : 0,
           () => !canPublishProgress(),
         );
-        if (isCancelled()) {
+        if (!canPublishProgress()) {
           cancelTeamProgressFlush();
           return;
         }
@@ -6824,7 +6845,7 @@ function MentionsColumn({
           { preserveActiveChannelIds: true },
         );
         const retainedPostSnapshotById = new Map(
-          mentionPostsRef.current.map((post) => [post.id, post]),
+          mergePosts(mentionPostsRef.current, cachedPostsForRun, MENTIONS_MAX_BUFFER).map((post) => [post.id, post]),
         );
         const editedEventsById = new Map(
           postedEventsRef.current
@@ -6955,53 +6976,43 @@ function MentionsColumn({
           return validated;
         };
         const latestPosts = await validateEditedPosts(rawLatestPosts);
-        if (isCancelled()) {
+        if (!canPublishProgress()) {
           return;
         }
         const latestPostIds = new Set(latestPosts.map((post) => post.id));
         const retainedPostsSnapshot = filterActiveMentionPosts(
-          mentionPostsRef.current,
+          mergePosts(mentionPostsRef.current, cachedPostsForRun, MENTIONS_MAX_BUFFER),
           nextMentionReadState,
         ).filter(
           (post) => !deletedPostIdsRef.current?.has(post.id),
         );
         const postsToReconcile = retainedPostsSnapshot.filter(
-          (post) => !latestPostIds.has(post.id),
+          // Fresh searches already verify returned posts. Reused team scans
+          // do not: an edit/delete need not change unread counters.
+          (post) => !latestPostIds.has(post.id) || reusedSearchPostIds.has(post.id),
         );
         let reconciledPostIds: Set<string> | null = null;
         let reconciledPostsById: Map<string, MattermostPost> | null = null;
         if (postsToReconcile.length > 0) {
           try {
-            const unreadPostIds = new Set(
-              filterUnreadMentionPosts(
-                postsToReconcile,
-                nextMentionReadState,
-              ).map((post) => post.id),
-            );
-            const [unreadReconciledPosts, historyReconciledPosts] = await Promise.all([
-              getPostsByIds(
-                postsToReconcile
-                  .filter((post) => unreadPostIds.has(post.id))
-                  .map((post) => post.id),
-                {
-                  maxAgeMs: Math.min(
-                    MENTION_UNREAD_RECONCILE_CACHE_MAX_MS,
-                    Math.max(1_000, Math.floor(mentionPollingIntervalMs / 2)),
-                  ),
-                },
+            // One shared batch also covers startup-cache rows missing from a
+            // bounded search. A failed batch must retain the previous bodies.
+            const checkedPosts = await getPostsByIds(postsToReconcile.map(post => post.id), {
+              maxAgeMs: Math.min(
+                MENTION_UNREAD_RECONCILE_CACHE_MAX_MS,
+                Math.max(1_000, Math.floor(mentionPollingIntervalMs / 2)),
               ),
-              getPostsByIds(
-                postsToReconcile
-                  .filter((post) => !unreadPostIds.has(post.id))
-                  .map((post) => post.id),
-                { maxAgeMs: MENTION_HISTORY_RECONCILE_CACHE_MS },
-              ),
-            ]);
-            if (isCancelled()) {
+            });
+            if (!canPublishProgress()) {
               return;
             }
+            // A soft-deleted body is explicit deletion evidence. Unlike a
+            // missing/inaccessible ID, it can safely hide the durable review
+            // entry without erasing the user's confirmation judgment.
+            const deletedReviewIds = checkedPosts.filter(post => (post.delete_at ?? 0) > 0).map(post => post.id);
+            if (deletedReviewIds.length) void review.remove(deletedReviewIds).catch(() => undefined);
             const reconciledPosts = await validateEditedPosts(
-              [...unreadReconciledPosts, ...historyReconciledPosts].filter(
+              checkedPosts.filter(
                 (post) => (post.delete_at ?? 0) === 0,
               ),
             );
@@ -7015,8 +7026,30 @@ function MentionsColumn({
             // still remove known-invalid entries.
           }
         }
-        if (isCancelled()) {
+        if (!canPublishProgress()) {
           return;
+        }
+        const reconciledLatestPosts = latestPosts.flatMap(post =>
+          reconciledPostIds?.has(post.id) ? (reconciledPostsById?.get(post.id) ? [reconciledPostsById.get(post.id)!] : []) : [post],
+        );
+        const removedPostIds = new Set(
+          [...(reconciledPostIds ?? [])].filter(id => !reconciledPostsById?.has(id)),
+        );
+        // Keep edits/deletions immediate while preserving the held order and
+        // leaving genuinely new arrivals behind the update affordance.
+        setMentionDisplaySnapshot(current => {
+          if (!current) return current;
+          const verified = [...reconciledLatestPosts, ...(reconciledPostsById?.values() ?? [])];
+          const verifiedIds = new Set(verified.map(post => post.id));
+          const posts = reconcileMentionPresentation(current.posts, verified, removedPostIds);
+          const ids = new Set(posts.map(post => post.id));
+          return { ...current, posts, deferredPostIds: current.deferredPostIds.filter(id => ids.has(id) && !verifiedIds.has(id)) };
+        });
+        for (const [id, scan] of nextTeamScans) {
+          if (!reconciledPostIds) break;
+          nextTeamScans.set(id, { ...scan, posts: scan.posts.flatMap(post =>
+            reconciledPostIds.has(post.id) ? (reconciledPostsById?.get(post.id) ? [reconciledPostsById.get(post.id)!] : []) : [post],
+          ) });
         }
         setMentionReadState(nextMentionReadState);
         void ensureUsers([
@@ -7024,26 +7057,13 @@ function MentionsColumn({
           ...(reconciledPostsById?.values() ?? []),
         ].map((post) => post.user_id));
         setPostState((current) => {
+          const retained = filterActiveMentionPosts(
+            mergePosts(current.posts, cachedPostsForRun, MENTIONS_MAX_BUFFER), nextMentionReadState,
+          ).filter(post => !deletedPostIdsRef.current?.has(post.id));
+          const verified = [...reconciledLatestPosts, ...(reconciledPostsById?.values() ?? [])];
           const posts = mergePosts(
-            latestPosts.filter(
-              (post) => !deletedPostIdsRef.current?.has(post.id),
-            ),
-            filterActiveMentionPosts(
-              current.posts,
-              nextMentionReadState,
-            ).flatMap((post) => {
-              if (deletedPostIdsRef.current?.has(post.id)) {
-                return [];
-              }
-              if (!reconciledPostIds || !reconciledPostsById) {
-                return [post];
-              }
-              if (!reconciledPostIds.has(post.id)) {
-                return [post];
-              }
-              const reconciledPost = reconciledPostsById.get(post.id);
-              return reconciledPost ? [reconciledPost] : [];
-            }),
+            reconcileMentionPresentation(retained, verified, removedPostIds),
+            reconciledLatestPosts.filter(post => !deletedPostIdsRef.current?.has(post.id)),
             MENTIONS_MAX_BUFFER,
           );
           return {
@@ -7089,7 +7109,7 @@ function MentionsColumn({
         finishRefresh();
       } catch (error) {
         cancelTeamProgressFlush();
-        if (isCancelled()) {
+        if (!canPublishProgress()) {
           return;
         }
         setPostState((current) => ({
@@ -7111,7 +7131,7 @@ function MentionsColumn({
     },
     mentionPollingIntervalMs,
     {
-      enabled: feedOwner && teamIds.length > 0 && Boolean(currentUserId) && Boolean(mentionSearchTerms),
+      enabled: feedOwner && !bodyCacheSessionBlocked && teamIds.length > 0 && Boolean(currentUserId) && Boolean(mentionSearchTerms),
       paused,
       onDisabled: () => {
         if (!feedOwner) return;
@@ -7142,6 +7162,8 @@ function MentionsColumn({
       },
       dependencies: [
         feedOwner,
+        bodyCacheRevision,
+        bodyCacheSessionBlocked,
         feedRequiresReadMentions,
         column.teamId,
         currentUserId,
@@ -7196,6 +7218,7 @@ function MentionsColumn({
       readState,
       savedAt,
       persistMentionCacheRef.current === true,
+      mentionCacheRequestStartedAtRef.current,
     ).then(() => {
       if (!cancelled) {
         setMentionCacheLastSavedAt(savedAt);
@@ -7779,6 +7802,7 @@ function MentionsColumn({
               <span>{column.mentionReview ? reviewText.title : text.addMentions}</span>
             </span>
           </PaneTitle>
+          <div className="deck-mention-subtitle">
           {mentionLoadProgress.active ? (
             <ColumnLoadingProgress
               title={
@@ -7844,6 +7868,7 @@ function MentionsColumn({
               {selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.allTeams}
             </p>
           )}
+          </div>
         </div>
         <div className="deck-badge" title={column.mentionReview ? reviewText.pending : text.mentionBadge(mentionCount, Boolean(column.teamId))}>
           {column.mentionReview ? (review.ready ? reviewPendingCount : "—") : mentionCount}
@@ -10282,8 +10307,17 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
   const updateUsersRef = useRef(updateUsers);
   useLayoutEffect(() => { updateUsersRef.current = updateUsers; }, [updateUsers]);
   const cacheServerScope = getMattermostUrl("/");
-  // Clear only this server/account after settings and identity have loaded.
-  // An opt-out on one connection must not erase other connections' caches.
+  useLayoutEffect(() => {
+    if (state.status === "ready" && state.userId) bindBodyCacheIdentity({ serverScope: cacheServerScope, userId: state.userId });
+  }, [cacheServerScope, state.status, state.userId]);
+  useEffect(() => subscribeBodyCacheClears(change => {
+    if (state.userId && bodyCacheScopeMatches(change, { serverScope: cacheServerScope, userId: state.userId })) {
+      invalidateBodyResponseCaches();
+      setPostedEvents([]);
+    }
+  }), [cacheServerScope, state.userId]);
+  // Enforce the disabled setting for this connected account. The options save
+  // also removes existing persistent snapshots globally, even without a Deck.
   useEffect(() => {
     if (!deckSettings.loaded || deckSettings.persistMentionCache || state.status !== "ready" || !state.userId) return;
     void clearPersistedMentionCache({ serverScope: cacheServerScope, userId: state.userId });
@@ -10829,9 +10863,10 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
     let postedEventMetadataSequence = 0;
     const pendingPostedEventMetadata = new Map<string, number>();
 
-    const publishPostedEvent = (event: PostedEvent) => {
+    const publishPostedEvent = (event: PostedEvent, privacyEpoch = bodyCachePrivacyEpoch()) => {
       if (
         !websocketEffectActive ||
+        privacyEpoch !== bodyCachePrivacyEpoch() ||
         deletedPostIdsRef.current.has(event.post.id)
       ) {
         return;
@@ -10920,6 +10955,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
           .then(([rootPosts, { posts: threadPosts, truncated }]) => {
             if (
               !websocketEffectActive ||
+              privacyEpoch !== bodyCachePrivacyEpoch() ||
               deletedPostIdsRef.current.has(localEvent.post.id)
             ) {
               return;
@@ -10979,8 +11015,9 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
         setReconnectNonce((current) => current + 1);
       },
       onPosted: (event) => {
+        const privacyEpoch = bodyCachePrivacyEpoch();
         pendingPostedEventMetadata.delete(event.post.id);
-        publishPostedEvent(event);
+        publishPostedEvent(event, privacyEpoch);
         if (!postedEventNeedsChannelMetadata(event)) {
           return;
         }
@@ -10991,6 +11028,7 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
           .then(([channel]) => {
             if (
               !websocketEffectActive ||
+              privacyEpoch !== bodyCachePrivacyEpoch() ||
               !channel ||
               pendingPostedEventMetadata.get(event.post.id) !==
                 metadataSequence ||
@@ -11000,11 +11038,13 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
             }
             publishPostedEvent(
               withPostedEventChannelMetadata(event, channel),
+              privacyEpoch,
             );
           })
           .catch((error: unknown) => {
             if (
               websocketEffectActive &&
+              privacyEpoch === bodyCachePrivacyEpoch() &&
               pendingPostedEventMetadata.get(event.post.id) ===
                 metadataSequence
             ) {

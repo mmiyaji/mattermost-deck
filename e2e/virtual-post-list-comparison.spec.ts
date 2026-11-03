@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-test("compare identical review feeds and scrolling with legacy and Virtuoso renderers", async ({}, testInfo) => {
+test("standard virtual lists preserve review feeds, anchors and scrolling without an experiment flag", async ({}, testInfo) => {
   test.setTimeout(240_000);
   const user = { id: "u".repeat(26), username: "tester", notify_props: { mention_keys: "tester", channel: "true" } };
   const author = { id: "a".repeat(26), username: "author" };
@@ -34,22 +34,23 @@ test("compare identical review feeds and scrolling with legacy and Virtuoso rend
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   const measurements: any[] = [];
   try {
-    // Alternate order to reduce warm-machine / browser order bias.
-    for (const virtual of process.env.MM_DECK_SCROLL_SMOKE === "1" ? [true] : [false, true, true, false]) {
+    // Neither a missing flag nor a previously disabled experiment may disable the standard renderer.
+    for (const legacySetting of process.env.MM_DECK_SCROLL_SMOKE === "1" ? ["absent"] : ["absent", "false"]) {
       const profile = await fs.mkdtemp(path.join(os.tmpdir(), "deck-scroll-comparison-"));
       const extension = path.resolve("dist");
       const context = await chromium.launchPersistentContext(profile, { channel: "chromium", headless: true, viewport: { width: 1800, height: 1000 }, args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] });
       try {
         const worker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
-        await worker.evaluate(async ({ origin, posts, userId, virtual }) => {
+        await worker.evaluate(async ({ origin, posts, userId, legacySetting }) => {
           const prefix = `mattermostDeck.mentionReview.v1:${encodeURIComponent(origin + "/")}:${encodeURIComponent(userId)}:post:*:`;
           await chrome.storage.local.set({
             "mattermostDeck.serverUrl.v1": origin, "mattermostDeck.language.v1": "en", "mattermostDeck.pollingIntervalSeconds.v1": 3600,
-            "mattermostDeck.preferredRailWidth.v1": 1500, "mattermostDeck.virtualPostListExperiment.v1": virtual,
+            "mattermostDeck.preferredRailWidth.v1": 1500,
+            ...(legacySetting === "false" ? { "mattermostDeck.virtualPostListExperiment.v1": false } : {}),
             "mattermostDeck.layout.v1": Array.from({ length: 4 }, (_, i) => ({ id: `review${i}`, type: "mentions", mentionReview: true })),
             ...Object.fromEntries(posts.map(post => [prefix + post.id, post])),
           });
-        }, { origin, posts, userId: user.id, virtual });
+        }, { origin, posts, userId: user.id, legacySetting });
         const page = await context.newPage();
         const errors: string[] = [];
         page.on("pageerror", error => errors.push(error.message));
@@ -67,6 +68,7 @@ test("compare identical review feeds and scrolling with legacy and Virtuoso rend
               const bounds = viewport.getBoundingClientRect();
               const anchor = rows().find(row => { const r = row.getBoundingClientRect(); return r.top >= bounds.top && r.bottom <= bounds.bottom; });
               return { count: rows().length, ids: rows().map(r => r.dataset.deckPostId), rendered: rows().filter(r => r.dataset.deckPostRendered === "true").length, virtual: !!viewport.querySelector(".deck-virtual-list"), nodes: root.querySelectorAll("*").length, text: pane.textContent, top: viewport.scrollTop, height: viewport.scrollHeight, distanceToBottom: viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight,
+                virtualPanes: root.querySelectorAll(".deck-virtual-list").length, badges: Array.from(root.querySelectorAll(".deck-badge")).map(node => node.textContent?.trim()),
                 badge: pane.querySelector(".deck-badge")?.textContent?.trim(), anchor: anchor ? { id: anchor.dataset.deckPostId, offset: anchor.getBoundingClientRect().top - bounds.top } : null };
             }
             if (action === "end") { viewport.scrollTop = viewport.scrollHeight; return true; }
@@ -97,7 +99,9 @@ test("compare identical review feeds and scrolling with legacy and Virtuoso rend
           if (!result.result?.success) throw new Error(result.result?.error ?? "Review write failed");
         }, { origin, userId: user.id, sets });
         await expect.poll(async () => (await inside("inspect"))?.text, { timeout: 30000 }).toContain("Scroll comparison 0");
-        await expect.poll(async () => (await inside("inspect"))?.virtual).toBe(virtual);
+        await expect.poll(async () => (await inside("inspect"))?.virtual).toBe(true);
+        await expect.poll(async () => (await inside("inspect"))?.virtualPanes).toBe(4);
+        await expect.poll(async () => (await inside("inspect"))?.badges).toEqual(["500", "500", "500", "500"]);
         await page.waitForTimeout(1000);
         const cdp = await context.newCDPSession(page);
         await cdp.send("Performance.enable");
@@ -107,7 +111,7 @@ test("compare identical review feeds and scrolling with legacy and Virtuoso rend
         const after = await cdp.send("Performance.getMetrics");
         const delta = (name: string) => after.metrics.find(m => m.name === name)!.value - before.metrics.find(m => m.name === name)!.value;
         const state = await inside("inspect");
-        const record = { mode: virtual ? "virtuoso" : "legacy", ...frames, taskMs: delta("TaskDuration") * 1000, layoutMs: delta("LayoutDuration") * 1000, styleMs: delta("RecalcStyleDuration") * 1000, layouts: delta("LayoutCount"), nodes: state.nodes, rowsInPane: state.count, renderedInPane: state.rendered };
+        const record = { mode: "virtuoso", legacySetting, ...frames, taskMs: delta("TaskDuration") * 1000, layoutMs: delta("LayoutDuration") * 1000, styleMs: delta("RecalcStyleDuration") * 1000, layouts: delta("LayoutCount"), nodes: state.nodes, rowsInPane: state.count, renderedInPane: state.rendered };
         measurements.push(record);
         console.log("SCROLL_COMPARISON", JSON.stringify(record));
         await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
@@ -115,7 +119,7 @@ test("compare identical review feeds and scrolling with legacy and Virtuoso rend
         await expect.poll(async () => (await inside("inspect"))?.text, { timeout: 10000 }).toContain("Scroll comparison 499");
         await inside("start");
         await expect.poll(async () => (await inside("inspect"))?.text).toContain("Scroll comparison 0");
-        if (virtual) {
+        {
           expect(state.count).toBeLessThan(60);
           const id = await inside("confirm");
           await expect.poll(async () => (await inside("inspect"))?.ids).not.toContain(id);
@@ -132,6 +136,7 @@ test("compare identical review feeds and scrolling with legacy and Virtuoso rend
           // review pane can do; the post currently being read must survive.
           await writeReview({ ["confirmed:" + posts[20].id]: Date.now() });
           await expect.poll(async () => (await inside("inspect"))?.badge).toBe("498");
+          await expect.poll(async () => (await inside("inspect"))?.badges).toEqual(["498", "498", "498", "498"]);
           await page.waitForTimeout(400);
           const afterConfirm = (await inside("inspect")).anchor;
           console.log("CONFIRM_ANCHOR", JSON.stringify({ anchorAfter, afterConfirm }));
@@ -161,7 +166,7 @@ test("compare identical review feeds and scrolling with legacy and Virtuoso rend
       }
     }
   } finally {
-    await fs.writeFile(testInfo.outputPath("scroll-comparison.json"), JSON.stringify({ cpuThrottle: 4, postsPerPane: 500, panes: 4, measurements }, null, 2));
+    await fs.writeFile(testInfo.outputPath("scroll-comparison.json"), JSON.stringify({ cpuThrottle: 4, postsPerPane: 500, panes: 4, historicalReference: { source: "review-followup-regression/scroll-comparison.json (2026-11-03)", legacyP95FrameMs: [70, 65.7], legacyTaskMs: [12309.604, 11862.916], virtuosoP95FrameMs: [27.9, 30.1], virtuosoTaskMs: [4205.243, 4457.2] }, measurements }, null, 2));
     await new Promise<void>(resolve => server.close(() => resolve()));
   }
 });

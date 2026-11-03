@@ -16,10 +16,13 @@ test("favorite cache uses real extension storage, tab locks and account boundari
   await build({ stdin: { contents: `
     import { handleFavoriteCacheStorageRequest } from './src/favoriteCacheDatabase';
     import { FAVORITE_CACHE_STORAGE_MESSAGE } from './src/favoriteCacheProtocol';
+    import { FAVORITE_MEMBERSHIP_MESSAGE, handleFavoriteMembershipRequest } from './src/favoriteMembershipStorage';
     chrome.storage.session.setAccessLevel({accessLevel:'TRUSTED_AND_UNTRUSTED_CONTEXTS'});
     chrome.runtime.onMessage.addListener((message, _sender, respond) => {
-      if (message.type !== FAVORITE_CACHE_STORAGE_MESSAGE) return;
-      handleFavoriteCacheStorageRequest(message).then(result => respond({success:true,...result}), error => respond({success:false,error:String(error)}));
+      const handler = message.type === FAVORITE_CACHE_STORAGE_MESSAGE ? handleFavoriteCacheStorageRequest
+        : message.type === FAVORITE_MEMBERSHIP_MESSAGE ? handleFavoriteMembershipRequest : undefined;
+      if (!handler) return;
+      handler(message).then(result => respond({success:true,...result}), error => respond({success:false,error:String(error)}));
       return true;
     });
   `, resolveDir: process.cwd() }, outfile: path.join(extension, "background.js"), bundle: true, format: "iife", platform: "browser" });
@@ -159,7 +162,7 @@ test("favorite cache uses real extension storage, tab locks and account boundari
     await page.reload();
     await expect(page.getByTestId("entries")).toHaveText("Unavailable");
     expect((await sw.evaluate(async key => (await chrome.storage.local.get(key))[key], membershipKey)).map((value: any) => value.id)).toEqual(["post1"]);
-    await page.evaluate(() => { chrome.storage.local.set = async () => { throw new Error("quota exceeded"); }; });
+    await sw.evaluate(() => { chrome.storage.local.set = async () => { throw new Error("quota exceeded"); }; });
     await page.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("Could not save or refresh");
     await expect(page.getByTestId("entries")).toHaveText("Unavailable");

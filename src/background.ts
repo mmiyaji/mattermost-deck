@@ -9,6 +9,16 @@ import { FAVORITE_CACHE_STORAGE_MESSAGE } from "./favoriteCacheProtocol";
 import { handleFavoriteCacheStorageRequest } from "./favoriteCacheDatabase";
 import { TRACE_STORAGE_MESSAGE } from "./traceProtocol";
 import { handleTraceStorageRequest } from "./traceStorage";
+import { BODY_CACHE_PRIVACY_MESSAGE } from "./cachePrivacyProtocol";
+import { handleBodyCachePrivacyRequest } from "./cachePrivacyStorage";
+import { authorizeBodyCacheRequest, handleBodyCacheSessionRequest } from "./cachePrivacySession";
+import { FAVORITE_MEMBERSHIP_MESSAGE, favoriteMembershipScope, handleFavoriteMembershipRequest } from "./favoriteMembershipStorage";
+
+const BODY_CACHE_PRUNE_ALARM = "mattermost-deck-body-cache-expiry";
+async function maintainBodyCaches(): Promise<void> {
+  await chrome.alarms.create(BODY_CACHE_PRUNE_ALARM, { periodInMinutes: 30 });
+  await handleBodyCachePrivacyRequest({ operation: "prune" });
+}
 
 const CONTENT_SCRIPT_ID = "mattermost-deck-content";
 const INSTALL_CONFIG_SCRIPT_ID = "mattermost-deck-pwa-install-config";
@@ -366,6 +376,7 @@ export async function refreshExistingDeckTabs(options: ExistingTabSyncOptions = 
 void configureSessionStorageAccess();
 
 chrome.runtime.onInstalled.addListener((details) => {
+  void maintainBodyCaches().catch(() => undefined);
   void (async () => {
     await cleanupPwaInstallScript();
     await syncDeckContentScript({
@@ -392,6 +403,7 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 
 chrome.runtime.onStartup.addListener(() => {
+  void maintainBodyCaches().catch(() => undefined);
   void cleanupPwaInstallScript();
   void syncDeckContentScript().catch((error) => {
     console.error("[Mattermost Deck] Failed to synchronize the content script during startup", error);
@@ -403,6 +415,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === BODY_CACHE_PRUNE_ALARM) void handleBodyCachePrivacyRequest({ operation: "prune" }).catch(() => undefined);
   if (alarm.name === INSTALL_CLEANUP_ALARM) void cleanupPwaInstallScript();
 });
 
@@ -426,6 +439,21 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     try {
+      if (message?.type === FAVORITE_MEMBERSHIP_MESSAGE) {
+        authorizeBodyCacheRequest({ operation: "clear", reason: "permission", scope: favoriteMembershipScope(message.scope) }, sender);
+        sendResponse({ success: true, ...await handleFavoriteMembershipRequest(message) });
+        return;
+      }
+      if (message?.type === BODY_CACHE_PRIVACY_MESSAGE) {
+        authorizeBodyCacheRequest(message, sender);
+        sendResponse({ success: true, ...await handleBodyCachePrivacyRequest(message) });
+        return;
+      }
+      if (message?.type === "mattermost-deck:body-cache-session") {
+        await handleBodyCacheSessionRequest(message, sender);
+        sendResponse({ success: true });
+        return;
+      }
       if (message?.type === FAVORITE_CACHE_STORAGE_MESSAGE) {
         const result = await handleFavoriteCacheStorageRequest(message);
         sendResponse({ success: true, ...result });

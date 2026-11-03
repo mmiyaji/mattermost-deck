@@ -1,5 +1,4 @@
-﻿import { useVirtualPostListExperiment, setVirtualPostListExperiment } from "../ui/postListExperiment";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useTranslation } from "react-i18next";
 import { CustomSelect, type CustomSelectOption } from "../ui/CustomSelect";
@@ -22,7 +21,6 @@ import {
   normalisePreferredRailWidth,
   normaliseServerUrl,
   originToPermissionPattern,
-  resolveTheme,
   saveDeckSettings,
   type ColumnColorKey,
   type DeckLanguage,
@@ -43,9 +41,14 @@ import {
 import { clearTraceEntries, getTraceEntries, isTraceCaptureEnabled, setTraceCaptureEnabled, subscribeTraceEntries, type TraceLogEntry } from "../traceLog";
 import { localizePerformancePurpose } from "./performancePurpose";
 import { hasSettingsChanges } from "./settingsDraft";
+import { clearBodyCaches } from "../bodyCachePrivacyClient";
+import { MENTION_CACHE_STORAGE_MESSAGE } from "../mentionCacheProtocol";
 import { AppearancePreview, WidthDiagram } from "./AppearancePreview";
 import { PerformanceOverview } from "./PerformanceOverview";
 import { settingsExperienceCss } from "./settingsExperienceStyles";
+import { settingsShellCss } from "./settingsShellStyles";
+import { SettingsThemeControl } from "./SettingsThemeControl";
+import { performanceDrilldownCss } from "./performanceDrilldownStyles";
 import { PERFORMANCE_DEFAULTS, PERFORMANCE_LIMITS, RESPONSIVE_PERFORMANCE_PRESET, normalizePerformanceSettings, type PerformanceSettings } from "../performanceSettings";
 
 const PRODUCT_SITE_URL = "https://mattermost-deck.ruhenheim.org/";
@@ -1976,7 +1979,17 @@ async function markReleaseNoticeSeen(currentVersion: string): Promise<void> {
 
 // Component
 
+function SettingState({ enabled, dirty, language }: { enabled: boolean; dirty: boolean; language: string }) {
+  const ja = language === "ja";
+  return <span className="options-toggle-state" data-state={enabled ? "on" : "off"} aria-live="polite">
+    {enabled ? (ja ? "オン" : "On") : (ja ? "オフ" : "Off")}
+    <span> · {dirty ? (ja ? "未保存" : "Unsaved") : (ja ? "保存済み" : "Saved")}</span>
+  </span>;
+}
+
 function OptionsApp(): React.JSX.Element {
+  const [bodyCacheClearing, setBodyCacheClearing] = useState(false);
+  const [bodyCacheClearStatus, setBodyCacheClearStatus] = useState<string | null>(null);
   const [settings, setSettings] = useState<DeckSettings>(DEFAULT_SETTINGS);
   const [savedSettings, setSavedSettings] = useState<DeckSettings>(DEFAULT_SETTINGS);
   const [pendingProfile, setPendingProfile] = useState<DeckProfileSummary | null>(null);
@@ -2066,7 +2079,7 @@ function OptionsApp(): React.JSX.Element {
 
   useEffect(() => {
     const style = document.createElement("style");
-    style.textContent = pageCss + settingsExperienceCss;
+    style.textContent = pageCss + settingsExperienceCss + settingsShellCss + performanceDrilldownCss;
     document.head.append(style);
     return () => { style.remove(); };
   }, []);
@@ -2104,9 +2117,8 @@ function OptionsApp(): React.JSX.Element {
   };
 
   useEffect(() => {
-    document.body.dataset.theme = resolveTheme(settings.theme);
     document.documentElement.lang = settings.language;
-  }, [settings.language, settings.theme]);
+  }, [settings.language]);
 
   const { t } = useTranslation();
   useEffect(() => { void i18n.changeLanguage(settings.language); }, [settings.language]);
@@ -2218,8 +2230,6 @@ function OptionsApp(): React.JSX.Element {
     [t],
   );
   const [traceEntries, traceCaptureEnabled] = useTraceLogSnapshot();
-  const virtualPostList = useVirtualPostListExperiment();
-  const [virtualListError, setVirtualListError] = useState<string | null>(null);
   const [endpointSummarySort, setEndpointSummarySort] = useState<{ key: EndpointSummarySortKey; direction: "asc" | "desc" }>({
     key: "count",
     direction: "desc",
@@ -2359,6 +2369,11 @@ function OptionsApp(): React.JSX.Element {
         serverUrl: normalizedServerUrl,
         healthCheckPath: normaliseHealthCheckPath(settings.healthCheckPath),
       }, normalizedServerUrl);
+      if (savedSettings.persistMentionCache && !settings.persistMentionCache) {
+        // Privacy opt-out must work even when no authenticated Deck is open.
+        const cleared = await chrome.runtime.sendMessage({ type: MENTION_CACHE_STORAGE_MESSAGE, operation: "clear", persist: true });
+        if (!cleared?.success) throw new Error("Could not remove the persistent mention cache");
+      }
       if (previousOrigin && previousOrigin !== requestedOrigin) {
         await chrome.permissions.remove({ origins: [previousOrigin] }).catch(() => undefined);
       }
@@ -2541,10 +2556,6 @@ function OptionsApp(): React.JSX.Element {
     window.setTimeout(() => setSavedNotice(false), 2500);
   };
 
-  const handleToggleTraceCapture = () => {
-    setTraceCaptureEnabled(!traceCaptureEnabled);
-  };
-
   const handleExportTraceJsonl = () => {
     const lines = traceEntries
       .slice()
@@ -2599,6 +2610,9 @@ function OptionsApp(): React.JSX.Element {
   };
   const currentReleaseNotes = useMemo(() => {
     if (!releaseNotice) return null;
+    if (releaseNotice.version === "1.4.0") {
+      return { title: "v1.4.0", added: [t("options.releaseNote140Settings")], changed: [t("options.releaseNote140Performance")], fixed: [t("options.releaseNote140Cache"), t("options.releaseNote140Mentions")] } satisfies ReleaseNotes;
+    }
     if (releaseNotice.version === "1.2.1") {
       return { title: "v1.2.1", added: [], changed: [t("options.releaseNote121Settings"), t("options.releaseNote121Appearance"), t("options.releaseNote121Idle")], fixed: [t("options.releaseNote121Links")] };
     }
@@ -2788,6 +2802,7 @@ function OptionsApp(): React.JSX.Element {
           <strong title={initialServerUrl}>{initialServerUrl || t("options.noServerConfigured")}</strong>
           <span>{activeProfile ? formatProfileName(activeProfile) : text.profilesDefaultName}</span>
         </div>
+        <SettingsThemeControl language={settings.language} />
       </header>
 
       {loadError && (
@@ -3130,16 +3145,19 @@ function OptionsApp(): React.JSX.Element {
                 </div>
               )}
 
+              <p className="options-required-note" data-testid="options-required-note">
+                <span className="options-required-marker" aria-hidden="true">*</span> {t("options.requiredFieldsNote")}
+              </p>
               <div className="options-grid options-grid--target">
                 <label className="options-field">
                   <span className="options-label options-label--required">
                     <span>{text.serverUrlLabel}</span>
-                    <span className="options-required-badge">
-                      {t("options.serverUrlRequired")}
-                    </span>
+                    <span className="options-required-marker" data-testid="server-url-required-marker" aria-hidden="true">*</span>
                   </span>
                   <input
                     id="mattermost-server-url"
+                    required
+                    aria-required="true"
                     className={`options-input${serverUrlFieldError ? " options-input--required-missing" : ""}`}
                     type="url"
                     placeholder={text.serverUrlPlaceholder}
@@ -3664,7 +3682,7 @@ function OptionsApp(): React.JSX.Element {
                 <p>{text.behaviorDesc}</p>
               </div>
 
-              <div className="options-grid">
+              <div className="options-grid options-setting-list">
                 <div className="options-field">
                   <span id="post-click-action-label" className="options-label">{text.postClickActionLabel}</span>
                   <CustomSelect
@@ -3691,8 +3709,9 @@ function OptionsApp(): React.JSX.Element {
                   />
                   <span className="options-hint">{text.highlightKeywordsHint}</span>
                 </label>
-                <div className="options-field">
+                <div className="options-field options-field--toggle">
                   <span id="high-z-index-label" className="options-label">{text.highZIndexLabel}</span>
+                  <SettingState enabled={settings.highZIndex} dirty={settings.highZIndex !== savedSettings.highZIndex} language={settings.language} />
                   <label className="options-choice">
                     <input
                       type="checkbox"
@@ -3704,8 +3723,9 @@ function OptionsApp(): React.JSX.Element {
                     <span id="high-z-index-hint">{text.highZIndexHint}</span>
                   </label>
                 </div>
-                <div className="options-field">
+                <div className="options-field options-field--toggle">
                   <span id="reversed-post-order-label" className="options-label">{text.reversedPostOrderLabel}</span>
+                  <SettingState enabled={settings.reversedPostOrder} dirty={settings.reversedPostOrder !== savedSettings.reversedPostOrder} language={settings.language} />
                   <label className="options-choice">
                     <input
                       type="checkbox"
@@ -3717,19 +3737,7 @@ function OptionsApp(): React.JSX.Element {
                     <span id="reversed-post-order-hint">{text.reversedPostOrderHint}</span>
                   </label>
                 </div>
-                <div className="options-field">
-                  <span id="persist-mention-cache-label" className="options-label">{text.persistMentionCacheLabel}</span>
-                  <label className="options-choice">
-                    <input
-                      type="checkbox"
-                      checked={settings.persistMentionCache}
-                      aria-labelledby="persist-mention-cache-label"
-                      aria-describedby="persist-mention-cache-hint"
-                      onChange={(e) => setSettings((s) => ({ ...s, persistMentionCache: e.target.checked }))}
-                    />
-                    <span id="persist-mention-cache-hint">{text.persistMentionCacheHint}</span>
-                  </label>
-                </div>
+
               </div>
 
             </div>
@@ -3778,19 +3786,103 @@ function OptionsApp(): React.JSX.Element {
                 </button>
               </div>
 
-              <div className="options-callout" role="note">
+              <section className="options-callout options-cache-purpose" aria-labelledby="performance-cache-title" data-testid="performance-cache-purpose">
+                <strong id="performance-cache-title">{settings.language === "ja" ? "キャッシュ保持設定" : "Cache retention settings"}</strong>
+                <p id="performance-cache-description">{text.persistMentionCacheHint}</p>
+                <fieldset className="options-cache-retention" aria-describedby="performance-cache-description">
+                  <legend>{settings.language === "ja" ? "メンションのキャッシュ" : "Mention cache"}</legend>
+                  <div className="options-cache-retention-choices">
+                    <label className={settings.persistMentionCache ? "is-selected" : ""}>
+                      <input type="radio" name="performance-cache" data-testid="performance-cache-on" checked={settings.persistMentionCache}
+                        onChange={() => setSettings(current => ({ ...current, persistMentionCache: true }))} />
+                      <span>{settings.language === "ja" ? "保持する（オン）" : "Keep (On)"}</span>
+                    </label>
+                    <label className={!settings.persistMentionCache ? "is-selected" : ""}>
+                      <input type="radio" name="performance-cache" data-testid="performance-cache-off" checked={!settings.persistMentionCache}
+                        onChange={() => setSettings(current => ({ ...current, persistMentionCache: false }))} />
+                      <span>{settings.language === "ja" ? "保持しない（オフ）" : "Do not keep (Off)"}</span>
+                    </label>
+                  </div>
+                  <SettingState enabled={settings.persistMentionCache} dirty={settings.persistMentionCache !== savedSettings.persistMentionCache} language={settings.language} />
+                </fieldset>
+                <p className="options-hint">{settings.language === "ja" ? "変更後は、下の「保存」で適用します。オフにすると、次回は取得した投稿から表示します。" : "Apply changes with Save below. When off, posts appear as they are fetched on each visit."}</p>
+                <div className="options-field options-cache-clear">
+                  <span className="options-label">{i18n.language.startsWith("ja") ? "本文キャッシュの削除" : "Clear body caches"}</span>
+                  <p className="options-hint">{i18n.language.startsWith("ja")
+                    ? "このブラウザーに保存した、全アカウントのメンション表示用キャッシュとお気に入り本文を削除します。次に表示するときに再取得します。要確認投稿の本文・未確認／確認済みの判断、お気に入り登録、設定は残ります。"
+                    : "Remove mention display caches and favorite bodies saved in this browser for all accounts. They are fetched again when needed. Review posts and decisions, favorite registrations and settings are retained."}</p>
+                  <button type="button" className="options-button" data-testid="options-clear-body-cache"
+                    disabled={bodyCacheClearing} onClick={async () => {
+                      setBodyCacheClearing(true); setBodyCacheClearStatus(null);
+                      try {
+                        await clearBodyCaches();
+                        setBodyCacheClearStatus(i18n.language.startsWith("ja") ? "本文キャッシュを削除しました。要確認データとお気に入り登録は保持しています。" : "Body caches cleared. Review data and favorite registrations were retained.");
+                      } catch {
+                        setBodyCacheClearStatus(i18n.language.startsWith("ja") ? "本文キャッシュを削除できませんでした。もう一度お試しください。" : "Could not clear all body caches. Please retry.");
+                      } finally { setBodyCacheClearing(false); }
+                    }}>{i18n.language.startsWith("ja") ? "本文キャッシュを削除" : "Clear body caches"}</button>
+                  {bodyCacheClearStatus && <p className="options-hint" role="status" data-testid="options-body-cache-status">{bodyCacheClearStatus}</p>}
+                </div>
+
+              </section>
+
+              <details className="options-connection-advanced" data-testid="performance-settings">
+                <summary>{t("options.performanceSettings.title")}</summary>
+                <p className="options-hint">{settings.language === "ja" ? "取得頻度や並列数を細かく調整したい方のための設定です。通常は変更する必要はありません。" : "For users who want to tune request rates and concurrency. Most users can keep the defaults."}</p>
+                <div className="options-subsection">
+                  <p className="options-copy">{t("options.performanceSettings.description")}</p>
+                  <p className="options-hint">{t("options.performanceSettings.apiHint")}</p>
+                  <p className="options-hint">{t("options.performanceSettings.mentionHint")}</p>
+                  <div className="options-cache-fetch-preset">
+                    <strong>{settings.language === "ja" ? "多数のペインの取得待ちも短くする" : "Reduce fetching waits across many panes"}</strong>
+                    <p>{settings.language === "ja" ? "投稿が表示されるまでの待ち時間を短くするため、取得を進めやすい設定に切り替えます。キャッシュ保持設定は変更しません。" : "Use settings that let fetching progress sooner. This does not change cache retention."}</p>
+                    <button type="button" className="options-button options-button--ghost" data-testid="performance-apply-fetch-preset"
+                      onClick={() => setSettings(current => ({ ...current, ...RESPONSIVE_PERFORMANCE_PRESET }))}>
+                      {settings.language === "ja" ? "取得待ちを短くする設定を使う" : "Use faster fetching settings"}
+                    </button>
+                    <span className="options-hint" role="status" data-testid="performance-fetch-preset-state">{Object.entries(RESPONSIVE_PERFORMANCE_PRESET).every(([key, value]) => settings[key as keyof PerformanceSettings] === value)
+                      ? (Object.entries(RESPONSIVE_PERFORMANCE_PRESET).every(([key, value]) => savedSettings[key as keyof PerformanceSettings] === value)
+                        ? (settings.language === "ja" ? "適用済み" : "Applied") : (settings.language === "ja" ? "保存すると適用されます" : "Ready to apply with Save"))
+                      : (settings.language === "ja" ? "未適用" : "Not applied")}</span>
+                  </div>
+                  <div className="options-grid">
+                    {PERFORMANCE_FIELDS.map((field) => (
+                      <PerformanceNumberInput key={field} field={field} value={settings[field]}
+                        onChange={(value) => setSettings((current) => ({ ...current, [field]: value }))} />
+                    ))}
+                  </div>
+                  <button type="button" className="options-button options-button--ghost"
+                    onClick={() => setSettings((current) => ({ ...current, ...PERFORMANCE_DEFAULTS }))}>
+                    {t("options.performanceSettings.restoreDefaults")}
+                  </button>
+                </div>
+              </details>
+
+              <h3 className="options-diagnostics-title">{settings.language === "ja" ? "診断ログ" : "Diagnostic logs"}</h3>
+              <div className="options-callout" role="note" data-testid="performance-trace-capture">
                 <strong>{text.performanceCaptureLabel}</strong>
                 <p>{text.performanceCaptureHint}</p>
                 <p style={{ marginTop: "6px" }}>{text.performanceRetentionHint}</p>
-                <div className="options-inline" style={{ marginTop: "12px" }}>
-                  <label className="options-choice">
-                    <input
-                      type="checkbox"
-                      checked={traceCaptureEnabled}
-                      onChange={handleToggleTraceCapture}
-                    />
-                    <span>{traceCaptureEnabled ? "ON" : "OFF"}</span>
-                  </label>
+                <div className="options-inline options-trace-controls" style={{ marginTop: "12px" }}>
+                  <fieldset className="options-cache-retention" aria-describedby="trace-capture-description">
+                    <legend>{settings.language === "ja" ? "トレースの記録" : "Trace recording"}</legend>
+                    <div className="options-cache-retention-choices">
+                      <label className={traceCaptureEnabled ? "is-selected" : ""}>
+                        <input type="radio" name="trace-capture" data-testid="trace-capture-on" checked={traceCaptureEnabled}
+                          onChange={() => setTraceCaptureEnabled(true)} />
+                        <span>{settings.language === "ja" ? "記録する（オン）" : "Record (On)"}</span>
+                      </label>
+                      <label className={!traceCaptureEnabled ? "is-selected" : ""}>
+                        <input type="radio" name="trace-capture" data-testid="trace-capture-off" checked={!traceCaptureEnabled}
+                          onChange={() => setTraceCaptureEnabled(false)} />
+                        <span>{settings.language === "ja" ? "記録しない（オフ）" : "Do not record (Off)"}</span>
+                      </label>
+                    </div>
+                    <strong role="status" data-testid="trace-capture-state">{traceCaptureEnabled
+                      ? (settings.language === "ja" ? "オン · 記録中" : "On · Recording")
+                      : (settings.language === "ja" ? "オフ · 停止中" : "Off · Stopped")}</strong>
+                    <p id="trace-capture-description" className="options-hint">{settings.language === "ja" ? "変更はすぐに適用されます。下の「保存」は不要です。" : "Changes apply immediately. You do not need to use Save below."}</p>
+                  </fieldset>
                   <button
                     type="button"
                     className="options-button options-button--ghost"
@@ -3811,54 +3903,6 @@ function OptionsApp(): React.JSX.Element {
               </div>
 
               <PerformanceOverview entries={traceEntries} language={settings.language} capturing={traceCaptureEnabled} />
-              <div className="options-callout" role="note">
-                <strong>{settings.language === "ja" ? "初期表示を軽快にする" : "Make initial display more responsive"}</strong>
-                <p>{settings.language === "ja"
-                  ? "API の毎分上限を標準値の約2倍にし、リクエストの最短間隔を短くします。サーバーが 429 を返した場合は、既存の自動調整で通信を抑えます。"
-                  : "Raise API rate caps to about twice the defaults and shorten the minimum interval between requests. Existing adaptive controls still slow requests when the server returns 429."}</p>
-                <p>{settings.language === "ja"
-                  ? "最新100件の投稿をこのブラウザー内に保存し、次回は更新を確認している間から表示します。初回などキャッシュがない場合、この表示の高速化は利用できません。"
-                  : "Save the latest 100 posts locally in this browser and show them while checking for updates next time. This display speedup is unavailable on the first visit or whenever no cached data exists."}</p>
-                <div className="options-inline" style={{ marginTop: "12px" }}>
-                  <button type="button" className="options-button options-button--ghost"
-                    onClick={() => setSettings((current) => ({ ...current, ...RESPONSIVE_PERFORMANCE_PRESET, persistMentionCache: true }))}>
-                    {settings.language === "ja" ? "軽快設定と前回表示キャッシュを有効にする" : "Enable responsive settings and previous-view cache"}
-                  </button>
-                </div>
-                <p>{settings.language === "ja" ? "変更を適用するには、通常の「保存」を押してください。" : "Use the regular Save button to apply these changes."}</p>
-              </div>
-              <details className="options-connection-advanced">
-                <summary>{settings.language === "ja" ? "投稿リストの描画方式を比較（試験）" : "Compare post list rendering (experimental)"}</summary>
-                <div className="options-subsection">
-                  <label className="options-choice"><input type="checkbox" data-testid="virtual-post-list-toggle" checked={virtualPostList} onChange={event => {
-                    setVirtualListError(null);
-                    void setVirtualPostListExperiment(event.target.checked).catch(error => setVirtualListError(String(error)));
-                  }} /><span>React Virtuoso</span></label>
-                  <p className="options-hint">{settings.language === "ja" ? "OFFは従来方式、ONはライブラリによる仮想化です。このブラウザーの全ペインに即時反映し、切り替え時はスクロール位置をリセットします。確認状態や投稿データは変更しません。" : "OFF uses the existing renderer; ON uses library virtualization. Applies immediately to all panes in this browser and resets scroll position when switched. Confirmation and post data are preserved."}</p>
-                  {virtualListError ? <p role="alert">{virtualListError}</p> : null}
-                </div>
-              </details>
-
-
-              <details className="options-connection-advanced">
-                <summary>{t("options.performanceSettings.title")}</summary>
-                <div className="options-subsection">
-                  <p className="options-copy">{t("options.performanceSettings.description")}</p>
-                  <p className="options-hint">{t("options.performanceSettings.apiHint")}</p>
-                  <p className="options-hint">{t("options.performanceSettings.mentionHint")}</p>
-                  <div className="options-grid">
-                    {PERFORMANCE_FIELDS.map((field) => (
-                      <PerformanceNumberInput key={field} field={field} value={settings[field]}
-                        onChange={(value) => setSettings((current) => ({ ...current, [field]: value }))} />
-                    ))}
-                  </div>
-                  <button type="button" className="options-button options-button--ghost"
-                    onClick={() => setSettings((current) => ({ ...current, ...PERFORMANCE_DEFAULTS }))}>
-                    {t("options.performanceSettings.restoreDefaults")}
-                  </button>
-                </div>
-              </details>
-
               <div className="options-grid">
                 <article className="options-analysis-card options-analysis-card--full">
                   <div className="options-analysis-header">
@@ -4075,7 +4119,7 @@ function OptionsApp(): React.JSX.Element {
                   <button
                     type="button"
                     className="options-button options-button--ghost"
-                    onClick={() => setActivePanel("behavior")}
+                    onClick={() => setActivePanel("performance")}
                   >
                     {text.securityMentionCacheLink}
                   </button>

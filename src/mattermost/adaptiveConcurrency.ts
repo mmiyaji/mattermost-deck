@@ -15,6 +15,7 @@ export type AdaptiveConcurrencySnapshot = {
 const HEALTHY_SAMPLES_TO_GROW = 8;
 const INFLATED_SAMPLES_TO_SHRINK = 3;
 const REDUCTION_COOLDOWN_SAMPLES = 8;
+const LATENCY_WINDOW_SIZE = 32;
 
 function normalizeMaximum(maximum: number): number {
   return Number.isFinite(maximum)
@@ -38,6 +39,7 @@ export class AdaptiveConcurrencyController {
   private baselineMs: number | null = null;
   private smoothedMs: number | null = null;
   private recentLatencies: number[] = [];
+  private sortedLatencies: number[] = [];
   private healthySamples = 0;
   private inflatedSamples = 0;
   private cooldownSamples = 0;
@@ -61,6 +63,7 @@ export class AdaptiveConcurrencyController {
     }
     this.healthySamples = 0;
     this.inflatedSamples = 0;
+    this.cooldownSamples = 0;
     this.reason = "configured";
   }
 
@@ -125,13 +128,23 @@ export class AdaptiveConcurrencyController {
   private updateLatency(latencyMs: number): void {
     this.smoothedMs = this.smoothedMs === null
       ? latencyMs : this.smoothedMs * 0.8 + latencyMs * 0.2;
+    if (this.recentLatencies.length === LATENCY_WINDOW_SIZE) {
+      const outgoing = this.recentLatencies.shift()!;
+      // Equal latencies are interchangeable; remove exactly one occurrence.
+      this.sortedLatencies.splice(this.sortedLatencies.indexOf(outgoing), 1);
+    }
     this.recentLatencies.push(latencyMs);
-    if (this.recentLatencies.length > 32) this.recentLatencies.shift();
+    let low = 0, high = this.sortedLatencies.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (this.sortedLatencies[middle]! < latencyMs) low = middle + 1;
+      else high = middle;
+    }
+    this.sortedLatencies.splice(low, 0, latencyMs);
     // A low percentile ignores a single unusually quick response. Limit upward
     // drift so temporary overload cannot immediately redefine healthy latency;
     // retaining only recent responses lets a changed baseline eventually rebase.
-    const sorted = [...this.recentLatencies].sort((a, b) => a - b);
-    const lowLatency = sorted[Math.floor((sorted.length - 1) * 0.2)]!;
+    const lowLatency = this.sortedLatencies[Math.floor((this.sortedLatencies.length - 1) * 0.2)]!;
     if (this.baselineMs === null) {
       this.baselineMs = lowLatency;
     } else if (lowLatency < this.baselineMs) {

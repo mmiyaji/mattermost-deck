@@ -2,6 +2,7 @@ import { test, expect, chromium } from "@playwright/test";
 import { createServer } from "node:http";
 import fs from "node:fs/promises";
 import os from "node:os";
+import { waitForInstalledOptions } from "./extension-install";
 import path from "node:path";
 
 for (const scenario of ["search failure", "cancellation"] as const) {
@@ -48,6 +49,10 @@ for (const scenario of ["search failure", "cancellation"] as const) {
         data = { order: [], posts: {} };
       }
       else if (p === `/channels/${remote.id}/posts`) { scans++; lastScanAt = Date.now(); data = { order: [post.id], posts: { [post.id]: post } }; }
+      else if (p === "/posts/ids") {
+        let body = ""; for await (const chunk of req) body += chunk;
+        data = (JSON.parse(body) as string[]).includes(post.id) ? [post] : [];
+      }
       else if (p.includes("/threads")) data = { total: 0, threads: [] };
       else if (p.endsWith("/unread")) data = { team_id: team.id, msg_count: 1, mention_count: 1 };
       res.end(JSON.stringify(data));
@@ -61,6 +66,7 @@ for (const scenario of ["search failure", "cancellation"] as const) {
     });
     try {
       const sw = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
+      await waitForInstalledOptions(context, sw);
       await sw.evaluate(({ origin }) => chrome.storage.local.set({
         "mattermostDeck.serverUrl.v1": origin, "mattermostDeck.language.v1": "en",
         "mattermostDeck.pollingIntervalSeconds.v1": 3600,

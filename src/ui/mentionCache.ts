@@ -41,6 +41,7 @@ export interface MentionCacheContext {
 export interface MentionCacheSnapshot extends MentionCacheContext {
   version: 1;
   savedAt: number;
+  requestStartedAt?: number;
   posts: MattermostPost[];
   readState: MentionReadState;
   fingerprint: string;
@@ -249,6 +250,7 @@ export function createMentionCacheSnapshot(
   posts: MattermostPost[],
   readState: MentionReadState,
   now = Date.now(),
+  requestStartedAt = now,
 ): MentionCacheSnapshot {
   const activePosts =
     readState.activeChannelIds === null
@@ -272,6 +274,7 @@ export function createMentionCacheSnapshot(
   return {
     version: MENTION_CACHE_VERSION,
     savedAt: now,
+    requestStartedAt,
     serverScope: context.serverScope,
     userId: context.userId,
     scopeTeamId: context.scopeTeamId,
@@ -476,12 +479,14 @@ export async function saveMentionCache(
   readState: MentionReadState,
   now = Date.now(),
   persist = false,
+  requestStartedAt = now,
 ): Promise<void> {
   const snapshot = createMentionCacheSnapshot(
     context,
     posts,
     readState,
     now,
+    requestStartedAt,
   );
   const write = mentionCacheWriteQueue.then(
     () => writeMentionCache(context, snapshot, now, persist),

@@ -78,6 +78,43 @@ describe("Mattermost API request timeout", () => {
     await vi.advanceTimersByTimeAsync(30_000); await activeExpectation;
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+  it("expires a queued request at its own deadline while the only active response body remains held", async () => {
+    const api = await loadApi();
+    api.configureApiPerformanceSettings({ apiMaxConcurrentRequests: 1, apiMinStartGapMs: 0,
+      apiRequestTimeoutSeconds: 60, apiQueueTimeoutSeconds: 10 });
+    let releaseBody!: () => void;
+    let activeSettled = false;
+    vi.mocked(fetch).mockResolvedValue({ ok: true, status: 200,
+      json: () => new Promise(resolve => { releaseBody = () => resolve({ id: "active" }); }),
+    } as Response);
+    const active = api.getCurrentUser().finally(() => { activeSettled = true; });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(releaseBody).toBeTypeOf("function");
+    const queued = api.getTeamByName("must-never-start");
+    let queueError: unknown;
+    let rejectedAt: number | undefined;
+    const queuedAt = Date.now();
+    const outcome = queued.catch(error => { queueError = error; rejectedAt = Date.now(); });
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(rejectedAt).toBeUndefined();
+    expect(api.getApiPerformanceSnapshot()).toMatchObject({ activeRequestSlots: 1, queuedRequests: 1 });
+    await vi.advanceTimersByTimeAsync(1);
+    await outcome;
+    expect(queueError).toBeInstanceOf(Error);
+    expect((queueError as Error).message).toContain("mattermost_api_timeout:queue:10000");
+    expect(rejectedAt! - queuedAt).toBe(10000);
+    expect(activeSettled).toBe(false);
+    expect(api.getApiPerformanceSnapshot()).toMatchObject({ activeRequestSlots: 1, queuedRequests: 0 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    releaseBody();
+    await active;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.getApiPerformanceSnapshot()).toMatchObject({ activeRequestSlots: 0, queuedRequests: 0 });
+    // Releasing the occupied slot must not dispatch an already expired request.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("applies concurrency increases and decreases without resetting occupied slots", async () => {
     const api = await loadApi();
     api.configureApiPerformanceSettings({ apiMaxConcurrentRequests: 1, apiMinStartGapMs: 0 });

@@ -17,6 +17,11 @@ interface Props<T extends { key: string }> {
 }
 type Anchor = Array<{ key: string; offset: number }> | null;
 
+function sameEntryOrder<T extends { key: string }>(previous: T[], next: T[]): boolean {
+  return previous === next || (previous.length === next.length &&
+    previous.every((entry, index) => entry.key === next[index].key));
+}
+
 // Arbitrary confirmations can remove rows above the viewport. Preserve the
 // visible post across that data change; Virtuoso owns all row measurement.
 export class VirtualPostList<T extends { key: string }> extends React.Component<Props<T>> {
@@ -31,7 +36,10 @@ export class VirtualPostList<T extends { key: string }> extends React.Component<
     for (const event of ["wheel", "pointerdown", "keydown"]) this.props.viewport.removeEventListener(event, this.cancel);
   }
   getSnapshotBeforeUpdate(previous: Props<T>): Anchor {
-    if (previous.entries === this.props.entries) return null;
+    // Progress/read-state updates can recreate the array without changing the
+    // list's structure. Let Virtuoso retain its measured position; imperative
+    // anchor corrections are only needed when rows are added/removed/reordered.
+    if (sameEntryOrder(previous.entries, this.props.entries)) return null;
     const { viewport, reversed } = previous;
     if ((!reversed && viewport.scrollTop < 24) || (reversed && viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 24)) return null;
     const bounds = viewport.getBoundingClientRect();
@@ -41,7 +49,8 @@ export class VirtualPostList<T extends { key: string }> extends React.Component<
     return candidates.map(row => ({ key: row.dataset.deckEntryKey!, offset: row.getBoundingClientRect().top - bounds.top }));
   }
   componentDidUpdate(previous: Props<T>, _state: unknown, anchors: Anchor) {
-    if (previous.entries !== this.props.entries) this.cancel();
+    // A progress-only render must not interrupt a real row-removal correction.
+    if (!sameEntryOrder(previous.entries, this.props.entries)) this.cancel();
     const anchor = anchors?.find(a => this.props.entries.some(e => e.key === a.key));
     if (!anchor) return;
     this.frame = requestAnimationFrame(() => {

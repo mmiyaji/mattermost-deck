@@ -8,7 +8,7 @@ const MIN_WRITE_INTERVAL_MS = 60_000;
 let queue: Promise<unknown> = Promise.resolve();
 
 export interface MentionCacheSessionRequest {
-  operation: "get" | "put" | "remove" | "clear";
+  operation: "get" | "put" | "remove" | "clear" | "prune";
   key?: string;
   snapshot?: unknown;
   now?: number;
@@ -58,6 +58,7 @@ function prepareSnapshot(key: string, value: unknown, now: number): Snapshot {
       typeof value.mentionSignature !== "string" || typeof value.fingerprint !== "string" || !record(value.readState)) {
     throw new Error("Invalid mention cache snapshot");
   }
+  if (value.requestStartedAt !== undefined && (!timestamp(value.requestStartedAt) || value.requestStartedAt > value.savedAt || now - value.requestStartedAt > TTL_MS)) throw new Error("Invalid mention cache request start");
   for (const post of value.posts) {
     if (!record(post) || ![post.id, post.user_id, post.channel_id].every(id => typeof id === "string" && id.length > 0) ||
         !timestamp(post.create_at) || typeof post.message !== "string") throw new Error("Invalid mention cache post");
@@ -96,7 +97,7 @@ function boundRegistry(registry: Registry): void {
     registry.invalidations = { [GLOBAL_INVALIDATION]: Math.max(...Object.values(registry.invalidations)) };
   }
   for (const [key, snapshot] of Object.entries(registry.entries)) {
-    if (snapshot.savedAt <= invalidatedAt(registry, key)) delete registry.entries[key];
+    if (((snapshot.requestStartedAt ?? snapshot.savedAt) as number) <= invalidatedAt(registry, key)) delete registry.entries[key];
   }
   let usedBytes = 0;
   const encoder = new TextEncoder();
@@ -112,8 +113,8 @@ function boundRegistry(registry: Registry): void {
 
 /** Only the background calls this handler; its queue serializes all tabs' RMWs. */
 export async function handleMentionCacheSessionRequest(message: MentionCacheSessionRequest): Promise<{ snapshot?: unknown }> {
-  if (!message || !["get", "put", "remove", "clear"].includes(message.operation)) throw new Error("Invalid mention cache operation");
-  const tuple = message.operation !== "clear" || message.key !== undefined ? scopeTuple(message.key) : undefined;
+  if (!message || !["get", "put", "remove", "clear", "prune"].includes(message.operation)) throw new Error("Invalid mention cache operation");
+  const tuple = (message.operation !== "clear" && message.operation !== "prune") || message.key !== undefined ? scopeTuple(message.key) : undefined;
   const task = queue.catch(() => undefined).then(async () => {
     const storage = chrome.storage?.session;
     if (!storage) throw new Error("Mention cache session storage is unavailable");
@@ -132,7 +133,7 @@ export async function handleMentionCacheSessionRequest(message: MentionCacheSess
     } else if (message.operation === "remove") {
       delete registry.entries[message.key!];
       invalidate(registry, entryToken(message.key!), now);
-    } else if (prepared && prepared.savedAt > invalidatedAt(registry, message.key!) && (!existing || prepared.savedAt >= existing.savedAt)) {
+    } else if (prepared && ((prepared.requestStartedAt ?? prepared.savedAt) as number) > invalidatedAt(registry, message.key!) && (!existing || prepared.savedAt >= existing.savedAt)) {
       if (existing?.fingerprint !== prepared.fingerprint || now - existing.savedAt >= MIN_WRITE_INTERVAL_MS) {
         registry.entries[message.key!] = prepared;
       }
@@ -147,4 +148,14 @@ export async function handleMentionCacheSessionRequest(message: MentionCacheSess
   });
   queue = task;
   return task;
+}
+
+/** Purge re-fetchable bodies while retaining a cutoff against in-flight saves. */
+export async function purgeMentionBodyCache(scope?: { serverScope: string; userId: string }, now = Date.now()): Promise<void> {
+  await handleMentionCacheSessionRequest({ operation: "clear", now, ...(scope ? { key: JSON.stringify([scope.serverScope, scope.userId, "all"]) } : {}) });
+}
+
+/** Background alarm maintenance; does not clear fresh snapshots. */
+export async function pruneMentionBodyCache(): Promise<void> {
+  await handleMentionCacheSessionRequest({ operation: "prune" });
 }

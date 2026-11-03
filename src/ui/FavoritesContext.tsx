@@ -2,9 +2,10 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { getPostsByIds, type MattermostPost } from "../mattermost/api";
 import { getLocalizedApiErrorMessage } from "./apiErrorMessage";
 import i18n from "./i18n";
-import { cacheFavoritePost, favoriteMembership, favoriteStorageKey, FAVORITES_LIMIT, FAVORITES_REFRESH_MS, readFavorites, reconcileFavorites, type Favorite } from "./favorites";
+import { cacheFavoritePost, favoriteMembership, favoriteStorageKey, FAVORITES_REFRESH_MS, readFavorites, reconcileFavorites, type Favorite, type FavoriteMembership } from "./favorites";
 import { FAVORITE_CACHE_CHANGED_KEY } from "../favoriteCacheProtocol";
-import { favoriteBodies, favoriteCacheRequest, favoriteCacheScope, hydrateFavorites, membershipWithUnmigratedLegacy } from "./favoriteCache";
+import { favoriteBodies, favoriteCacheRequest, favoriteCacheScope, hydrateFavorites } from "./favoriteCache";
+import { bodyCachePrivacyEpoch, bodyCacheScopeMatches, subscribeBodyCacheClears } from "../bodyCachePrivacyClient";
 
 interface FavoritesValue {
   entries: Favorite[];
@@ -19,6 +20,11 @@ interface FavoritesValue {
 const FavoritesContext = createContext<FavoritesValue | null>(null);
 export const useFavorites = () => useContext(FavoritesContext);
 const EMPTY_DELETED_POST_IDS: string[] = [];
+async function membershipRequest(scope: string, operation: "toggle" | "remove" | "strip-legacy", member?: FavoriteMembership, id?: string): Promise<FavoriteMembership[]> {
+  const result = await chrome.runtime.sendMessage({ type: "mattermost-deck:favorite-membership", scope, operation, member, id });
+  if (!result?.success || !Array.isArray(result.members)) throw new Error(result?.error ?? "Favorite registration service is unavailable");
+  return result.members;
+}
 
 export function FavoritesProvider({ server, userId, children, deletedPostIds = EMPTY_DELETED_POST_IDS }: {
   server: string; userId: string | null; children: React.ReactNode; deletedPostIds?: string[];
@@ -34,6 +40,13 @@ export function FavoritesProvider({ server, userId, children, deletedPostIds = E
   const entriesRef = useRef(entries);
   const deleted = useRef(new Set<string>());
   const loadRevision = useRef(0);
+  useEffect(() => subscribeBodyCacheClears(change => {
+    if (!userId || !bodyCacheScopeMatches(change, { serverScope: server, userId })) return;
+    loadRevision.current++;
+    const cleared = entriesRef.current.map(entry => ({ ...entry, post: null, checkedAt: 0 }));
+    entriesRef.current = cleared;
+    setEntries(cleared);
+  }), [server, userId]);
   const publish = useCallback((next: Favorite[]) => {
     if (!active.current) return;
     const safe = next.map(entry => deleted.current.has(entry.id) ? { ...entry, post: null, deleted: true } : entry);
@@ -54,7 +67,7 @@ export function FavoritesProvider({ server, userId, children, deletedPostIds = E
           const bodies = favoriteBodies(normalized);
           if (bodies.length) await favoriteCacheRequest({ operation: "put", scope, entries: bodies });
           // The body transaction committed before the old inline copy is removed.
-          await chrome.storage.local.set({ [key]: favoriteMembership(normalized) });
+          await membershipRequest(scope, "strip-legacy");
         } catch { /* Keep the old inline bodies for a later migration retry. */ }
       }
       return normalized;
@@ -79,24 +92,23 @@ export function FavoritesProvider({ server, userId, children, deletedPostIds = E
     return () => { active.current = false; loadRevision.current++; chrome.storage.onChanged.removeListener(listener); };
   }, [key, scope, userId, reload]);
 
-  const mutate = useCallback(async (update: (current: Favorite[]) => Favorite[]) => {
+  const mutate = useCallback(async (operation: "toggle" | "remove", id: string, post?: MattermostPost) => {
     if (!userId || !active.current) return;
-    // Same-origin tabs share this lock. Do not fall back to page localStorage:
-    // post bodies must stay in the extension's storage.
-    return await navigator.locks.request(key, async () => {
-      if (!active.current) return;
-      const stored = await chrome.storage.local.get(key);
-      const next = update(hydrateFavorites(readFavorites(stored[key]), [], entriesRef.current));
-      await chrome.storage.local.set({ [key]: membershipWithUnmigratedLegacy(next, stored[key]) });
-      if (active.current) { publish(next); setError(null); }
-      return next;
-    });
-  }, [key, userId, publish]);
+    const privacyEpoch = bodyCachePrivacyEpoch();
+    // Registration writes and legacy-body removal share one background writer.
+    const member = { id, revision: crypto.randomUUID(), addedAt: Date.now() };
+    const members = await membershipRequest(scope, operation, operation === "toggle" ? member : undefined, id);
+    const next = hydrateFavorites(readFavorites(members), [], entriesRef.current).map(entry =>
+      post && privacyEpoch === bodyCachePrivacyEpoch() && entry.id === id && entry.revision === member.revision
+        ? { ...entry, checkedAt: Date.now(), post: cacheFavoritePost(post) } : entry);
+    if (active.current) { publish(next); setError(null); }
+    return next;
+  }, [scope, userId, publish]);
 
   const remove = useCallback(async (id: string) => {
     const old = entriesRef.current.find(entry => entry.id === id);
     try {
-      await mutate(current => current.filter(f => f.id !== id));
+      await mutate("remove", id);
       if (old) await favoriteCacheRequest({ operation: "remove", scope, ids: [id], members: favoriteMembership([old]) }).catch(() => undefined);
     }
     catch { if (active.current) setError(i18n.t("deck.favoritesError")); }
@@ -104,13 +116,8 @@ export function FavoritesProvider({ server, userId, children, deletedPostIds = E
   const toggle = useCallback(async (post: MattermostPost) => {
     try {
       const wasSelected = entriesRef.current.find(entry => entry.id === post.id);
-      const next = await mutate(current => {
-        if (current.some(f => f.id === post.id)) return current.filter(f => f.id !== post.id);
-        if (current.length >= FAVORITES_LIMIT) throw new Error("favorites-limit");
-        const cached = cacheFavoritePost(post);
-        if (!cached) throw new Error("invalid-post");
-        return [{ id: post.id, revision: crypto.randomUUID(), addedAt: Date.now(), checkedAt: Date.now(), post: cached }, ...current];
-      });
+      if (!cacheFavoritePost(post)) throw new Error("invalid-post");
+      const next = await mutate("toggle", post.id, post);
       const added = next?.find(entry => entry.id === post.id);
       if (added) await favoriteCacheRequest({ operation: "put", scope, entries: favoriteBodies([added]) }).catch(() => undefined);
       else if (wasSelected) await favoriteCacheRequest({ operation: "remove", scope, ids: [post.id], members: favoriteMembership([wasSelected]) }).catch(() => undefined);
@@ -131,10 +138,12 @@ export function FavoritesProvider({ server, userId, children, deletedPostIds = E
     busy.current = true;
     setRefreshing(true);
     const requestStartedAt = Date.now();
+    const privacyEpoch = bodyCachePrivacyEpoch();
     try {
       const posts = await getPostsByIds(requested.map(f => f.id), { maxAgeMs: force ? 0 : FAVORITES_REFRESH_MS });
-      if (!active.current) return;
+      if (!active.current || privacyEpoch !== bodyCachePrivacyEpoch()) return;
       const stored = await navigator.locks.request(key, () => chrome.storage.local.get(key));
+      if (!active.current || privacyEpoch !== bodyCachePrivacyEpoch()) return;
       const current = hydrateFavorites(readFavorites(stored[key]), [], entriesRef.current);
       const now = Date.now();
       publish(reconcileFavorites(current, requested, posts, now, requestStartedAt));

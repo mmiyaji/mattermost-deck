@@ -107,6 +107,48 @@ describe("Mattermost scheduler repeatable workload", () => {
     expect(api.getApiPerformanceSnapshot()).toMatchObject({ totalFailedRequests: 0, activeRequestSlots: 0, queuedRequests: 0 });
   });
 
+  it("attributes method rate waits from each arrival without walking queued consumers", async () => {
+    const api = await loadApi();
+    const trace = vi.spyOn(await import("../traceLog"), "addTraceEntry");
+    api.configureApiPerformanceSettings({
+      apiMaxConcurrentRequests: 4, apiMinStartGapMs: 0,
+      apiGlobalRequestsPerMinute: 1200, apiGetRequestsPerMinute: 30,
+      apiPostRequestsPerMinute: 600,
+    });
+    vi.mocked(fetch).mockResolvedValue({ ok: true, status: 200,
+      json: async () => ({ order: [], posts: {} }) } as Response);
+    const burst = Array.from({ length: 18 }, (_, index) => api.getRecentPosts(`rate-burst-${index}`));
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.all(burst);
+    const first = api.getRecentPosts("rate-first");
+    await vi.advanceTimersByTimeAsync(500);
+    const later = api.getRecentPosts("rate-later");
+    const post = api.searchPostsInTeam("unblocked-post", "query");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.getApiPerformanceSnapshot()).toMatchObject({ queuedRequests: 2, waitingForRate: 2 });
+    await vi.advanceTimersByTimeAsync(3500);
+    await Promise.all([first, later, post]);
+    const waits = trace.mock.calls.map(([entry]) => entry)
+      .filter(entry => entry.event === "request.rate_limit_wait").map(entry => entry.payload);
+    expect(waits).toEqual([{ method: "GET", waitMs: 2000 }, { method: "GET", waitMs: 3500 }]);
+    trace.mockRestore();
+  });
+
+  it("does not report occupied concurrency slots as rate-limit waiting", async () => {
+    const api = await loadApi();
+    const trace = vi.spyOn(await import("../traceLog"), "addTraceEntry");
+    api.configureApiPerformanceSettings({ apiMaxConcurrentRequests: 1, apiMinStartGapMs: 0 });
+    vi.mocked(fetch).mockImplementation(async () => ({ ok: true, status: 200, json: async () => {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      return { order: [], posts: {} };
+    } } as Response));
+    const requests = [api.getRecentPosts("occupied-slot"), api.getRecentPosts("waiting-slot")];
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.all(requests);
+    expect(trace.mock.calls.some(([entry]) => entry.event === "request.rate_limit_wait")).toBe(false);
+    trace.mockRestore();
+  });
+
   it("coalesces identical in-flight searches while preserving query semantics and view mutations", async () => {
     const api = await loadApi();
     api.configureApiPerformanceSettings({ apiMinStartGapMs: 0 });

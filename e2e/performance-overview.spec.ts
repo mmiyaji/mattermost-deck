@@ -12,10 +12,10 @@ test("performance overview explains queue delays, failures, chart periods, and d
     const worker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
     const page = await waitForInstalledOptions(context, worker);
     const now = Date.now();
-    const entries = Array.from({ length: 80 }, (_, i) => ({ timestamp: now - i * 14000, source: "api", level: "info", event: "request.complete", payload: { path: "/posts/search", purpose: "Team post search", method: "POST", status: 200, durationMs: 1450 + i * 9, queueWaitMs: 1200 + i * 8, queueDepth: 42 - i % 40 } }));
+    const entries = Array.from({ length: 80 }, (_, i) => ({ id: `overview-${i}`, timestamp: now - i * 14000, source: "api", level: "info", event: "request.complete", payload: { path: "/posts/search", purpose: "Team post search", method: "POST", status: 200, durationMs: 1450 + i * 9, queueWaitMs: 1200 + i * 8, queueDepth: 42 - i % 40 } }));
     await worker.evaluate(async entries => {
       await chrome.storage.local.clear();
-      await chrome.storage.local.set({ "mattermostDeck.language.v1": "ja", "mattermostDeck.traceCapture.v1": false, "mattermostDeck.traceEntries.v1": entries });
+      await chrome.storage.local.set({ "mattermostDeck.language.v1": "ja", "mattermostDeck.theme.v1": "dark", "mattermostDeck.traceCapture.v1": true, "mattermostDeck.traceEntries.v1": entries });
     }, entries);
     await page.reload();
     await expect(page.locator(".options-app")).toHaveAttribute("data-loaded", "true");
@@ -25,31 +25,26 @@ test("performance overview explains queue delays, failures, chart periods, and d
     await expect(page.locator(".options-panel--wide")).toBeVisible();
     const widths = await page.evaluate(() => ({ panel: document.querySelector(".options-panel--wide")!.getBoundingClientRect().width, content: document.querySelector(".options-content")!.clientWidth }));
     expect(widths.content - widths.panel).toBeLessThan(90);
-    await expect(overview.getByRole("img")).toHaveCount(2);
+    await expect(overview.getByTestId("performance-chart-latency").getByRole("application")).toBeVisible();
+    await expect(overview.getByTestId("performance-chart-count").getByRole("application")).toBeVisible();
     await expect(overview.getByText(/保存済み最大500ログ/)).toBeVisible();
-    await expect(overview.getByText("記録OFF", { exact: false })).toBeVisible();
-    await page.getByText("投稿リストの描画方式を比較（試験）", { exact: true }).click();
-    const toggle = page.getByTestId("virtual-post-list-toggle");
-    await expect(toggle).not.toBeChecked();
-    await toggle.check();
-    await expect.poll(() => worker.evaluate(async () => (await chrome.storage.local.get("mattermostDeck.virtualPostListExperiment.v1"))["mattermostDeck.virtualPostListExperiment.v1"])).toBe(true);
-    await toggle.uncheck();
-    await expect.poll(() => worker.evaluate(async () => (await chrome.storage.local.get("mattermostDeck.virtualPostListExperiment.v1"))["mattermostDeck.virtualPostListExperiment.v1"])).toBe(false);
-    await page.screenshot({ path: testInfo.outputPath("performance-overview-ja-dark.png"), fullPage: true });
+    await expect(overview.getByText("記録中", { exact: false })).toBeVisible();
+    await expect(page.getByTestId("virtual-post-list-toggle")).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("performance-overview-ja-dark.png"), fullPage: false });
     await worker.evaluate(async entry => {
       const data = await chrome.storage.local.get("mattermostDeck.traceEntries.v1");
       await chrome.storage.local.set({ "mattermostDeck.traceEntries.v1": [entry, ...data["mattermostDeck.traceEntries.v1"]] });
-    }, { timestamp: now + 1, source: "api", level: "error", event: "request.error", payload: { method: "GET", path: "/files/info", durationMs: 3000, error: "timeout" } });
+    }, { id: "overview-error", timestamp: now + 1, source: "api", level: "error", event: "request.error", payload: { method: "GET", path: "/files/info", durationMs: 3000, error: "timeout" } });
     await expect(overview.getByRole("heading", { name: "失敗したリクエストがあります" })).toBeVisible();
     await expect(overview.getByText("1 / 81", { exact: true })).toBeVisible();
     await worker.evaluate(() => chrome.storage.local.set({ "mattermostDeck.theme.v1": "light" }));
     await page.reload();
     await page.getByTestId("options-nav-performance").click();
-    await page.screenshot({ path: testInfo.outputPath("performance-overview-ja-light.png"), fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath("performance-overview-ja-light.png"), fullPage: false });
     await page.setViewportSize({ width: 600, height: 1000 });
     await expect(overview).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.screenshot({ path: testInfo.outputPath("performance-overview-narrow.png"), fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath("performance-overview-narrow.png"), fullPage: false });
   } finally {
     await context.close();
     await fs.rm(profile, { recursive: true, force: true });

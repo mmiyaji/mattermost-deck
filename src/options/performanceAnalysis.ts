@@ -1,16 +1,45 @@
 import type { TraceLogEntry } from "../traceLog";
 
-export function analyzePerformance(entries: TraceLogEntry[]) {
-  const requests = entries.filter(e => e.source === "api" && (e.event === "request.complete" || e.event === "request.error"));
-  const number = (v: unknown): number | null => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
-  const samples = requests.map(e => {
-    const total = number(e.payload?.durationMs);
-    const wait = number(e.payload?.queueWaitMs);
-    // A request that failed before starting has no measured network duration.
-    const paired = total !== null && wait !== null && wait <= total && e.event !== "request.error";
-    return { entry: e, total, wait: paired ? wait : null, network: paired ? total - wait : null,
-      failed: e.event === "request.error" || e.payload?.failed === true || Number(e.payload?.status) >= 400 };
+export interface PerformanceRequest {
+  key: string;
+  entry: TraceLogEntry;
+  total: number | null;
+  wait: number | null;
+  queueWait: number | null;
+  network: number | null;
+  failed: boolean;
+  status: number | null;
+  method: string;
+  path: string;
+  reason: string;
+  error: string;
+}
+const metricNumber = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+const text = (value: unknown): string => typeof value === "string" ? value : "";
+
+/** One model drives both aggregate counts and request-level inspection. */
+export function normalizePerformanceRequests(entries: TraceLogEntry[]): PerformanceRequest[] {
+  const seen = new Set<string>();
+  return entries.flatMap((entry, index) => {
+    if (entry.source !== "api" || !["request.complete", "request.error"].includes(entry.event)) return [];
+    if (entry.id && seen.has(entry.id)) return [];
+    if (entry.id) seen.add(entry.id);
+    const total = metricNumber(entry.payload?.durationMs);
+    const wait = metricNumber(entry.payload?.queueWaitMs);
+    const paired = total !== null && wait !== null && wait <= total && entry.event !== "request.error";
+    const rawStatus = entry.payload?.status;
+    const status = typeof rawStatus === "number" && Number.isInteger(rawStatus) && rawStatus >= 100 && rawStatus <= 599 ? rawStatus : null;
+    return [{ key: entry.id ?? `${entry.timestamp}:${entry.event}:${index}`, entry, total,
+      wait: paired ? wait : null, queueWait: wait, network: paired ? total - wait : null,
+      failed: entry.event === "request.error" || entry.payload?.failed === true || (status !== null && status >= 400),
+      status, method: text(entry.payload?.method) || "—", path: text(entry.payload?.fullPath) || text(entry.payload?.path) || "—",
+      reason: text(entry.payload?.reason), error: text(entry.payload?.error) }];
   });
+}
+
+export function analyzePerformance(entries: TraceLogEntry[]) {
+  const samples = normalizePerformanceRequests(entries);
+  const requests = samples.map(sample => sample.entry);
   const avg = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
   const totals = samples.flatMap(s => s.total === null ? [] : [s.total]).sort((a, b) => a - b);
   const paired = samples.filter(s => s.network !== null);
@@ -29,7 +58,7 @@ export function analyzePerformance(entries: TraceLogEntry[]) {
       wait: avg(pairs.map(s => s.wait!)), network: avg(pairs.map(s => s.network!)) };
   });
   const status: "empty" | "errors" | "queue" | "network" | "clear" | "unknown" = !samples.length ? "empty" : failures ? "errors" : !paired.length ? "unknown" : wait !== null && wait >= 500 && wait > (network ?? 0) ? "queue" : network !== null && network >= 1000 ? "network" : "clear";
-  const depths = requests.flatMap(e => { const depth = number(e.payload?.queueDepth); return depth === null ? [] : [depth]; });
+  const depths = requests.flatMap(e => { const depth = metricNumber(e.payload?.queueDepth); return depth === null ? [] : [depth]; });
   return { samples: samples.length, pairedSamples: paired.length, failures, wait, network,
     total: avg(totals), p95: totals.length ? totals[Math.ceil(totals.length * .95) - 1] : null,
     rateWaits: rateWaits.length, status,

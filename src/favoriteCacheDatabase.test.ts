@@ -11,13 +11,14 @@ const body = (id = "post", revision = "member-1", version = 100, requestStartedA
   id, revision, checkedAt: NOW, requestStartedAt,
   post: { id, user_id: "author", channel_id: "channel", message: `version-${version}`, create_at: 1, update_at: version },
 });
-type Runtime = typeof globalThis & { favoriteDatabase: typeof import("./favoriteCacheDatabase");
-  stored: Record<string, unknown>; now: number; failPut: boolean };
+type Runtime = typeof globalThis & { favoriteDatabase: typeof import("./favoriteCacheDatabase") & typeof import("./favoriteMembershipStorage");
+  stored: Record<string, unknown>; now: number; failPut: boolean; legacyReadWaiting?: boolean; releaseLegacyRead?: () => void };
 
 describe("extension-origin favorite body cache", () => {
   let browser: Browser, context: BrowserContext, page: Page, bundle: string;
   beforeAll(async () => {
-    bundle = (await build({ entryPoints: ["src/favoriteCacheDatabase.ts"], bundle: true, write: false, format: "iife", globalName: "favoriteDatabase", platform: "browser" })).outputFiles[0]!.text;
+    bundle = (await build({ stdin: { contents: 'export * from "./src/favoriteCacheDatabase"; export * from "./src/favoriteMembershipStorage";',
+      resolveDir: process.cwd(), sourcefile: "favorite-cache-test.ts" }, bundle: true, write: false, format: "iife", globalName: "favoriteDatabase", platform: "browser" })).outputFiles[0]!.text;
     browser = await chromium.launch({ headless: true });
   }, 30_000);
   afterAll(async () => { await browser?.close(); });
@@ -29,7 +30,8 @@ describe("extension-origin favorite body cache", () => {
       const runtime = globalThis as Runtime;
       runtime.now = now; runtime.stored = {}; runtime.failPut = false; Date.now = () => runtime.now;
       Object.defineProperty(globalThis, "chrome", { configurable: true, value: { storage: {
-        local: { get: async (key: string) => ({ [key]: runtime.stored[key] }) }, session: { set: async () => undefined },
+        local: { get: async (key: string | null) => key === null ? { ...runtime.stored } : ({ [key]: runtime.stored[key] }),
+          set: async (values: Record<string, unknown>) => { Object.assign(runtime.stored, values); } }, session: { set: async () => undefined },
       } } });
       const put = IDBObjectStore.prototype.put;
       IDBObjectStore.prototype.put = function (...args) {
@@ -121,4 +123,87 @@ describe("extension-origin favorite body cache", () => {
     await request({ operation: "put", scope, entries: [body()] });
     expect((await get()).entries).toHaveLength(1);
   });
+  it("privacy clear retains registrations and deletion markers while blocking pre-clear requests", async () => {
+    const other = JSON.stringify(["https://chat.example/", "other"]);
+    await memberships(other, [member()]);
+    await request({ operation: "put", scope, entries: [body()] });
+    await request({ operation: "put", scope: other, entries: [body()] });
+    await page.evaluate(() => { (globalThis as Runtime).now += 100; });
+    await page.evaluate(() => (globalThis as Runtime).favoriteDatabase.purgeFavoriteBodyCache({ serverScope: "https://chat.example/", userId: "user" }));
+    expect((await get()).entries).toEqual([]);
+    expect((await get([member()], other)).entries).toHaveLength(1);
+    await page.addScriptTag({ content: bundle });
+    await request({ operation: "put", scope, entries: [{ ...body(), checkedAt: NOW + 101 }] });
+    expect((await get()).entries).toEqual([]);
+    await request({ operation: "put", scope, entries: [{ ...body("post", "member-1", 200, NOW + 101), checkedAt: NOW + 101 }] });
+    expect((await get()).entries?.[0].post?.update_at).toBe(200);
+    await request({ operation: "invalidate", scope, ids: ["post"] });
+    await page.evaluate(() => (globalThis as Runtime).favoriteDatabase.purgeFavoriteBodyCache());
+    expect((await get()).entries?.[0]).toMatchObject({ post: null, deleted: true });
+    expect((await get([member()], other)).entries).toEqual([]);
+    expect(await page.evaluate(() => Object.values((globalThis as Runtime).stored))).toEqual([[member()], [member()]]);
+  });
+
+  it("global privacy clear redacts legacy inline bodies without losing registration metadata", async () => {
+    await page.evaluate(({ key, value }) => { (globalThis as Runtime).stored[key] = value; }, {
+      key: favoriteStorageKey("https://chat.example/", "user"), value: [{ ...member(), post: body().post, checkedAt: NOW }],
+    });
+    await page.evaluate(() => (globalThis as Runtime).favoriteDatabase.purgeFavoriteBodyCache());
+    expect(await page.evaluate(() => Object.values((globalThis as Runtime).stored))).toEqual([[member()]]);
+  });
+
+  it("redacts the latest legacy membership when it changes during the account scan", async () => {
+    const storageKey = favoriteStorageKey("https://chat.example/", "user");
+    const latest = [{ ...member(), post: body().post, checkedAt: NOW }, member("new-post", "new-registration")];
+    await page.evaluate(({ storageKey, latest, old }) => {
+      const runtime = globalThis as Runtime;
+      runtime.stored[storageKey] = old;
+      const get = chrome.storage.local.get;
+      chrome.storage.local.get = (async (key: string | null) => {
+        if (key === storageKey) runtime.stored[storageKey] = latest;
+        return (get as (key: string | null) => Promise<Record<string, unknown>>)(key);
+      }) as typeof get;
+    }, { storageKey, latest, old: [{ ...member(), post: body().post, checkedAt: NOW }] });
+    await page.evaluate(() => (globalThis as Runtime).favoriteDatabase.purgeFavoriteBodyCache());
+    expect(await page.evaluate(key => (globalThis as Runtime).stored[key], storageKey)).toEqual([member(), member("new-post", "new-registration")]);
+  });
+
+  it("serializes a real privacy redaction held during its read with a concurrent registration", async () => {
+    const storageKey = favoriteStorageKey("https://chat.example/", "user");
+    await page.evaluate(({ storageKey, legacy }) => {
+      const runtime = globalThis as Runtime;
+      runtime.stored[storageKey] = [legacy];
+      const originalGet = chrome.storage.local.get;
+      let held = false;
+      chrome.storage.local.get = (async (key: string | null) => {
+        const values = structuredClone(await (originalGet as (key: string | null) => Promise<Record<string, unknown>>)(key));
+        if (key === storageKey && !held) {
+          held = true; runtime.legacyReadWaiting = true;
+          await new Promise<void>(resolve => { runtime.releaseLegacyRead = resolve; });
+        }
+        return values;
+      }) as typeof originalGet;
+    }, { storageKey, legacy: { ...member(), post: body().post, checkedAt: NOW } });
+    const cleanup = page.evaluate(() => (globalThis as Runtime).favoriteDatabase.purgeFavoriteBodyCache());
+    await page.waitForFunction(() => (globalThis as Runtime).legacyReadWaiting === true);
+    const addition = page.evaluate(({ scope, member }) => (globalThis as Runtime).favoriteDatabase.handleFavoriteMembershipRequest({ operation: "toggle", scope, member }), {
+      scope, member: member("new-post", "new-registration"),
+    });
+    await page.evaluate(() => (globalThis as Runtime).releaseLegacyRead!());
+    await Promise.all([cleanup, addition]);
+    expect(await page.evaluate(key => (globalThis as Runtime).stored[key], storageKey)).toEqual([member("new-post", "new-registration"), member()]);
+  });
+
+  it("alarm pruning removes expired bodies while retaining fresh bodies and all registrations", async () => {
+    await request({ operation: "put", scope, entries: [{ ...body(), checkedAt: NOW - FAVORITES_CACHE_TTL_MS + 10 }] });
+    const other = JSON.stringify(["https://chat.example/", "other"]);
+    await memberships(other, [member()]);
+    await request({ operation: "put", scope: other, entries: [body()] });
+    await page.evaluate(() => { (globalThis as Runtime).now += 20; });
+    await page.evaluate(() => (globalThis as Runtime).favoriteDatabase.pruneFavoriteBodyCache());
+    expect((await get()).entries).toEqual([]);
+    expect((await get([member()], other)).entries).toHaveLength(1);
+    expect(await page.evaluate(() => Object.values((globalThis as Runtime).stored))).toEqual([[member()], [member()]]);
+  });
+
 });

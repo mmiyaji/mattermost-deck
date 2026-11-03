@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MattermostPost } from "../mattermost/api";
-import { ingestReview, retryReview, reviewSnapshot, reviewPrefix, reviewScopeIndex, reviewScope, selectReview, writeReview } from "./mentionReview";
+import { removeKnownReviewPosts, ingestReview, retryReview, reviewSnapshot, reviewPrefix, reviewScopeIndex, reviewScope, selectReview, writeReview } from "./mentionReview";
 
 const post = (id: string, update_at = 1): MattermostPost => ({ id, channel_id: "channel", user_id: "author", message: `mention ${update_at}`, create_at: 1, update_at });
 function mockStorage(initial: Record<string, unknown> = {}) {
@@ -12,6 +12,19 @@ function mockStorage(initial: Record<string, unknown> = {}) {
 }
 afterEach(() => vi.unstubAllGlobals());
 describe("durable mention review", () => {
+  it("queues deletion behind pending ingestion without dropping confirmation or tombstoning unrelated posts", async () => {
+    const prefix = reviewPrefix("server", "queued-delete");
+    const { values } = mockStorage();
+    const ingest = ingestReview(prefix, "*", [post("known")]);
+    const confirmation = writeReview(prefix, { [`${prefix}confirmed:known`]: 123 });
+    const deletion = removeKnownReviewPosts(prefix, ["known", "unrelated"]);
+    await Promise.all([ingest, confirmation, deletion]);
+    expect(values[`${prefix}deleted:known`]).toEqual(expect.any(Number));
+    expect(values[`${prefix}confirmed:known`]).toBe(123);
+    expect(values).not.toHaveProperty([`${prefix}deleted:unrelated`]);
+    expect(selectReview(values, prefix, "*")).toEqual([]);
+  });
+
   it("uses the background database and receives decisions from another tab even when local storage is full", async () => {
     const prefix = reviewPrefix("https://chat.example", "database-client");
     const values: Record<string, unknown> = {};

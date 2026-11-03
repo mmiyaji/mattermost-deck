@@ -8,6 +8,14 @@ Use this copy when maintaining the Chrome Web Store listing and its Privacy prac
 - Privacy policy URL: https://mattermost-deck.ruhenheim.org/privacy/
 - Store screenshot (1280 x 800): `docs/assets/readme-overview-dark-store.png`
 
+## v1.4.0 release notes
+
+- Clearer settings themes, required fields, cache controls and on/off states.
+- Standard virtualized post lists, priority API queues and improved adaptive concurrency.
+- Clear body caches while retaining review decisions and favorites; prevent stale responses from restoring cleared data.
+- Reflect cached mention edits and deletions during polling and keep the reading position stable while loading.
+- No additional extension permissions.
+
 ## v1.3.3 release notes
 
 - Show recent mentions while refreshing after restart, enabled by default. Extension-owned IndexedDB keeps up to 100 posts per scope, 64 scopes, 16 MiB total and 24 hours; existing opt-outs are preserved.

@@ -101,15 +101,45 @@ test("favorites persist, sync across tabs, use cached posts offline, and reconci
     await expect.poll(async () => (await deck(url, "read"))?.count).toBe(0);
     await deck(url, "star", "channel");
     await expect.poll(async () => (await deck(url, "read"))?.count).toBe(1);
+    // Membership is durable before its optional body cache finishes. Wait for
+    // the actual body transaction before testing offline browser restoration.
+    await expect.poll(() => worker.evaluate(id => new Promise<boolean>((resolve, reject) => {
+      const open = indexedDB.open("mattermostDeck.favoriteBodies");
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const database = open.result, transaction = database.transaction("bodies", "readonly");
+        const request = transaction.objectStore("bodies").getAll();
+        request.onsuccess = () => resolve(request.result.some(value => value.entry?.post?.id === id));
+        request.onerror = () => reject(request.error);
+        transaction.oncomplete = () => database.close();
+      };
+    }), post.id)).toBe(true);
     await context!.close();
     await launch();
     await worker!.evaluate(async () => {
-      const all = await chrome.storage.local.get(null);
-      for (const [key, value] of Object.entries(all)) {
-        if (key.startsWith("mattermostDeck.favorites.v1:")) {
-          await chrome.storage.local.set({ [key]: (value as Array<Record<string, unknown>>).map(f => ({ ...f, checkedAt: Date.now() - 6 * 60_000 })) });
-        }
-      }
+      // Registration no longer contains checkedAt/body fields. Age the cache
+      // itself so the restored pane displays it while attempting a refresh.
+      await new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open("mattermostDeck.favoriteBodies");
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const database = open.result, transaction = database.transaction(["bodies", "metadata"], "readwrite");
+          const checkedAt = Date.now() - 6 * 60_000;
+          for (const name of ["bodies", "metadata"]) {
+            const cursor = transaction.objectStore(name).openCursor();
+            cursor.onsuccess = () => {
+              const row = cursor.result;
+              if (!row) return;
+              const value = row.value;
+              if (name === "bodies") value.entry = { ...value.entry, checkedAt, requestStartedAt: checkedAt };
+              else Object.assign(value, { checkedAt, requestStartedAt: checkedAt });
+              row.update(value); row.continue();
+            };
+          }
+          transaction.oncomplete = () => { database.close(); resolve(); };
+          transaction.onabort = () => { database.close(); reject(transaction.error); };
+        };
+      });
     });
     const restored = await context!.newPage();
     await restored.route("**/api/v4/posts/ids", route => route.abort());

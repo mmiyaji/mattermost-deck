@@ -7,6 +7,9 @@ artifacts/cache-consistency/
 artifacts/e2e-current/
 artifacts/review-followup/
 artifacts/commit-review/
+artifacts/scheduler-queue/
+artifacts/cache-privacy/
+artifacts/settings-design/
 .tmp-*/
 .tmp-*.cjs
 .claude/

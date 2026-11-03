@@ -2455,6 +2455,19 @@ export const railCssText = `
     margin: 0;
   }
 
+  /* Loading progress, pending updates and the team label share one fixed
+     subtitle slot so a status change never resizes the reading viewport. */
+  .deck-mention-subtitle {
+    height: calc(20px * var(--deck-font-scale));
+    margin-top: 2px;
+    min-width: 0;
+  }
+  .deck-mention-subtitle > :is(.deck-column-loading-status, .deck-mention-updates, p) {
+    height: 100%;
+    margin: 0;
+  }
+  .deck-mention-subtitle > p { line-height: calc(20px * var(--deck-font-scale)); }
+
   .deck-column-loading-status {
     position: relative;
     display: flex;

@@ -28,7 +28,7 @@
       data-i18n-content-en="Privacy Policy - Mattermost Deck"
     >
     <meta property="og:image" content="https://mattermost-deck.ruhenheim.org/assets/webstore/marquee-promo-tile-1400x560.png">
-    <link rel="stylesheet" href="../assets/styles.css?v=1.3.3">
+    <link rel="stylesheet" href="../assets/styles.css?v=1.4.0">
     <script src="../assets/site.js" defer></script>
   </head>
   <body>
@@ -137,10 +137,11 @@
               <ul>
                 <li>MattermostサーバーURLと任意のTeam Slug</li>
                 <li>テーマ、言語、ポーリング間隔、レイアウト、保存済みViews、プロファイルなどの表示・動作設定</li>
-                <li>個人用お気に入りの登録情報（投稿ID、登録日時、登録世代）は、サーバーとアカウントごとに最大100件を拡張機能のローカル保存領域に保存します。本文の一部と投稿者・チャンネル・添付ファイルのID、投稿日時は、別の拡張機能用IndexedDBに保存します。本文キャッシュは全体で最大16MiB・5000件、最終確認から7日で次のキャッシュ操作時に破棄し、登録情報は解除するまで保持します。取得に成功した際に削除・閲覧不可と判明した投稿の本文も破棄します。解除すると該当のお気に入りとキャッシュを削除します。</li>
+                <li>個人用お気に入りの登録情報（投稿ID、登録日時、登録世代）は、サーバーとアカウントごとに最大100件を拡張機能のローカル保存領域に保存します。本文の一部と投稿者・チャンネル・添付ファイルのID、投稿日時は、別の拡張機能用IndexedDBに保存します。本文キャッシュは全体で最大16MiB・5000件、最終確認から7日で、キャッシュ操作時・拡張起動時・30分ごとの定期処理で破棄し、登録情報は解除するまで保持します。取得に成功した際に削除・閲覧不可と判明した投稿の本文も破棄します。解除すると該当のお気に入りとキャッシュを削除します。</li>
                 <li>要確認メンションの未確認投稿と確認状態。対象投稿の本文を含み、サーバーとアカウントごとに拡張機能のIndexedDBへ保存します。要確認ペインを使用した場合にのみ保存し、未確認の投稿は確認済みにするまで保持します。確認済みの履歴は本文を最大200件まで保持し、それを超えた分と保存領域が不足した場合は古い本文から破棄します。確認した記録自体は残ります。</li>
-                <li>メンションペインの表示キャッシュ。直近のメンション投稿の本文を含み、既定で拡張機能のIndexedDBに保存します。サーバー・アカウント・チーム範囲の組み合わせごとに最大100件、全体で最大64組・合計16MiBを保持し、上限時は使用の古い範囲から削除します。保存から24時間を超えた分は次のキャッシュ操作時に削除します。「再起動後もメンションを表示」を無効にすると永続キャッシュを削除し、以後はブラウザ終了時に破棄されるセッション領域だけを使います。既存の明示的な無効設定は維持します。</li>
+                <li>メンションペインの表示キャッシュ。直近のメンション投稿の本文を含み、既定で拡張機能のIndexedDBに保存します。サーバー・アカウント・チーム範囲の組み合わせごとに最大100件、全体で最大64組・合計16MiBを保持し、上限時は使用の古い範囲から削除します。保存から24時間を超えた分は、キャッシュ操作時・拡張起動時・30分ごとの定期処理で削除します。ブラウザー停止中には実行されません。「キャッシュ保持設定」で保持しない設定にすると永続キャッシュを削除し、以後はブラウザ終了時に破棄されるセッション領域だけを使います。既存の明示的な無効設定は維持します。</li>
                 <li>PATを永続保存するかどうかの任意設定</li>
+                <li>設定画面からの本文キャッシュ削除は、全アカウントのメンション表示キャッシュとお気に入り本文が対象です。ログアウト・認証失効（401）・投稿閲覧権限の失効（403）時は、対象アカウントだけを削除します。要確認投稿の本文・確認状態、お気に入り登録、設定は残ります。削除前に始まった通信の遅延応答でキャッシュが復活しないよう制御します。</li>
                 <li>トレース記録を有効にした場合の診断ログ（最大500件・約1MiB、1件16KiB）。発生元を区別するためのサイトのオリジンとブラウザー内タブIDを含む場合があります。24時間を超えた項目は、次に拡張機能が動作、記録、または診断画面を開いたときに削除します。</li>
               </ul>
               <p>
@@ -275,9 +276,10 @@
               <ul>
                 <li>Mattermost server URL and optional Team Slug</li>
                 <li>Theme, language, polling interval, layout, saved Views, profiles, and other display or behavior settings</li>
-                <li>Personal favorite membership (post IDs, registration dates and membership revisions) is kept in extension local storage, up to 100 entries per server/account. Bounded message text, author/channel/attachment IDs and timestamps are stored separately in extension-owned IndexedDB, limited to 16 MiB and 5,000 bodies globally. Bodies expire seven days after their last check and are discarded on the next cache operation; membership remains until removed. Bodies are also discarded when a successful fetch identifies a deleted or inaccessible post. Removing a favorite deletes its entry and cached body.</li>
+                <li>Personal favorite membership (post IDs, registration dates and membership revisions) is kept in extension local storage, up to 100 entries per server/account. Bounded message text, author/channel/attachment IDs and timestamps are stored separately in extension-owned IndexedDB, limited to 16 MiB and 5,000 bodies globally. Bodies expire seven days after their last check and are pruned on cache operations, extension startup and 30-minute maintenance alarms; membership remains until removed. Bodies are also discarded when a successful fetch identifies a deleted or inaccessible post. Removing a favorite deletes its entry and cached body.</li>
                 <li>Pending mentions and confirmation decisions for mention review panes, including the body of each post, kept in extension-owned IndexedDB per server/account. They are stored only once a review pane is used, and a pending post is retained until it is confirmed. Confirmed history keeps at most 200 bodies; older bodies are discarded beyond that cap or under storage pressure, while the confirmation record remains.</li>
-                <li>A display cache for mention panes, including recent post bodies, is saved by default in the extension’s IndexedDB. It holds up to 100 posts per server/account/team scope, at most 64 scopes and 16 MiB in total; least recently used scopes are evicted first. Entries older than 24 hours are deleted on the next cache operation. Disabling &quot;Keep mentions after a restart&quot; deletes the persistent cache and uses only session storage, discarded when the browser closes. Existing explicit opt-outs are preserved.</li>
+                <li>A display cache for mention panes, including recent post bodies, is saved by default in the extension’s IndexedDB. It holds up to 100 posts per server/account/team scope, at most 64 scopes and 16 MiB in total; least recently used scopes are evicted first. Entries older than 24 hours are pruned on cache operations, extension startup and 30-minute maintenance alarms. Maintenance does not run while the browser is closed. Disabling &quot;Keep mentions after a restart&quot; deletes the persistent cache and uses only session storage, discarded when the browser closes. Existing explicit opt-outs are preserved.</li>
+                <li>Manual body-cache deletion clears mention display caches and favorite bodies across all accounts. Logout, session expiry (401), and post-access denial (403) clear those caches for the affected account. Review post bodies and confirmation decisions, favorite registrations, and settings remain. Delayed responses started before deletion cannot restore the cleared cache.</li>
                 <li>The optional preference for persistent PAT storage</li>
                 <li>Diagnostic trace logs bounded to 500 entries and about 1 MiB, with a 16 KiB per-entry limit. Entries may include the source site origin and browser-local tab ID. Entries older than 24 hours are pruned the next time the extension runs, writes a trace, or opens diagnostics</li>
               </ul>

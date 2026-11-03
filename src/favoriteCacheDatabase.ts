@@ -2,7 +2,8 @@ import {
   FAVORITE_CACHE_CHANGED_KEY, FAVORITE_CACHE_MAX_BYTES, FAVORITE_CACHE_MAX_ENTRIES,
   type FavoriteBodyCacheEntry, type FavoriteCacheStorageRequest,
 } from "./favoriteCacheProtocol";
-import { cacheFavoritePost, favoritePostVersion, favoriteStorageKey, FAVORITES_CACHE_TTL_MS, readFavorites, type FavoriteMembership } from "./ui/favorites";
+import { cacheFavoritePost, favoritePostVersion, favoriteStorageKey, FAVORITES_CACHE_TTL_MS, readFavorites, favoriteMembership, type FavoriteMembership } from "./ui/favorites";
+import { withFavoriteMembershipLock } from "./favoriteMembershipStorage";
 
 const DATABASE = "mattermostDeck.favoriteBodies";
 const BODIES = "bodies", METADATA = "metadata", TOMBSTONES = "tombstones";
@@ -12,6 +13,9 @@ type Metadata = Omit<FavoriteBodyCacheEntry, "post" | "deleted"> & {
   key: string; scope: string; bytes: number; postVersion: number; lastAccessAt: number;
 };
 type Tombstone = { key: string; scope: string; id: string; invalidatedAt: number };
+type MaintenanceRequest = { operation: "clear" | "prune"; scope: string };
+const PRIVACY_GLOBAL = "privacy:global";
+const privacyScope = (scope: string) => `privacy:scope:${scope}`;
 
 function validId(value: unknown): value is string {
   return typeof value === "string" && /^[a-z0-9_-]{1,128}$/i.test(value);
@@ -60,7 +64,7 @@ function openDatabase(): Promise<IDBDatabase> {
   return pending;
 }
 
-function transact(database: IDBDatabase, message: FavoriteCacheStorageRequest, members: FavoriteMembership[], now: number,
+function transact(database: IDBDatabase, message: FavoriteCacheStorageRequest | MaintenanceRequest, members: FavoriteMembership[], now: number,
   prepared: Array<{ entry: FavoriteBodyCacheEntry; bytes: number }>): Promise<{ entries?: FavoriteBodyCacheEntry[] }> {
   return new Promise((resolve, reject) => {
     const transaction = database.transaction([BODIES, METADATA, TOMBSTONES], "readwrite");
@@ -85,6 +89,14 @@ function transact(database: IDBDatabase, message: FavoriteCacheStorageRequest, m
           markers.delete(marker.key); tombstones.delete(marker.key);
         }
         const membership = new Map(members.map(member => [member.id, member]));
+        if (message.operation === "clear") {
+          for (const entry of entries.values()) if (!message.scope || entry.scope === message.scope) removed(entry.key);
+          const key = message.scope ? privacyScope(message.scope) : PRIVACY_GLOBAL;
+          const cutoff = { key, scope: message.scope, id: "", invalidatedAt: Math.max(now, markers.get(key)?.invalidatedAt ?? 0) };
+          markers.set(key, cutoff); tombstones.put(cutoff);
+        }
+        const privacyCutoff = Math.max(markers.get(PRIVACY_GLOBAL)?.invalidatedAt ?? -1,
+          markers.get(privacyScope(message.scope))?.invalidatedAt ?? -1);
         if (message.operation === "invalidate") for (const id of message.ids!) {
           const key = cacheKey(message.scope, id);
           removed(key);
@@ -96,7 +108,7 @@ function transact(database: IDBDatabase, message: FavoriteCacheStorageRequest, m
         }
         if (message.operation === "put") for (const { entry, bytes } of prepared) {
           const key = cacheKey(message.scope, entry.id), existing = entries.get(key);
-          if (membership.get(entry.id)?.revision !== entry.revision || markers.has(key)) continue;
+          if (membership.get(entry.id)?.revision !== entry.revision || markers.has(key) || entry.requestStartedAt <= privacyCutoff) continue;
           if (existing?.revision === entry.revision &&
               (entry.requestStartedAt < existing.requestStartedAt ||
                 (entry.post && favoritePostVersion(entry.post) < existing.postVersion))) continue;
@@ -166,4 +178,40 @@ export async function handleFavoriteCacheStorageRequest(message: FavoriteCacheSt
   });
   queue = task;
   return task;
+}
+
+/** Explicit body deletion preserves registration and durable deletion markers. */
+export async function purgeFavoriteBodyCache(scope?: { serverScope: string; userId: string }, now = Date.now()): Promise<void> {
+  const cacheScope = scope ? JSON.stringify([scope.serverScope, scope.userId]) : "";
+  const task = queue.catch(() => undefined).then(async () => {
+    await transact(await openDatabase(), { operation: "clear", scope: cacheScope }, [], now, []);
+    // Old versions embedded bodies in the registration array. Redact those too,
+    // otherwise a later migration could restore a body the user just removed.
+    const selectedKey = scope ? favoriteStorageKey(scope.serverScope, scope.userId) : null;
+    const local = await chrome.storage.local.get(selectedKey);
+    for (const [key, value] of Object.entries(local)) {
+      if (!key.startsWith("mattermostDeck.favorites.v1:") || !Array.isArray(value) ||
+          !value.some(entry => entry && typeof entry === "object" && ("post" in entry || "checkedAt" in entry || "requestStartedAt" in entry))) continue;
+      await withFavoriteMembershipLock(key, async () => {
+        // Registration changes and cleanup share the extension worker's lock;
+        // no page-origin lock or cross-context read/modify/write can race this.
+        const latest = (await chrome.storage.local.get(key))[key];
+        if (Array.isArray(latest) && latest.some(entry => entry && typeof entry === "object" && ("post" in entry || "checkedAt" in entry || "requestStartedAt" in entry))) {
+          await chrome.storage.local.set({ [key]: favoriteMembership(readFavorites(latest, now)) });
+        }
+      });
+    }
+    await chrome.storage.session?.set({ [FAVORITE_CACHE_CHANGED_KEY]: { scope: cacheScope || "*", revision: crypto.randomUUID() } });
+  });
+  queue = task;
+  await task;
+}
+
+/** Alarm-driven expiry; retains all membership and fresh bodies. */
+export async function pruneFavoriteBodyCache(): Promise<void> {
+  const task = queue.catch(() => undefined).then(async () => {
+    await transact(await openDatabase(), { operation: "prune", scope: "" }, [], Date.now(), []);
+  });
+  queue = task;
+  await task;
 }

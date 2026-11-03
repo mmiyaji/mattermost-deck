@@ -179,4 +179,26 @@ describe("background mention session cache", () => {
     for (const message of invalid) await expect(request(message)).rejects.toThrow();
     expect(session.set).not.toHaveBeenCalled();
   });
+  it("privacy clear rejects a late HTTP save but permits a new request and keeps other accounts", async () => {
+    const { put, request, stored } = await harness();
+    const first = key("all"), other = key("all", "https://example.test/", "other");
+    await put(first); await put(other);
+    await request({ operation: "clear", key: first, now: NOW + 100 });
+    await request({ operation: "put", key: first, now: NOW + 200,
+      snapshot: { ...snapshot(first, NOW + 200), requestStartedAt: NOW } });
+    expect(await request({ operation: "get", key: first })).toEqual({});
+    expect((await request({ operation: "get", key: other })).snapshot).toBeTruthy();
+    await request({ operation: "put", key: first, now: NOW + 300,
+      snapshot: { ...snapshot(first, NOW + 300), requestStartedAt: NOW + 101 } });
+    expect((await request({ operation: "get", key: first })).snapshot).toMatchObject({ requestStartedAt: NOW + 101 });
+    expect(Object.keys(stored)).toEqual([STORAGE_KEY]);
+  });
+
+  it("alarm pruning expires bodies without clearing fresh scopes", async () => {
+    const { put, request, registry } = await harness();
+    await put(key("old"), NOW - TTL_MS + 10); await put(key("fresh"));
+    await request({ operation: "prune", now: NOW + 20 });
+    expect(Object.keys(registry().entries)).toEqual([key("fresh")]);
+  });
+
 });

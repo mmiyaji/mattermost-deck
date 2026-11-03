@@ -7,6 +7,29 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-03
+
+### Added
+
+- Redesigned settings with independent light, dark and system theme buttons, clearer required fields and on/off states, and cache controls grouped in one place.
+- Interactive performance charts and request drill-down: select failed requests or a chart period, filter the request list, and inspect individual errors and queue timings.
+- Clear display and favorite body caches without removing favorite registrations or review confirmation decisions. Clear affected account caches automatically on logout and authentication/access failures.
+
+### Changed
+
+- Make React Virtuoso the standard post-list renderer, removing the experimental switch and reducing mounted content while preserving reading position.
+- Use priority queues for API scheduling instead of scanning the entire backlog; enforce queue deadlines independently of request completion and improve adaptive-concurrency sample handling.
+- Keep advanced performance tuning collapsed by default and make trace recording status explicit.
+- Include the licenses for the bundled chart libraries. No additional extension permissions are requested.
+
+### Fixed
+
+- Reflect mention edits and deletions during polling, including cached startup rows and reused team scans with unchanged unread counts. Update existing rows without waiting for new-post updates to be applied.
+- Preserve confirmation decisions when a deleted post is removed, and prevent stale polling responses from undoing WebSocket edits/deletions or privacy-driven cache clearing.
+- Reject late body-cache writes after deletion, clearing or access loss while retaining durable user choices.
+- Stabilize mention-pane loading transitions and avoid unnecessary scroll corrections when row order has not changed.
+- Keep settings text readable across themes, appearance previews within their viewport, and the save footer aligned after resizing and zooming.
+
 ## [1.3.3] - 2026-11-03
 
 ### Added

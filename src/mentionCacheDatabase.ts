@@ -22,7 +22,7 @@ let queue: Promise<unknown> = Promise.resolve();
 let migrationChecked = false;
 
 export interface MentionCacheStorageRequest {
-  operation: "get" | "put" | "remove" | "clear";
+  operation: "get" | "put" | "remove" | "clear" | "prune";
   key?: string;
   snapshot?: unknown;
   now?: number;
@@ -69,7 +69,8 @@ function prepareSnapshot(key: string, value: unknown, now: number): PreparedSnap
       !Array.isArray(value.teamIds) || !value.teamIds.every(id => typeof id === "string" && id.length > 0) ||
       typeof value.mentionSignature !== "string" || typeof value.fingerprint !== "string" ||
       !record(value.readState)) throw new Error("Invalid mention cache snapshot");
-  const allowed = new Set(["version", "serverScope", "userId", "scopeTeamId", "savedAt", "posts", "teamIds", "mentionSignature", "fingerprint", "readState"]);
+  const allowed = new Set(["version", "serverScope", "userId", "scopeTeamId", "savedAt", "posts", "teamIds", "mentionSignature", "fingerprint", "readState", "requestStartedAt"]);
+  if (value.requestStartedAt !== undefined && (!timestamp(value.requestStartedAt) || value.requestStartedAt > value.savedAt || now - value.requestStartedAt > MENTION_CACHE_HARD_TTL_MS)) throw new Error("Invalid mention cache request start");
   if (Object.keys(value).some(key => !allowed.has(key))) throw new Error("Invalid mention cache snapshot fields");
   const readState = value.readState;
   if (!record(readState.channelLastViewedAt) || !Object.values(readState.channelLastViewedAt).every(timestamp) ||
@@ -219,7 +220,7 @@ function transact(
           remove(message.key!);
           invalidate(entryInvalidationKey(message.key!));
         }
-        if (message.operation === "put" && prepared && prepared.snapshot.savedAt > invalidatedAt(prepared.key) &&
+        if (message.operation === "put" && prepared && ((prepared.snapshot.requestStartedAt ?? prepared.snapshot.savedAt) as number) > invalidatedAt(prepared.key) &&
             (!existing || prepared.snapshot.savedAt >= existing.savedAt)) {
           if (existing?.fingerprint === prepared.snapshot.fingerprint && now - existing.savedAt < MIN_WRITE_INTERVAL_MS) {
             existing.lastAccessAt = now;
@@ -253,8 +254,8 @@ function transact(
 }
 
 export async function handleMentionCacheStorageRequest(message: MentionCacheStorageRequest): Promise<{ snapshot?: unknown }> {
-  if (!message || !["get", "put", "remove", "clear"].includes(message.operation)) throw new Error("Invalid mention cache operation");
-  if (message.operation !== "clear" || message.key !== undefined) scopeTuple(message.key);
+  if (!message || !["get", "put", "remove", "clear", "prune"].includes(message.operation)) throw new Error("Invalid mention cache operation");
+  if ((message.operation !== "clear" && message.operation !== "prune") || message.key !== undefined) scopeTuple(message.key);
   const task = queue.catch(() => undefined).then(async () => {
     const wallNow = Date.now();
     // A content script cannot advance the global cache clock to expire other
@@ -277,4 +278,14 @@ export async function handleMentionCacheStorageRequest(message: MentionCacheStor
   });
   queue = task;
   return task;
+}
+
+/** Purge re-fetchable bodies while retaining a cutoff against in-flight saves. */
+export async function purgeMentionBodyCache(scope?: { serverScope: string; userId: string }, now = Date.now()): Promise<void> {
+  await handleMentionCacheStorageRequest({ operation: "clear", now, ...(scope ? { key: JSON.stringify([scope.serverScope, scope.userId, "all"]) } : {}) });
+}
+
+/** Background alarm maintenance; does not clear fresh snapshots. */
+export async function pruneMentionBodyCache(): Promise<void> {
+  await handleMentionCacheStorageRequest({ operation: "prune" });
 }

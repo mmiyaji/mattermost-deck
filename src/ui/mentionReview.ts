@@ -255,6 +255,15 @@ export async function writeReview(prefix: string, update: Record<string, unknown
   store.queue = operation;
   return operation;
 }
+/** Resolve membership inside the write queue, not a render's stale snapshot. */
+export async function removeKnownReviewPosts(prefix: string, ids: string[]): Promise<void> {
+  await writeReview(prefix, values => {
+    const known = new Set(Object.keys(values).filter(key => key.startsWith(`${prefix}post:`)).map(postKeyId));
+    return Object.fromEntries(ids.filter(id => known.has(id) && !values[`${prefix}deleted:${id}`])
+      .map(id => [`${prefix}deleted:${id}`, Date.now()]));
+  });
+}
+
 export async function ingestReview(prefix: string, scope: string, posts: MattermostPost[]): Promise<void> {
   await writeReview(prefix, current => {
     const values: Record<string, unknown> = {};
@@ -321,7 +330,7 @@ export function useMentionReview(server: string, user: string, team?: string) {
     entries: useMemo(() => selectReview(snapshot.values, prefix, scope, reviewScopeIndex(prefix, scope)), [snapshot.values, prefix, scope]),
     ingest: (posts: MattermostPost[]) => ingestReview(prefix, scope, posts),
     confirm: (id: string, confirmed: boolean) => writeReview(prefix, { [`${prefix}confirmed:${id}`]: confirmed ? Date.now() : undefined }),
-    remove: (ids: string[]) => writeReview(prefix, Object.fromEntries(ids.map(id => [`${prefix}deleted:${id}`, Date.now()]))),
+    remove: (ids: string[]) => removeKnownReviewPosts(prefix, ids),
     // Ids stored in this review (any scope) that have no tombstone yet.
     untombstoned: (ids: string[]) => {
       const stored = new Set<string>();

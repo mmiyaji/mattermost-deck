@@ -2,6 +2,7 @@ import { chromium, expect, test, type BrowserContext, type Page } from "@playwri
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { waitForInstalledOptions } from "./extension-install";
 
 type OptionsFixture = {
   context: BrowserContext;
@@ -23,9 +24,11 @@ async function openOptions(): Promise<OptionsFixture> {
   const serviceWorker = context.serviceWorkers()[0]
     ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
   const extensionId = new URL(serviceWorker.url()).host;
+  const page = await waitForInstalledOptions(context, serviceWorker);
   await serviceWorker.evaluate(async () => {
     await chrome.storage.local.set({
       "mattermostDeck.language.v1": "en",
+      "mattermostDeck.traceCapture.v1": true,
       "mattermostDeck.traceEntries.v1": [
         {
           timestamp: Date.now(),
@@ -47,7 +50,6 @@ async function openOptions(): Promise<OptionsFixture> {
     });
   });
 
-  const page = await context.newPage();
   await page.addInitScript(() => {
     (window as typeof window & { __optionsInvalidBeforeLoaded?: boolean }).__optionsInvalidBeforeLoaded = false;
     const observer = new MutationObserver(() => {
@@ -266,7 +268,7 @@ test("update method shows saved state, hides optional token settings, and target
   } finally { await closeOptions(fixture); }
 });
 
-test("settings controls expose stable labels, errors, and combobox semantics", async () => {
+test("settings controls expose stable labels, errors, and combobox semantics", async ({}, testInfo) => {
   const fixture = await openOptions();
   const { page } = fixture;
 
@@ -303,6 +305,18 @@ test("settings controls expose stable labels, errors, and combobox semantics", a
 
     await page.getByTestId("options-nav-conn").click();
     const serverUrl = page.locator("#mattermost-server-url");
+    await expect(page.getByTestId("options-required-note")).toContainText("indicates a required field");
+    await expect(page.getByTestId("server-url-required-marker")).toHaveText("*");
+    await expect(page.getByTestId("server-url-required-marker")).toHaveAttribute("aria-hidden", "true");
+    await expect(serverUrl).toHaveAttribute("aria-required", "true");
+    await expect(serverUrl).toHaveAttribute("required", "");
+    await expect(page.locator('[aria-labelledby="mattermost-team-label"]')).not.toHaveAttribute("aria-required", "true");
+    for (const theme of ["light", "dark"] as const) {
+      await page.getByTestId(`settings-theme-${theme}`).click();
+      await expect(page.locator("body")).toHaveAttribute("data-theme", theme);
+      await expect(page.getByTestId("server-url-required-marker")).toHaveCSS("color", theme === "light" ? "rgb(179, 58, 53)" : "rgb(255, 181, 175)");
+      await page.screenshot({ path: testInfo.outputPath(`required-fields-${theme}.png`), animations: "disabled" });
+    }
     await serverUrl.fill("not-a-mattermost-url");
     await page.getByTestId("options-save").click();
     await expect(page.locator("#options-save-status")).toHaveAttribute("role", "alert");
@@ -379,7 +393,7 @@ test("performance purposes and the settings title follow the selected language",
     await page.getByTestId("options-nav-performance").click();
     const endpointTable = page.locator(".options-table").first();
     await expect(endpointTable.locator("tbody tr").first().locator("td").nth(0)).toHaveText("参加中のチーム");
-    await expect(page.locator(".options-metric-grid").first()).toContainText("API リクエスト");
+    await expect(page.getByTestId("performance-failed-metric")).toContainText("失敗 / 全リクエスト");
   } finally {
     await closeOptions(fixture);
   }
@@ -394,10 +408,14 @@ test("read-only panels drop the save footer but keep it while a draft is pending
     await expect(footer).toBeVisible();
 
     // Nothing on these panels is saved: the trace switch writes immediately.
-    for (const panel of ["guide", "performance", "security"]) {
+    for (const panel of ["guide", "security"]) {
       await page.getByTestId(`options-nav-${panel}`).click();
       await expect(footer).toHaveCount(0);
     }
+
+    // Performance has editable advanced settings and therefore keeps Save.
+    await page.getByTestId("options-nav-performance").click();
+    await expect(footer).toBeVisible();
 
     // An edit made elsewhere must stay reachable from every panel, or the
     // draft would be stranded behind the navigation.
@@ -411,7 +429,7 @@ test("read-only panels drop the save footer but keep it while a draft is pending
 
     // The security panel names where the storage-related settings live.
     await page.getByRole("button", { name: /Mention cache/i }).click();
-    await expect(page.locator("#persist-mention-cache-label")).toBeVisible();
+    await expect(page.getByTestId("performance-cache-purpose")).toBeVisible();
     await page.getByTestId("options-nav-security").click();
     await page.getByRole("button", { name: /Token storage/i }).click();
     await expect(page.getByRole("textbox", { name: /Access Token|Personal Access Token/i }).first()).toBeVisible();

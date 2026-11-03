@@ -404,4 +404,25 @@ describe("extension-origin mention cache database", () => {
     expect((await request({ operation: "get", key: key(0) })).snapshot).toBeUndefined();
     expect((await request({ operation: "get", key: key(1) })).snapshot).toEqual(snapshot(1));
   });
+  it("privacy cutoff rejects a delayed HTTP save with a newly created snapshot", async () => {
+    await request({ operation: "put", key: key(1), snapshot: snapshot(1) });
+    await setTime(BASE_TIME + 100);
+    await request({ operation: "clear", key: key(1) });
+    await setTime(BASE_TIME + 200);
+    await request({ operation: "put", key: key(1), snapshot: { ...snapshot(1, BASE_TIME + 200), requestStartedAt: BASE_TIME } });
+    expect(await request({ operation: "get", key: key(1) })).toEqual({});
+    await request({ operation: "put", key: key(1), snapshot: { ...snapshot(1, BASE_TIME + 200), requestStartedAt: BASE_TIME + 101 } });
+    expect((await request({ operation: "get", key: key(1) })).snapshot).toMatchObject({ requestStartedAt: BASE_TIME + 101 });
+  });
+
+  it("alarm pruning migrates fresh legacy data and expires old bodies without a scope read", async () => {
+    await legacy({ [key(1)]: snapshot(1), [key(2)]: snapshot(2, BASE_TIME - MENTION_CACHE_HARD_TTL_MS + 10) });
+    await request({ operation: "prune" });
+    expect(await metadata()).toHaveLength(2);
+    await setTime(BASE_TIME + 20);
+    await request({ operation: "prune" });
+    expect((await metadata()).map(entry => entry.key)).toEqual([key(1)]);
+    expect((await request({ operation: "get", key: key(1) })).snapshot).toBeTruthy();
+  });
+
 });

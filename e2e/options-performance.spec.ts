@@ -129,7 +129,7 @@ test("Japanese advanced performance settings save, survive reload, discard draft
     for (const field of performanceFields) {
       expect(stored[`mattermostDeck.${field}.v1.profile.${profileId}`]).toBe(String(PERFORMANCE_DEFAULTS[field]));
     }
-    await page.getByRole("button", { name: "軽快設定と前回表示キャッシュを有効にする", exact: true }).click();
+    await page.getByTestId("performance-apply-fetch-preset").click();
     for (const field of performanceFields) {
       await expect(performanceInput(page, field)).toHaveValue(String(RESPONSIVE_PERFORMANCE_PRESET[field] ?? PERFORMANCE_DEFAULTS[field]));
     }

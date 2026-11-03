@@ -119,7 +119,7 @@ test("review mentions share collection, persist confirmation and survive source 
     expect(await inspect(`${source} [data-deck-review-history]`)).not.toBeNull();
     await inspect(`${source} [data-deck-exit-review]`, true);
     await expect.poll(() => inspect(review)).toBeNull();
-    expect((await inspect(`${source} .deck-card--post`))?.text).toContain("Review fixture");
+    await expect.poll(async () => (await inspect(`${source} .deck-card--post`))?.text).toContain("Review fixture");
     if ((await inspect(toggle))?.expanded !== "true") await inspect(toggle, true);
     await inspect(`${source} [data-deck-convert-review]`, true);
     await expect.poll(() => inspect(`${source}[data-deck-mention-review="true"]`)).not.toBeNull();
@@ -149,12 +149,12 @@ test("review mentions share collection, persist confirmation and survive source 
     // Give any unintended polling restart time to issue its first request.
     await page.waitForTimeout(500);
     expect(searchRequests).toBe(requestsBeforeDrag);
-    expect((await inspect(`${source} .deck-card--post`))?.text).toContain("Review fixture");
+    await expect.poll(async () => (await inspect(`${source} .deck-card--post`))?.text).toContain("Review fixture");
     const routeBefore = page.url();
     await inspect(`${review} [data-deck-review-confirm="${post.id}"]`, true);
     await expect.poll(() => inspect(`${review} .deck-card--post`)).toBeNull();
     expect(page.url()).toBe(routeBefore);
-    expect((await inspect(`${source} .deck-card--post`))?.text).toContain("Review fixture");
+    await expect.poll(async () => (await inspect(`${source} .deck-card--post`))?.text).toContain("Review fixture");
     expect((await inspect(`${review} .deck-review-feedback`))?.text).toContain("Marked as confirmed");
     await inspect(`${review} [data-deck-review-undo]`, true);
     await expect.poll(async () => (await inspect(`${review} .deck-card--post`))?.text).toContain("Review fixture");

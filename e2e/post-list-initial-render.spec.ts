@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-test("post lists show bounded initial bodies and offscreen summaries before visibility callbacks", async ({}, testInfo) => {
+test("standard virtual lists show bounded initial bodies without per-row visibility callbacks", async ({}, testInfo) => {
   test.setTimeout(180_000);
   const user = { id: "u".repeat(26), username: "tester", notify_props: { mention_keys: "tester", channel: "true" } };
   const author = { id: "a".repeat(26), username: "author" };
@@ -134,33 +134,26 @@ test("post lists show bounded initial bodies and offscreen summaries before visi
             virtuoso: Boolean(viewport?.querySelector(".deck-virtual-list")) };
         } }); return result.result;
       }, { origin, action });
-      await expect.poll(async () => (await inspect())?.count, { timeout: 30_000 }).toBe(500);
-      await expect.poll(async () => (await inspect())?.gate.blocked).toBeGreaterThan(0);
+      await expect.poll(async () => (await inspect())?.details.find(row => row.id === posts[0].id)?.rendered, { timeout: 30_000 }).toBe("true");
       const initial = await inspect();
       expect(initial.gate.delivered).toBe(0);
+      expect(initial.gate.blocked).toBe(0);
       expect(initial.gate.released).toBe(false);
-      expect(initial.virtuoso).toBe(false);
+      expect(initial.virtuoso).toBe(true);
       expect(initial.full).toBeGreaterThan(0);
-      expect(initial.full).toBeLessThanOrEqual(mode.compact ? 80 : 24);
-      expect(initial.seeded).toBeGreaterThan(0);
-      expect(initial.seeded).toBeLessThanOrEqual(mode.compact ? 80 : 24);
-      expect(initial.seeded).toBe(initial.full);
-      expect(initial.details.every(row => row.initial === "true" || row.initial === "false")).toBe(true);
-      expect(initial.details.find(row => row.id === posts[0].id)?.rendered).toBe("true");
+      expect(initial.count).toBeLessThan(mode.compact ? 80 : 60);
+      expect(initial.full).toBe(initial.count);
       expect(initial.details[mode.reversed ? initial.details.length - 1 : 0].id).toBe(posts[0].id);
-      expect(initial.details.find(row => row.id === posts[499].id)?.rendered).toBe("false");
-      expect(initial.summaries).toHaveLength(500 - initial.full);
-      expect(initial.summaries.every(summary => summary.text?.includes("Initial row") && summary.plain && summary.oneLine && !summary.heavy)).toBe(true);
-      expect(initial.details.map(row => row.id).sort()).toEqual(posts.map(post => post.id).sort());
+      expect(initial.details.find(row => row.id === posts[499].id)).toBeUndefined();
+      expect(initial.summaries).toHaveLength(0);
       await fs.writeFile(testInfo.outputPath(`${mode.name}-initial.json`), JSON.stringify(initial, null, 2));
-      console.log("initial post rendering without visibility callbacks", { mode: mode.name, full: initial.full, summaries: initial.summaries.length });
+      console.log("initial virtual rendering without visibility callbacks", { mode: mode.name, full: initial.full });
       await inspect("release");
-      await expect.poll(async () => (await inspect()).gate.delivered).toBeGreaterThan(0);
       await inspect(mode.reversed ? "start" : "end");
       await expect.poll(async () => (await inspect()).details.find(row => row.id === posts[499].id)?.rendered).toBe("true");
       await inspect(mode.reversed ? "end" : "start");
       await expect.poll(async () => (await inspect()).details.find(row => row.id === posts[0].id)?.rendered).toBe("true");
-      expect((await inspect()).details.map(row => row.id).sort()).toEqual(posts.map(post => post.id).sort());
+      expect((await inspect()).count).toBeLessThan(mode.compact ? 80 : 60);
       expect(errors).toEqual([]);
       await context.close(); context = undefined;
     }

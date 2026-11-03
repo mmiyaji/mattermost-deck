@@ -1,3 +1,5 @@
+import { RequestQueue } from "./requestQueue";
+import { bodyCacheIdentity, clearBodyCaches, expireBodyCacheSession, isBodyAccessDenied } from "../bodyCachePrivacyClient";
 import { AdaptiveConcurrencyController } from "./adaptiveConcurrency";
 import { addTraceEntry } from "../traceLog";
 import { ApiRequestTimeoutError, MattermostApiError } from "./errors";
@@ -408,12 +410,12 @@ interface RequestSlot {
   deadline: number;
   timeoutMs: number;
   generation: number;
-  rateBlockedAt?: number;
+  rateWaitStart: number;
   rateWaitMs: number;
   enter: () => void;
   reject: (error: Error) => void;
 }
-const requestSlots: RequestSlot[] = [];
+const requestSlots = new RequestQueue<RequestSlot>();
 let occupiedRequestSlots = 0;
 let priorityStreak = 0;
 let schedulerTimer: ReturnType<typeof setTimeout> | undefined;
@@ -427,7 +429,7 @@ function priorityRank(priority: ApiRequestPriority): number {
   return priority === "interactive" ? 0 : priority === "normal" ? 1 : 2;
 }
 function promoteQueuedRequest(key: string, priority: ApiRequestPriority): void {
-  for (const slot of requestSlots) if (slot.key === key && priorityRank(priority) < priorityRank(slot.priority)) slot.priority = priority;
+  requestSlots.promote(key, priority);
   dispatchRequestSlot();
 }
 function rateDelay(method: "GET" | "POST", now: number): number {
@@ -436,40 +438,64 @@ function rateDelay(method: "GET" | "POST", now: number): number {
     return bucket.tokens >= 1 ? 0 : Math.ceil((1 - bucket.tokens) / bucket.refillPerMs);
   }));
 }
+// Cumulative method clocks attribute rate waits without visiting every queued
+// request. Time spent with all concurrency slots occupied is counted separately.
+const rateWaitClocks = {
+  GET: { total: 0, observedAt: 0, blockedUntil: 0 },
+  POST: { total: 0, observedAt: 0, blockedUntil: 0 },
+};
+function rateWaitTotal(method: "GET" | "POST", now: number): number {
+  const clock = rateWaitClocks[method];
+  return clock.total + Math.max(0, Math.min(now, clock.blockedUntil) - clock.observedAt);
+}
+function observeRateWait(method: "GET" | "POST", delay: number, now: number): void {
+  const clock = rateWaitClocks[method];
+  clock.total = rateWaitTotal(method, now);
+  clock.observedAt = now;
+  clock.blockedUntil = now + delay;
+}
 function dispatchRequestSlot(): void {
   if (schedulerTimer !== undefined) { clearTimeout(schedulerTimer); schedulerTimer = undefined; }
-  // Invalidated requests never reserve rate tokens or a concurrency slot.
-  for (let i = requestSlots.length - 1; i >= 0; i--) {
-    const slot = requestSlots[i];
-    if (slot.generation !== apiServerConfigurationGeneration) requestSlots.splice(i, 1)[0].reject(new ApiServerChangedError());
-    else if (schedulerNow() >= slot.deadline) requestSlots.splice(i, 1)[0].reject(new ApiRequestTimeoutError("queue", slot.timeoutMs));
-  }
-  while (requestSlots.length && occupiedRequestSlots < adaptive.snapshot().limit) {
-    const now = Date.now(), monotonic = schedulerNow();
+  while (requestSlots.size) {
+    const heads = requestSlots.heads();
+    const monotonic = schedulerNow();
+    let removed = false;
+    // Each lane is FIFO. Invalidated generations precede new ones; individual
+    // deadline timers remove expired requests even when they are behind a head.
+    for (const slot of heads) {
+      const error = slot.generation !== apiServerConfigurationGeneration ? new ApiServerChangedError()
+        : monotonic >= slot.deadline ? new ApiRequestTimeoutError("queue", slot.timeoutMs) : undefined;
+      if (error) { requestSlots.remove(slot); slot.reject(error); removed = true; }
+    }
+    if (removed) continue;
+    if (occupiedRequestSlots >= adaptive.snapshot().limit) break;
+    const now = Date.now();
     const gap = Math.min(API_REQUEST_MIN_GAP_MS, Math.max(0, nextRequestAt - monotonic));
-    let chosen = -1, rank = Infinity, earliest = Infinity, aged = -1;
-    for (let i = 0; i < requestSlots.length; i++) {
-      const slot = requestSlots[i];
-      const rate = rateDelay(slot.method, now);
-      if (rate > 0 && slot.rateBlockedAt === undefined) slot.rateBlockedAt = monotonic;
-      if (rate === 0 && slot.rateBlockedAt !== undefined) {
-        slot.rateWaitMs += Math.max(0, monotonic - slot.rateBlockedAt); slot.rateBlockedAt = undefined;
-      }
-      const delay = Math.max(gap, rate);
+    const rates = { GET: rateDelay("GET", now), POST: rateDelay("POST", now) };
+    for (const method of ["GET", "POST"] as const) {
+      observeRateWait(method, requestSlots.counts(method) ? rates[method] : 0, monotonic);
+    }
+    let chosen: RequestSlot | undefined, rank = Infinity, earliest = Infinity, aged: RequestSlot | undefined;
+    for (const slot of heads) {
+      const delay = Math.max(gap, rates[slot.method]);
       earliest = Math.min(earliest, delay);
       if (delay > 0) continue;
       const candidateRank = priorityRank(slot.priority);
-      if (candidateRank < rank) { chosen = i; rank = candidateRank; }
-      if (aged < 0 && candidateRank > 0 && monotonic - slot.queuedAt >= 2000) aged = i;
+      if (candidateRank < rank || (candidateRank === rank && chosen && requestSlots.sequence(slot) < requestSlots.sequence(chosen))) {
+        chosen = slot; rank = candidateRank;
+      }
+      if (candidateRank > 0 && monotonic - slot.queuedAt >= 2000 &&
+        (!aged || requestSlots.sequence(slot) < requestSlots.sequence(aged))) aged = slot;
     }
-    if (chosen < 0) {
+    if (!chosen) {
       schedulerTimer = setTimeout(dispatchRequestSlot, Math.min(60000, Math.max(1, earliest)));
       return;
     }
-    // Reserve one turn in four for an aged request; promoting every old scan
-    // to interactive priority would instead delay new user actions in bulk.
-    if (aged >= 0 && priorityStreak >= 3) chosen = aged;
-    const slot = requestSlots.splice(chosen, 1)[0];
+    // Reserve one turn in four for an aged request without promoting bulk work.
+    if (aged && priorityStreak >= 3) chosen = aged;
+    const slot = chosen;
+    slot.rateWaitMs = Math.max(0, rateWaitTotal(slot.method, monotonic) - slot.rateWaitStart);
+    requestSlots.remove(slot);
     priorityStreak = chosen === aged || slot.priority === "background" ? 0 : priorityStreak + 1;
     for (const bucket of [globalRateBucket, methodRateBuckets[slot.method]]) bucket.tokens = Math.max(0, bucket.tokens - 1);
     nextRequestAt = monotonic + API_REQUEST_MIN_GAP_MS;
@@ -477,6 +503,9 @@ function dispatchRequestSlot(): void {
     if (slot.rateWaitMs > 0) addTraceEntry({ source: "api", level: "warn", event: "request.rate_limit_wait", payload: { method: slot.method, waitMs: Math.round(slot.rateWaitMs) } });
     slot.enter();
   }
+  const now = schedulerNow();
+  observeRateWait("GET", 0, now);
+  observeRateWait("POST", 0, now);
 }
 let nextRequestAt = 0;
 let totalRequests = 0;
@@ -531,6 +560,10 @@ export function invalidateMentionMetadataCaches(): void {
   apiServerGeneration += 1;
   // Cache invalidation must not reset occupied slots or start spacing.
   clearMattermostResponseCaches(false);
+}
+export function invalidateBodyResponseCaches(): void {
+  apiServerGeneration++;
+  clearMattermostResponseCaches();
 }
 
 function getGenerationCacheKey(pathname: string, generation = apiServerGeneration): string {
@@ -732,7 +765,8 @@ async function performMeasuredFetch<T>(
   }
 
   const startedAt = Date.now();
-  const queueDepth = requestSlots.length + occupiedRequestSlots;
+  const queueDepth = requestSlots.size + occupiedRequestSlots;
+  const privacyIdentity = bodyCacheIdentity();
   inFlightRequests += 1;
   let failed = false;
   let queueWaitMs = 0;
@@ -748,6 +782,11 @@ async function performMeasuredFetch<T>(
         try {
           const result = await request();
           assertApiServerConfiguration(serverConfigurationGeneration);
+          if (result.response.status === 401 && (privacyIdentity || !bodyCacheIdentity())) {
+            await expireBodyCacheSession(privacyIdentity?.serverScope ?? getMattermostUrl("/"), "auth", privacyIdentity ?? null).catch(() => undefined);
+          } else if (privacyIdentity && isBodyAccessDenied(result.response.status, pathname)) {
+            await clearBodyCaches("permission", privacyIdentity).catch(() => undefined);
+          }
           if (serverConfigurationGeneration === apiServerConfigurationGeneration) {
             const elapsed = Math.max(1, schedulerNow() - networkStart);
             const endpoint = describeApiPath(pathname, method);
@@ -859,10 +898,10 @@ async function scheduleApiRequest<T>(
   let entered = false;
   let slot!: RequestSlot;
   const waitTurn = new Promise<void>((resolve, reject) => {
-    slot = { method, key, priority, generation: serverConfigurationGeneration, queuedAt: schedulerNow(), deadline, timeoutMs, rateWaitMs: 0,
+    slot = { method, key, priority, generation: serverConfigurationGeneration, queuedAt: schedulerNow(), deadline, timeoutMs, rateWaitMs: 0, rateWaitStart: rateWaitTotal(method, schedulerNow()),
       enter: () => { entered = true; resolve(); }, reject };
   });
-  requestSlots.push(slot);
+  requestSlots.enqueue(slot);
   dispatchRequestSlot();
   try {
     await waitForPromiseWithinDeadline(waitTurn, deadline, timeoutMs);
@@ -871,7 +910,7 @@ async function scheduleApiRequest<T>(
     return await task();
   } finally {
     if (entered) occupiedRequestSlots--;
-    else { const index = requestSlots.indexOf(slot); if (index >= 0) requestSlots.splice(index, 1); }
+    else requestSlots.remove(slot);
     dispatchRequestSlot();
   }
 }
@@ -1966,14 +2005,14 @@ export function getApiPerformanceSnapshot(): ApiPerformanceSnapshot {
     adaptiveConcurrency: adaptive.snapshot().limit,
     configuredConcurrency: API_MAX_CONCURRENT_REQUESTS,
     adaptationReason: adaptive.snapshot().reason,
-    oldestQueuedMs: requestSlots.length ? Math.max(...requestSlots.map(slot => schedulerNow() - slot.queuedAt)) : 0,
-    startGapWaitMs: requestSlots.length ? Math.max(0, nextRequestAt - schedulerNow()) : 0,
+    oldestQueuedMs: requestSlots.oldestQueuedAt !== undefined ? Math.max(0, schedulerNow() - requestSlots.oldestQueuedAt) : 0,
+    startGapWaitMs: requestSlots.size ? Math.max(0, nextRequestAt - schedulerNow()) : 0,
     serverBackoffMs: Math.max(0, retryAfterUntil - Date.now()),
-    waitingForRate: requestSlots.filter(slot => rateDelay(slot.method, Date.now()) > 0).length,
-    waitingForConcurrency: occupiedRequestSlots >= adaptive.snapshot().limit ? requestSlots.length : 0,
+    waitingForRate: (["GET", "POST"] as const).reduce((count, method) => count + (rateDelay(method, Date.now()) > 0 ? requestSlots.counts(method) : 0), 0),
+    waitingForConcurrency: occupiedRequestSlots >= adaptive.snapshot().limit ? requestSlots.size : 0,
     coalescedRequests,
     activeRequestSlots: occupiedRequestSlots,
-    queuedRequests: requestSlots.length,
+    queuedRequests: requestSlots.size,
     recentRequestsPerMinute: recent.length,
     recentFailedRequestsPerMinute,
     recentErrorRate: recent.length > 0 ? recentFailedRequestsPerMinute / recent.length : 0,

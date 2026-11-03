@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MattermostPost } from "../mattermost/api";
 import {
   countMentionPresentationChanges,
+  reconcileMentionPresentation,
   shouldCaptureMentionDisplaySnapshot,
   summariseMentionPresentationChanges,
 } from "./mentionPresentation";
@@ -182,5 +183,26 @@ describe("shouldCaptureMentionDisplaySnapshot", () => {
       ...stableBaseline,
       refreshActive: false,
     })).toBe(false);
+  });
+});
+
+
+describe("reconcileMentionPresentation", () => {
+  it("applies edits and removals without inserting new arrivals or reordering the held view", () => {
+    const displayed = [post("old"), post("edited"), post("deleted")];
+    const updated = post("edited", { message: "updated body", update_at: 200 });
+    expect(reconcileMentionPresentation(displayed, [post("new"), updated], new Set(["deleted"])))
+      .toEqual([displayed[0], updated]);
+  });
+
+  it("keeps a newer realtime edit when an older poll finishes later", () => {
+    const realtime = post("edited", { message: "new realtime body", update_at: 300 });
+    expect(reconcileMentionPresentation([realtime], [post("edited", { update_at: 200 })], new Set()))
+      .toEqual([realtime]);
+  });
+
+  it("does not discard unchecked bodies when a lookup fails or a search omits them", () => {
+    const cached = post("outside-search-window");
+    expect(reconcileMentionPresentation([cached], [], new Set())).toEqual([cached]);
   });
 });

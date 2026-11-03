@@ -118,3 +118,22 @@ export function countMentionPresentationChanges(
     refreshedPosts,
   ).count;
 }
+
+
+/** Apply verified edits/removals in place, without inserting newly found rows. */
+export function reconcileMentionPresentation(
+  displayedPosts: readonly MattermostPost[],
+  verifiedPosts: readonly MattermostPost[],
+  removedPostIds: ReadonlySet<string>,
+): MattermostPost[] {
+  const verified = indexPostsById(verifiedPosts);
+  return displayedPosts.flatMap(post => {
+    if (removedPostIds.has(post.id)) return [];
+    const next = verified.get(post.id);
+    if (!next) return [post];
+    // A polling response must not overwrite a newer WebSocket edit.
+    const version = (value: MattermostPost) => Math.max(value.update_at ?? 0, value.edit_at ?? 0, value.create_at);
+    if (version(next) < version(post)) return [post];
+    return [hasPresentationChanged(post, next) ? next : post];
+  });
+}

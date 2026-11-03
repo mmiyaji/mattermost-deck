@@ -10,6 +10,7 @@ import {
 import { configureMattermostBaseUrl, configureApiPerformanceSettings } from "../mattermost/api";
 import { DialogMutationTracker } from "./dialogMutations";
 import { startVisibleInterval } from "./visibleInterval";
+import { bindBodyCacheIdentity, expireBodyCacheSession } from "../bodyCachePrivacyClient";
 
 const ROOT_ID = "mattermost-deck-root";
 const STYLE_ID = "mattermost-deck-page-style";
@@ -299,6 +300,17 @@ async function verifyMattermostSession(): Promise<boolean> {
         return false;
       }
       guardLastStatus = response.status;
+      if (response.status === 401) {
+        await expireBodyCacheSession(`${new URL(currentSettings.serverUrl).href.replace(/\/$/, "")}/`).catch(() => undefined);
+      } else if (ok) {
+        // Identity binding survives a full document navigation to /login.
+        try {
+          const user = await response.clone().json();
+          if (typeof user?.id === "string" && user.id) bindBodyCacheIdentity({
+            serverScope: `${new URL(currentSettings.serverUrl).href.replace(/\/$/, "")}/`, userId: user.id,
+          });
+        } catch { /* The health guard may be configured to a non-user endpoint. */ }
+      }
       guardCache = {
         healthCheckUrl,
         expiresAt: Date.now() + (ok ? MATTERMOST_GUARD_SUCCESS_TTL_MS : MATTERMOST_GUARD_FAILURE_TTL_MS),
@@ -604,6 +616,9 @@ function notifyAppRouteChange(routeKey: string): void {
 async function render(): Promise<void> {
   if (runtimeDisposed || !(document.body instanceof HTMLBodyElement)) {
     return;
+  }
+  if (settingsLoaded && /^\/(?:login|logout)(?:\/|$)/.test(getConfiguredRoute() ?? "")) {
+    await expireBodyCacheSession(`${new URL(currentSettings.serverUrl).href.replace(/\/$/, "")}/`, "logout").catch(() => undefined);
   }
 
   const currentRenderVersion = ++renderVersion;

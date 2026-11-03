@@ -7,7 +7,82 @@ function sampleLoad(controller: AdaptiveConcurrencyController, count: number, la
   }
 }
 
+type LatencyState = {
+  recentLatencies: number[];
+  sortedLatencies: number[];
+  baselineMs: number | null;
+  smoothedMs: number | null;
+  updateLatency: (latencyMs: number) => void;
+};
+
+function useCopyAndSortReference(controller: AdaptiveConcurrencyController): void {
+  // Keep controller decisions identical while comparing its latency estimates
+  // with the previous copy-and-sort implementation of the 32-sample window.
+  const state = controller as unknown as LatencyState;
+  state.updateLatency = latencyMs => {
+    state.smoothedMs = state.smoothedMs === null ? latencyMs : state.smoothedMs * 0.8 + latencyMs * 0.2;
+    state.recentLatencies.push(latencyMs);
+    if (state.recentLatencies.length > 32) state.recentLatencies.shift();
+    const sorted = [...state.recentLatencies].sort((a, b) => a - b);
+    const lowLatency = sorted[Math.floor((sorted.length - 1) * 0.2)]!;
+    if (state.baselineMs === null) state.baselineMs = lowLatency;
+    else if (lowLatency < state.baselineMs) state.baselineMs = state.baselineMs * 0.8 + lowLatency * 0.2;
+    else state.baselineMs = Math.min(lowLatency, state.baselineMs * 1.02);
+  };
+}
+
 describe("AdaptiveConcurrencyController", () => {
+  it.each([
+    { name: "equal samples", values: Array.from({ length: 640 }, () => 100) },
+    { name: "duplicate-heavy samples", values: Array.from({ length: 640 }, (_, index) => [100, 80, 100, 80, 160, 100, 160, 80][index % 8]!) },
+    { name: "slow and fast periods", values: Array.from({ length: 640 }, (_, index) => index < 160 ? 100 : index < 320 ? 400 : index < 480 ? 60 : 180) },
+    { name: "varying fractional samples", values: Array.from({ length: 640 }, (_, index) => 50.25 + (index * 73) % 497) },
+  ])("matches the copy/sort reference for $name and keeps both windows bounded", ({ values }) => {
+    const controller = new AdaptiveConcurrencyController(8);
+    const reference = new AdaptiveConcurrencyController(8);
+    useCopyAndSortReference(reference);
+    const state = controller as unknown as LatencyState;
+    for (const [index, latencyMs] of values.entries()) {
+      if (index === 211 || index === 432) {
+        const max = index === 211 ? 6 : 8;
+        controller.configure(max); reference.configure(max);
+      }
+      const sample = { latencyMs, inFlight: index % 17 === 0 ? 0 : 8, congested: index > 0 && index % 137 === 0 };
+      controller.sample(sample); reference.sample(sample);
+      expect(controller.snapshot()).toEqual(reference.snapshot());
+      expect(state.recentLatencies.length).toBeLessThanOrEqual(32);
+      expect(state.sortedLatencies).toEqual([...state.recentLatencies].sort((a, b) => a - b));
+    }
+  });
+
+  it("resets a prior cooldown when the maximum changes while preserving learned latency", () => {
+    const controller = new AdaptiveConcurrencyController(8, 8);
+    sampleLoad(controller, 16);
+    controller.sample({ latencyMs: 1000, inFlight: 8, congested: true });
+    const learned = controller.snapshot();
+    controller.configure(7);
+    expect(controller.snapshot()).toMatchObject({ limit: 4, maxLimit: 7, baselineMs: learned.baselineMs, smoothedMs: learned.smoothedMs });
+    sampleLoad(controller, 7);
+    expect(controller.snapshot().limit).toBe(4);
+    sampleLoad(controller, 1);
+    expect(controller.snapshot()).toMatchObject({ limit: 5, reason: "healthy-load" });
+  });
+
+  it("preserves the cooldown when the configured maximum is unchanged", () => {
+    const controller = new AdaptiveConcurrencyController(8, 8);
+    sampleLoad(controller, 16);
+    controller.sample({ latencyMs: 1000, inFlight: 8, congested: true });
+    const learned = controller.snapshot();
+    controller.configure(8);
+    expect(controller.snapshot()).toEqual(learned);
+    sampleLoad(controller, 8);
+    expect(controller.snapshot()).toMatchObject({ limit: 4, reason: "cooldown", baselineMs: learned.baselineMs, smoothedMs: learned.smoothedMs });
+    sampleLoad(controller, 7);
+    expect(controller.snapshot().limit).toBe(4);
+    sampleLoad(controller, 1);
+    expect(controller.snapshot().limit).toBe(5);
+  });
+
   it("accepts a bounded initial limit and still backs off and recovers safely", () => {
     expect(new AdaptiveConcurrencyController(8, 8).snapshot().limit).toBe(8);
     expect(new AdaptiveConcurrencyController(4, 20).snapshot().limit).toBe(4);

@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { waitForInstalledOptions } from "./extension-install";
 
 function luminance(css: string): number {
   const channels = css.startsWith("color(srgb")
@@ -70,12 +71,14 @@ test("mention exclusions share author/thread rules, survive browser restart and 
       args: [`--disable-extensions-except=${path.resolve("dist")}`, `--load-extension=${path.resolve("dist")}`],
     });
     sw = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
+    if (configure) await waitForInstalledOptions(context, sw);
     if (configure) await sw.evaluate(({ origin }) => chrome.storage.local.set({
       "mattermostDeck.serverUrl.v1": origin, "mattermostDeck.language.v1": "en", "mattermostDeck.theme.v1": "light",
       "mattermostDeck.pollingIntervalSeconds.v1": 3600, "mattermostDeck.postClickAction.v1": "navigate",
       "mattermostDeck.layout.v1": [{ id: "mentions", type: "mentions" }, { id: "review", type: "mentions", mentionReview: true }],
     }), { origin });
     page = context.pages().find(candidate => candidate.url().startsWith(origin)) ?? await context.newPage();
+    await page.addInitScript(() => window.localStorage.setItem("mattermostDeck.debugLogs", "1"));
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(`${origin}/testteam/channels/town-square`);
     await page.bringToFront();
@@ -112,18 +115,67 @@ test("mention exclusions share author/thread rules, survive browser restart and 
     const toggle = `${pane} .deck-column-header [aria-expanded]:not(.deck-pane-search-toggle)`;
     if ((await inspect(toggle))?.expanded !== "true") await inspect(toggle, "click");
   };
+  const columnState = (pane: string) => sw.evaluate(async ({ origin, pane }) => {
+    const tab = (await chrome.tabs.query({})).find(candidate => candidate.url?.startsWith(origin) && candidate.title === "Mention exclusions fixture target");
+    if (!tab?.id) return null;
+    const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (pane) => new Promise<{ visiblePostIds: string[] } | null>(resolve => {
+      const id = `exclusion-state-${Math.random()}`;
+      const listener = (event: Event) => {
+        const detail = (event as CustomEvent).detail;
+        if (detail?.id !== id) return;
+        clearTimeout(timer);
+        window.removeEventListener("mattermost-deck-debug-response", listener);
+        resolve(detail.result);
+      };
+      const timer = setTimeout(() => { window.removeEventListener("mattermost-deck-debug-response", listener); resolve(null); }, 2000);
+      window.addEventListener("mattermost-deck-debug-response", listener);
+      const columnId = pane.match(/data-deck-column-id="([^"]+)"/)![1];
+      window.dispatchEvent(new CustomEvent("mattermost-deck-debug-request", { detail: { id, action: "getColumnState", payload: { id: columnId } } }));
+    }), args: [pane] });
+    return result.result;
+  }, { origin, pane });
+  // Presence must mount the target row; absence must inspect the full filtered
+  // feed, since offscreen Virtuoso rows are deliberately absent from the DOM.
+  const revealPost = async (pane: string, id: string) => {
+    await expect.poll(async () => {
+      if (!(await columnState(pane))?.visiblePostIds.includes(id)) return false;
+      return sw.evaluate(async ({ origin, pane, id }) => {
+        const tab = (await chrome.tabs.query({})).find(candidate => candidate.url?.startsWith(origin) && candidate.title === "Mention exclusions fixture target");
+        if (!tab?.id) return false;
+        const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: async (pane, id) => {
+          const host = document.getElementById("mattermost-deck-root");
+          const shadow = host && (chrome as any).dom.openOrClosedShadowRoot(host);
+          const viewport = shadow?.querySelector(`${pane} .deck-list-viewport`) as HTMLElement | null;
+          if (!viewport) return false;
+          viewport.scrollTop = 0;
+          for (let step = 0; step < 30; step++) {
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const row = shadow.querySelector(`${pane} [data-deck-mention-menu="${id}"]`) as HTMLElement | null;
+            if (row) { row.scrollIntoView({ block: "center" }); return true; }
+            const before = viewport.scrollTop;
+            viewport.scrollTop += Math.max(100, viewport.clientHeight / 2);
+            if (viewport.scrollTop === before) break;
+          }
+          return false;
+        }, args: [pane, id] });
+        return result.result;
+      }, { origin, pane, id });
+    }, { timeout: 15_000 }).toBe(true);
+  };
   const expectPresentBoth = async (id: string) => {
     try {
-      await expect.poll(() => inspect(post(normal, id)), { timeout: 15_000 }).not.toBeNull();
-      await expect.poll(() => inspect(post(review, id)), { timeout: 15_000 }).not.toBeNull();
+      await revealPost(normal, id);
+      await revealPost(review, id);
     } catch (error) {
       console.log("Exclusion fixture state", { normal: await inspect(normal), review: await inspect(review), errors, searchRequests });
       throw error;
     }
   };
   const expectAbsentBoth = async (id: string) => {
-    await expect.poll(() => inspect(post(normal, id))).toBeNull();
-    await expect.poll(() => inspect(post(review, id))).toBeNull();
+    for (const pane of [normal, review]) {
+      await expect.poll(async () => (await columnState(pane))?.visiblePostIds).toBeDefined();
+      await expect.poll(async () => (await columnState(pane))?.visiblePostIds).not.toContain(id);
+    }
   };
   try {
     await launch(true);
@@ -132,6 +184,7 @@ test("mention exclusions share author/thread rules, survive browser restart and 
     const baseline = searchRequests;
     const routeBefore = page.url();
     await page.mouse.move(30, 30);
+    await revealPost(normal, root.id);
     const rootCard = `${normal} .deck-card--post:has([data-deck-mention-menu="${root.id}"])`;
     await expect.poll(async () => (await inspect(`${rootCard} .deck-card-author`))?.text).toMatch(/Alice|alice/);
     const cardBeforeHover = (await inspect(rootCard))!;
@@ -185,15 +238,16 @@ test("mention exclusions share author/thread rules, survive browser restart and 
     await inspect(`${review} [data-deck-restore-excluded-user="${alice.id}"]`, "click");
     await expectPresentBoth(root.id);
     // Thread exclusion from a reply must hide its root and all authors' replies.
+    await revealPost(normal, reply.id);
     await inspect(post(normal, reply.id), "click");
     await inspect(`${normal} [data-deck-exclude-thread]`, "click");
     await expectAbsentBoth(root.id);
     await expectAbsentBoth(reply.id);
     await expectPresentBoth(unrelated.id);
     await inspect(`${review} [data-deck-show-excluded]`, "check");
-    await expect.poll(() => inspect(post(review, root.id))).not.toBeNull();
-    await expect.poll(() => inspect(post(review, reply.id))).not.toBeNull();
-    expect(await inspect(post(normal, root.id))).toBeNull();
+    await revealPost(review, root.id);
+    await revealPost(review, reply.id);
+    expect((await columnState(normal))?.visiblePostIds).not.toContain(root.id);
     await expect.poll(() => inspect(`${review} [data-deck-post-excluded="true"]`)).not.toBeNull();
     await inspect(`${review} [data-deck-show-excluded]`, "uncheck");
     await expectAbsentBoth(root.id);
@@ -225,6 +279,7 @@ test("mention exclusions share author/thread rules, survive browser restart and 
     await inspect(`${normal} [data-deck-exclusion-user-result="${carol.id}"]`, "click");
     await openControls(review);
     await expect.poll(() => inspect(`${review} [data-deck-excluded-user="${carol.id}"]`)).not.toBeNull();
+    await revealPost(normal, root.id);
     await inspect(post(normal, root.id), "click");
     await inspect(`${normal} [data-deck-exclude-thread]`, "click");
     await expectAbsentBoth(root.id);
@@ -233,6 +288,7 @@ test("mention exclusions share author/thread rules, survive browser restart and 
     await page.screenshot({ path: testInfo.outputPath("mention-exclusions.png"), fullPage: true });
     const touch = await context.newCDPSession(page);
     await touch.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+    await revealPost(normal, unrelated.id);
     await expect.poll(async () => (await inspect(post(normal, unrelated.id)))?.actionOpacity).toBe("1");
     expect(errors).toEqual([]);
   } finally {
