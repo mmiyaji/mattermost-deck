@@ -68,7 +68,7 @@ test("active profile performance changes apply to an open Deck and persist after
     await page.goto(url);
     await expect(page.locator("#mattermost-deck-root")).toBeAttached({ timeout: 15_000 });
     await expect.poll(() => debugRequest<PerformanceSettings>(page, "getPerformanceSettings"), { timeout: 15_000 })
-      .toMatchObject(PERFORMANCE_DEFAULTS);
+      .toMatchObject({ ...PERFORMANCE_DEFAULTS });
     await expect.poll(async () => (await debugRequest<{ columns?: { id: string; type: string }[] }>(page, "getState"))?.columns)
       .toEqual([expect.objectContaining({ id: "diagnostics", type: "diagnostics" })]);
 
@@ -89,7 +89,7 @@ test("active profile performance changes apply to an open Deck and persist after
     }, origin);
     const modified = { ...PERFORMANCE_DEFAULTS, apiMaxConcurrentRequests: 2, apiGetRequestsPerMinute: 300 };
     await expect.poll(() => debugRequest<PerformanceSettings>(page, "getPerformanceSettings"), { timeout: 10_000 })
-      .toMatchObject(modified);
+      .toMatchObject({ ...modified });
     expect(await page.evaluate(() => performance.timeOrigin)).toBe(initialDocumentTime);
     expect(page.url()).toBe(url);
 
@@ -100,12 +100,12 @@ test("active profile performance changes apply to an open Deck and persist after
     expect(reloadedDocumentTime).not.toBe(initialDocumentTime);
 
     await worker.evaluate(async ({ id, defaults }) => {
-      await chrome.storage.local.set(Object.fromEntries(Object.entries(defaults).map(([key, value]) => [
+      await chrome.storage.local.set(Object.fromEntries(defaults.map(([key, value]) => [
         `mattermostDeck.${key}.v1.profile.${id}`, String(value),
-      ])));
-    }, { id: activeProfileId, defaults: PERFORMANCE_DEFAULTS });
+      ])) as Record<string, string>);
+    }, { id: activeProfileId, defaults: Object.entries(PERFORMANCE_DEFAULTS) });
     await expect.poll(() => debugRequest<PerformanceSettings>(page, "getPerformanceSettings"), { timeout: 10_000 })
-      .toMatchObject(PERFORMANCE_DEFAULTS);
+      .toMatchObject({ ...PERFORMANCE_DEFAULTS });
     expect(await page.evaluate(() => performance.timeOrigin)).toBe(reloadedDocumentTime);
     expect(errors).toEqual([]);
   } finally {

@@ -61,9 +61,9 @@ test("mention exclusions share author/thread rules, survive browser restart and 
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), "deck-mention-exclusions-"));
-  let context: BrowserContext;
-  let sw: Worker;
-  let page: Page;
+  let context!: BrowserContext;
+  let sw!: Worker;
+  let page!: Page;
   const errors: string[] = [];
   const launch = async (configure = false) => {
     context = await chromium.launchPersistentContext(profile, {
@@ -276,14 +276,15 @@ test("mention exclusions share author/thread rules, survive browser restart and 
     await inspect(`${normal} [data-deck-restore-excluded-thread="${root.id}"]`, "click");
     await expectPresentBoth(root.id);
     await expectPresentBoth(reply.id);
-    let normalAfterRestore: Awaited<ReturnType<typeof columnState>> = null;
     await expect.poll(async () => {
-      normalAfterRestore = await columnState(normal);
+      const normalAfterRestore = await columnState(normal);
       return Boolean(
         normalAfterRestore?.visiblePostIds.includes(future.id) ||
         normalAfterRestore?.mentionBufferedPostIds?.includes(future.id),
       );
     }).toBe(true);
+    const normalAfterRestore = await columnState(normal);
+    if (!normalAfterRestore) throw new Error("Normal mention column state disappeared after restore");
     if (normalAfterRestore?.mentionBufferedPostIds?.includes(future.id)) {
       expect(normalAfterRestore.mentionUpdatePending).toBe(true);
       expect(normalAfterRestore.mentionPendingUpdateCount).toBeGreaterThan(0);

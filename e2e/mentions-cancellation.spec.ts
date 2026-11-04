@@ -315,7 +315,7 @@ function createPipelineGateController(pipeline: MentionPipeline): {
   const unexpectedRequests: string[] = [];
   let matchingRequests = 0;
   let cancelling = false;
-  let releaseGate = () => undefined;
+  let releaseGate: () => void = () => undefined;
   const gatePromise = new Promise<void>((resolve) => {
     releaseGate = resolve;
   });
@@ -515,7 +515,7 @@ test("a superseded mentions run does not issue another batch", async () => {
     ] satisfies MentionPipeline[]) {
       await configureExtension(worker, `baseline-${pipeline}-${timestamp}`);
       const page = await context.newPage();
-      let releaseCurrentGate = () => undefined;
+      let releaseCurrentGate: () => void = () => undefined;
       try {
         await page.addInitScript((debugFlagKey) => {
           window.localStorage.setItem(debugFlagKey, "1");

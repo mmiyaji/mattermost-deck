@@ -134,8 +134,13 @@ test("standard virtual lists show bounded initial bodies without per-row visibil
             virtuoso: Boolean(viewport?.querySelector(".deck-virtual-list")) };
         } }); return result.result;
       }, { origin, action });
+      const requireInspection = async () => {
+        const state = await inspect();
+        if (!state) throw new Error("Post visibility inspection did not return state");
+        return state;
+      };
       await expect.poll(async () => (await inspect())?.details.find(row => row.id === posts[0].id)?.rendered, { timeout: 30_000 }).toBe("true");
-      const initial = await inspect();
+      const initial = await requireInspection();
       expect(initial.gate.delivered).toBe(0);
       expect(initial.gate.blocked).toBe(0);
       expect(initial.gate.released).toBe(false);
@@ -150,10 +155,10 @@ test("standard virtual lists show bounded initial bodies without per-row visibil
       console.log("initial virtual rendering without visibility callbacks", { mode: mode.name, full: initial.full });
       await inspect("release");
       await inspect(mode.reversed ? "start" : "end");
-      await expect.poll(async () => (await inspect()).details.find(row => row.id === posts[499].id)?.rendered).toBe("true");
+      await expect.poll(async () => (await requireInspection()).details.find(row => row.id === posts[499].id)?.rendered).toBe("true");
       await inspect(mode.reversed ? "end" : "start");
-      await expect.poll(async () => (await inspect()).details.find(row => row.id === posts[0].id)?.rendered).toBe("true");
-      expect((await inspect()).count).toBeLessThan(mode.compact ? 80 : 60);
+      await expect.poll(async () => (await requireInspection()).details.find(row => row.id === posts[0].id)?.rendered).toBe("true");
+      expect((await requireInspection()).count).toBeLessThan(mode.compact ? 80 : 60);
       expect(errors).toEqual([]);
       await context.close(); context = undefined;
     }

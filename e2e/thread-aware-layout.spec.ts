@@ -39,6 +39,7 @@ interface MattermostChannel {
 
 interface MattermostPost {
   id: string;
+  message: string;
 }
 
 interface DeckDebugState {

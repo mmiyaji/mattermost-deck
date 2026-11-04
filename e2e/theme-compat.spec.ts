@@ -200,9 +200,9 @@ test("Mattermost theme is applied correctly to the deck", async ({ }, testInfo) 
     // from outside. Instead, capture representative pixel colors at known
     // positions within the deck area.
     const deckVars: Record<string, string> = {};
-    const deckPixels: Record<string, string> = await page.evaluate(() => {
+    const deckPixels = await page.evaluate<Record<string, string>>(() => {
       const root = document.getElementById("mattermost-deck-root");
-      if (!root) return {};
+      if (!root) return {} as Record<string, string>;
       const rect = root.getBoundingClientRect();
       return {
         hostRect: JSON.stringify({
@@ -271,7 +271,7 @@ test("Mattermost theme is applied correctly to the deck", async ({ }, testInfo) 
       { label: "button-color on button-bg",         fg: mmButtonColor, bg: mmButtonBg,   minRatio: 3.0 },
     ];
     for (const { label, fg, bg: bgc, minRatio } of checks) {
-      const ratio = contrastRatio(fg, bgc);
+      const ratio = contrastRatio(fg ?? "", bgc ?? "");
       const status = ratio === null
         ? `⚠ unparseable (fg=${fg ?? "?"} bg=${bgc ?? "?"})`
         : ratio >= minRatio

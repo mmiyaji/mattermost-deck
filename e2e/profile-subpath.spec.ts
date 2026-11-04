@@ -44,7 +44,7 @@ for (const action of ["create", "duplicate"] as const) {
       }
       await expect.poll(() => worker.evaluate(async () => {
         const data = await chrome.storage.local.get("mattermostDeck.profiles.v1");
-        return data["mattermostDeck.profiles.v1"].lastActiveProfileId;
+        return (data["mattermostDeck.profiles.v1"] as { lastActiveProfileId?: string }).lastActiveProfileId;
       })).not.toBe("subpath-source");
       await page.getByTestId("options-nav-conn").click();
       await expect(urlInput).toHaveValue(savedUrl);
@@ -52,7 +52,8 @@ for (const action of ["create", "duplicate"] as const) {
       await expect(urlInput).toHaveValue(savedUrl);
       const storedUrl = await worker.evaluate(async () => {
         const data = await chrome.storage.local.get("mattermostDeck.profiles.v1");
-        const id = data["mattermostDeck.profiles.v1"].lastActiveProfileId;
+        const id = (data["mattermostDeck.profiles.v1"] as { lastActiveProfileId?: string }).lastActiveProfileId;
+        if (!id) throw new Error("Expected a stored active profile after saving the subpath");
         const key = `mattermostDeck.serverUrl.v1.profile.${id}`;
         return (await chrome.storage.local.get(key))[key];
       });

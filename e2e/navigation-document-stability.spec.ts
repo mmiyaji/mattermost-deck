@@ -61,10 +61,10 @@ test("SPA routes and Deck display switches preserve the document and Deck root",
     const inDeck = (selector: string, click = false, label = false) => worker.evaluate(async ({ origin, selector, click, label }) => {
       const tab = (await chrome.tabs.query({})).find(tab => tab.url?.startsWith(origin));
       if (!tab?.id) throw new Error("Fixture tab not found");
-      const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (selector, click, label) => {
+      const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (selector: string, click: boolean, label: boolean) => {
         const host = document.getElementById("mattermost-deck-root");
         const shadow = host && (chrome as unknown as { dom: { openOrClosedShadowRoot(element: Element): ShadowRoot } }).dom.openOrClosedShadowRoot(host);
-        const element = label ? Array.from(shadow?.querySelectorAll("button") ?? []).find(button => button.textContent?.trim() === selector || button.firstElementChild?.textContent === selector) : shadow?.querySelector(selector);
+        const element: Element | null | undefined = label ? Array.from(shadow?.querySelectorAll("button") ?? []).find(button => button.textContent?.trim() === selector || button.firstElementChild?.textContent === selector) : shadow?.querySelector(selector);
         if (click) (element as HTMLElement | undefined)?.click();
         return { present: Boolean(element), text: element?.textContent };
       }, args: [selector, click, label] });
@@ -201,10 +201,10 @@ test("post navigation keeps the deployment prefix for channel and reply routes",
     const inDeck = (selector: string, click = false) => worker.evaluate(async ({ origin, selector, click }) => {
       const tab = (await chrome.tabs.query({})).find(tab => tab.url?.startsWith(origin));
       if (!tab?.id) throw new Error("Fixture tab not found");
-      const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (selector, click) => {
+      const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (selector: string, click: boolean) => {
         const host = document.getElementById("mattermost-deck-root");
         const shadow = host && (chrome as unknown as { dom: { openOrClosedShadowRoot(element: Element): ShadowRoot } }).dom.openOrClosedShadowRoot(host);
-        const element = shadow?.querySelector(selector) as HTMLElement | null | undefined;
+        const element = shadow?.querySelector<HTMLElement>(selector);
         if (click) element?.click();
         return Boolean(element);
       }, args: [selector, click] });

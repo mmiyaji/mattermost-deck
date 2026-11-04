@@ -29,9 +29,10 @@ test("review migration survives local quota and stores more than 10MB across res
       const beforeBytes = await chrome.storage.local.getBytesInUse();
       const result = await chrome.runtime.sendMessage({ type: "mattermost-deck:review-storage", prefix, operation: "get" });
       const local = await chrome.storage.local.get([legacyKey, `${prefix}confirmed:old`, "unrelatedFixture"]);
-      return { quotaRejected, success: result.success, legacyLength: result.values?.[legacyKey]?.message.length,
+      const legacy = result.values?.[legacyKey] as { message?: string } | undefined;
+      return { quotaRejected, success: result.success, legacyLength: legacy?.message?.length,
         confirmation: result.values?.[`${prefix}confirmed:old`], legacyRemoved: !(legacyKey in local),
-        unrelatedLength: local.unrelatedFixture?.length, beforeBytes, afterBytes: await chrome.storage.local.getBytesInUse() };
+        unrelatedLength: (local.unrelatedFixture as string | undefined)?.length, beforeBytes, afterBytes: await chrome.storage.local.getBytesInUse() };
     }, { prefix, mib });
     expect(migration).toMatchObject({ quotaRejected: true, success: true, legacyLength: 2 * mib, confirmation: 42, legacyRemoved: true, unrelatedLength: 6 * mib });
     expect(migration.afterBytes).toBeLessThan(migration.beforeBytes - mib);

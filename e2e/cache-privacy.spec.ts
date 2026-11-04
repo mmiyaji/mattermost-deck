@@ -197,7 +197,7 @@ test("background maintenance physically removes expired bodies without deleting 
         };
       });
       const sessionKey = "mattermostDeck.mentionFeedCache.v1";
-      const registry = (await chrome.storage.session.get(sessionKey))[sessionKey];
+      const registry = (await chrome.storage.session.get(sessionKey))[sessionKey] as { entries: Record<string, { savedAt: number }> };
       registry.entries[mentionKey].savedAt = expiredAt;
       await chrome.storage.session.set({ [sessionKey]: registry });
     }, { mentionKey: cacheKey(accounts[0]), favoriteScope: favoriteScope(accounts[0]) });
@@ -213,7 +213,7 @@ test("background maintenance physically removes expired bodies without deleting 
           transaction.oncomplete = () => database.close();
         };
       });
-      const session = (await chrome.storage.session.get("mattermostDeck.mentionFeedCache.v1"))["mattermostDeck.mentionFeedCache.v1"];
+      const session = (await chrome.storage.session.get("mattermostDeck.mentionFeedCache.v1"))["mattermostDeck.mentionFeedCache.v1"] as { entries?: Record<string, unknown> } | undefined;
       return { mentionSnapshots: (await read("mattermostDeck.mentionCache", "snapshots")).length,
         mentionMetadata: (await read("mattermostDeck.mentionCache", "metadata")).length,
         favoriteBodies: (await read("mattermostDeck.favoriteBodies", "bodies")).length,
@@ -320,7 +320,11 @@ test("real Mattermost session expiry, logout and post-access 403 clear bodies wh
       await expect.poll(async () => (await debug(app, "getColumnState", { id: "privacy-watch" }))?.channelStatus, { timeout: 30_000 }).toBe("ready");
       await expect.poll(async () => worker.evaluate(async ({ serverScope, userId }) => {
         const entries = Object.entries(await chrome.storage.session.get(null));
-        return entries.some(([key, value]) => key.startsWith("mattermostDeck.bodyCacheSession.v1:") && value?.serverScope === serverScope && value?.userId === userId);
+        return entries.some(([key, value]) => {
+          if (!key.startsWith("mattermostDeck.bodyCacheSession.v1:") || typeof value !== "object" || value === null) return false;
+          const session = value as { serverScope?: unknown; userId?: unknown };
+          return session.serverScope === serverScope && session.userId === userId;
+        });
       }, { serverScope, userId: user.id }), { timeout: 15_000 }).toBe(true);
     };
     await app.goto(channelUrl);
@@ -378,7 +382,7 @@ test("real Mattermost session expiry, logout and post-access 403 clear bodies wh
     await expect.poll(async () => (await bodies(options, user.id)).persistent, { timeout: 15_000 }).toBeNull();
     await expectNoBodies(options, user.id);
     expect((await bodies(options, accounts[1])).persistent?.posts[0]?.message).toContain(accounts[1]);
-    expect((await worker.evaluate(() => chrome.storage.session.get("mattermostDeck.bodyCachePrivacyChanged.v1")))["mattermostDeck.bodyCachePrivacyChanged.v1"]?.reason).toBe("permission");
+    expect(await worker.evaluate(async () => (await chrome.storage.session.get("mattermostDeck.bodyCachePrivacyChanged.v1"))["mattermostDeck.bodyCachePrivacyChanged.v1"] as { reason?: string } | undefined)).toHaveProperty("reason", "permission");
     console.log("privacy lifecycle: post-access 403 clears only the affected account");
 
     await app.unroute(postPattern);
@@ -393,7 +397,7 @@ test("real Mattermost session expiry, logout and post-access 403 clear bodies wh
       { timeout: 15_000, intervals: [1000] }).toBeGreaterThan(0);
     await expect.poll(async () => (await bodies(options, user.id)).persistent, { timeout: 15_000 }).toBeNull();
     await expectNoBodies(options, user.id);
-    expect((await worker.evaluate(() => chrome.storage.session.get("mattermostDeck.bodyCachePrivacyChanged.v1")))["mattermostDeck.bodyCachePrivacyChanged.v1"]?.reason).toBe("auth");
+    expect(await worker.evaluate(async () => (await chrome.storage.session.get("mattermostDeck.bodyCachePrivacyChanged.v1"))["mattermostDeck.bodyCachePrivacyChanged.v1"] as { reason?: string } | undefined)).toHaveProperty("reason", "auth");
     console.log("privacy lifecycle: API 401 clears bodies");
 
     await app.unroute(postPattern);
@@ -407,7 +411,7 @@ test("real Mattermost session expiry, logout and post-access 403 clear bodies wh
     await expect.poll(async () => (await bodies(options, user.id)).persistent, { timeout: 20_000 }).toBeNull();
     await expectNoBodies(options, user.id);
     expect((await bodies(options, accounts[1])).persistent?.posts[0]?.message).toContain(accounts[1]);
-    expect((await worker.evaluate(() => chrome.storage.session.get("mattermostDeck.bodyCachePrivacyChanged.v1")))["mattermostDeck.bodyCachePrivacyChanged.v1"]?.reason).toBe("logout");
+    expect(await worker.evaluate(async () => (await chrome.storage.session.get("mattermostDeck.bodyCachePrivacyChanged.v1"))["mattermostDeck.bodyCachePrivacyChanged.v1"] as { reason?: string } | undefined)).toHaveProperty("reason", "logout");
     await fs.writeFile(testInfo.outputPath("mattermost-body-cache-lifecycle-summary.json"), JSON.stringify({
       feature403PreservedBodies: true, post403ClearedBodies: true, api401ClearedBodies: true,
       logoutClearedBodies: true, otherAccountPreserved: true, fullReviewRecordsPreserved: true,

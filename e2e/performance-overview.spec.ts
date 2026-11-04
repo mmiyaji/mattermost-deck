@@ -46,7 +46,7 @@ test("performance overview explains queue delays, failures, chart periods, and d
     }, expiredStart);
     await overview.getByTestId("performance-trend-range").selectOption("7");
     await expect(overview.getByTestId("performance-trend-range")).toHaveValue("7");
-    await expect.poll(() => page.evaluate(async () => { const response = await chrome.runtime.sendMessage({ type: "mattermost-deck:trace-storage", operation: "aggregates", from: Date.now() - 7 * 24 * 60 * 60_000, to: Date.now() }); return response.aggregates.some(bucket => bucket.count === 3); })).toBe(true);
+    await expect.poll(() => page.evaluate(async () => { const response = await chrome.runtime.sendMessage({ type: "mattermost-deck:trace-storage", operation: "aggregates", from: Date.now() - 7 * 24 * 60 * 60_000, to: Date.now() }); return response.aggregates.some((bucket: { count: number }) => bucket.count === 3); })).toBe(true);
     await overview.getByTestId("performance-chart-count").locator(".recharts-bar-rectangle").first().click();
     await expect(overview.getByTestId("performance-detail-expired")).toBeVisible();
     const longRangeScreenshot = path.resolve("test-results/performance-overview-7d-expired-detail.png");
@@ -141,7 +141,7 @@ test("performance overview explains queue delays, failures, chart periods, and d
       await chrome.runtime.sendMessage({ type: "mattermost-deck:trace-storage", operation: "setCapture", enabled: true });
     }, clearOnlyAggregateStart);
     await expect(page.getByTestId("performance-request-empty")).toBeVisible();
-    await expect.poll(() => page.evaluate(async () => { const response = await chrome.runtime.sendMessage({ type: "mattermost-deck:trace-storage", operation: "aggregates", from: Date.now() - 7 * 24 * 60 * 60_000, to: Date.now() }); return response.aggregates.some(bucket => bucket.count === 3); })).toBe(true);
+    await expect.poll(() => page.evaluate(async () => { const response = await chrome.runtime.sendMessage({ type: "mattermost-deck:trace-storage", operation: "aggregates", from: Date.now() - 7 * 24 * 60 * 60_000, to: Date.now() }); return response.aggregates.some((bucket: { count: number }) => bucket.count === 3); })).toBe(true);
     await expect(page.getByTestId("trace-clear")).toBeEnabled();
     await page.getByTestId("trace-clear").click();
     await expect(page.getByTestId("performance-request-empty")).toBeVisible();

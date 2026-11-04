@@ -164,7 +164,7 @@ test("favorites persist, sync across tabs, use cached posts offline, and reconci
     await deck(url, "search");
     await expect.poll(async () => (await deck(url, "read"))?.searchOpen).toBe("true");
     await deck(url, "focusSearch");
-    const composerValues = () => restored.locator("textarea").evaluateAll(elements => elements.map(el => el.value));
+    const composerValues = () => restored.locator("textarea").evaluateAll(elements => elements.map(el => (el as HTMLTextAreaElement).value));
     const originalComposerValues = await composerValues();
     expect(originalComposerValues.length).toBeGreaterThan(0);
     await restored.keyboard.type("no-matching-loaded-post");

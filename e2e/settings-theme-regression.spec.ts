@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { waitForInstalledOptions } from "./extension-install";
 import { appendTraceEntries, clearTraceEntries } from "./trace-storage";
+import type { TraceLogEntry } from "../src/traceProtocol";
 
 async function fixture() {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "deck-settings-themes-"));
@@ -20,7 +21,7 @@ async function fixture() {
 
 async function seed(context: import("@playwright/test").BrowserContext, worker: Worker, theme: string) {
   const now = Date.now();
-  const entries = Array.from({ length: 500 }, (_, i) => ({ id: `theme-request-${i}`, timestamp: now - i * 1000,
+  const entries: TraceLogEntry[] = Array.from({ length: 500 }, (_, i) => ({ id: `theme-request-${i}`, timestamp: now - i * 1000,
     source: "api", level: i % 4 ? "info" : "error", event: "request.complete", payload: {
       method: "GET", path: `/posts/theme-${i}`, fullPath: `/api/v4/posts/theme-${i}`, status: i % 4 ? 200 : 501,
       durationMs: 400 + i, queueWaitMs: 100, failed: i % 4 === 0, error: i % 4 ? undefined : "permission-not-available",

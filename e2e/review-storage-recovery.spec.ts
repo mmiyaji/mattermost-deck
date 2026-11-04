@@ -108,9 +108,9 @@ for (const invalidated of [false, true]) {
       expect((await inspect())?.badge).toBe("—");
       const before = await worker.evaluate(async ({ metrics, prefix, confirmed }) => {
         const values = await chrome.storage.local.get([metrics, `${prefix}confirmed:${confirmed}`]);
-        return { metrics: values[metrics], decision: values[`${prefix}confirmed:${confirmed}`] };
+        return { metrics: values[metrics] as { writes: number } | undefined, decision: values[`${prefix}confirmed:${confirmed}`] };
       }, { metrics: METRICS, prefix, confirmed: posts[1].id });
-      expect(before.metrics.writes).toBe(0);
+      expect(before.metrics?.writes).toBe(0);
       expect(before.decision).toBe(123);
       if (!invalidated) {
         await inspect("retry");

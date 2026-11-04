@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { waitForInstalledOptions } from "./extension-install";
 import { appendTraceEntries } from "./trace-storage";
+import type { TraceLogEntry } from "../src/traceProtocol";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 
@@ -54,7 +55,7 @@ async function noPageOverflow(page: Page) {
 
 async function seedTraces(context: import("@playwright/test").BrowserContext, worker: Worker) {
   const end = Date.now();
-  const entries = Array.from({ length: 500 }, (_, i) => {
+  const entries: Array<TraceLogEntry & { payload: Record<string, unknown> }> = Array.from({ length: 500 }, (_, i) => {
     const failed = i % 4 === 0;
     const transport = i % 20 === 0;
     return { id: `design-trace-${i}`, timestamp: end - i * 2000, source: "api", level: failed ? "error" : "info",
