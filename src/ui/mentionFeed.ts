@@ -259,14 +259,19 @@ export function buildMentionReadState(
   members: MattermostChannelMember[],
   threads: MattermostUserThread[],
   activeChannelIds: string[] | Record<string, true> | null = null,
+  includeThreadMarkers = true,
 ): MentionReadState {
   return {
     channelLastViewedAt: Object.fromEntries(
       members.map((member) => [member.channel_id, Math.max(0, member.last_viewed_at ?? 0)]),
     ),
-    threadLastViewedAt: Object.fromEntries(
-      threads.map((thread) => [thread.id, Math.max(0, thread.last_viewed_at ?? 0)]),
-    ),
+    // Non-CRT replies follow the channel read marker. A stale thread marker
+    // must not resurrect replies after the channel has been read.
+    threadLastViewedAt: includeThreadMarkers
+      ? Object.fromEntries(
+          threads.map((thread) => [thread.id, Math.max(0, thread.last_viewed_at ?? 0)]),
+        )
+      : {},
     activeChannelIds:
       activeChannelIds === null
         ? null

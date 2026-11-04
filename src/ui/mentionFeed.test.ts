@@ -427,6 +427,21 @@ describe("mention feed", () => {
     )).toEqual([]);
   });
 
+  it("uses the channel marker for non-CRT replies despite stale thread markers", () => {
+    const reply = post("reply-b", "channel-b", 300, "root-b");
+    const state = buildMentionReadState(
+      [{ channel_id: "channel-b", user_id: "me", last_viewed_at: 500 }],
+      [{
+        id: "root-b", reply_count: 2, last_reply_at: 400, last_viewed_at: 250,
+        post: post("root-b", "channel-b", 100), unread_replies: 1, unread_mentions: 1,
+      }],
+      null,
+      false,
+    );
+    expect(filterUnreadMentionPosts([reply], state)).toEqual([]);
+    expect(filterUnreadMentionPosts([{ ...reply, create_at: 600 }], state)).toEqual([{ ...reply, create_at: 600 }]);
+  });
+
   it("applies realtime read markers monotonically without changing channel membership", () => {
     const state = buildMentionReadState(
       [

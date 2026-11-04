@@ -7,6 +7,7 @@ import {
   buildMentionCacheEntryId,
   clearPersistedMentionCache,
   createMentionCacheSnapshot,
+  getMentionCacheMetadataIds,
   loadMentionCache,
   normaliseMentionCacheSnapshot,
   removeMentionCache,
@@ -66,6 +67,17 @@ afterEach(() => {
 });
 
 describe("mention cache snapshot", () => {
+  it("collects unique channel and author IDs from restored posts for label hydration", () => {
+    expect(getMentionCacheMetadataIds([
+      createPost("one", { channel_id: "channel-a", user_id: "author-a" }),
+      createPost("two", { channel_id: "channel-a", user_id: "author-b" }),
+      createPost("three", { channel_id: "channel-b", user_id: "author-a" }),
+    ])).toEqual({
+      channelIds: ["channel-a", "channel-b"],
+      userIds: ["author-a", "author-b"],
+    });
+  });
+
   it("separates server base paths, users, and team scopes", () => {
     const base = createContext();
     expect(buildMentionCacheEntryId(base)).not.toBe(

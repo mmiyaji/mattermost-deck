@@ -47,6 +47,20 @@ export interface MentionCacheSnapshot extends MentionCacheContext {
   fingerprint: string;
 }
 
+/** Return unique channel and author IDs needed to hydrate cached card labels. */
+export function getMentionCacheMetadataIds(posts: readonly MattermostPost[]): {
+  channelIds: string[];
+  userIds: string[];
+} {
+  const channelIds = new Set<string>();
+  const userIds = new Set<string>();
+  for (const post of posts) {
+    if (post.channel_id) channelIds.add(post.channel_id);
+    if (post.user_id) userIds.add(post.user_id);
+  }
+  return { channelIds: [...channelIds], userIds: [...userIds] };
+}
+
 interface MentionCacheRegistry {
   version: 1;
   entries: Record<string, MentionCacheSnapshot>;

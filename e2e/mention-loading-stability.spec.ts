@@ -55,7 +55,7 @@ test("cached unread mentions stay mounted and stationary through progressive tea
         const root=(chrome as any).dom.openOrClosedShadowRoot(host) as ShadowRoot;
         const pane=root?.querySelector('[data-pane-id="unread"]');
         const viewport=pane?.querySelector<HTMLElement>(".deck-list-viewport");
-        if(action==="inspect")return{rows:viewport?.querySelectorAll("[data-deck-post-id]").length??0,busy:!!pane?.querySelector('[aria-busy="true"]'),loading:!!pane?.querySelector(".deck-column-loading-status"),text:pane?.textContent};
+        if(action==="inspect"){const first=viewport?.querySelector<HTMLElement>("[data-deck-post-id]");return{rows:viewport?.querySelectorAll("[data-deck-post-id]").length??0,busy:!!pane?.querySelector('[aria-busy="true"]'),loading:!!pane?.querySelector(".deck-column-loading-status"),text:pane?.textContent,author:first?.querySelector(".deck-card-author-label")?.textContent,meta:first?.querySelector(".deck-card-meta")?.textContent};}
         if(!viewport)return null;
         if(action==="scroll"){viewport.scrollTop=600;return true;}
         if(action==="monitor"){
@@ -87,6 +87,9 @@ test("cached unread mentions stay mounted and stationary through progressive tea
     await page.reload();
     await expect.poll(async()=> (await inside("inspect"))?.rows).toBeGreaterThan(0);
     await expect.poll(()=>held.length).toBeGreaterThan(0);
+    // Confirm cached labels resolve while the full mention search is held.
+    await expect.poll(async()=> (await inside("inspect"))?.author).toBe("@author");
+    await expect.poll(async()=> (await inside("inspect"))?.meta).toContain("Town 0");
     await inside("scroll");await page.waitForTimeout(500);
     await inside("monitor");
     for(let i=0;i<3;i++){

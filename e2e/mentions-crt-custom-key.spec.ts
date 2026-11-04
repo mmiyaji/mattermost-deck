@@ -546,11 +546,28 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
     await expect(page.locator("#mattermost-deck-root")).toBeAttached({ timeout: 20_000 });
 
     const getColumnState = async () => await debugRequest<{
+      postStatus?: string;
+      postIds?: string[];
+      postMessages?: string[];
+      displayedPostIds?: string[];
+      displayedPostMessages?: string[];
       visiblePostIds?: string[];
       visiblePostMessages?: string[];
+      channelLastViewedAt?: Record<string, number>;
+      threadLastViewedAt?: Record<string, number>;
       mentionCount?: number;
+      mentionLoadActive?: boolean;
+      mentionBufferedPostIds?: string[];
+      mentionBufferedPostMessages?: string[];
       mentionUpdatePending?: boolean;
       mentionPendingUpdateCount?: number;
+      mentionDisplaySnapshotRunId?: number | null;
+      mentionRefreshPhase?: string;
+      provisionalPostIds?: string[];
+      cachedPostIds?: string[];
+      mentionCacheActive?: boolean;
+      mentionCachePhase?: string;
+      teamId?: string | null;
     } | null>(page, "getColumnState", { id: "mentions-non-crt-root-reply" });
     type MentionColumnState = NonNullable<Awaited<ReturnType<typeof getColumnState>>>;
     const waitForPollingUpdate = async (
@@ -726,21 +743,25 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
       },
     );
     editedMentionPostId = editableMention.id;
-    await expect.poll(async () => {
-      const column = await getColumnState();
-      return {
-        postVisible: column?.visiblePostIds?.includes(editableMention.id) ?? false,
-        markerVisible:
-          column?.visiblePostMessages?.some(
-            (message) => message.includes(editableMarker),
-          ) ?? false,
-        mentionCount: column?.mentionCount ?? 0,
-      };
-    }, { timeout: 12_000 }).toEqual({
-      postVisible: true,
-      markerVisible: true,
-      mentionCount: baselineMentionCount + 1,
-    });
+    let latestRealtimeColumnState: Record<string, unknown> | null = null;
+    try {
+      await expect.poll(async () => {
+        const column = await getColumnState();
+        latestRealtimeColumnState = column as Record<string, unknown> | null;
+        return {
+          postVisible: column?.visiblePostIds?.includes(editableMention.id) ?? false,
+          markerVisible: column?.visiblePostMessages?.some((message) => message.includes(editableMarker)) ?? false,
+          mentionCount: column?.mentionCount ?? 0,
+        };
+      }, { timeout: 12_000 }).toEqual({
+        postVisible: true,
+        markerVisible: true,
+        mentionCount: baselineMentionCount + 1,
+      });
+    } catch (error) {
+      console.log("non-CRT realtime mention column state", latestRealtimeColumnState);
+      throw error;
+    }
 
     await apiRequest(
       adminToken,

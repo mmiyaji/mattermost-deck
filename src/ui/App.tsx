@@ -189,6 +189,7 @@ import {
   loadMentionCache,
   removeMentionCache,
   saveMentionCache,
+  getMentionCacheMetadataIds,
   type MentionCacheContext,
 } from "./mentionCache";
 import {
@@ -6473,6 +6474,7 @@ function MentionsColumn({
           members,
           teamProgress.threadContext ?? [],
           activeChannelIds,
+          collapsedReplyThreads,
         );
         scheduleTeamProgress(teamId);
       };
@@ -6493,6 +6495,7 @@ function MentionsColumn({
             teamProgress.channelContext.members,
             threads,
             teamProgress.channelContext.activeChannelIds,
+            collapsedReplyThreads,
           );
         }
         scheduleTeamProgress(teamId);
@@ -7464,10 +7467,18 @@ function MentionsColumn({
 
   useEffect(() => {
     if (!feedOwner) return;
+    // A restored snapshot is rendered before the team scan finishes. Hydrate
+    // its labels in the same batched metadata pass as live cards so cached
+    // authors and channels do not stay blank for the duration of that scan.
+    const metadataPosts = [
+      ...postState.posts,
+      ...(mentionCacheActiveForContext ? mentionCacheState.posts : []),
+      ...(feedHasReview ? review.entries.map(entry => entry.post) : []),
+    ];
+    const { channelIds, userIds } = getMentionCacheMetadataIds(metadataPosts);
+    void ensureUsers(userIds);
     const requiredChannelIds = new Set(
-      [...postState.posts, ...(feedHasReview ? review.entries.map(entry => entry.post) : [])]
-        .map((post) => post.channel_id)
-        .filter(Boolean),
+      channelIds,
     );
     const missingChannelIds = [...requiredChannelIds].filter((channelId) => !channelDirectory[channelId] || Date.now() - (mentionChannelTimesRef.current.get(channelId) ?? 0) >= MEMORY_METADATA_TTL_MS);
     if (missingChannelIds.length === 0) {
@@ -7569,7 +7580,7 @@ function MentionsColumn({
     return () => {
       cancelled = true;
     };
-  }, [channelDirectory, ensureUsers, postState.posts, feedOwner, feedHasReview, review.values]);
+  }, [channelDirectory, ensureUsers, postState.posts, mentionCacheActiveForContext, mentionCacheState.posts, feedOwner, feedHasReview, review.entries]);
 
   const renderPostMeta = useCallback(
     (post: MattermostPost) => {
