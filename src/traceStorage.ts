@@ -83,24 +83,99 @@ async function importLegacy(db: IDBDatabase): Promise<void> {
   legacyCleanupComplete = true;
 }
 function deleteBefore(store: IDBObjectStore, indexName: string | null, cutoff: number, field: string): Promise<number> {
-  return new Promise((resolve,reject) => {
-    const source: IDBIndex|IDBObjectStore = indexName ? store.index(indexName) : store;
-    const cursor=source.openCursor(IDBKeyRange.upperBound(cutoff, true), "next"); let deleted=0;
-    cursor.onerror=()=>reject(cursor.error);
-    cursor.onsuccess=()=>{ const c=cursor.result; if(!c){resolve(deleted);return;} const value=c.value as Record<string,unknown>; if(typeof value[field]==="number") deleted+=Number(value[field]); c.delete(); c.continue(); };
+  return new Promise((resolve, reject) => {
+    const source: IDBIndex | IDBObjectStore = indexName ? store.index(indexName) : store;
+    const cursor = source.openCursor(IDBKeyRange.upperBound(cutoff, true), "next");
+    let deleted = 0;
+
+    cursor.onerror = () => reject(cursor.error);
+    cursor.onsuccess = () => {
+      const current = cursor.result;
+      if (!current) {
+        resolve(deleted);
+        return;
+      }
+
+      const value = current.value as Record<string, unknown>;
+      if (typeof value[field] === "number") deleted += Number(value[field]);
+      current.delete();
+      current.continue();
+    };
   });
 }
+
 async function prune(tx: IDBTransaction, now: number): Promise<void> {
-  const details=tx.objectStore(DETAILS), receipts=tx.objectStore(RECEIPTS), aggregates=tx.objectStore(AGGREGATES), meta=tx.objectStore(META);
-  const expired=await deleteBefore(details,"timestamp",now-TRACE_LOG_TTL_MS,"__bytes");
-  const receiptCutoff=now-TRACE_LOG_TTL_MS; await deleteBefore(receipts,"timestamp",receiptCutoff,"timestamp");
-  await deleteBefore(aggregates,null,now-TRACE_AGGREGATE_TTL_MS,"start");
-  let bytes=await req(meta.get("detailBytes")) as number|undefined;
-  if(bytes===undefined) { bytes=0; await new Promise<void>((resolve,reject)=>{const c=details.openCursor();c.onerror=()=>reject(c.error);c.onsuccess=()=>{const cur=c.result;if(!cur){resolve();return;}bytes!+=Number((cur.value as Record<string,unknown>).__bytes??traceBytes(cur.value));cur.continue();};}); }
-  bytes=Math.max(0,bytes-expired); let count=await req(details.count());
-  if(count>TRACE_LOG_LIMIT||bytes>TRACE_MAX_BYTES) await new Promise<void>((resolve,reject)=>{const c=details.index("timestamp").openCursor(null,"next");c.onerror=()=>reject(c.error);c.onsuccess=()=>{const cur=c.result;if(!cur|| (count<=TRACE_LOG_LIMIT&&bytes!<=TRACE_MAX_BYTES)){resolve();return;} bytes!-=Number((cur.value as Record<string,unknown>).__bytes??traceBytes(cur.value));count--;cur.delete();cur.continue();};});
-  meta.put(Math.max(0,bytes),"detailBytes");
-  let aggCount=await req(aggregates.count()); if(aggCount>TRACE_AGGREGATE_BUCKET_LIMIT) await new Promise<void>((resolve,reject)=>{const c=aggregates.openCursor(null,"next");c.onerror=()=>reject(c.error);c.onsuccess=()=>{const cur=c.result;if(!cur||aggCount<=TRACE_AGGREGATE_BUCKET_LIMIT){resolve();return;}aggCount--;cur.delete();cur.continue();};});
+  // Do not await fetch, crypto, timers, or other non-IndexedDB promises here:
+  // the transaction can auto-commit before the continuation resumes.
+  const details = tx.objectStore(DETAILS);
+  const receipts = tx.objectStore(RECEIPTS);
+  const aggregates = tx.objectStore(AGGREGATES);
+  const meta = tx.objectStore(META);
+
+  const expiredBytes = await deleteBefore(details, "timestamp", now - TRACE_LOG_TTL_MS, "__bytes");
+  const receiptCutoff = now - TRACE_LOG_TTL_MS;
+  await deleteBefore(receipts, "timestamp", receiptCutoff, "timestamp");
+  await deleteBefore(aggregates, null, now - TRACE_AGGREGATE_TTL_MS, "start");
+
+  let bytes = await req(meta.get("detailBytes")) as number | undefined;
+  if (bytes === undefined) {
+    bytes = 0;
+    await new Promise<void>((resolve, reject) => {
+      const cursor = details.openCursor();
+      cursor.onerror = () => reject(cursor.error);
+      cursor.onsuccess = () => {
+        const current = cursor.result;
+        if (!current) {
+          resolve();
+          return;
+        }
+
+        bytes! += Number((current.value as Record<string, unknown>).__bytes ?? traceBytes(current.value));
+        current.continue();
+      };
+    });
+  }
+
+  bytes = Math.max(0, bytes - expiredBytes);
+  let count = await req(details.count());
+  if (count > TRACE_LOG_LIMIT || bytes > TRACE_MAX_BYTES) {
+    await new Promise<void>((resolve, reject) => {
+      const cursor = details.index("timestamp").openCursor(null, "next");
+      cursor.onerror = () => reject(cursor.error);
+      cursor.onsuccess = () => {
+        const current = cursor.result;
+        if (!current || (count <= TRACE_LOG_LIMIT && bytes! <= TRACE_MAX_BYTES)) {
+          resolve();
+          return;
+        }
+
+        bytes! -= Number((current.value as Record<string, unknown>).__bytes ?? traceBytes(current.value));
+        count--;
+        current.delete();
+        current.continue();
+      };
+    });
+  }
+  meta.put(Math.max(0, bytes), "detailBytes");
+
+  let aggregateCount = await req(aggregates.count());
+  if (aggregateCount > TRACE_AGGREGATE_BUCKET_LIMIT) {
+    await new Promise<void>((resolve, reject) => {
+      const cursor = aggregates.openCursor(null, "next");
+      cursor.onerror = () => reject(cursor.error);
+      cursor.onsuccess = () => {
+        const current = cursor.result;
+        if (!current || aggregateCount <= TRACE_AGGREGATE_BUCKET_LIMIT) {
+          resolve();
+          return;
+        }
+
+        aggregateCount--;
+        current.delete();
+        current.continue();
+      };
+    });
+  }
 }
 function queryDetails(store: IDBObjectStore, message: TraceStorageRequest, now: number): Promise<{entries:TraceLogEntry[];hasMore:boolean}> {
   const from=Math.max(now-TRACE_LOG_TTL_MS,0,message.from??now-TRACE_LOG_TTL_MS), to=Math.min(now+5*60_000,message.to??now);
