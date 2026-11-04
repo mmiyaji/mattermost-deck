@@ -42,11 +42,11 @@ jobs:
       - name: Type check
         run: npm run check
 
-      - name: Unit tests
-        run: npm test
-
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
+
+      - name: Unit tests
+        run: npm test
 
       - name: Build extension
         run: npm run build

@@ -26,12 +26,48 @@ export const PERFORMANCE_DEFAULTS: PerformanceSettings = {
   mentionTeamConcurrency: 2,
 };
 
+/** Kept for deterministic performance fixtures; user-facing options use PERFORMANCE_PRESETS. */
 export const RESPONSIVE_PERFORMANCE_PRESET: Partial<PerformanceSettings> = {
   apiGlobalRequestsPerMinute: 360,
   apiGetRequestsPerMinute: 300,
   apiPostRequestsPerMinute: 90,
   apiMinStartGapMs: 60,
 };
+
+export type PerformancePresetId = "low" | "standard" | "high" | "custom";
+export const PERFORMANCE_PRESETS: Record<Exclude<PerformancePresetId, "custom">, PerformanceSettings> = {
+  low: {
+    ...PERFORMANCE_DEFAULTS,
+    apiMaxConcurrentRequests: 2,
+    apiMinStartGapMs: 250,
+    apiGlobalRequestsPerMinute: 90,
+    apiGetRequestsPerMinute: 75,
+    apiPostRequestsPerMinute: 25,
+    mentionReconcileMinIntervalSeconds: 20,
+    mentionFullScanIntervalSeconds: 240,
+    mentionTeamConcurrency: 1,
+  },
+  standard: { ...PERFORMANCE_DEFAULTS },
+  high: {
+    ...PERFORMANCE_DEFAULTS,
+    apiMaxConcurrentRequests: 5,
+    apiMinStartGapMs: 60,
+    apiGlobalRequestsPerMinute: 300,
+    apiGetRequestsPerMinute: 250,
+    apiPostRequestsPerMinute: 75,
+    mentionReconcileMinIntervalSeconds: 5,
+    mentionFullScanIntervalSeconds: 60,
+    mentionTeamConcurrency: 3,
+  },
+};
+
+export function matchPerformancePreset(input: Partial<Record<keyof PerformanceSettings, unknown>>): PerformancePresetId {
+  const settings = normalizePerformanceSettings(input);
+  for (const id of ["low", "standard", "high"] as const) {
+    if ((Object.keys(PERFORMANCE_DEFAULTS) as (keyof PerformanceSettings)[]).every(key => settings[key] === PERFORMANCE_PRESETS[id][key])) return id;
+  }
+  return "custom";
+}
 
 export const PERFORMANCE_LIMITS: Record<keyof PerformanceSettings, { min: number; max: number }> = {
   apiMaxConcurrentRequests: { min: 1, max: 8 },

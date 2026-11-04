@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { waitForInstalledOptions } from "./extension-install";
+import { appendTraceEntries, clearTraceEntries } from "./trace-storage";
 
 async function fixture() {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "deck-settings-themes-"));
@@ -17,18 +18,19 @@ async function fixture() {
   return { context, worker, page, async close() { await context.close(); await fs.rm(directory, { recursive: true, force: true }); } };
 }
 
-async function seed(worker: Worker, theme: string) {
+async function seed(context: import("@playwright/test").BrowserContext, worker: Worker, theme: string) {
   const now = Date.now();
   const entries = Array.from({ length: 500 }, (_, i) => ({ id: `theme-request-${i}`, timestamp: now - i * 1000,
     source: "api", level: i % 4 ? "info" : "error", event: "request.complete", payload: {
       method: "GET", path: `/posts/theme-${i}`, fullPath: `/api/v4/posts/theme-${i}`, status: i % 4 ? 200 : 501,
       durationMs: 400 + i, queueWaitMs: 100, failed: i % 4 === 0, error: i % 4 ? undefined : "permission-not-available",
     } }));
-  await worker.evaluate(({ theme, entries }) => chrome.storage.local.set({
+  await worker.evaluate(({ theme }) => chrome.storage.local.set({
     "mattermostDeck.theme.v1": theme, "mattermostDeck.language.v1": "ja",
     "mattermostDeck.optionsTheme.v1": theme === "mattermost" ? "system" : theme,
-    "mattermostDeck.traceCapture.v1": true, "mattermostDeck.traceEntries.v1": entries,
-  }), { theme, entries });
+  }), { theme });
+  await clearTraceEntries(context, worker);
+  for (let offset = 0; offset < entries.length; offset += 100) await appendTraceEntries(context, worker, entries.slice(offset, offset + 100));
 }
 
 /** Measure visible text against the composited ancestor background, not only its transparent own box. */
@@ -59,7 +61,7 @@ test("performance request text stays readable in light, dark, system and Matterm
   try {
     for (const [theme, media] of [["light", "light"], ["dark", "dark"], ["system", "light"], ["system", "dark"], ["mattermost", "dark"]] as const) {
       await f.page.emulateMedia({ colorScheme: media });
-      await seed(f.worker, theme);
+      await seed(f.context, f.worker, theme);
       await f.page.reload();
       await expect(f.page.locator(".options-app")).toHaveAttribute("data-loaded", "true");
       await f.page.getByTestId("options-nav-performance").click();
@@ -111,7 +113,7 @@ test("settings footer follows the actual viewport through resize, browser zoom a
   const f = await fixture();
   const evidence: unknown[] = [];
   try {
-    await seed(f.worker, "mattermost");
+    await seed(f.context, f.worker, "mattermost");
     await f.page.reload();
     await expect(f.page.locator(".options-app")).toHaveAttribute("data-loaded", "true");
     await f.page.getByTestId("options-nav-performance").click();
@@ -164,11 +166,11 @@ test("settings footer follows the actual viewport through resize, browser zoom a
   }
 });
 
-test("previous-display purpose and saved on/off state are clear and fetching presets do not change the cache choice", async ({}, testInfo) => {
+test("previous-display purpose and saved on/off state stay clear when applying performance presets", async ({}, testInfo) => {
   const f = await fixture();
   try {
-    await seed(f.worker, "mattermost");
-    await f.worker.evaluate(() => chrome.storage.local.set({ "mattermostDeck.serverUrl.v1": "http://127.0.0.1:8066" }));
+    await seed(f.context, f.worker, "mattermost");
+    await f.worker.evaluate(baseUrl => chrome.storage.local.set({ "mattermostDeck.serverUrl.v1": baseUrl }), process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066");
     await f.page.reload();
     await expect(f.page.locator(".options-app")).toHaveAttribute("data-loaded", "true");
     await f.page.getByTestId("options-nav-performance").click();
@@ -181,11 +183,13 @@ test("previous-display purpose and saved on/off state are clear and fetching pre
     await expect(purpose.locator(".options-toggle-state")).toHaveText("オン · 保存済み");
     await off.check();
     await expect(purpose.locator(".options-toggle-state")).toHaveText("オフ · 未保存");
-    await f.page.getByTestId("performance-settings").locator("summary").click();
-    await f.page.getByTestId("performance-apply-fetch-preset").click();
+    await f.page.getByTestId("performance-preset-radio-high").check();
+    await expect(f.page.getByTestId("performance-preset-preview")).toBeVisible();
     await expect(off).toBeChecked();
     await expect(purpose.locator(".options-toggle-state")).toHaveText("オフ · 未保存");
-    await expect(f.page.getByTestId("performance-fetch-preset-state")).toHaveText("保存すると適用されます");
+    await expect(f.page.getByTestId("performance-preset-state")).toContainText("編集中: 標準");
+    await f.page.getByTestId("performance-preset-apply").click();
+    await expect(f.page.getByTestId("options-save")).toBeEnabled();
     await f.page.getByTestId("options-nav-behavior").click();
     await expect(f.page.locator('input[aria-labelledby="persist-mention-cache-label"]')).toHaveCount(0);
     await expect(f.page.getByTestId("options-clear-body-cache")).toHaveCount(0);
@@ -194,13 +198,13 @@ test("previous-display purpose and saved on/off state are clear and fetching pre
     await f.page.getByTestId("options-nav-performance").click();
     await expect(off).toBeChecked();
     await expect(purpose.locator(".options-toggle-state")).toHaveText("オフ · 保存済み");
-    await expect(f.page.getByTestId("performance-fetch-preset-state")).toHaveText("適用済み");
+    await expect(f.page.getByTestId("performance-preset-radio-high")).toBeChecked();
     await f.page.reload();
     await expect(f.page.locator(".options-app")).toHaveAttribute("data-loaded", "true");
     await f.page.getByTestId("options-nav-performance").click();
     await expect(off).toBeChecked();
     await expect(purpose.locator(".options-toggle-state")).toHaveText("オフ · 保存済み");
-    await expect(f.page.getByTestId("performance-fetch-preset-state")).toHaveText("適用済み");
+    await expect(f.page.getByTestId("performance-preset-radio-high")).toBeChecked();
     await f.page.mouse.move(1300, 20);
     await purpose.scrollIntoViewIfNeeded();
     await f.page.screenshot({ path: testInfo.outputPath("cache-purpose-off-saved.png"), fullPage: false, animations: "disabled" });

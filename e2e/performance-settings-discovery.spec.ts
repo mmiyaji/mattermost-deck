@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { waitForInstalledOptions } from "./extension-install";
 
+const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
+
 test("performance controls precede diagnostics, expose their state and work with the keyboard", async ({}, info) => {
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), "deck-performance-settings-"));
   const extension = path.resolve("dist");
@@ -14,10 +16,10 @@ test("performance controls precede diagnostics, expose their state and work with
   try {
     const worker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
     const page = await waitForInstalledOptions(context, worker);
-    await worker.evaluate(() => chrome.storage.local.set({
+    await worker.evaluate((baseUrl) => chrome.storage.local.set({
       "mattermostDeck.language.v1": "ja", "mattermostDeck.optionsTheme.v1": "light",
-      "mattermostDeck.serverUrl.v1": "http://127.0.0.1:8066",
-    }));
+      "mattermostDeck.serverUrl.v1": baseUrl,
+    }), baseUrl);
     await page.reload();
     await expect(page.locator(".options-app")).toHaveAttribute("data-loaded", "true");
     await page.getByTestId("options-nav-performance").click();

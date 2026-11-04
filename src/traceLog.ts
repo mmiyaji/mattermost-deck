@@ -1,11 +1,13 @@
 import {
   TRACE_STORAGE_MESSAGE, TRACE_CAPTURE_STORAGE_KEY, TRACE_LOG_STORAGE_KEY, TRACE_STATE_STORAGE_KEY,
-  retainTraceEntries, sanitizeTraceEntry,
+  TRACE_LOG_TTL_MS, retainTraceEntries, sanitizeTraceEntry, traceBytes,
   type TraceLogEntry, type TraceStorageRequest, type TraceStorageSnapshot,
 } from "./traceProtocol";
 export type { TraceLogEntry, TraceLogLevel, TraceLogSource } from "./traceProtocol";
 
 const TRACE_FLUSH_DELAY_MS = 250;
+const TRACE_CLIENT_BUFFER_LIMIT = 500;
+const TRACE_CLIENT_BUFFER_BYTES = 1024 * 1024;
 let captureEnabled = false;
 let acknowledgedCaptureEnabled: boolean | null = null;
 let confirmed: TraceLogEntry[] = [];
@@ -16,6 +18,8 @@ let operations: Promise<unknown> = Promise.resolve();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshPending = false;
 let refreshAgain = false;
+let detailRefreshPending = false;
+let persistenceError = false;
 let controlsPending = 0;
 let runtimeDisposed = false;
 let storageChangeListener: ((changes: Record<string, chrome.storage.StorageChange>, areaName: string) => void) | null = null;
@@ -32,7 +36,12 @@ function notify(): void {
     try { listener(); } catch { /* A diagnostics view must not break the app. */ }
   }
 }
-function view(): TraceLogEntry[] { return retainTraceEntries([...pending.values()].reverse().map(value => value.entry).concat(confirmed)); }
+function view(): TraceLogEntry[] {
+  const source=retainTraceEntries([...pending.values()].reverse().map(value=>value.entry).concat(confirmed));
+  const result:TraceLogEntry[]=[];let bytes=2;
+  for(const entry of source){const next=traceBytes(entry);if(result.length>=TRACE_CLIENT_BUFFER_LIMIT||bytes+next>TRACE_CLIENT_BUFFER_BYTES)continue;result.push(entry);bytes+=next;}
+  return result;
+}
 function enqueue<T>(operation: () => Promise<T>): Promise<T> {
   const task = operations.catch(() => undefined).then(operation);
   operations = task.catch(() => undefined);
@@ -52,14 +61,14 @@ function accept(snapshot: TraceStorageSnapshot): void {
   // acknowledges. An older read must not undo that action or its new entries.
   if (controlsPending) return;
   if (generation !== snapshot.generation) {
+    confirmed = [];
     for (const [id, item] of pending) if (item.generation !== null && item.generation !== snapshot.generation) pending.delete(id);
   }
   generation = snapshot.generation;
   for (const item of pending.values()) if (item.generation === null) item.generation = generation;
   captureEnabled = snapshot.captureEnabled;
-  if (!captureEnabled) pending.clear();
-  confirmed = retainTraceEntries(snapshot.entries);
-  for (const entry of confirmed) if (entry.id) pending.delete(entry.id);
+  if (!captureEnabled) { pending.clear(); confirmed=[]; }
+  if(snapshot.entriesAuthoritative){confirmed=retainTraceEntries(snapshot.entries).slice(0,TRACE_CLIENT_BUFFER_LIMIT);for(const entry of confirmed)if(entry.id)pending.delete(entry.id);}
   notify();
 }
 function refresh(): void {
@@ -130,8 +139,9 @@ function scheduleFlush(): void {
       // A successful append also acknowledges entries evicted by the global
       // bounds. Retrying a failed/unknown delivery preserves their stable IDs.
       for (const entry of batch) pending.delete(entry.id!);
+      persistenceError=false;
       notify();
-    }).catch(() => undefined);
+    }).catch(() => { persistenceError=true; notify(); });
   }, TRACE_FLUSH_DELAY_MS);
 }
 function control(message: TraceStorageRequest): void {
@@ -142,7 +152,8 @@ function control(message: TraceStorageRequest): void {
     try {
       if (runtimeDisposed) return;
       snapshot = await send(message);
-    } catch { /* Diagnostics remain best-effort after persistence failures. */ }
+      persistenceError = false;
+    } catch { persistenceError=true; notify(); }
     finally { controlsPending -= 1; }
     if (snapshot) accept(snapshot);
   }).catch(() => undefined);
@@ -181,6 +192,19 @@ export function getTraceEntries(): TraceLogEntry[] {
   if (runtimeDisposed) return [];
   ensureInitialised(); return view();
 }
+/** Options pages explicitly fetch a bounded detail page from the background DB. */
+export async function refreshTraceEntries(): Promise<boolean> {
+  if (runtimeDisposed || !hasRuntime()) return false;
+  if(detailRefreshPending)return false;
+  detailRefreshPending = true;
+  try {
+    const snapshot = await send({ operation: "query", from: Date.now() - TRACE_LOG_TTL_MS, to: Date.now(), limit: 100 });
+    accept(snapshot);
+    persistenceError=false;return true;
+  } catch { persistenceError=true;notify();return false; }
+  finally { detailRefreshPending = false; }
+}
+export function hasTracePersistenceError(): boolean { return persistenceError; }
 export function subscribeTraceEntries(listener: () => void): () => void {
   if (runtimeDisposed) return () => undefined;
   ensureInitialised(); listeners.add(listener); return () => listeners.delete(listener);

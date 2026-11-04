@@ -1,12 +1,14 @@
-import { chromium, expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { chromium, expect, test, type BrowserContext, type Page, type Worker } from "@playwright/test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { waitForInstalledOptions } from "./extension-install";
+import { appendTraceEntries } from "./trace-storage";
 
 type OptionsFixture = {
   context: BrowserContext;
   page: Page;
+  worker: Worker;
   userDataDir: string;
 };
 
@@ -28,9 +30,11 @@ async function openOptions(): Promise<OptionsFixture> {
   await serviceWorker.evaluate(async () => {
     await chrome.storage.local.set({
       "mattermostDeck.language.v1": "en",
-      "mattermostDeck.traceCapture.v1": true,
-      "mattermostDeck.traceEntries.v1": [
+    });
+  });
+  await appendTraceEntries(context,serviceWorker,[
         {
+          id:"a11y-seeded-api-request",
           timestamp: Date.now(),
           source: "api",
           level: "info",
@@ -46,9 +50,7 @@ async function openOptions(): Promise<OptionsFixture> {
             failed: false,
           },
         },
-      ],
-    });
-  });
+      ]);
 
   await page.addInitScript(() => {
     (window as typeof window & { __optionsInvalidBeforeLoaded?: boolean }).__optionsInvalidBeforeLoaded = false;
@@ -67,7 +69,7 @@ async function openOptions(): Promise<OptionsFixture> {
   await expect(page.locator(".options-app")).toHaveAttribute("data-loaded", "true", {
     timeout: 10_000,
   });
-  return { context, page, userDataDir };
+  return { context, page, worker:serviceWorker, userDataDir };
 }
 
 async function closeOptions(fixture: OptionsFixture): Promise<void> {

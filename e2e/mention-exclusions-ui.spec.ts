@@ -71,13 +71,13 @@ test("mention exclusions share author/thread rules, survive browser restart and 
       args: [`--disable-extensions-except=${path.resolve("dist")}`, `--load-extension=${path.resolve("dist")}`],
     });
     sw = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
-    if (configure) await waitForInstalledOptions(context, sw);
+    await waitForInstalledOptions(context, sw);
     if (configure) await sw.evaluate(({ origin }) => chrome.storage.local.set({
       "mattermostDeck.serverUrl.v1": origin, "mattermostDeck.language.v1": "en", "mattermostDeck.theme.v1": "light",
       "mattermostDeck.pollingIntervalSeconds.v1": 3600, "mattermostDeck.postClickAction.v1": "navigate",
       "mattermostDeck.layout.v1": [{ id: "mentions", type: "mentions" }, { id: "review", type: "mentions", mentionReview: true }],
     }), { origin });
-    page = context.pages().find(candidate => candidate.url().startsWith(origin)) ?? await context.newPage();
+    page = await context.newPage();
     await page.addInitScript(() => window.localStorage.setItem("mattermostDeck.debugLogs", "1"));
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(`${origin}/testteam/channels/town-square`);
@@ -111,6 +111,24 @@ test("mention exclusions share author/thread rules, survive browser restart and 
   const normal = '[data-deck-column-id="mentions"]';
   const review = '[data-deck-column-id="review"]';
   const post = (pane: string, id: string) => `${pane} [data-deck-mention-menu="${id}"]`;
+  const debugAction = (action: string, payload: Record<string, unknown>) => sw.evaluate(async ({ origin, action, payload }) => {
+    const tab = (await chrome.tabs.query({})).find(candidate => candidate.url?.startsWith(origin) && candidate.title === "Mention exclusions fixture target");
+    if (!tab?.id) return null;
+    const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (action, payload) => new Promise(resolve => {
+      const id = `exclusion-action-${Math.random()}`;
+      const listener = (event: Event) => {
+        const detail = (event as CustomEvent).detail;
+        if (detail?.id !== id) return;
+        clearTimeout(timer);
+        window.removeEventListener("mattermost-deck-debug-response", listener);
+        resolve(detail.result);
+      };
+      const timer = setTimeout(() => { window.removeEventListener("mattermost-deck-debug-response", listener); resolve(null); }, 2000);
+      window.addEventListener("mattermost-deck-debug-response", listener);
+      window.dispatchEvent(new CustomEvent("mattermost-deck-debug-request", { detail: { id, action, payload } }));
+    }), args: [action, payload] });
+    return result.result;
+  }, { origin, action, payload });
   const openControls = async (pane: string) => {
     const toggle = `${pane} .deck-column-header [aria-expanded]:not(.deck-pane-search-toggle)`;
     if ((await inspect(toggle))?.expanded !== "true") await inspect(toggle, "click");
@@ -118,7 +136,7 @@ test("mention exclusions share author/thread rules, survive browser restart and 
   const columnState = (pane: string) => sw.evaluate(async ({ origin, pane }) => {
     const tab = (await chrome.tabs.query({})).find(candidate => candidate.url?.startsWith(origin) && candidate.title === "Mention exclusions fixture target");
     if (!tab?.id) return null;
-    const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (pane) => new Promise<{ visiblePostIds: string[] } | null>(resolve => {
+    const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (pane) => new Promise<{ visiblePostIds: string[]; mentionBufferedPostIds?: string[]; mentionUpdatePending?: boolean; mentionPendingUpdateCount?: number } | null>(resolve => {
       const id = `exclusion-state-${Math.random()}`;
       const listener = (event: Event) => {
         const detail = (event as CustomEvent).detail;
@@ -139,27 +157,12 @@ test("mention exclusions share author/thread rules, survive browser restart and 
   const revealPost = async (pane: string, id: string) => {
     await expect.poll(async () => {
       if (!(await columnState(pane))?.visiblePostIds.includes(id)) return false;
-      return sw.evaluate(async ({ origin, pane, id }) => {
-        const tab = (await chrome.tabs.query({})).find(candidate => candidate.url?.startsWith(origin) && candidate.title === "Mention exclusions fixture target");
-        if (!tab?.id) return false;
-        const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: async (pane, id) => {
-          const host = document.getElementById("mattermost-deck-root");
-          const shadow = host && (chrome as any).dom.openOrClosedShadowRoot(host);
-          const viewport = shadow?.querySelector(`${pane} .deck-list-viewport`) as HTMLElement | null;
-          if (!viewport) return false;
-          viewport.scrollTop = 0;
-          for (let step = 0; step < 30; step++) {
-            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-            const row = shadow.querySelector(`${pane} [data-deck-mention-menu="${id}"]`) as HTMLElement | null;
-            if (row) { row.scrollIntoView({ block: "center" }); return true; }
-            const before = viewport.scrollTop;
-            viewport.scrollTop += Math.max(100, viewport.clientHeight / 2);
-            if (viewport.scrollTop === before) break;
-          }
-          return false;
-        }, args: [pane, id] });
-        return result.result;
-      }, { origin, pane, id });
+      const columnId = pane.match(/data-deck-column-id="([^"]+)"/)![1];
+      for (const edge of ["start", "end"] as const) {
+        await debugAction("scrollPostWindow", { id: columnId, edge });
+        if (await inspect(post(pane, id))) return true;
+      }
+      return false;
     }, { timeout: 15_000 }).toBe(true);
   };
   const expectPresentBoth = async (id: string) => {
@@ -167,7 +170,13 @@ test("mention exclusions share author/thread rules, survive browser restart and 
       await revealPost(normal, id);
       await revealPost(review, id);
     } catch (error) {
-      console.log("Exclusion fixture state", { normal: await inspect(normal), review: await inspect(review), errors, searchRequests });
+      console.log("Exclusion fixture state", {
+        normal: await inspect(normal), review: await inspect(review),
+        normalColumn: await columnState(normal), reviewColumn: await columnState(review),
+        normalWindow: await debugAction("getPostWindowMetrics", { id: "mentions" }),
+        reviewWindow: await debugAction("getPostWindowMetrics", { id: "review" }),
+        errors, searchRequests,
+      });
       throw error;
     }
   };
@@ -267,6 +276,21 @@ test("mention exclusions share author/thread rules, survive browser restart and 
     await inspect(`${normal} [data-deck-restore-excluded-thread="${root.id}"]`, "click");
     await expectPresentBoth(root.id);
     await expectPresentBoth(reply.id);
+    let normalAfterRestore: Awaited<ReturnType<typeof columnState>> = null;
+    await expect.poll(async () => {
+      normalAfterRestore = await columnState(normal);
+      return Boolean(
+        normalAfterRestore?.visiblePostIds.includes(future.id) ||
+        normalAfterRestore?.mentionBufferedPostIds?.includes(future.id),
+      );
+    }).toBe(true);
+    if (normalAfterRestore?.mentionBufferedPostIds?.includes(future.id)) {
+      expect(normalAfterRestore.mentionUpdatePending).toBe(true);
+      expect(normalAfterRestore.mentionPendingUpdateCount).toBeGreaterThan(0);
+      expect(await debugAction("applyMentionUpdates", { id: "mentions" })).toBe(true);
+    } else {
+      expect(normalAfterRestore?.visiblePostIds).toContain(future.id);
+    }
     await expectPresentBoth(future.id);
     // Search can add a user who has not authored a loaded post.
     await inspect(`${normal} [data-deck-exclusion-user-search]`, "focus");

@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { PERFORMANCE_DEFAULTS, PERFORMANCE_LIMITS, RESPONSIVE_PERFORMANCE_PRESET, type PerformanceSettings } from "../src/performanceSettings";
+import { PERFORMANCE_DEFAULTS, PERFORMANCE_LIMITS, PERFORMANCE_PRESETS, type PerformanceSettings } from "../src/performanceSettings";
 import { waitForInstalledOptions } from "./extension-install";
 
 const ja = JSON.parse(readFileSync(path.resolve("src/ui/locales/ja.json"), "utf8")) as typeof import("../src/ui/locales/ja.json");
@@ -83,6 +83,7 @@ test("Japanese advanced performance settings save, survive reload, discard draft
       await expect(input).toHaveAttribute("max", String(PERFORMANCE_LIMITS[field].max));
       await input.fill(String(customPerformance[field]));
     }
+    await expect(page.getByTestId("performance-preset-radio-custom")).toBeChecked();
     await page.getByTestId("options-save").click();
     await expect(page.locator("#options-save-status")).toHaveText(ja.options.saved);
     await expect(page.getByTestId("options-save")).toBeDisabled();
@@ -129,9 +130,12 @@ test("Japanese advanced performance settings save, survive reload, discard draft
     for (const field of performanceFields) {
       expect(stored[`mattermostDeck.${field}.v1.profile.${profileId}`]).toBe(String(PERFORMANCE_DEFAULTS[field]));
     }
-    await page.getByTestId("performance-apply-fetch-preset").click();
+    await page.getByTestId("performance-preset-radio-high").check();
+    await expect(page.getByTestId("performance-preset-preview")).toBeVisible();
+    await expect(page.getByTestId("options-save")).toBeDisabled();
+    await page.getByTestId("performance-preset-apply").click();
     for (const field of performanceFields) {
-      await expect(performanceInput(page, field)).toHaveValue(String(RESPONSIVE_PERFORMANCE_PRESET[field] ?? PERFORMANCE_DEFAULTS[field]));
+      await expect(performanceInput(page, field)).toHaveValue(String(PERFORMANCE_PRESETS.high[field]));
     }
     await expect(page.getByTestId("options-save")).toBeEnabled();
     const beforeSave = await worker.evaluate(async (profileId) => chrome.storage.local.get([
@@ -146,15 +150,15 @@ test("Japanese advanced performance settings save, survive reload, discard draft
     await expect(page.locator(".options-app")).toHaveAttribute("data-loaded", "true");
     await openPerformanceSettings(page);
     for (const field of performanceFields) {
-      await expect(performanceInput(page, field)).toHaveValue(String(RESPONSIVE_PERFORMANCE_PRESET[field] ?? PERFORMANCE_DEFAULTS[field]));
+      await expect(performanceInput(page, field)).toHaveValue(String(PERFORMANCE_PRESETS.high[field]));
     }
     const afterSave = await worker.evaluate(async (profileId) => chrome.storage.local.get([
       `mattermostDeck.persistMentionCache.v1.profile.${profileId}`,
     ]), profileId);
     expect(afterSave[`mattermostDeck.persistMentionCache.v1.profile.${profileId}`]).toBe("true");
-    const presetScreenshot = testInfo.outputPath("responsive-preset-ja.png");
+    const presetScreenshot = testInfo.outputPath("high-preset-ja.png");
     await page.screenshot({ path: presetScreenshot, fullPage: true });
-    await testInfo.attach("Responsive settings and cache persisted", { path: presetScreenshot, contentType: "image/png" });
+    await testInfo.attach("High performance preset and cache persisted", { path: presetScreenshot, contentType: "image/png" });
   } finally {
     await context.close();
     await fs.rm(profileDirectory, { recursive: true, force: true });

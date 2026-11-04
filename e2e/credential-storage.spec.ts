@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { waitForInstalledOptions } from "./extension-install";
 
+const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
+
 test("a saved PAT decrypts in a new options page and remains cleared after reload", async () => {
   const profileDir = await fs.mkdtemp(path.join(os.tmpdir(), "deck-credential-storage-"));
   const extensionPath = path.resolve("dist");
@@ -14,8 +16,7 @@ test("a saved PAT decrypts in a new options page and remains cleared after reloa
   try {
     const worker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
     await waitForInstalledOptions(context, worker);
-    await worker.evaluate(async () => {
-      const serverUrl = "http://127.0.0.1:8066";
+    await worker.evaluate(async (serverUrl) => {
       const id = "credential-profile";
       await chrome.storage.local.set({
         "mattermostDeck.serverUrl.v1": serverUrl,
@@ -29,7 +30,7 @@ test("a saved PAT decrypts in a new options page and remains cleared after reloa
           activeProfileIdByOrigin: { [serverUrl]: id }, lastActiveProfileId: id,
         },
       });
-    });
+    }, baseUrl);
     const optionsUrl = `chrome-extension://${new URL(worker.url()).host}/options.html`;
     const page = await context.newPage();
     await page.goto(optionsUrl);

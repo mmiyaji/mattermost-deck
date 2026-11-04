@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { RESPONSIVE_PERFORMANCE_PRESET } from "../src/performanceSettings";
+import { readTraceEntries, setTraceCapture } from "./trace-storage";
 
 const origin = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 async function api(token: string, method: string, route: string, body?: unknown): Promise<any> {
@@ -119,7 +120,7 @@ test("13 real teams and 78 unread threads preserve mention IDs and badges", asyn
     sw = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
     await sw.evaluate(({ origin, token, accelerated, responsiveSettings }) => chrome.storage.local.set({
       "mattermostDeck.serverUrl.v1": origin, "mattermostDeck.wsPat.v1": token, "mattermostDeck.persistPat.v1": "true",
-      "mattermostDeck.language.v1": "en", "mattermostDeck.pollingIntervalSeconds.v1": "3600", "mattermostDeck.traceCapture.v1": true,
+      "mattermostDeck.language.v1": "en", "mattermostDeck.pollingIntervalSeconds.v1": "3600",
       ...(accelerated ? { "mattermostDeck.apiMinStartGapMs.v1": "0", "mattermostDeck.apiGlobalRequestsPerMinute.v1": "900",
         "mattermostDeck.apiGetRequestsPerMinute.v1": "600", "mattermostDeck.apiPostRequestsPerMinute.v1": "300",
         "mattermostDeck.mentionReconcileMinIntervalSeconds.v1": "1", "mattermostDeck.mentionFullScanIntervalSeconds.v1": "600" } : {}),
@@ -130,6 +131,7 @@ test("13 real teams and 78 unread threads preserve mention IDs and badges", asyn
       "mattermostDeck.layout.v1": [{ id: "normal", type: "mentions", unreadOnly: true },
         { id: "review", type: "mentions", mentionReview: true, unreadOnly: true }],
     }), { origin, token, accelerated: process.env.DECK_PERF_FAST === "1", responsiveSettings: responsive ? RESPONSIVE_PERFORMANCE_PRESET : null });
+    await setTraceCapture(context,sw!,true);
     page = await context.newPage();
     page.on("pageerror", e => pageErrors.push({ message: e.message, stack: e.stack ?? "" }));
     page.on("response", r => { if (r.url().includes("/api/v4/")) requests.push({ path: new URL(r.url()).pathname, status: r.status(), phase }); });
@@ -191,7 +193,7 @@ test("13 real teams and 78 unread threads preserve mention IDs and badges", asyn
     await assertState("initial: all 117 mentions, including 78 replies");
     const initialReadyMs = Date.now() - started;
     await new Promise(resolve => setTimeout(resolve, 300));
-    const initialTrace = (await sw.evaluate(() => chrome.storage.local.get("mattermostDeck.traceEntries.v1")))["mattermostDeck.traceEntries.v1"] ?? [];
+    const initialTrace = await readTraceEntries(context,sw!);
     await page.screenshot({ path: testInfo.outputPath("13-teams-initial.png"), fullPage: true });
 
     phase = "unchanged-refresh";
@@ -204,7 +206,7 @@ test("13 real teams and 78 unread threads preserve mention IDs and badges", asyn
     const refreshMs = Date.now() - refreshStarted;
     const refreshRequests = requests.slice(before);
     await new Promise(resolve => setTimeout(resolve, 300));
-    const afterRefreshTrace = (await sw.evaluate(() => chrome.storage.local.get("mattermostDeck.traceEntries.v1")))["mattermostDeck.traceEntries.v1"] ?? [];
+    const afterRefreshTrace = await readTraceEntries(context,sw!);
     const summarize = (entries: any[]) => {
       const apiEntries = entries.filter(e => e.source === "api" && e.event === "request.complete");
       const distribution = (values: number[]) => {
@@ -317,8 +319,8 @@ test("13 real teams and 78 unread threads preserve mention IDs and badges", asyn
       && !(r.status === 501 && /^\/api\/v4\/users\/[^/]+\/groups$/.test(r.path)))).toEqual([]);
   } finally {
     if (sw) {
-      const data = await sw.evaluate(() => chrome.storage.local.get(["mattermostDeck.traceEntries.v1"])).catch(() => ({}));
-      await fs.writeFile(testInfo.outputPath("13-team-trace.json"), JSON.stringify({ trace: data, requests, checkpoints, lastObserved, pageErrors }, null, 2));
+      const trace = await readTraceEntries(context!,sw).catch(() => []);
+      await fs.writeFile(testInfo.outputPath("13-team-trace.json"), JSON.stringify({ trace, requests, checkpoints, lastObserved, pageErrors }, null, 2));
       await testInfo.attach("13-team-trace.json", { path: testInfo.outputPath("13-team-trace.json"), contentType: "application/json" });
     }
     await page?.screenshot({ path: testInfo.outputPath("13-teams-final.png"), fullPage: true }).catch(() => {});

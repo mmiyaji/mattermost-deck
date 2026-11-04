@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { readTraceEntries, setTraceCapture } from "./trace-storage";
 
 for (const phase of ["ready", "initial loading", "refreshing", "reconnecting"] as const) {
 test(`opening a reply during ${phase} preserves every mention pane`, async ({}, testInfo) => {
@@ -72,7 +73,6 @@ test(`opening a reply during ${phase} preserves every mention pane`, async ({}, 
     await sw.evaluate(({ origin, post, userId, phase }) => chrome.storage.local.set({
       "mattermostDeck.serverUrl.v1": origin, "mattermostDeck.language.v1": "en", "mattermostDeck.theme.v1": "light",
       "mattermostDeck.pollingIntervalSeconds.v1": 3600,
-      "mattermostDeck.traceCapture.v1": true,
       "mattermostDeck.allowedRouteKinds.v1": "channels",
       "mattermostDeck.postClickAction.v1": "navigate",
       "mattermostDeck.wsPat.v1": phase === "reconnecting" ? "fixture-token" : "",
@@ -80,6 +80,7 @@ test(`opening a reply during ${phase} preserves every mention pane`, async ({}, 
       [`mattermostDeck.mentionReview.v1:${encodeURIComponent(origin + "/")}:${encodeURIComponent(userId)}:post:*:${post.id}`]: post,
       "mattermostDeck.layout.v1": [{ id: "mentions", type: "mentions" }, { id: "review", type: "mentions", mentionReview: true }],
     }), { origin, post, userId: user.id, phase });
+    await setTraceCapture(context,sw,true);
     if (process.env.MM_DECK_VIRTUAL_LIST === "1") {
       await sw.evaluate(() => chrome.storage.local.set({ "mattermostDeck.virtualPostListExperiment.v1": true }));
     }
@@ -176,7 +177,7 @@ test(`opening a reply during ${phase} preserves every mention pane`, async ({}, 
     const worker = context.serviceWorkers()[0];
     if (worker) {
       await new Promise(resolve => setTimeout(resolve, 350));
-      const trace = await worker.evaluate(() => chrome.storage.local.get("mattermostDeck.traceEntries.v1"));
+      const trace = await readTraceEntries(context,worker);
       await fs.writeFile(testInfo.outputPath("navigation-trace.json"), JSON.stringify({ requests, searchRequests, connections, trace }, null, 2));
     }
     releaseSearch!();

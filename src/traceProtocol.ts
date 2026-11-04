@@ -2,9 +2,12 @@ export const TRACE_STORAGE_MESSAGE = "mattermost-deck:trace-storage";
 export const TRACE_CAPTURE_STORAGE_KEY = "mattermostDeck.traceCapture.v1";
 export const TRACE_LOG_STORAGE_KEY = "mattermostDeck.traceEntries.v1";
 export const TRACE_STATE_STORAGE_KEY = "mattermostDeck.traceState.v1";
-export const TRACE_LOG_LIMIT = 500;
+export const TRACE_LOG_LIMIT = 10_000;
 export const TRACE_LOG_TTL_MS = 24 * 60 * 60_000;
-export const TRACE_MAX_BYTES = 1024 * 1024;
+export const TRACE_MAX_BYTES = 10 * 1024 * 1024;
+export const TRACE_AGGREGATE_TTL_MS = 7 * 24 * 60 * 60_000;
+export const TRACE_AGGREGATE_BUCKET_LIMIT = 10_080;
+export const TRACE_PAGE_SIZE = 100;
 export const TRACE_ENTRY_MAX_BYTES = 16 * 1024;
 
 export type TraceLogLevel = "info" | "warn" | "error";
@@ -23,12 +26,24 @@ export interface TraceStorageSnapshot {
   generation: string;
   revision: number;
   entries: TraceLogEntry[];
+  entriesAuthoritative?: boolean;
+  aggregates?: TraceMinuteAggregate[];
+  hasMore?: boolean;
 }
+export interface TraceMinuteAggregate { start: number; count: number; errors: number; rateLimited: number; waitSum: number; waitCount: number; networkSum: number; networkCount: number; totalSum: number; totalCount: number; clientLimiterWaits: number; maxOutstanding: number }
 export interface TraceStorageRequest {
-  operation: "get" | "append" | "clear" | "setCapture";
+  operation: "get" | "append" | "clear" | "setCapture" | "query" | "aggregates";
   generation?: string;
   entries?: TraceLogEntry[];
   enabled?: boolean;
+  from?: number;
+  to?: number;
+  offset?: number;
+  limit?: number;
+  failedOnly?: boolean;
+  status?: number | "no-http" | "all";
+  query?: string;
+  requestsOnly?: boolean;
 }
 
 const encoder = new TextEncoder();

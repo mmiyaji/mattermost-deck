@@ -2,11 +2,10 @@ import { test, expect, chromium } from "@playwright/test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { setTraceCapture } from "./trace-storage";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.json");
-const TRACE_CAPTURE_STORAGE_KEY = "mattermostDeck.traceCapture.v1";
-const TRACE_LOG_STORAGE_KEY = "mattermostDeck.traceEntries.v1";
 const LAYOUT_STORAGE_KEY = "mattermostDeck.layout.v1";
 
 interface E2EState {
@@ -140,21 +139,18 @@ for (const specialMention of specialMentions) {
       const [existingSw] = context.serviceWorkers();
       const sw = existingSw ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
 
-      await sw.evaluate(({ serverUrl, traceCaptureStorageKey, traceLogStorageKey, layoutStorageKey }) => {
+      await sw.evaluate(({ serverUrl, layoutStorageKey }) => {
         return new Promise<void>((resolve) => {
           chrome.storage.local.set({
             "mattermostDeck.serverUrl.v1": serverUrl,
-            [traceCaptureStorageKey]: true,
-            [traceLogStorageKey]: [],
             [layoutStorageKey]: [{ id: "mentions", type: "mentions" }],
           }, () => resolve());
         });
       }, {
         serverUrl: baseUrl,
-        traceCaptureStorageKey: TRACE_CAPTURE_STORAGE_KEY,
-        traceLogStorageKey: TRACE_LOG_STORAGE_KEY,
         layoutStorageKey: LAYOUT_STORAGE_KEY,
       });
+      await setTraceCapture(context,sw,true);
 
       const page = await context.newPage();
       await page.addInitScript(() => {

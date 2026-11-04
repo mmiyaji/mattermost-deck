@@ -1,4 +1,5 @@
 import type { TraceLogEntry } from "../traceLog";
+import { PERFORMANCE_PRESETS, type PerformanceSettings } from "../performanceSettings";
 
 export interface PerformanceRequest {
   key: string;
@@ -13,6 +14,8 @@ export interface PerformanceRequest {
   path: string;
   reason: string;
   error: string;
+  purpose: string;
+  priority: string;
 }
 const metricNumber = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 const text = (value: unknown): string => typeof value === "string" ? value : "";
@@ -33,7 +36,7 @@ export function normalizePerformanceRequests(entries: TraceLogEntry[]): Performa
       wait: paired ? wait : null, queueWait: wait, network: paired ? total - wait : null,
       failed: entry.event === "request.error" || entry.payload?.failed === true || (status !== null && status >= 400),
       status, method: text(entry.payload?.method) || "—", path: text(entry.payload?.fullPath) || text(entry.payload?.path) || "—",
-      reason: text(entry.payload?.reason), error: text(entry.payload?.error) }];
+      reason: text(entry.payload?.reason), error: text(entry.payload?.error), purpose: text(entry.payload?.purpose), priority: text(entry.payload?.priority) }];
   });
 }
 
@@ -64,4 +67,25 @@ export function analyzePerformance(entries: TraceLogEntry[]) {
     rateWaits: rateWaits.length, status,
     peakOutstanding: depths.length ? Math.max(...depths) : null,
     start: entries.length ? Math.min(...entries.map(e => e.timestamp)) : null, end, buckets };
+}
+
+/** Conservative advice only from a fresh, paired, sufficiently broad request sample. */
+export function recommendPerformanceDraft(entries: TraceLogEntry[], now = Date.now()): { preset: "low" | "high"; count: number; waitMs: number; rateWaits: number; values: PerformanceSettings } | null {
+  const samples = normalizePerformanceRequests(entries);
+  const paired = samples.filter(sample => sample.network !== null);
+  const start = paired.length ? Math.min(...paired.map(sample => sample.entry.timestamp)) : null;
+  const end = paired.length ? Math.max(...paired.map(sample => sample.entry.timestamp)) : null;
+  if (paired.length < 10 || start === null || end === null || end - start < 120_000 || now - end > 24 * 60 * 60_000 || end > now + 60_000) return null;
+  // Client rate-limit waits are distinct from HTTP 429 and can support a bounded increase when transport is healthy.
+  if (samples.some(sample => sample.failed || sample.status === 429)) return null;
+  const waits = paired.map(sample => sample.wait!).sort((a, b) => a - b);
+  const networks = paired.map(sample => sample.network!).sort((a, b) => a - b);
+  const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
+  const waitMs = mean(waits);
+  const rateWaits = entries.filter(entry => entry.source === "api" && entry.event === "request.rate_limit_wait").length;
+  const slowNetwork = networks[Math.ceil(networks.length * .95) - 1] >= 1000;
+  const queueHeavy = waitMs >= 500 && waitMs > mean(networks);
+  const preset = slowNetwork ? "low" : queueHeavy ? "high" : null;
+  if (!preset) return null;
+  return { preset, count: paired.length, waitMs: Math.round(waitMs), rateWaits, values: PERFORMANCE_PRESETS[preset] };
 }

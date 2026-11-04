@@ -259,20 +259,24 @@ test("1.0.9 release notice stays aligned, wraps actions, and explains the consis
       const actions = document.querySelector<HTMLElement>(".options-release-banner-actions")!;
       const panel = document.querySelector<HTMLElement>(".options-panel")!;
       const buttons = Array.from(actions.querySelectorAll<HTMLElement>(".options-button"));
+      const standardButton = document.querySelector<HTMLElement>(".options-save-footer .options-button")!;
       const bannerRect = banner.getBoundingClientRect();
       const bodyRect = body.getBoundingClientRect();
       const actionsRect = actions.getBoundingClientRect();
       const panelRect = panel.getBoundingClientRect();
+      const panelStyle = getComputedStyle(panel);
+      const standardButtonHeight = standardButton.getBoundingClientRect().height;
 
       return {
-        alignedLeft: Math.abs(bannerRect.left - (panelRect.left + 16)) <= 1,
+        alignedLeft: Math.abs(bannerRect.left - (panelRect.left + parseFloat(panelStyle.paddingLeft))) <= 1,
         actionsBelowBody: actionsRect.top >= bodyRect.bottom,
         noHorizontalOverflow: banner.scrollWidth <= banner.clientWidth,
         buttonsContained: buttons.every((button) => {
           const rect = button.getBoundingClientRect();
           return rect.left >= bannerRect.left && rect.right <= bannerRect.right;
         }),
-        buttonHeights: buttons.map((button) => Math.round(button.getBoundingClientRect().height)),
+        buttonHeights: buttons.map((button) => button.getBoundingClientRect().height),
+        standardButtonHeight,
       };
     });
 
@@ -281,8 +285,10 @@ test("1.0.9 release notice stays aligned, wraps actions, and explains the consis
       actionsBelowBody: true,
       noHorizontalOverflow: true,
       buttonsContained: true,
-      buttonHeights: [36, 36, 36],
+      buttonHeights: [narrowLayout.standardButtonHeight, narrowLayout.standardButtonHeight, narrowLayout.standardButtonHeight],
+      standardButtonHeight: narrowLayout.standardButtonHeight,
     });
+    expect(narrowLayout.standardButtonHeight).toBeGreaterThanOrEqual(36);
 
     await page.setViewportSize({ width: 1_280, height: 800 });
     const wideLayout = await page.evaluate(() => {
@@ -292,10 +298,12 @@ test("1.0.9 release notice stays aligned, wraps actions, and explains the consis
       const bannerRect = banner.getBoundingClientRect();
       const actionsRect = actions.getBoundingClientRect();
       const panelRect = panel.getBoundingClientRect();
+      const panelStyle = getComputedStyle(panel);
+      const horizontalPadding = parseFloat(panelStyle.paddingLeft);
 
       return {
-        alignedLeft: Math.abs(bannerRect.left - (panelRect.left + 32)) <= 1,
-        alignedRight: Math.abs(bannerRect.right - (panelRect.right - 32)) <= 1,
+        alignedLeft: Math.abs(bannerRect.left - (panelRect.left + horizontalPadding)) <= 1,
+        alignedRight: Math.abs(bannerRect.right - (panelRect.right - horizontalPadding)) <= 1,
         actionsContained: actionsRect.right <= bannerRect.right,
         noHorizontalOverflow: banner.scrollWidth <= banner.clientWidth,
       };
@@ -374,6 +382,7 @@ for (const locale of [
           const body = document.querySelector<HTMLElement>(".options-release-banner-body")!;
           const actions = document.querySelector<HTMLElement>(".options-release-banner-actions")!;
           const buttons = Array.from(actions.querySelectorAll<HTMLElement>(".options-button"));
+          const standardButton = document.querySelector<HTMLElement>(".options-save-footer .options-button")!;
           const bannerRect = banner.getBoundingClientRect();
           const bodyRect = body.getBoundingClientRect();
           const actionsRect = actions.getBoundingClientRect();
@@ -390,7 +399,8 @@ for (const locale of [
               const rect = button.getBoundingClientRect();
               return rect.left >= bannerRect.left && rect.right <= bannerRect.right;
             }),
-            buttonHeights: buttons.map((button) => Math.round(button.getBoundingClientRect().height)),
+            buttonHeights: buttons.map((button) => button.getBoundingClientRect().height),
+            standardButtonHeight: standardButton.getBoundingClientRect().height,
           };
         });
 
@@ -401,7 +411,8 @@ for (const locale of [
         expect(layout.buttonsContained).toBe(true);
         expect(layout.actionsWidth).toBeGreaterThanOrEqual(layout.bodyWidth - 1);
         expect(layout.bodyWidth).toBeGreaterThanOrEqual(viewportWidth === 760 ? 400 : 260);
-        expect(layout.buttonHeights).toEqual([36, 36, 36]);
+        expect(layout.buttonHeights).toEqual([layout.standardButtonHeight, layout.standardButtonHeight, layout.standardButtonHeight]);
+        expect(layout.standardButtonHeight).toBeGreaterThanOrEqual(36);
         if (viewportWidth === 420) {
           expect(layout.actionsHeight).toBeGreaterThan(36);
         }

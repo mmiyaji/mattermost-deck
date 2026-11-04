@@ -2,11 +2,10 @@ import { test, expect, chromium } from "@playwright/test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { clearTraceEntries, readTraceEntries, setTraceCapture } from "./trace-storage";
 
 const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 const stateFile = process.env.MM95_STATE_FILE ?? path.resolve("e2e/mm95-state.json");
-const TRACE_CAPTURE_STORAGE_KEY = "mattermostDeck.traceCapture.v1";
-const TRACE_LOG_STORAGE_KEY = "mattermostDeck.traceEntries.v1";
 const LAYOUT_STORAGE_KEY = "mattermostDeck.layout.v1";
 
 interface E2EState {
@@ -149,8 +148,6 @@ test("switching channels keeps Deck panes mounted and avoids a full refetch", as
       serverUrl,
       token,
       teamId,
-      traceCaptureStorageKey,
-      traceLogStorageKey,
       layoutStorageKey,
     }) => {
       return new Promise<void>((resolve) => {
@@ -159,8 +156,6 @@ test("switching channels keeps Deck panes mounted and avoids a full refetch", as
           "mattermostDeck.wsPat.v1": token,
           "mattermostDeck.persistPat.v1": "true",
           "mattermostDeck.pollingIntervalSeconds.v1": "120",
-          [traceCaptureStorageKey]: true,
-          [traceLogStorageKey]: [],
           [layoutStorageKey]: [{
             id: "mentions-route-stability",
             type: "mentions",
@@ -173,10 +168,10 @@ test("switching channels keeps Deck panes mounted and avoids a full refetch", as
       serverUrl: baseUrl,
       token,
       teamId: team!.id,
-      traceCaptureStorageKey: TRACE_CAPTURE_STORAGE_KEY,
-      traceLogStorageKey: TRACE_LOG_STORAGE_KEY,
       layoutStorageKey: LAYOUT_STORAGE_KEY,
     });
+    await clearTraceEntries(context, sw);
+    await setTraceCapture(context, sw, true);
 
     if (process.env.MM_DECK_VIRTUAL_LIST === "1") {
       await sw.evaluate(() => chrome.storage.local.set({ "mattermostDeck.virtualPostListExperiment.v1": true }));
@@ -224,11 +219,8 @@ test("switching channels keeps Deck panes mounted and avoids a full refetch", as
     }, rootMarker);
 
     await page.waitForTimeout(500);
-    await sw.evaluate((traceLogStorageKey) => {
-      return new Promise<void>((resolve) => {
-        chrome.storage.local.set({ [traceLogStorageKey]: [] }, () => resolve());
-      });
-    }, TRACE_LOG_STORAGE_KEY);
+    await clearTraceEntries(context, sw);
+    await setTraceCapture(context, sw, true);
     await page.waitForTimeout(500);
 
     capture = true;
@@ -257,13 +249,7 @@ test("switching channels keeps Deck panes mounted and avoids a full refetch", as
     });
     await page.waitForTimeout(750);
 
-    const traceEntries = await sw.evaluate((traceLogStorageKey) => {
-      return new Promise<TraceLogEntry[]>((resolve) => {
-        chrome.storage.local.get(traceLogStorageKey, (value) => {
-          resolve((value[traceLogStorageKey] as TraceLogEntry[] | undefined) ?? []);
-        });
-      });
-    }, TRACE_LOG_STORAGE_KEY);
+    const traceEntries = await readTraceEntries(context, sw, { requestsOnly: true });
     const deckApiPaths = traceEntries
       .filter((entry) =>
         entry.source === "api" &&

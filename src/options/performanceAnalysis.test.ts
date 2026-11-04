@@ -1,9 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { analyzePerformance } from "./performanceAnalysis";
+import { analyzePerformance, recommendPerformanceDraft } from "./performanceAnalysis";
+import { PERFORMANCE_PRESETS } from "../performanceSettings";
 import type { TraceLogEntry } from "../traceLog";
 
 const request = (payload: Record<string, unknown>, timestamp = 1_700_000_000_000, event = "request.complete"): TraceLogEntry => ({ timestamp, source: "api", level: "info", event, payload });
 describe("retained performance analysis", () => {
+  it("suggests a bounded High preset for fresh queue or client rate waits with healthy network", () => {
+    const now = 1_700_000_600_000;
+    const rows = Array.from({ length: 12 }, (_, index) => request({ durationMs: 700, queueWaitMs: 600 }, now - 180_000 + index * 15_000));
+    rows.push(request({ waitMs: 500 }, now - 30_000, "request.rate_limit_wait"));
+    const advice = recommendPerformanceDraft(rows, now);
+    expect(advice).toMatchObject({ preset: "high", count: 12, rateWaits: 1, values: PERFORMANCE_PRESETS.high });
+  });
+  it("suggests Standard for slow network response, without recommending more load", () => {
+    const now = 1_700_000_600_000;
+    const rows = Array.from({ length: 12 }, (_, index) => request({ durationMs: 1800, queueWaitMs: 50 }, now - 180_000 + index * 15_000));
+    expect(recommendPerformanceDraft(rows, now)).toMatchObject({ preset: "low", values: PERFORMANCE_PRESETS.low });
+  });
+  it("withholds tuning advice for HTTP 429, errors, too few samples, or stale samples", () => {
+    const now = 1_700_000_600_000;
+    const rows = Array.from({ length: 12 }, (_, index) => request({ durationMs: 700, queueWaitMs: 600 }, now - 180_000 + index * 15_000));
+    expect(recommendPerformanceDraft(rows.slice(0, 8), now)).toBeNull();
+    expect(recommendPerformanceDraft(rows.map((row, index) => index === 0 ? { ...row, payload: { ...row.payload, status: 429 } } : row), now)).toBeNull();
+    expect(recommendPerformanceDraft(rows.map((row, index) => index === 0 ? { ...row, event: "request.error" } : row), now)).toBeNull();
+    expect(recommendPerformanceDraft(rows, now + 25 * 60 * 60_000)).toBeNull();
+  });
   it("separates queue wait from total duration and flags queue dominance", () => {
     const a = analyzePerformance([request({ durationMs: 1500, queueWaitMs: 1200, queueDepth: 41 })]);
     expect(a).toMatchObject({ total: 1500, wait: 1200, network: 300, status: "queue", peakOutstanding: 41 });

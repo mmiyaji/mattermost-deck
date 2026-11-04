@@ -3,6 +3,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { waitForInstalledOptions } from "./extension-install";
+import { appendTraceEntries } from "./trace-storage";
+
+const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
 
 async function fixture(language = "en") {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "deck-settings-design-"));
@@ -15,14 +18,14 @@ async function fixture(language = "en") {
   const page = await waitForInstalledOptions(context, worker);
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
-  await worker.evaluate(async language => {
+  await worker.evaluate(async ({ language, baseUrl }) => {
     await chrome.storage.local.clear();
     await chrome.storage.local.set({
       "mattermostDeck.language.v1": language,
       "mattermostDeck.theme.v1": "light",
-      "mattermostDeck.serverUrl.v1": "http://127.0.0.1:8066",
+      "mattermostDeck.serverUrl.v1": baseUrl,
     });
-  }, language);
+  }, { language, baseUrl });
   await page.reload();
   await expect(page.locator(".options-app")).toHaveAttribute("data-loaded", "true");
   return { page, worker, errors, async close() { await context.close(); await fs.rm(directory, { recursive: true, force: true }); } };
@@ -49,8 +52,8 @@ async function noPageOverflow(page: Page) {
   expect(widths.panel).toBeLessThanOrEqual(widths.panelViewport + 1);
 }
 
-async function seedTraces(worker: Worker) {
-  const end = Math.floor(Date.now() / 60_000) * 60_000 + 30_000;
+async function seedTraces(context: import("@playwright/test").BrowserContext, worker: Worker) {
+  const end = Date.now();
   const entries = Array.from({ length: 500 }, (_, i) => {
     const failed = i % 4 === 0;
     const transport = i % 20 === 0;
@@ -61,7 +64,7 @@ async function seedTraces(worker: Worker) {
         queueDepth: i % 40, failed, ...(transport ? { error: `network-unavailable-${i}` } : { status: failed ? [403, 429, 500][Math.floor(i / 4) % 3] : 200 }),
       } };
   });
-  await worker.evaluate(entries => chrome.storage.local.set({ "mattermostDeck.traceCapture.v1": true, "mattermostDeck.traceEntries.v1": entries }), entries);
+  await appendTraceEntries(context, worker, entries);
   return { end, entries, failed: entries.filter(entry => entry.payload.failed).length };
 }
 
@@ -205,7 +208,7 @@ test("failed requests drill down from the metric and chart into filtered, paged 
   const f = await fixture();
   const { page } = f;
   try {
-    const data = await seedTraces(f.worker);
+    const data = await seedTraces(f.page.context(), f.worker);
     await page.reload();
     await page.getByTestId("options-nav-performance").click();
     const metric = page.getByTestId("performance-failed-metric");
@@ -228,13 +231,18 @@ test("failed requests drill down from the metric and chart into filtered, paged 
     await expect(page.getByTestId("performance-filter-all")).toHaveAttribute("aria-pressed", "true");
     await expect(rows).toHaveCount(50);
     const lastMinute = Math.floor(data.end / 60_000) * 60_000;
-    const expectedLastMinute = data.entries.filter(entry => entry.payload.failed && entry.timestamp >= lastMinute && entry.timestamp < lastMinute + 60_000);
+    const binMinutes = Math.ceil((24 * 60) / 299);
+    const binMs = binMinutes * 60_000;
+    const selectedBinStart = Math.floor(lastMinute / binMs) * binMs;
+    const selectedBinEnd = selectedBinStart + binMs;
+    const expectedLastBin = data.entries.filter(entry => entry.payload.failed && entry.timestamp >= selectedBinStart && entry.timestamp < selectedBinEnd);
     const redBar = page.getByTestId("performance-chart-count").locator(".recharts-bar").last().locator(".recharts-bar-rectangle path").last();
     await expect(redBar).toBeVisible();
     await redBar.click();
-    await expect(page.getByTestId("performance-time-filter")).toHaveValue(String(lastMinute));
+    await expect(page.getByTestId("performance-time-filter")).toHaveValue(String(selectedBinStart));
+    await expect(page.getByTestId("performance-time-filter").locator("option:checked")).toContainText(/グラフ期間|chart range/);
     await expect(page.getByTestId("performance-filter-failed")).toHaveAttribute("aria-pressed", "true");
-    await expect(rows).toHaveCount(expectedLastMinute.length);
+    await expect(rows).toHaveCount(expectedLastBin.length);
     const earlierMinute = lastMinute - 60_000;
     const timeFilter = page.getByTestId("performance-time-filter");
     await timeFilter.focus();
@@ -252,7 +260,6 @@ test("failed requests drill down from the metric and chart into filtered, paged 
     await expect(rows).toHaveCount(25);
     await expect(rows.first()).toContainText("No / unknown HTTP response");
     await page.getByTestId("performance-status-filter").selectOption("429");
-    expect(await rows.count()).toBeGreaterThan(0);
     await expect(rows.first()).toContainText("HTTP 429");
     await page.getByTestId("performance-filter-failed").click();
     await page.getByTestId("performance-status-filter").selectOption("200");

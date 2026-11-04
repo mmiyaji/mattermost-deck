@@ -3,8 +3,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { waitForInstalledOptions } from "./extension-install";
+import { readTraceEntries, setTraceCapture } from "./trace-storage";
 
-const serverScope = "http://127.0.0.1:8066/";
+const serverScope = `${process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066"}/`;
 const privacyType = "mattermost-deck:body-cache-privacy";
 const mentionType = "mattermost-deck:mention-cache-storage";
 const favoriteType = "mattermost-deck:favorite-cache-storage";
@@ -287,11 +288,11 @@ test("real Mattermost session expiry, logout and post-access 403 clear bodies wh
     await worker.evaluate(({ origin, watched, teamId }) => chrome.storage.local.set({
       "mattermostDeck.serverUrl.v1": origin, "mattermostDeck.language.v1": "en", "mattermostDeck.theme.v1": "light",
       "mattermostDeck.pollingIntervalSeconds.v1": "3600", "mattermostDeck.allowedRouteKinds.v1": "channels",
-      "mattermostDeck.traceCapture.v1": true,
       "mattermostDeck.apiMinStartGapMs.v1": "0", "mattermostDeck.apiGlobalRequestsPerMinute.v1": "1200",
       "mattermostDeck.apiGetRequestsPerMinute.v1": "1200", "mattermostDeck.apiPostRequestsPerMinute.v1": "600",
       "mattermostDeck.layout.v1": [{ id: "privacy-watch", type: "channelWatch", teamId, channelId: watched.id }],
     }), { origin, watched, teamId: team.id });
+    await setTraceCapture(context,worker,true);
     const login = await context.request.post(`${origin}/api/v4/users/login`, { data: { login_id: user.username, password } });
     expect(login.ok()).toBe(true);
     const app = await context.newPage();
@@ -333,11 +334,10 @@ test("real Mattermost session expiry, logout and post-access 403 clear bodies wh
     await expect.poll(() => group403s).toBeGreaterThan(beforeFeature);
     // Check the extension's own API trace, not merely a similar native-client
     // request, so this proves its feature-level 403 path does not purge bodies.
-    await expect.poll(async () => worker.evaluate(async userId => {
-      const entries = (await chrome.storage.local.get("mattermostDeck.traceEntries.v1"))["mattermostDeck.traceEntries.v1"] ?? [];
-      return entries.some((entry: any) => entry.source === "api" && entry.event === "request.complete" && entry.payload?.status === 403
-        && String(entry.payload?.path).includes(`/users/${userId}/groups`));
-    }, user.id), { timeout: 10_000 }).toBe(true);
+    await expect.poll(async () => {
+      const entries=await readTraceEntries(context,worker,{requestsOnly:true,query:`/users/${user.id}/groups`});
+      return entries.some(entry=>entry.source==="api"&&entry.event==="request.complete"&&entry.payload?.status===403);
+    }, { timeout: 10_000 }).toBe(true);
     const afterFeature = await bodies(options, user.id);
     expect(afterFeature.persistent?.posts[0]?.message).toContain(user.id);
     expect(afterFeature.session?.posts[0]?.message).toContain(user.id);

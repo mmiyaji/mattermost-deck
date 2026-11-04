@@ -38,7 +38,8 @@ import {
   switchDeckProfile,
   type DeckProfileSummary,
 } from "../ui/profiles";
-import { clearTraceEntries, getTraceEntries, isTraceCaptureEnabled, setTraceCaptureEnabled, subscribeTraceEntries, type TraceLogEntry } from "../traceLog";
+import { getTraceEntries, isTraceCaptureEnabled, refreshTraceEntries, setTraceCaptureEnabled, subscribeTraceEntries, type TraceLogEntry } from "../traceLog";
+import { TRACE_STORAGE_MESSAGE } from "../traceProtocol";
 import { localizePerformancePurpose } from "./performancePurpose";
 import { hasSettingsChanges } from "./settingsDraft";
 import { clearBodyCaches } from "../bodyCachePrivacyClient";
@@ -49,7 +50,7 @@ import { settingsExperienceCss } from "./settingsExperienceStyles";
 import { settingsShellCss } from "./settingsShellStyles";
 import { SettingsThemeControl } from "./SettingsThemeControl";
 import { performanceDrilldownCss } from "./performanceDrilldownStyles";
-import { PERFORMANCE_DEFAULTS, PERFORMANCE_LIMITS, RESPONSIVE_PERFORMANCE_PRESET, normalizePerformanceSettings, type PerformanceSettings } from "../performanceSettings";
+import { PERFORMANCE_DEFAULTS, PERFORMANCE_LIMITS, PERFORMANCE_PRESETS, matchPerformancePreset, normalizePerformanceSettings, type PerformancePresetId, type PerformanceSettings } from "../performanceSettings";
 
 const PRODUCT_SITE_URL = "https://mattermost-deck.ruhenheim.org/";
 const REPO_URL = "https://github.com/mmiyaji/mattermost-deck";
@@ -451,10 +452,14 @@ function useTraceLogSnapshot(): [TraceLogEntry[], boolean] {
   const [entries, setEntries] = useState<TraceLogEntry[]>(() => getTraceEntries());
   const [enabled, setEnabled] = useState(() => isTraceCaptureEnabled());
 
-  useEffect(() => subscribeTraceEntries(() => {
-    setEntries(getTraceEntries());
-    setEnabled(isTraceCaptureEnabled());
-  }), []);
+  useEffect(() => {
+    void refreshTraceEntries();
+    return subscribeTraceEntries(() => {
+      setEntries(getTraceEntries());
+      setEnabled(isTraceCaptureEnabled());
+      void refreshTraceEntries();
+    });
+  }, []);
 
   return [entries, enabled];
 }
@@ -2024,6 +2029,22 @@ function OptionsApp(): React.JSX.Element {
   const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
   const [activePanel, setActivePanel] = useState<ActivePanel>("conn");
   const [performanceWide, setPerformanceWide] = useState(true);
+  const [performancePresetPreview, setPerformancePresetPreview] = useState<Exclude<PerformancePresetId, "custom"> | null>(null);
+  const [performanceCustomMode, setPerformanceCustomMode] = useState(false);
+  const performanceSettingsSignature = PERFORMANCE_FIELDS.map(field => settings[field]).join("|");
+  const savedPerformancePreset = matchPerformancePreset(savedSettings);
+  const currentPerformancePreset = matchPerformancePreset(settings);
+  const performancePresetName = (id: PerformancePresetId) => ({
+    low: settings.language === "ja" ? "低" : "Low",
+    standard: settings.language === "ja" ? "標準" : "Standard",
+    high: settings.language === "ja" ? "高" : "High",
+    custom: settings.language === "ja" ? "カスタム" : "Custom",
+  })[id];
+  useEffect(() => {
+    const matched = matchPerformancePreset(settings);
+    setPerformanceCustomMode(matched === "custom");
+    setPerformancePresetPreview(null);
+  }, [performanceSettingsSignature]);
   const installBannerRef = useRef<HTMLDivElement>(null);
   const releaseNotesTriggerRef = useRef<HTMLButtonElement>(null);
   const releaseNotesModalRef = useRef<HTMLDivElement>(null);
@@ -2230,6 +2251,9 @@ function OptionsApp(): React.JSX.Element {
     [t],
   );
   const [traceEntries, traceCaptureEnabled] = useTraceLogSnapshot();
+  const [traceExportError, setTraceExportError] = useState(false);
+  const [traceClearError, setTraceClearError] = useState(false);
+  const [traceClearPending, setTraceClearPending] = useState(false);
   const [endpointSummarySort, setEndpointSummarySort] = useState<{ key: EndpointSummarySortKey; direction: "asc" | "desc" }>({
     key: "count",
     direction: "desc",
@@ -2556,8 +2580,37 @@ function OptionsApp(): React.JSX.Element {
     window.setTimeout(() => setSavedNotice(false), 2500);
   };
 
-  const handleExportTraceJsonl = () => {
-    const lines = traceEntries
+  const handleExportTraceJsonl = async () => {
+    setTraceExportError(false);
+    const all: TraceLogEntry[] = [];
+    try {
+      const from = Date.now() - 24 * 60 * 60_000;
+      const to = Date.now() + 1;
+      const initial = await chrome.runtime.sendMessage({ type: TRACE_STORAGE_MESSAGE, operation: "get" }) as { success?: boolean; generation?: string } | undefined;
+      if (!initial?.success || typeof initial.generation !== "string") throw new Error("Trace export snapshot unavailable");
+      const generation = initial.generation;
+      let offset = 0;
+      const seen = new Set<string>();
+      let pages = 0;
+      let hasMore = true;
+      while (pages < 100 && hasMore) {
+        const response = await chrome.runtime.sendMessage({ type: TRACE_STORAGE_MESSAGE, operation: "query", from, to, offset, limit: 100 }) as { success?: boolean; generation?: string; entries?: TraceLogEntry[]; hasMore?: boolean } | undefined;
+        if (!response?.success || !Array.isArray(response.entries)) throw new Error("Trace export query failed");
+        if (response.generation !== generation) throw new Error("Trace generation changed during export");
+        for (const entry of response.entries) {
+          const key = entry.id ?? `${entry.timestamp}:${entry.source}:${entry.event}`;
+          if (!seen.has(key)) { seen.add(key); all.push(entry); }
+        }
+        pages++;
+        hasMore = Boolean(response.hasMore) && response.entries.length > 0;
+        offset += response.entries.length;
+      }
+      if (hasMore) throw new Error("Trace export exceeded the retained-log page bound");
+    } catch {
+      setTraceExportError(true);
+      return;
+    }
+    const lines = all
       .slice()
       .reverse()
       .map((entry) =>
@@ -2580,8 +2633,17 @@ function OptionsApp(): React.JSX.Element {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const handleClearTraceLog = () => {
-    clearTraceEntries();
+  const handleClearTraceLog = async () => {
+    setTraceClearPending(true);
+    setTraceClearError(false);
+    try {
+      const response = await chrome.runtime.sendMessage({ type: TRACE_STORAGE_MESSAGE, operation: "clear" }) as { success?: boolean } | undefined;
+      if (!response?.success) throw new Error("Trace clear failed");
+    } catch {
+      setTraceClearError(true);
+    } finally {
+      setTraceClearPending(false);
+    }
   };
 
   const handleDismissReleaseNotice = () => {
@@ -3826,6 +3888,60 @@ function OptionsApp(): React.JSX.Element {
 
               </section>
 
+              <section className="options-callout performance-preset" aria-labelledby="performance-preset-title" data-testid="performance-preset">
+                <strong id="performance-preset-title">{settings.language === "ja" ? "パフォーマンス設定" : "Performance preset"}</strong>
+                <p>{settings.language === "ja" ? "取得負荷と更新頻度を選びます。プリセットの変更はプレビュー後に適用し、保存すると反映されます。" : "Choose request load and refresh frequency. Preview a preset, apply it to your draft, then Save to make it active."}</p>
+                <div className="performance-preset-status" data-testid="performance-preset-state" aria-live="polite">
+                  <span><strong>{settings.language === "ja" ? "保存済み" : "Saved"}:</strong> {performancePresetName(savedPerformancePreset)}</span>
+                  <span><strong>{settings.language === "ja" ? "編集中" : "Editing"}:</strong> {performancePresetName(currentPerformancePreset)}{PERFORMANCE_FIELDS.some(field => settings[field] !== savedSettings[field]) ? ` · ${settings.language === "ja" ? "未保存の変更" : "Unsaved changes"}` : ` · ${settings.language === "ja" ? "プリセット変更なし" : "No preset changes"}`}</span>
+                  {performancePresetPreview && <span data-testid="performance-preset-preview-status"><strong>{settings.language === "ja" ? "プレビュー" : "Preview"}:</strong> {performancePresetName(performancePresetPreview)} · {settings.language === "ja" ? "未適用" : "Not applied"}</span>}
+                </div>
+                <fieldset className="performance-preset-choices" data-testid="performance-preset-guidance">
+                  <legend>{settings.language === "ja" ? "プリセットを選択" : "Choose a preset"}</legend>
+                  <div className="performance-preset-grid">
+                    {([
+                      ["low", settings.language === "ja" ? "API取得量を抑え、メンションの更新頻度も下げます。" : "Fewer API requests; mentions refresh less often."],
+                      ["standard", settings.language === "ja" ? "従来の既定値です。" : "The existing default values."],
+                      ["high", settings.language === "ja" ? "取得枠を増やします。サーバー負荷が増える場合があります。" : "Larger request budgets may increase server load."],
+                      ["custom", settings.language === "ja" ? "詳細設定で項目ごとに調整します。" : "Tune individual values in Advanced settings."],
+                    ] as const).map(([id, description]) => {
+                      const value = id as PerformancePresetId;
+                      const checked = performancePresetPreview
+                        ? performancePresetPreview === value
+                        : performanceCustomMode ? value === "custom" : currentPerformancePreset === value;
+                      return <label className="performance-preset-card" key={id} data-testid={`performance-preset-card-${id}`}>
+                        <input type="radio" name="performance-preset" value={id} data-testid={`performance-preset-radio-${id}`} checked={checked}
+                          onChange={() => {
+                            setPerformancePresetPreview(value === "custom" ? null : value);
+                            setPerformanceCustomMode(value === "custom");
+                            if (value === "custom") {
+                              const advanced = document.querySelector<HTMLDetailsElement>('[data-testid="performance-settings"]');
+                              if (advanced) { advanced.open = true; advanced.scrollIntoView({ behavior: "smooth", block: "start" }); }
+                            }
+                          }} />
+                        <strong>{performancePresetName(value)}</strong><span>{description}</span>
+                      </label>;
+                    })}
+                  </div>
+                </fieldset>
+                {performanceCustomMode && currentPerformancePreset !== "custom" && <p className="performance-preset-custom-hint" data-testid="performance-custom-mode-hint">{settings.language === "ja" ? "詳細設定の値を変更すると、編集中の設定はカスタムとして判定されます。変更せずに閉じると現在の設定が維持されます。" : "Editing values below marks the current draft Custom. Close without edits to keep the current settings."}</p>}
+                {performancePresetPreview && <div className="performance-preset-preview" data-testid="performance-preset-preview">
+                  <h3>{settings.language === "ja" ? `${performancePresetName(performancePresetPreview)}の変更内容` : `${performancePresetName(performancePresetPreview)} preset changes`}</h3>
+                  <p>{settings.language === "ja" ? "下書きに適用する前に、現在の値と変更後の値を確認してください。" : "Review current and proposed values before applying them to your draft."}</p>
+                  {PERFORMANCE_FIELDS.some(field => settings[field] !== PERFORMANCE_PRESETS[performancePresetPreview][field]) ? <div className="performance-preset-table-wrap">
+                    <table className="performance-preset-table">
+                      <thead><tr><th scope="col">{settings.language === "ja" ? "設定項目" : "Setting"}</th><th scope="col">{settings.language === "ja" ? "現在" : "Current"}</th><th scope="col">{settings.language === "ja" ? "変更後" : "Proposed"}</th></tr></thead>
+                      <tbody>{PERFORMANCE_FIELDS.filter(field => settings[field] !== PERFORMANCE_PRESETS[performancePresetPreview][field]).map(field => <tr key={field}>
+                        <td>{t(`options.performanceSettings.fields.${field}`)}</td>
+                        <td data-label={settings.language === "ja" ? "現在" : "Current"}>{settings[field]}</td>
+                        <td data-label={settings.language === "ja" ? "変更後" : "Proposed"}>{PERFORMANCE_PRESETS[performancePresetPreview][field]}</td>
+                      </tr>)}</tbody>
+                    </table>
+                  </div> : <p>{settings.language === "ja" ? "現在編集中の値と同じです。" : "These values already match the current draft."}</p>}
+                  <button type="button" className="options-button" data-testid="performance-preset-apply" onClick={() => { setSettings(current => ({ ...current, ...PERFORMANCE_PRESETS[performancePresetPreview] })); setPerformancePresetPreview(null); }}>{settings.language === "ja" ? "下書きに適用" : "Apply to draft"}</button>
+                </div>}
+              </section>
+
               <details className="options-connection-advanced" data-testid="performance-settings">
                 <summary>{t("options.performanceSettings.title")}</summary>
                 <p className="options-hint">{settings.language === "ja" ? "取得頻度や並列数を細かく調整したい方のための設定です。通常は変更する必要はありません。" : "For users who want to tune request rates and concurrency. Most users can keep the defaults."}</p>
@@ -3833,18 +3949,6 @@ function OptionsApp(): React.JSX.Element {
                   <p className="options-copy">{t("options.performanceSettings.description")}</p>
                   <p className="options-hint">{t("options.performanceSettings.apiHint")}</p>
                   <p className="options-hint">{t("options.performanceSettings.mentionHint")}</p>
-                  <div className="options-cache-fetch-preset">
-                    <strong>{settings.language === "ja" ? "多数のペインの取得待ちも短くする" : "Reduce fetching waits across many panes"}</strong>
-                    <p>{settings.language === "ja" ? "投稿が表示されるまでの待ち時間を短くするため、取得を進めやすい設定に切り替えます。キャッシュ保持設定は変更しません。" : "Use settings that let fetching progress sooner. This does not change cache retention."}</p>
-                    <button type="button" className="options-button options-button--ghost" data-testid="performance-apply-fetch-preset"
-                      onClick={() => setSettings(current => ({ ...current, ...RESPONSIVE_PERFORMANCE_PRESET }))}>
-                      {settings.language === "ja" ? "取得待ちを短くする設定を使う" : "Use faster fetching settings"}
-                    </button>
-                    <span className="options-hint" role="status" data-testid="performance-fetch-preset-state">{Object.entries(RESPONSIVE_PERFORMANCE_PRESET).every(([key, value]) => settings[key as keyof PerformanceSettings] === value)
-                      ? (Object.entries(RESPONSIVE_PERFORMANCE_PRESET).every(([key, value]) => savedSettings[key as keyof PerformanceSettings] === value)
-                        ? (settings.language === "ja" ? "適用済み" : "Applied") : (settings.language === "ja" ? "保存すると適用されます" : "Ready to apply with Save"))
-                      : (settings.language === "ja" ? "未適用" : "Not applied")}</span>
-                  </div>
                   <div className="options-grid">
                     {PERFORMANCE_FIELDS.map((field) => (
                       <PerformanceNumberInput key={field} field={field} value={settings[field]}
@@ -3862,7 +3966,9 @@ function OptionsApp(): React.JSX.Element {
               <div className="options-callout" role="note" data-testid="performance-trace-capture">
                 <strong>{text.performanceCaptureLabel}</strong>
                 <p>{text.performanceCaptureHint}</p>
-                <p style={{ marginTop: "6px" }}>{text.performanceRetentionHint}</p>
+                <p style={{ marginTop: "6px" }}>{settings.language === "ja"
+                  ? "詳細ログは24時間・最大10,000件または10 MBまで保持します。1分集計は7日間保持し、記録をOFFにすると両方を削除します。"
+                  : "Detailed logs are retained for 24 hours, up to 10,000 entries or 10 MB. One-minute aggregates are retained for 7 days. Turning capture off clears both."}</p>
                 <div className="options-inline options-trace-controls" style={{ marginTop: "12px" }}>
                   <fieldset className="options-cache-retention" aria-describedby="trace-capture-description">
                     <legend>{settings.language === "ja" ? "トレースの記録" : "Trace recording"}</legend>
@@ -3887,6 +3993,7 @@ function OptionsApp(): React.JSX.Element {
                     type="button"
                     className="options-button options-button--ghost"
                     onClick={handleExportTraceJsonl}
+                    data-testid="trace-export"
                     disabled={traceEntries.length === 0}
                   >
                     {text.performanceExport}
@@ -3895,14 +4002,31 @@ function OptionsApp(): React.JSX.Element {
                     type="button"
                     className="options-button options-button--ghost"
                     onClick={handleClearTraceLog}
-                    disabled={traceEntries.length === 0}
+                    data-testid="trace-clear"
+                    disabled={traceClearPending}
                   >
                     {text.performanceClear}
                   </button>
                 </div>
+                {traceExportError && <p className="options-hint" role="alert" data-testid="trace-export-error">
+                  {settings.language === "ja" ? "診断ログをエクスポートできませんでした。" : "Could not export diagnostic logs."}
+                  {" "}<button type="button" className="options-button" data-testid="trace-export-retry" onClick={() => void handleExportTraceJsonl()}>{settings.language === "ja" ? "再試行" : "Retry"}</button>
+                </p>}
+                {traceClearError && <p className="options-hint" role="alert" data-testid="trace-clear-error">
+                  {settings.language === "ja" ? "診断ログを削除できませんでした。" : "Could not clear diagnostic logs."}
+                  {" "}<button type="button" className="options-button" data-testid="trace-clear-retry" onClick={() => void handleClearTraceLog()}>{settings.language === "ja" ? "再試行" : "Retry"}</button>
+                </p>}
               </div>
 
-              <PerformanceOverview entries={traceEntries} language={settings.language} capturing={traceCaptureEnabled} />
+              <PerformanceOverview entries={traceEntries} language={settings.language} capturing={traceCaptureEnabled} onReviewAdvice={preset => {
+                setPerformancePresetPreview(preset);
+                const advanced = document.querySelector<HTMLDetailsElement>('[data-testid="performance-settings"]');
+                document.querySelector('[data-testid="performance-preset"]')?.scrollIntoView({ behavior: "smooth", block: "start" });
+                if (advanced) advanced.open = true;
+              }} />
+              <p className="options-hint">{settings.language === "ja"
+                ? "以下のエンドポイント・最近のトレース一覧は直近100件の詳細ログを使います。期間全体の集計と詳細検索は上の分析パネルを使用してください。"
+                : "The endpoint and recent trace tables below use the latest 100 detailed records. Use the analysis above for range-wide aggregates and filtered detail search."}</p>
               <div className="options-grid">
                 <article className="options-analysis-card options-analysis-card--full">
                   <div className="options-analysis-header">

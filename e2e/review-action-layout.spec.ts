@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-test("review actions overlay the card without moving content in either renderer", async ({}, testInfo) => {
+test("review actions overlay the card without moving content when stale renderer settings change", async ({}, testInfo) => {
   const user = { id: "u".repeat(26), username: "tester", notify_props: { mention_keys: "tester" } };
   const author = { id: "a".repeat(26), username: "author" };
   const team = { id: "t".repeat(26), name: "testteam", display_name: "Test Team" };
@@ -66,9 +66,9 @@ test("review actions overlay the card without moving content in either renderer"
       }, args: [focus] }); return result.result as any;
     }, { origin, focus });
     await expect.poll(async () => (await inspect())?.counts, { timeout: 30000 }).toEqual([3, 3]);
-    for (const virtual of [false, true]) {
-      await worker.evaluate(virtual => chrome.storage.local.set({ "mattermostDeck.virtualPostListExperiment.v1": virtual }), virtual);
-      await expect.poll(async () => (await inspect())?.virtual).toBe(virtual);
+    for (const staleSetting of [false, true]) {
+      await worker.evaluate(value => chrome.storage.local.set({ "mattermostDeck.virtualPostListExperiment.v1": value }), staleSetting);
+      await expect.poll(async () => (await inspect())?.virtual).toBe(true);
       await page.mouse.move(10, 10);
       await page.waitForTimeout(300);
       const before = await inspect();
@@ -82,7 +82,7 @@ test("review actions overlay the card without moving content in either renderer"
       const focused = await inspect(true);
       expect(focused.opacity).toBe("1");
       expect(focused.cards).toEqual(before.cards);
-      await page.screenshot({ path: testInfo.outputPath(`review-actions-${virtual ? "virtuoso" : "legacy"}.png`) });
+      await page.screenshot({ path: testInfo.outputPath(`review-actions-stale-${staleSetting}.png`) });
       await worker.evaluate(async origin => {
         const tab = (await chrome.tabs.query({})).find(tab => tab.url?.startsWith(origin));
         await chrome.scripting.executeScript({ target: { tabId: tab!.id! }, func: () => {

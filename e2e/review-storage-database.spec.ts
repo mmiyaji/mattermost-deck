@@ -3,10 +3,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+const baseUrl = process.env.MATTERMOST_BASE_URL ?? "http://127.0.0.1:8066";
+
 test("review migration survives local quota and stores more than 10MB across restart", async ({}, testInfo) => {
   test.setTimeout(120_000);
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), "deck-review-database-"));
-  const prefix = "mattermostDeck.mentionReview.v1:http%3A%2F%2F127.0.0.1%3A8066:database-fixture:";
+  const prefix = `mattermostDeck.mentionReview.v1:${encodeURIComponent(baseUrl)}:database-fixture:`;
   const mib = 1024 * 1024;
   let context: BrowserContext | undefined;
   const launch = () => chromium.launchPersistentContext(profile, { channel: "chromium", headless: true,
@@ -43,9 +45,9 @@ test("review migration survives local quota and stores more than 10MB across res
     }, { prefix, mib });
     expect(written.success).toBe(true);
     const peers = await Promise.all([context.newPage(), context.newPage()]);
-    await Promise.all(peers.map(peer => peer.goto("http://127.0.0.1:8066/login", { waitUntil: "domcontentloaded" })));
-    const notified = await page.evaluate(async prefix => {
-      const tabs = (await chrome.tabs.query({})).filter(tab => tab.id !== undefined && tab.url?.startsWith("http://127.0.0.1:8066/"));
+    await Promise.all(peers.map(peer => peer.goto(`${baseUrl}/login`, { waitUntil: "domcontentloaded" })));
+    await page.evaluate(async ({ prefix, baseUrl }) => {
+      const tabs = (await chrome.tabs.query({})).filter(tab => tab.id !== undefined && tab.url?.startsWith(`${baseUrl}/`));
       for (const tab of tabs) await chrome.scripting.executeScript({ target: { tabId: tab.id! }, args: [prefix], func: prefix => {
         const changes: unknown[] = [];
         (window as any).__reviewStorageTestChanges = changes;
@@ -53,13 +55,23 @@ test("review migration survives local quota and stores more than 10MB across res
       } });
       await chrome.runtime.sendMessage({ type: "mattermost-deck:review-storage", prefix, operation: "write", sets: { [`${prefix}confirmed:pending`]: 88 } });
       await chrome.runtime.sendMessage({ type: "mattermost-deck:review-storage", prefix, operation: "write", removes: [`${prefix}confirmed:pending`] });
+    }, { prefix, baseUrl });
+    let notified: unknown[][] = [];
+    await expect.poll(async () => {
+      notified = await page.evaluate(async baseUrl => {
+      const tabs = (await chrome.tabs.query({})).filter(tab => tab.id !== undefined && tab.url?.startsWith(`${baseUrl}/`));
       const results = [];
       for (const tab of tabs) {
         const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id! }, func: () => (window as any).__reviewStorageTestChanges });
         results.push(result.result);
       }
       return results;
-    }, prefix);
+      }, baseUrl);
+      return notified;
+    }, { timeout: 5_000 }).toEqual([
+      [{ [`${prefix}confirmed:pending`]: 88 }, { [`${prefix}confirmed:pending`]: null }],
+      [{ [`${prefix}confirmed:pending`]: 88 }, { [`${prefix}confirmed:pending`]: null }],
+    ]);
     expect(notified).toHaveLength(2);
     for (const changes of notified) expect(changes).toEqual([{ [`${prefix}confirmed:pending`]: 88 }, { [`${prefix}confirmed:pending`]: null }]);
     await context.close();

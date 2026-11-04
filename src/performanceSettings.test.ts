@@ -2,12 +2,20 @@ import { describe, expect, it } from "vitest";
 import {
   PERFORMANCE_DEFAULTS,
   PERFORMANCE_LIMITS,
+  PERFORMANCE_PRESETS,
+  matchPerformancePreset,
   RESPONSIVE_PERFORMANCE_PRESET,
   normalizePerformanceSettings,
   type PerformanceSettings,
 } from "./performanceSettings";
 
 describe("responsive performance preset", () => {
+  it("matches Low, Standard, and High values after normalization", () => {
+    expect(PERFORMANCE_PRESETS.standard).toEqual(PERFORMANCE_DEFAULTS);
+    expect(matchPerformancePreset(PERFORMANCE_PRESETS.low)).toBe("low");
+    expect(matchPerformancePreset({ ...PERFORMANCE_PRESETS.high, apiMinStartGapMs: 60.2 })).toBe("high");
+    expect(matchPerformancePreset({ ...PERFORMANCE_PRESETS.high, apiMinStartGapMs: 61 })).toBe("custom");
+  });
   it("provides relaxed rates within the supported normalized limits", () => {
     expect(RESPONSIVE_PERFORMANCE_PRESET).toEqual({
       apiGlobalRequestsPerMinute: 360,
