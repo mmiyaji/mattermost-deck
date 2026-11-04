@@ -7,6 +7,22 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-05
+
+### Added
+
+- Add performance presets and retain detailed trace history in extension-owned IndexedDB, with up to 10,000 entries / 10 MiB for 24 hours, minute aggregates for seven days, and bounded deduplication receipts. Trace entries may record the source origin and tab ID; no extension permissions were added.
+
+### Changed
+
+- Persist minute-level API trends for seven days and cache mention labels while restoring channel read state during refresh.
+- Include E2E specs in TypeScript checks.
+- Run browser-backed IndexedDB storage tests in a separate sequential Vitest project with a 60-second hook timeout.
+
+### Fixed
+
+- Preserve mention header spacing while loading and discard thread read markers when CRT is disabled.
+
 ## [1.4.0] - 2026-11-03
 
 ### Added

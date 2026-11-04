@@ -192,9 +192,10 @@ Server URL を保存すると、その Mattermost origin に対する Chrome 権
   - queue wait
 - JSONL エクスポート
 - Diagnostics には日常確認向けの短い同期ログを表示し、詳細なリクエスト表は Performance に寄せる
-- 動作時に適用される保持ポリシー:
-  - トレース記録を OFF にすると保存ログはクリア
-  - 24 時間を超えたログは、次に拡張機能が動作、記録、または診断画面を開いたときに削除
+- 詳細ログは拡張機能用IndexedDBに最大10,000件・合計10MiB・1件16KiB・24時間保存します。分単位の集計は最大10,080バケット・7日間、重複排除レシートは最大50,000件・24時間保持します。記録には発生元のoriginとブラウザー内タブIDが含まれる場合があります。
+- 保持ポリシー:
+  - トレース記録を OFF にするかログを消去すると詳細・分単位集計・重複排除レシートを削除
+  - 期限切れデータは次のトレース用ストレージ操作時に削除され、拡張機能が動作していない間は残る場合がある
 
 ## セキュリティ
 
@@ -232,7 +233,7 @@ npm run capture:readme
 
 ## リリース
 
-`v1.4.0` のような `v` 形式タグを push すると GitHub Actions が動作します。パッケージ、manifest、アプリ内表示、公式サイト、CHANGELOGの版番号とタグが一致しない場合、リリースジョブは停止します。
+`v1.4.1` のような `v` 形式タグを push すると GitHub Actions が動作します。パッケージ、manifest、アプリ内表示、公式サイト、CHANGELOGの版番号とタグが一致しない場合、リリースジョブは停止します。
 
 - 型チェック、単体テスト、Mattermost 9.5.4でのPlaywright全テスト、9.5.11・10.11.22・11.8.2でのリリース互換性テストを実行
 - `STORE_BUILD=true`でChrome Web Store用ZIPを生成し、そのZIPを展開した実物から未許可の初回状態と、Chrome標準の権限確認を自動承認できない場合の安全な拒否処理をスモークテスト
@@ -249,12 +250,12 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.4.0"
+$env:EXT_VERSION = "v1.4.1"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.4.0.zip -Force
-$releaseHash = (Get-FileHash mattermost-deck-v1.4.0.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-"$releaseHash  mattermost-deck-v1.4.0.zip" | Set-Content mattermost-deck-v1.4.0.zip.sha256 -Encoding ascii
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.4.1.zip -Force
+$releaseHash = (Get-FileHash mattermost-deck-v1.4.1.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+"$releaseHash  mattermost-deck-v1.4.1.zip" | Set-Content mattermost-deck-v1.4.1.zip.sha256 -Encoding ascii
 ```
 
 ZIP直下に `manifest.json` が配置されていることを確認してください。Web Store用ビルドではlocalhost専用の静的content scriptを意図的に除外し、E2Eテスト用の通常ビルドでは残します。

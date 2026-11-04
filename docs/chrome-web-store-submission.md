@@ -8,6 +8,13 @@ Use this copy when maintaining the Chrome Web Store listing and its Privacy prac
 - Privacy policy URL: https://mattermost-deck.ruhenheim.org/privacy/
 - Store screenshot (1280 x 800): `docs/assets/readme-overview-dark-store.png`
 
+## v1.4.1 release notes
+
+- Choose a performance preset and review persistent seven-day API minute trends.
+- Keep detailed trace history in extension-owned IndexedDB for up to 24 hours (10,000 entries / 10 MiB), with 16 KiB per-entry, 50,000 receipt, and seven-day aggregate limits. Trace rows may include the source origin and browser-local tab ID.
+- Restore cached mention labels and channel read state while refreshing; discard thread read markers when CRT is disabled and preserve mention header spacing while loading.
+- Include E2E specs in TypeScript checks. No additional extension permissions.
+
 ## v1.4.0 release notes
 
 - Clearer settings themes, required fields, cache controls and on/off states.

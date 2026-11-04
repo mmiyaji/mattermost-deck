@@ -180,9 +180,10 @@ Other Mattermost patch releases and Chromium-based browsers are not part of the 
 - Recent trace log table with full request URL, status, duration, and queue wait
 - JSONL export for offline analysis
 - Diagnostics keeps a shortened recent sync log for day-to-day use; the detailed request table remains in Performance
-- Activity-based retention policy:
-  - turning trace capture off clears stored logs
-  - entries older than 24 hours are pruned the next time the extension runs, writes a trace, or opens diagnostics
+- Trace details are stored in extension-owned IndexedDB, up to 10,000 entries / 10 MiB and 24 hours (16 KiB per entry). Minute aggregates are retained for seven days (up to 10,080 buckets); deduplication receipts are capped at 50,000 and expire after 24 hours. Entries may record the source origin and browser-local tab ID.
+- Retention policy:
+  - turning trace capture off or clearing traces removes details, minute aggregates, and deduplication receipts
+  - expired data is pruned on the next trace storage operation and may remain while the extension is inactive
 
 ## Security Notes
 
@@ -221,7 +222,7 @@ npm run capture:readme
 
 ## Release
 
-Push a tag in `v` format, such as `v1.4.0`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
+Push a tag in `v` format, such as `v1.4.1`, to trigger GitHub Actions. The release job rejects tags that do not match the versions recorded in the package, manifest, in-app source, website, and changelog.
 
 - Runs type checks, unit tests, the full Mattermost 9.5.4 Playwright suite, and the release compatibility matrix for 9.5.11, 10.11.22, and 11.8.2
 - Builds the Chrome Web Store archive with `STORE_BUILD=true`, extracts that exact archive, and smoke-tests its ungranted first-run state and safe handling when Chrome cannot approve the native permission prompt
@@ -238,12 +239,12 @@ npm run build
 npm run mm95:start
 try { npm run test:e2e } finally { npm run mm95:stop }
 $env:STORE_BUILD = "true"
-$env:EXT_VERSION = "v1.4.0"
+$env:EXT_VERSION = "v1.4.1"
 npm run build
 npm run check:store
-Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.4.0.zip -Force
-$releaseHash = (Get-FileHash mattermost-deck-v1.4.0.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-"$releaseHash  mattermost-deck-v1.4.0.zip" | Set-Content mattermost-deck-v1.4.0.zip.sha256 -Encoding ascii
+Compress-Archive -Path dist\* -DestinationPath mattermost-deck-v1.4.1.zip -Force
+$releaseHash = (Get-FileHash mattermost-deck-v1.4.1.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+"$releaseHash  mattermost-deck-v1.4.1.zip" | Set-Content mattermost-deck-v1.4.1.zip.sha256 -Encoding ascii
 ```
 
 The archive must contain `manifest.json` at its root. Store builds intentionally omit the localhost-only static content script; local development builds retain it for E2E testing.

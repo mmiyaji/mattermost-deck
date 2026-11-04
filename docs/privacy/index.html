@@ -28,7 +28,7 @@
       data-i18n-content-en="Privacy Policy - Mattermost Deck"
     >
     <meta property="og:image" content="https://mattermost-deck.ruhenheim.org/assets/webstore/marquee-promo-tile-1400x560.png">
-    <link rel="stylesheet" href="../assets/styles.css?v=1.4.0">
+    <link rel="stylesheet" href="../assets/styles.css?v=1.4.1">
     <script src="../assets/site.js" defer></script>
   </head>
   <body>
@@ -88,7 +88,7 @@
           </div>
           <div class="legal-meta-row">
             <span data-i18n-ja="最終更新" data-i18n-en="Last updated">最終更新</span>
-            <strong>2026-07-30</strong>
+            <strong>2026-11-05</strong>
           </div>
           <div class="legal-meta-row">
             <span data-i18n-ja="分析・広告" data-i18n-en="Analytics & ads">分析・広告</span>
@@ -142,7 +142,7 @@
                 <li>メンションペインの表示キャッシュ。直近のメンション投稿の本文を含み、既定で拡張機能のIndexedDBに保存します。サーバー・アカウント・チーム範囲の組み合わせごとに最大100件、全体で最大64組・合計16MiBを保持し、上限時は使用の古い範囲から削除します。保存から24時間を超えた分は、キャッシュ操作時・拡張起動時・30分ごとの定期処理で削除します。ブラウザー停止中には実行されません。「キャッシュ保持設定」で保持しない設定にすると永続キャッシュを削除し、以後はブラウザ終了時に破棄されるセッション領域だけを使います。既存の明示的な無効設定は維持します。</li>
                 <li>PATを永続保存するかどうかの任意設定</li>
                 <li>設定画面からの本文キャッシュ削除は、全アカウントのメンション表示キャッシュとお気に入り本文が対象です。ログアウト・認証失効（401）・投稿閲覧権限の失効（403）時は、対象アカウントだけを削除します。要確認投稿の本文・確認状態、お気に入り登録、設定は残ります。削除前に始まった通信の遅延応答でキャッシュが復活しないよう制御します。</li>
-                <li>トレース記録を有効にした場合の診断ログ（最大500件・約1MiB、1件16KiB）。発生元を区別するためのサイトのオリジンとブラウザー内タブIDを含む場合があります。24時間を超えた項目は、次に拡張機能が動作、記録、または診断画面を開いたときに削除します。</li>
+                <li>トレース記録を有効にした場合の診断データ。詳細ログは拡張機能用IndexedDBに最大10,000件・合計10MiB・1件16KiBで保存し、発生元を区別するサイトoriginとブラウザー内タブIDを含む場合があります。詳細ログと重複排除レシート（イベントID・時刻）は24時間保持し、レシートは最大50,000件です。分単位の集計値は最大10,080バケット・7日間保持します。期限切れデータは次に拡張機能がトレース用ストレージ操作を行ったときに削除されるため、拡張機能が動作していない間は期限後も残る場合があります。</li>
               </ul>
               <p>
                 Mattermost Personal Access Token（PAT）はセッションのみの保存が既定です。
@@ -214,7 +214,7 @@
               <ul>
                 <li>セッション保存のPATは、ブラウザセッション終了時に削除されます。</li>
                 <li>永続保存したPATは、設定変更、拡張機能ストレージの消去、アンインストールで削除できます。</li>
-                <li>トレース記録をオフにすると保存ログを消去します。24時間を超えたログは、次に拡張機能が動作、記録、または診断画面を開いたときに削除します。Chromeが動作していない間は、その次の動作までストレージに残る場合があります。</li>
+                <li>トレース記録をオフにするかログを消去すると、詳細ログ・分単位集計・重複排除レシートを削除します。詳細ログとレシートは24時間、分単位集計は7日間で期限切れになります。期限切れデータは次に拡張機能が動作してトレース用ストレージ操作を行ったときに整理し、Chromeが動作していない間は残る場合があります。</li>
               </ul>
             </section>
 
@@ -281,7 +281,7 @@
                 <li>A display cache for mention panes, including recent post bodies, is saved by default in the extension’s IndexedDB. It holds up to 100 posts per server/account/team scope, at most 64 scopes and 16 MiB in total; least recently used scopes are evicted first. Entries older than 24 hours are pruned on cache operations, extension startup and 30-minute maintenance alarms. Maintenance does not run while the browser is closed. Disabling &quot;Keep mentions after a restart&quot; deletes the persistent cache and uses only session storage, discarded when the browser closes. Existing explicit opt-outs are preserved.</li>
                 <li>Manual body-cache deletion clears mention display caches and favorite bodies across all accounts. Logout, session expiry (401), and post-access denial (403) clear those caches for the affected account. Review post bodies and confirmation decisions, favorite registrations, and settings remain. Delayed responses started before deletion cannot restore the cleared cache.</li>
                 <li>The optional preference for persistent PAT storage</li>
-                <li>Diagnostic trace logs bounded to 500 entries and about 1 MiB, with a 16 KiB per-entry limit. Entries may include the source site origin and browser-local tab ID. Entries older than 24 hours are pruned the next time the extension runs, writes a trace, or opens diagnostics</li>
+                <li>When trace capture is enabled, diagnostic data is stored in extension-owned IndexedDB. Detailed logs are limited to 10,000 entries, 10 MiB total and 16 KiB per entry, and may include the source site origin and browser-local tab ID. Detailed logs and deduplication receipts (event ID and timestamp) are retained for 24 hours; receipts are capped at 50,000. Minute-level aggregate values are retained for up to 10,080 buckets and seven days. Expired data is removed the next time the extension runs a trace storage operation, so it may remain past expiry while the extension is inactive.</li>
               </ul>
               <p>
                 Session-only storage is the default for a Mattermost Personal
@@ -363,7 +363,7 @@
               <ul>
                 <li>Session-stored PAT data is removed when the browser session ends.</li>
                 <li>Persisted PAT data can be removed through settings, by clearing extension storage, or by uninstalling the extension.</li>
-                <li>Turning trace capture off clears stored logs. Entries older than 24 hours are pruned the next time the extension runs, writes a trace, or opens diagnostics. If Chrome remains inactive, expired entries may remain in extension storage until that next activity.</li>
+                <li>Turning trace capture off or clearing traces removes detailed logs, minute aggregates and deduplication receipts. Detailed logs and receipts expire after 24 hours; minute aggregates expire after seven days. Expired data is pruned on the next trace storage operation and may remain in extension storage while Chrome is inactive.</li>
               </ul>
             </section>
 
