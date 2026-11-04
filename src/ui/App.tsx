@@ -4962,6 +4962,7 @@ function MentionsColumn({
   isFocusedPane: boolean;
   onToggleFocus: (id: string) => void;
 }): React.JSX.Element {
+  const collapsedReplyThreads = currentUser?.collapsed_reply_threads === true;
   const feedContext = JSON.stringify([getMattermostUrl("/"), currentUserId, username, column.teamId, teams.map(team => team.id).sort(), currentUser?.notify_props, currentUser?.mention_group_names]);
   const review = useMentionReview(getMattermostUrl("/"), currentUserId ?? "", column.teamId);
   const exclusionContext = JSON.stringify([getMattermostUrl("/"), currentUserId]);
@@ -5124,8 +5125,8 @@ function MentionsColumn({
     [mentionLoadProgress.active, mentionLoadProgress.readState, mentionReadState],
   );
   const effectiveMentionReadState = useMemo(
-    () => applyMentionReadMarkers(displayedMentionReadState, realtimeReadMarkers),
-    [displayedMentionReadState, realtimeReadMarkers],
+    () => applyMentionReadMarkers(displayedMentionReadState, realtimeReadMarkers, collapsedReplyThreads),
+    [displayedMentionReadState, realtimeReadMarkers, collapsedReplyThreads],
   );
   reviewReadStateRef.current = effectiveMentionReadState;
   const effectiveCachedMentionReadState = useMemo(
@@ -5133,8 +5134,9 @@ function MentionsColumn({
       applyMentionReadMarkers(
         mentionCacheState.readState,
         realtimeReadMarkers,
+        collapsedReplyThreads,
       ),
-    [mentionCacheState.readState, realtimeReadMarkers],
+    [mentionCacheState.readState, realtimeReadMarkers, collapsedReplyThreads],
   );
   // Background scans stay in mentionLoadProgress until the complete result is
   // ready. Feeding partial scan results into PostList makes existing rows move
@@ -5473,7 +5475,6 @@ function MentionsColumn({
   const mentionLoadMoreContext = `${teamIds.join(",")}|${currentUserId ?? ""}|${mentionSearchTerms}`;
   const mentionLoadMoreContextRef = useRef(mentionLoadMoreContext);
   mentionLoadMoreContextRef.current = mentionLoadMoreContext;
-  const collapsedReplyThreads = currentUser?.collapsed_reply_threads === true;
   const commentsNotify = currentUser?.notify_props?.comments;
   const mentionCacheSignature = useMemo(
     () =>
@@ -7208,6 +7209,7 @@ function MentionsColumn({
     const readState = applyMentionReadMarkers(
       mentionReadState,
       realtimeReadMarkers,
+      collapsedReplyThreads,
     );
     // Track the in-flight snapshot synchronously. If an edit or deletion
     // arrives before storage.set resolves, the queued cache removal must
@@ -7234,6 +7236,7 @@ function MentionsColumn({
   }, [
     mentionCacheEntryId,
     mentionCacheSaveVersion,
+    collapsedReplyThreads,
   ]);
 
   useEffect(() => {
@@ -10339,6 +10342,14 @@ export function App({ routeKey, shadowRoot }: AppProps): React.JSX.Element {
       threadLastViewedAt: {},
     });
   }, [state.userId]);
+  useEffect(() => {
+    if (state.currentUser?.collapsed_reply_threads !== true) {
+      setRealtimeReadMarkers((current) => ({
+        ...current,
+        threadLastViewedAt: {},
+      }));
+    }
+  }, [state.userId, state.currentUser?.collapsed_reply_threads]);
   const [mentionsLastReadAt, setMentionsLastReadAt] = useMentionsLastReadAt();
   const [columns, addColumn, removeColumn, updateColumn, moveColumnInOrder, replaceColumns, reorderColumn] = useDeckLayout();
   const mentionFeedOwnersRef = useRef(new Map<string, string>());

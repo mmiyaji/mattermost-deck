@@ -486,6 +486,38 @@ describe("mention feed", () => {
     });
   });
 
+  it("ignores cached and realtime thread markers when CRT is disabled", () => {
+    const state = buildMentionReadState(
+      [{ channel_id: "channel-a", user_id: "me", last_viewed_at: 300 }],
+      [{
+        id: "root-a", reply_count: 1, last_reply_at: 300, last_viewed_at: 250,
+        post: post("root-a", "channel-a", 100), unread_replies: 1, unread_mentions: 1,
+      }],
+      ["channel-a"],
+    );
+    const reply = post("reply-a", "channel-a", 275, "root-a");
+    const threadReadMarkers = {
+      channelLastViewedAt: { "channel-a": 350 },
+      threadLastViewedAt: { "root-a": 250 },
+    };
+    expect(filterUnreadMentionPosts([reply], applyMentionReadMarkers(state, threadReadMarkers))).toEqual([reply]);
+    const effective = applyMentionReadMarkers(state, threadReadMarkers, false);
+
+    expect(effective).toEqual({
+      channelLastViewedAt: { "channel-a": 350 },
+      threadLastViewedAt: {},
+      activeChannelIds: { "channel-a": true },
+    });
+    expect(filterUnreadMentionPosts([reply], effective)).toEqual([]);
+    expect(filterUnreadMentionPosts([reply], applyMentionReadMarkers({
+      ...state,
+      channelLastViewedAt: { "channel-a": 200 },
+    }, {
+      channelLastViewedAt: {},
+      threadLastViewedAt: { "root-a": 500 },
+    }, false))).toEqual([reply]);
+  });
+
   it("invalidates only the read markers named by a post-unread event", () => {
     const current = {
       channelLastViewedAt: {

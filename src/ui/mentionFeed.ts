@@ -410,10 +410,17 @@ export function invalidateMentionReadMarkers(
 export function applyMentionReadMarkers(
   state: MentionReadState,
   markers: MentionReadMarkers,
+  includeThreadMarkers = true,
 ): MentionReadState {
+  // Cached state and realtime markers can predate a CRT preference change.
+  // Without CRT, channel markers alone determine whether replies are unread.
   return {
     ...state,
-    ...mergeMentionReadMarkers(state, markers),
+    ...mergeMentionReadMarkers(state, includeThreadMarkers ? markers : {
+      ...markers,
+      threadLastViewedAt: {},
+    }),
+    ...(includeThreadMarkers ? {} : { threadLastViewedAt: {} }),
   };
 }
 
