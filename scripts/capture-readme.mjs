@@ -263,6 +263,20 @@ async function prepareDeckView(page) {
   });
 }
 
+// A server that has been running for a while can greet the capture profile with
+// an announcement such as the trial offer, which covers the global header and
+// hides the Settings button the theme step needs.
+async function dismissBlockingModals(page) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const closeButton = page.getByRole("button", { name: "Close" }).first();
+    if (!(await closeButton.isVisible().catch(() => false))) {
+      return;
+    }
+    await closeButton.click().catch(() => undefined);
+    await page.waitForTimeout(600);
+  }
+}
+
 async function applyMattermostThemeFromSettings(page, themeName) {
   await page.addStyleTag({
     content: `
@@ -272,6 +286,7 @@ async function applyMattermostThemeFromSettings(page, themeName) {
       }
     `,
   });
+  await dismissBlockingModals(page);
   const settingsButton = page.getByRole("button", { name: "Settings" });
   await settingsButton.waitFor({ state: "visible", timeout: 30_000 });
   await settingsButton.click();

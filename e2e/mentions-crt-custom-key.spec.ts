@@ -820,6 +820,9 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
     });
 
     const realtimeMarker = `non-crt-realtime-reply-${timestamp}`;
+    const beforeRealtimeReplyIds = new Set(
+      (await getColumnState())?.visiblePostIds ?? [],
+    );
     const realtimeReply = await apiRequest<{ id: string }>(adminToken, "POST", "/posts", {
       channel_id: channelId,
       root_id: rootId,
@@ -834,10 +837,17 @@ test("non-CRT plain reply to my root follows the channel read marker", async ({}
             (message) => message.includes(realtimeMarker),
           ) ?? false,
         mentionCount: column?.mentionCount ?? 0,
+        addedPostIds: (column?.visiblePostIds ?? [])
+          .filter((id) => !beforeRealtimeReplyIds.has(id))
+          .sort(),
       };
     }, { timeout: 12_000 }).toEqual({
       hasReply: true,
       mentionCount: baselineMentionCount + 1,
+      // Keep the count assertion tied to the feed contents: a duplicate or
+      // newly resurfaced old reply should be visible in this diff if the
+      // badge changes by more than the single post created above.
+      addedPostIds: [realtimeReply.id],
     });
     await page.screenshot({
       path: testInfo.outputPath("mentions-non-crt-realtime-reply.png"),
