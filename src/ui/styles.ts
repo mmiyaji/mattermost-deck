@@ -1096,6 +1096,7 @@ export const railCssText = `
 
   .deck-column-header {
     display: flex;
+    flex: none;
     justify-content: space-between;
     align-items: flex-start;
     gap: 12px;
@@ -2780,7 +2781,6 @@ export const railCssText = `
 
   .deck-column-body { display: contents; }
   .deck-columns--two-rows .deck-column { overflow: hidden; }
-  .deck-columns--two-rows .deck-column-header { flex: none; }
   .deck-columns--two-rows .deck-column-body {
     display: flex; flex-direction: column; gap: 10px;
     flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;

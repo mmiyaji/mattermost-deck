@@ -46,6 +46,7 @@ test("cached unread mentions stay mounted and stationary through progressive tea
     const options=await waitForInstalledOptions(context,worker);
     await worker.evaluate(async origin=>chrome.storage.local.set({"mattermostDeck.serverUrl.v1":origin,"mattermostDeck.language.v1":"en","mattermostDeck.pollingIntervalSeconds.v1":3600,"mattermostDeck.layout.v1":[{id:"unread",type:"mentions",unreadOnly:true}]}),origin);
     const page=await context.newPage();
+    await page.setViewportSize({width:1200,height:480});
     const errors:string[]=[];page.on("pageerror",error=>errors.push(error.message));
     const inside=async(action:string)=>worker.evaluate(async({origin,action})=>{
       const tab=(await chrome.tabs.query({})).find(tab=>tab.url?.startsWith(origin));
@@ -55,7 +56,7 @@ test("cached unread mentions stay mounted and stationary through progressive tea
         const root=(chrome as any).dom.openOrClosedShadowRoot(host) as ShadowRoot;
         const pane=root?.querySelector('[data-pane-id="unread"]');
         const viewport=pane?.querySelector<HTMLElement>(".deck-list-viewport");
-        if(action==="inspect"){const first=viewport?.querySelector<HTMLElement>("[data-deck-post-id]");return{rows:viewport?.querySelectorAll("[data-deck-post-id]").length??0,busy:!!pane?.querySelector('[aria-busy="true"]'),loading:!!pane?.querySelector(".deck-column-loading-status"),text:pane?.textContent,author:first?.querySelector(".deck-card-author-label")?.textContent,meta:first?.querySelector(".deck-card-meta")?.textContent};}
+        if(action==="inspect"){const first=viewport?.querySelector<HTMLElement>("[data-deck-post-id]");const status=pane?.querySelector<HTMLElement>(".deck-column-loading-status");const header=pane?.querySelector<HTMLElement>(".deck-column-header");const rect=(el?:HTMLElement|null)=>el?{top:el.getBoundingClientRect().top,bottom:el.getBoundingClientRect().bottom}:null;return{rows:viewport?.querySelectorAll("[data-deck-post-id]").length??0,busy:!!pane?.querySelector('[aria-busy="true"]'),loading:!!status,twoRows:!!root?.querySelector(".deck-columns--two-rows"),text:pane?.textContent,author:first?.querySelector(".deck-card-author-label")?.textContent,meta:first?.querySelector(".deck-card-meta")?.textContent,gap:status&&first?first.getBoundingClientRect().top-status.getBoundingClientRect().bottom:null,header:rect(header),list:rect(viewport),status:rect(status),first:rect(first)};}
         if(!viewport)return null;
         if(action==="scroll"){viewport.scrollTop=600;return true;}
         if(action==="monitor"){
@@ -90,6 +91,27 @@ test("cached unread mentions stay mounted and stationary through progressive tea
     // Confirm cached labels resolve while the full mention search is held.
     await expect.poll(async()=> (await inside("inspect"))?.author).toBe("@author");
     await expect.poll(async()=> (await inside("inspect"))?.meta).toContain("Town 0");
+    const rowGeometry=await inside("inspect");
+    await page.screenshot({path:info.outputPath("mention-loading-row.png")});
+    expect(rowGeometry?.loading).toBe(true);
+    expect(rowGeometry?.gap).toBeGreaterThanOrEqual(8);
+    expect(rowGeometry?.gap).toBeLessThanOrEqual(12);
+    for(const release of held.splice(0))release();
+    await worker.evaluate(async()=>chrome.storage.local.set({"mattermostDeck.layoutMode.v1":"twoRows"}));
+    await page.reload();
+    await expect.poll(async()=> (await inside("inspect"))?.loading).toBe(true);
+    await expect.poll(()=>held.length).toBeGreaterThan(0);
+    const splitGeometry=await inside("inspect");
+    expect(splitGeometry?.twoRows).toBe(true);
+    await page.screenshot({path:info.outputPath("mention-loading-two-rows.png")});
+    expect(splitGeometry?.gap).toBeGreaterThanOrEqual(8);
+    expect(splitGeometry?.gap).toBeLessThanOrEqual(12);
+    await fs.writeFile(info.outputPath("mention-loading-geometry.json"),JSON.stringify({row:{gap:rowGeometry?.gap,header:rowGeometry?.header,status:rowGeometry?.status,list:rowGeometry?.list,first:rowGeometry?.first},twoRows:{gap:splitGeometry?.gap,header:splitGeometry?.header,status:splitGeometry?.status,list:splitGeometry?.list,first:splitGeometry?.first}},null,2));
+    for(const release of held.splice(0))release();
+    await worker.evaluate(async()=>chrome.storage.local.set({"mattermostDeck.layoutMode.v1":"row"}));
+    await page.reload();
+    await expect.poll(async()=> (await inside("inspect"))?.loading).toBe(true);
+    await expect.poll(()=>held.length).toBeGreaterThan(0);
     await inside("scroll");await page.waitForTimeout(500);
     await inside("monitor");
     for(let i=0;i<3;i++){
