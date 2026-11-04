@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>案C 仕様カタログ型 - Mattermost Deck</title>
+<meta name="theme-color" content="#ffffff">
+<link rel="stylesheet" href="./vendor/glightbox.min.css">
+<script>
+  // 描画前にテーマを当てて、ダーク設定の端末で白が一瞬出るのを防ぐ。
+  try {
+    const stored = localStorage.getItem("mattermost-deck-site-theme");
+    if (stored === "light" || stored === "dark") {
+      document.documentElement.dataset.theme = stored;
+    }
+  } catch {}
+</script>
+<style>
+:root{
+  color-scheme:light dark;
+  --bg:#fff; --ink:#111417; --ink2:#3d454d; --muted:#767f88;
+  --line:#111417; --hair:#d9dde1; --accent:#1a5fd0; --tint:#f4f6f8;
+  --figbg:#fff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#15181c; --ink:#e9edf1; --ink2:#b2bcc6; --muted:#7f8a95;
+    --line:#e9edf1; --hair:#2c333a; --accent:#6aa5f5; --tint:#1c2127;
+    --figbg:#101316;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15181c; --ink:#e9edf1; --ink2:#b2bcc6; --muted:#7f8a95;
+  --line:#e9edf1; --hair:#2c333a; --accent:#6aa5f5; --tint:#1c2127;
+  --figbg:#101316;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:52px}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI","Noto Sans JP","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+  font-size:14.5px;line-height:1.8}
+img,svg{max-width:100%;display:block;height:auto}
+a{color:var(--accent)}
+h1,h2,h3{margin:0;line-height:1.4;font-weight:600;letter-spacing:.01em;word-break:auto-phrase}
+[hidden]{display:none !important}
+.wrap{width:min(1060px,calc(100% - 40px));margin:0 auto}
+.lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;color:var(--muted);text-transform:uppercase}
+/* header */
+header{border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:20}
+header .wrap{display:flex;align-items:center;gap:18px;height:50px}
+.brand{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--ink);font-weight:600;font-size:14px;flex:none}
+.brand img{width:22px;height:22px}
+header nav{display:flex;gap:16px;font-size:13px;margin-left:auto}
+header nav a{color:var(--ink2);text-decoration:none}
+header nav a:hover{color:var(--accent)}
+/* ヘッダー右の操作群。3つとも同じ高さ(--ctl)に揃える。 */
+.tools{display:flex;align-items:center;gap:8px;flex:none;--ctl:28px}
+.lang,.theme-toggle{height:var(--ctl);border:1px solid var(--hair);background:transparent;
+  color:var(--ink2);font:inherit;box-sizing:border-box}
+/* 見た目は自前で組み、透明な <select> を重ねてネイティブの挙動を残す。 */
+.lang{position:relative;display:flex;align-items:center;gap:6px;padding:0 8px;
+  min-width:104px;font-size:12px;line-height:1}
+.lang:hover,.theme-toggle:hover{border-color:var(--muted);color:var(--ink)}
+.lang:has(select:focus-visible),.theme-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.lang .globe{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.3;flex:none}
+.lang .current{flex:1;color:var(--ink);white-space:nowrap}
+.lang .chev{width:9px;height:9px;stroke:var(--muted);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.lang select{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;
+  appearance:none;border:0;font:inherit}
+.theme-toggle{width:var(--ctl);display:grid;place-items:center;padding:0;cursor:pointer}
+.theme-toggle svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round}
+.theme-toggle .icon-sun{display:none}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .theme-toggle .icon-moon{display:none}
+  :root:not([data-theme="light"]) .theme-toggle .icon-sun{display:block}
+}
+:root[data-theme="dark"] .theme-toggle .icon-moon{display:none}
+:root[data-theme="dark"] .theme-toggle .icon-sun{display:block}
+header .cta{height:var(--ctl);display:flex;align-items:center;border:1px solid var(--line);
+  background:var(--ink);color:var(--bg);text-decoration:none;font-size:12.5px;padding:0 13px;flex:none}
+header .cta:hover{opacity:.86}
+/* title block */
+.title{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);border-bottom:1px solid var(--line)}
+.title .left{padding:44px 36px 40px 0;border-right:1px solid var(--hair)}
+.title h1{font-size:23px;max-width:19em}
+.title p{color:var(--ink2);margin:14px 0 0;max-width:34em}
+.title .right{padding:44px 0 40px 36px}
+.spec{width:100%;border-collapse:collapse;font-size:13px}
+.spec th,.spec td{text-align:left;padding:7px 0;border-bottom:1px solid var(--hair);vertical-align:top}
+.spec th{width:38%;color:var(--muted);font-weight:400;font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding-top:9px}
+.spec td{font-variant-numeric:tabular-nums}
+/* sections */
+section{border-bottom:1px solid var(--line);padding:46px 0}
+.head{display:flex;align-items:baseline;gap:16px;margin-bottom:22px}
+.head h2{font-size:18px}
+.head .no{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.1em}
+.head p{margin:0 0 0 auto;color:var(--ink2);font-size:13.5px;max-width:34em;text-align:right}
+/* figures */
+figure{margin:0}
+.fig{border:1px solid var(--line);display:block;background:var(--figbg)}
+.fig:hover{outline:2px solid var(--accent);outline-offset:-1px}
+.fig img{width:100%}
+figcaption{font-size:12px;color:var(--muted);padding:7px 0 0;font-family:var(--mono);letter-spacing:.03em}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.diagram{border:1px solid var(--hair);background:var(--tint);padding:22px 20px}
+/* catalog table */
+table.cat{width:100%;border-collapse:collapse;font-size:13.5px}
+table.cat th,table.cat td{border-bottom:1px solid var(--hair);padding:12px 14px 12px 0;text-align:left;vertical-align:top}
+table.cat thead th{border-bottom:1px solid var(--line);font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;padding-bottom:8px}
+table.cat td.k{width:150px;font-weight:600}
+table.cat td.id{width:130px;font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.06em}
+/* tips */
+ol.tips{margin:0;padding:0;list-style:none;columns:2;column-gap:34px}
+ol.tips li{break-inside:avoid;border-top:1px solid var(--hair);padding:11px 0;font-size:13.5px;color:var(--ink2);display:flex;gap:12px}
+ol.tips li b{color:var(--ink);font-weight:600;font-family:var(--mono);font-size:11px;padding-top:3px;flex:none;width:22px}
+kbd{font-family:var(--mono);font-size:11.5px;border:1px solid var(--hair);border-bottom:2px solid var(--muted);background:var(--tint);padding:1px 5px;color:var(--ink)}
+code{font-family:var(--mono);font-size:12px;background:var(--tint);padding:1px 4px}
+/* faq */
+.faq{display:grid;grid-template-columns:1fr 1fr;gap:0 34px}
+.faq div{border-top:1px solid var(--hair);padding:14px 0}
+.faq h3{font-size:13.5px;margin-bottom:6px}
+.faq p{margin:0;color:var(--ink2);font-size:13px}
+/* steps */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--hair)}
+.steps div{padding:18px 20px;border-right:1px solid var(--hair)}
+.steps div:last-child{border-right:0}
+.steps span{font-family:var(--mono);font-size:11px;color:var(--muted);display:block;margin-bottom:7px}
+.steps b{display:block;font-size:14px;margin-bottom:5px}
+.steps p{margin:0;font-size:13px;color:var(--ink2)}
+footer{padding:24px 0 40px;font-size:12px;color:var(--muted)}
+footer .wrap{display:flex;gap:18px;flex-wrap:wrap}
+footer a{color:var(--ink2);text-decoration:none}
+@media(max-width:980px){
+  header nav{display:none}
+  .tools{margin-left:auto}
+}
+@media(max-width:860px){
+  header .wrap{height:auto;padding:10px 0;flex-wrap:wrap;gap:10px}
+  .title{grid-template-columns:1fr}
+  .title .left{border-right:0;padding-right:0;padding-bottom:24px}
+  .title .right{padding-left:0;padding-top:0}
+  .grid2,.faq,.steps{grid-template-columns:1fr}
+  .steps div{border-right:0;border-bottom:1px solid var(--hair)}
+  ol.tips{columns:1}
+  .head{flex-direction:column;gap:6px}
+  .head p{margin-left:0;text-align:left}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="brand" href="#"><img src="./shots/icon.png" alt="">Mattermost Deck</a>
+    <nav>
+      <a href="#layout" data-i18n-ja="レイアウト" data-i18n-en="Layout">レイアウト</a>
+      <a href="#panes" data-i18n-ja="ペイン" data-i18n-en="Panes">ペイン</a>
+      <a href="#screens" data-i18n-ja="表示" data-i18n-en="Display">表示</a>
+      <a href="#tips" data-i18n-ja="ヒント" data-i18n-en="Tips">ヒント</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="tools">
+      <span class="lang">
+        <svg class="globe" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.6"/><ellipse cx="10" cy="10" rx="3.4" ry="7.6"/><path d="M2.6 7.6h14.8M2.6 12.4h14.8"/></svg>
+        <span class="current" data-lang-current aria-hidden="true">日本語</span>
+        <svg class="chev" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 4l3 3 3-3"/></svg>
+        <select data-lang-select aria-label="言語" data-i18n-aria-ja="言語" data-i18n-aria-en="Language">
+          <option value="ja">日本語</option>
+          <option value="en">English</option>
+        </select>
+      </span>
+      <button type="button" class="theme-toggle" data-theme-toggle
+        data-label-to-dark="ダークテーマに切り替え" data-label-to-light="ライトテーマに切り替え"
+        data-i18n-to-dark-ja="ダークテーマに切り替え" data-i18n-to-dark-en="Switch to dark theme"
+        data-i18n-to-light-ja="ライトテーマに切り替え" data-i18n-to-light-en="Switch to light theme"
+        aria-label="ダークテーマに切り替え">
+        <svg class="icon-moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.3 12.4A6.9 6.9 0 0 1 7.6 3.7a6.9 6.9 0 1 0 8.7 8.7z"/></svg>
+        <svg class="icon-sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.6"/><path d="M10 1.6v2.2M10 16.2v2.2M18.4 10h-2.2M3.8 10H1.6M15.9 4.1l-1.6 1.6M5.7 14.3l-1.6 1.6M15.9 15.9l-1.6-1.6M5.7 5.7 4.1 4.1"/></svg>
+      </button>
+      <a class="cta" href="https://chromewebstore.google.com/detail/mattermost-deck/imbnblgiedelpebcfkenbhomcibomdpi"
+        rel="noopener noreferrer" data-i18n-ja="Chrome に追加" data-i18n-en="Add to Chrome">Chrome に追加</a>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="title">
+    <div class="left">
+      <div class="lbl">Chrome Extension</div>
+      <h1 style="margin-top:10px"
+        data-i18n-ja="Mattermost Web の右側に、メンション・チャンネル・DM・検索結果を並べるペインを追加します。"
+        data-i18n-en="Adds panes to the right of Mattermost Web for mentions, channels, DMs, and search results."
+      >Mattermost Web の右側に、メンション・チャンネル・DM・検索結果を並べるペインを追加します。</h1>
+      <p
+        data-i18n-ja="ログイン、投稿、編集、スレッド操作は Mattermost 本体のままです。Deck が足すのは読むための一覧だけで、Mattermost の設定やチーム構成は変更しません。"
+        data-i18n-en="Signing in, posting, editing, and working with threads all stay in Mattermost itself. Deck only adds lists to read from, and changes neither your Mattermost settings nor your team structure."
+      >ログイン、投稿、編集、スレッド操作は Mattermost 本体のままです。Deck が足すのは読むための一覧だけで、Mattermost の設定やチーム構成は変更しません。</p>
+    </div>
+    <div class="right">
+      <table class="spec">
+        <tr><th>Version</th><td>1.4.0</td></tr>
+        <tr><th>Browser</th><td data-i18n-ja="Google Chrome 120 以降" data-i18n-en="Google Chrome 120 or later">Google Chrome 120 以降</td></tr>
+        <tr><th>Mattermost</th><td data-i18n-ja="9.5.4 で E2E 全テスト／9.5.11・10.11.22・11.8.2 で主要テスト" data-i18n-en="Full E2E suite on 9.5.4; core tests on 9.5.11, 10.11.22, and 11.8.2">9.5.4 で E2E 全テスト／9.5.11・10.11.22・11.8.2 で主要テスト</td></tr>
+        <tr><th data-i18n-ja="UI 言語" data-i18n-en="UI languages">UI 言語</th><td data-i18n-ja="9 言語" data-i18n-en="9 languages">9 言語</td></tr>
+        <tr><th data-i18n-ja="ライセンス" data-i18n-en="License">ライセンス</th><td>MIT</td></tr>
+        <tr><th data-i18n-ja="保存先" data-i18n-en="Storage">保存先</th><td data-i18n-ja="このブラウザー内のみ" data-i18n-en="This browser only">このブラウザー内のみ</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <section>
+    <div class="head"><span class="no">01</span><h2 data-i18n-ja="全体の画面" data-i18n-en="The whole screen">全体の画面</h2><p data-i18n-ja="左が Mattermost 本体、右が Deck。画像はクリックで拡大します。" data-i18n-en="Mattermost on the left, Deck on the right. Select an image to enlarge it.">左が Mattermost 本体、右が Deck。画像はクリックで拡大します。</p></div>
+    <figure>
+      <a class="fig glightbox" data-gallery="c" href="./shots/overview.png"
+        data-description="メンション・チャンネル・DM の 3 ペインを並べた状態"
+        data-i18n-caption-ja="メンション・チャンネル・DM の 3 ペインを並べた状態"
+        data-i18n-caption-en="Three panes side by side: mentions, a channel, and a direct message">
+        <img src="./shots/overview.png" width="1720" height="948"
+          alt="Mattermost の右側に Deck を表示した画面"
+          data-i18n-alt-ja="Mattermost の右側に Deck を表示した画面"
+          data-i18n-alt-en="Deck displayed beside Mattermost">
+      </a>
+      <figcaption data-i18n-ja="Fig. 1 — メンション／チャンネル／DM の 3 ペイン" data-i18n-en="Fig. 1 — Mentions, channel, and direct message panes">Fig. 1 — メンション／チャンネル／DM の 3 ペイン</figcaption>
+    </figure>
+  </section>
+
+  <section id="layout">
+    <div class="head"><span class="no">02</span><h2 data-i18n-ja="画面の占め方" data-i18n-en="How it uses the width">画面の占め方</h2><p data-i18n-ja="Mattermost の右ペインを開くと、メイン表示の幅を変えずに Deck 側が縮みます。" data-i18n-en="When a Mattermost right-hand pane opens, Deck shrinks instead of the main content.">Mattermost の右ペインを開くと、メイン表示の幅を変えずに Deck 側が縮みます。</p></div>
+    <div class="diagram">
+      <svg viewBox="0 0 888 300" role="img" aria-label="Deck の幅が Mattermost の右ペインに応じて縮む様子の図" data-i18n-aria-ja="Deck の幅が Mattermost の右ペインに応じて縮む様子の図" data-i18n-aria-en="Diagram showing Deck shrinking when a Mattermost right-hand pane opens">
+        <style>
+          .f{fill:none;stroke:var(--ink);stroke-width:1.2}
+          .b{fill:var(--bg);stroke:var(--muted);stroke-width:1}
+          .d{fill:var(--tint);stroke:var(--accent);stroke-width:1}
+          .r{fill:var(--tint);stroke:var(--muted);stroke-width:1}
+          .t{font:11px ui-monospace,Menlo,Consolas,monospace;fill:var(--muted)}
+          .tb{font:11.5px system-ui,sans-serif;fill:var(--ink2)}
+          .m{stroke:var(--accent);stroke-width:1}
+        </style>
+        <text class="t" x="8" y="18" data-i18n-ja="通常" data-i18n-en="Normal">通常</text>
+        <rect class="f" x="8" y="30" width="416" height="188"/>
+        <rect class="r" x="8" y="30" width="24" height="188"/>
+        <rect class="r" x="32" y="30" width="72" height="188"/>
+        <rect class="b" x="104" y="30" width="150" height="188"/>
+        <rect class="d" x="256" y="34" width="52" height="180"/>
+        <rect class="d" x="312" y="34" width="52" height="180"/>
+        <rect class="d" x="368" y="34" width="52" height="180"/>
+        <text class="tb" x="112" y="50">Mattermost</text>
+        <text class="t" x="258" y="50">Deck</text>
+        <line class="m" x1="104" y1="232" x2="254" y2="232"/>
+        <line class="m" x1="104" y1="228" x2="104" y2="236"/>
+        <line class="m" x1="254" y1="228" x2="254" y2="236"/>
+        <text class="t" x="124" y="250" data-i18n-ja="メイン表示の幅" data-i18n-en="main content width">メイン表示の幅</text>
+
+        <text class="t" x="464" y="18" data-i18n-ja="スレッドや検索の右ペインを開いたとき" data-i18n-en="With a thread or search pane open">スレッドや検索の右ペインを開いたとき</text>
+        <rect class="f" x="464" y="30" width="416" height="188"/>
+        <rect class="r" x="464" y="30" width="24" height="188"/>
+        <rect class="r" x="488" y="30" width="72" height="188"/>
+        <rect class="b" x="560" y="30" width="150" height="188"/>
+        <rect class="r" x="710" y="30" width="96" height="188"/>
+        <rect class="d" x="808" y="34" width="34" height="180"/>
+        <rect class="d" x="846" y="34" width="34" height="180"/>
+        <text class="tb" x="568" y="50">Mattermost</text>
+        <text class="t" x="716" y="50" data-i18n-ja="右ペイン" data-i18n-en="right pane">右ペイン</text>
+        <line class="m" x1="560" y1="232" x2="710" y2="232"/>
+        <line class="m" x1="560" y1="228" x2="560" y2="236"/>
+        <line class="m" x1="710" y1="228" x2="710" y2="236"/>
+        <text class="t" x="584" y="250" data-i18n-ja="同じ幅のまま" data-i18n-en="unchanged">同じ幅のまま</text>
+        <text class="t" x="806" y="250" data-i18n-ja="Deck が縮む" data-i18n-en="Deck shrinks">Deck が縮む</text>
+        <text class="tb" x="8" y="286" data-i18n-ja="Deck の残り幅が 280px を下回る場合は 52px まで折り畳み、右ペインを閉じると指定の幅とスクロール位置に戻ります。" data-i18n-en="Deck collapses to 52px if less than 280px would remain, then restores its width and scroll position when the pane closes.">Deck の残り幅が 280px を下回る場合は 52px まで折り畳み、右ペインを閉じると指定の幅とスクロール位置に戻ります。</text>
+      </svg>
+    </div>
+    <div class="grid2" style="margin-top:26px">
+      <figure>
+        <a class="fig glightbox" data-gallery="c" href="./shots/two-rows.png"
+          data-description="上下2段とペインの別名"
+          data-i18n-caption-ja="上下2段とペインの別名"
+          data-i18n-caption-en="Two rows, with panes renamed">
+          <img src="./shots/two-rows.png" width="1720" height="948" loading="lazy"
+            alt="上下2段に並べたペイン" data-i18n-alt-ja="上下2段に並べたペイン" data-i18n-alt-en="Panes arranged in two rows">
+        </a>
+        <figcaption data-i18n-ja="Fig. 2 — 上下 2 段と別名タイトル" data-i18n-en="Fig. 2 — Two rows with custom pane titles">Fig. 2 — 上下 2 段と別名タイトル</figcaption>
+      </figure>
+      <div>
+        <table class="spec">
+          <tr><th data-i18n-ja="配置" data-i18n-en="Arrangement">配置</th><td data-i18n-ja="横一列／上下 2 段（ビューから切り替え）" data-i18n-en="One row or two rows, switched from the view menu">横一列／上下 2 段（ビューから切り替え）</td></tr>
+          <tr><th data-i18n-ja="段のスクロール" data-i18n-en="Row scrolling">段のスクロール</th><td data-i18n-ja="上段と下段で独立" data-i18n-en="Top and bottom rows scroll independently">上段と下段で独立</td></tr>
+          <tr><th data-i18n-ja="高さ配分" data-i18n-en="Row heights">高さ配分</th><td data-i18n-ja="境界のドラッグで 20〜80%" data-i18n-en="Drag the divider, 20–80%">境界のドラッグで 20〜80%</td></tr>
+          <tr><th data-i18n-ja="ペイン幅" data-i18n-en="Pane width">ペイン幅</th><td>260–480px</td></tr>
+          <tr><th data-i18n-ja="並び替え" data-i18n-en="Reordering">並び替え</th><td data-i18n-ja="タイトルのドラッグ（段をまたげる）" data-i18n-en="Drag the title, across rows too">タイトルのドラッグ（段をまたげる）</td></tr>
+          <tr><th data-i18n-ja="別名" data-i18n-en="Renaming">別名</th><td>
+            <span data-lang-panel="ja">ダブルクリック／右クリック／<kbd>F2</kbd></span>
+            <span data-lang-panel="en" hidden>Double-click, right-click, or <kbd>F2</kbd></span>
+          </td></tr>
+          <tr><th data-i18n-ja="保存" data-i18n-en="Saving">保存</th><td data-i18n-ja="Views に保存、JSON で書き出し・読み込み" data-i18n-en="Save as Views; export and import as JSON">Views に保存、JSON で書き出し・読み込み</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="panes">
+    <div class="head"><span class="no">03</span><h2 data-i18n-ja="ペインの一覧" data-i18n-en="Pane types">ペインの一覧</h2><p data-i18n-ja="＋ から追加します。同じ種類をいくつ並べても構いません。" data-i18n-en="Add them with the + button. You can line up as many of the same type as you like.">＋ から追加します。同じ種類をいくつ並べても構いません。</p></div>
+    <table class="cat">
+      <thead><tr>
+        <th data-i18n-ja="種類" data-i18n-en="Type">種類</th>
+        <th data-i18n-ja="識別子" data-i18n-en="Identifier">識別子</th>
+        <th data-i18n-ja="内容" data-i18n-en="What it shows">内容</th>
+      </tr></thead>
+      <tbody>
+        <tr><td class="k" data-i18n-ja="メンション" data-i18n-en="Mentions">メンション</td><td class="id">mentions</td><td>
+          <span data-lang-panel="ja">参加している全チーム・全チャンネルのメンションを 1 つの一覧に。カスタムメンションキー、<code>@all</code> <code>@channel</code> <code>@here</code>、グループメンション、DM と GM、CRT 有効時のスレッド返信を Mattermost の設定どおりに判定します。</span>
+          <span data-lang-panel="en" hidden>Mentions from every team and channel you have joined, in one list. Custom mention keys, <code>@all</code> <code>@channel</code> <code>@here</code>, group mentions, DMs and GMs, and thread replies under CRT are all resolved the way your Mattermost settings define them.</span>
+        </td></tr>
+        <tr><td class="k" data-i18n-ja="要確認メンション" data-i18n-en="Mentions to review">要確認メンション</td><td class="id">mentions / review</td><td data-i18n-ja="「確認済みにする」を押すまで消えない一覧。Mattermost 側で既読にしても、投稿を開いても消えません。直後 5 秒は取り消せ、確認済み履歴からも戻せます。" data-i18n-en="A list that keeps each post until you mark it confirmed. Reading it in Mattermost or opening the post does not clear it. You can undo for five seconds, and restore from the confirmation history later.">「確認済みにする」を押すまで消えない一覧。Mattermost 側で既読にしても、投稿を開いても消えません。直後 5 秒は取り消せ、確認済み履歴からも戻せます。</td></tr>
+        <tr><td class="k" data-i18n-ja="チャンネル監視" data-i18n-en="Channel watch">チャンネル監視</td><td class="id">channelWatch</td><td data-i18n-ja="特定のチャンネルを開いたままにします。" data-i18n-en="Keeps one channel open.">特定のチャンネルを開いたままにします。</td></tr>
+        <tr><td class="k" data-i18n-ja="DM 監視" data-i18n-en="DM watch">DM 監視</td><td class="id">dmWatch</td><td data-i18n-ja="DM とグループメッセージを個別のペインとして常時表示します。" data-i18n-en="Keeps direct and group messages visible as their own panes.">DM とグループメッセージを個別のペインとして常時表示します。</td></tr>
+        <tr><td class="k" data-i18n-ja="検索" data-i18n-en="Search">検索</td><td class="id">search</td><td data-i18n-ja="検索結果をペインとして固定します。ハイライトキーワード設定と組み合わせて使います。" data-i18n-en="Pins a set of search results as a pane. Use it together with the highlight-keyword setting.">検索結果をペインとして固定します。ハイライトキーワード設定と組み合わせて使います。</td></tr>
+        <tr><td class="k" data-i18n-ja="お気に入り" data-i18n-en="Favorites">お気に入り</td><td class="id">favorites</td><td data-i18n-ja="投稿の ☆ で登録する個人用のリスト。Mattermost の保存済み投稿や共有ピン留めとは別枠で、サーバーとアカウントごとに最大 100 件をこのブラウザーに保存します。" data-i18n-en="A personal list you build with the ☆ on a post. It is separate from Mattermost's saved posts and shared pins, and keeps up to 100 entries per server and account in this browser.">投稿の ☆ で登録する個人用のリスト。Mattermost の保存済み投稿や共有ピン留めとは別枠で、サーバーとアカウントごとに最大 100 件をこのブラウザーに保存します。</td></tr>
+        <tr><td class="k" data-i18n-ja="保存済み投稿" data-i18n-en="Saved posts">保存済み投稿</td><td class="id">saved</td><td data-i18n-ja="Mattermost の保存済み投稿を一覧にします。" data-i18n-en="Lists your Mattermost saved posts.">Mattermost の保存済み投稿を一覧にします。</td></tr>
+        <tr><td class="k">Diagnostics</td><td class="id">diagnostics</td><td data-i18n-ja="接続状態と同期の様子。Performance タブに API の件数・平均遅延・P95・エラー率、直近のトレース、JSONL 書き出し。" data-i18n-en="Connection health and sync activity. The Performance tab adds API counts, average and P95 latency, error rates, recent traces, and JSONL export.">接続状態と同期の様子。Performance タブに API の件数・平均遅延・P95・エラー率、直近のトレース、JSONL 書き出し。</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="screens">
+    <div class="head"><span class="no">04</span><h2 data-i18n-ja="表示" data-i18n-en="Display">表示</h2><p data-i18n-ja="Mattermost のテーマに追従します。画像はクリックで拡大します。" data-i18n-en="Follows your Mattermost theme. Select an image to enlarge it.">Mattermost のテーマに追従します。画像はクリックで拡大します。</p></div>
+    <div class="grid2">
+      <figure><a class="fig glightbox" data-gallery="c" href="./shots/overview-dark.png" data-description="ダークテーマ" data-i18n-caption-ja="ダークテーマ" data-i18n-caption-en="Dark theme"><img src="./shots/overview-dark.png" loading="lazy" alt="ダークテーマ" data-i18n-alt-ja="ダークテーマ" data-i18n-alt-en="Dark theme"></a><figcaption data-i18n-ja="Fig. 3 — ダークテーマ" data-i18n-en="Fig. 3 — Dark theme">Fig. 3 — ダークテーマ</figcaption></figure>
+      <figure><a class="fig glightbox" data-gallery="c" href="./shots/locale-ja.png" data-description="日本語 UI" data-i18n-caption-ja="日本語 UI" data-i18n-caption-en="Japanese UI"><img src="./shots/locale-ja.png" loading="lazy" alt="日本語UI" data-i18n-alt-ja="日本語UI" data-i18n-alt-en="Japanese UI"></a><figcaption data-i18n-ja="Fig. 4 — UI は 9 言語（画像は日本語）" data-i18n-en="Fig. 4 — Nine UI languages (shown in Japanese)">Fig. 4 — UI は 9 言語（画像は日本語）</figcaption></figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="head"><span class="no">05</span><h2 data-i18n-ja="通信と保存" data-i18n-en="Network and storage">通信と保存</h2></div>
+    <table class="cat">
+      <tr><td class="k">REST</td><td data-i18n-ja="いまブラウザーで開いている Mattermost のセッションをそのまま使います。Deck のための追加ログインはありません。" data-i18n-en="Uses the Mattermost session already open in your browser. There is no extra sign-in for Deck.">いまブラウザーで開いている Mattermost のセッションをそのまま使います。Deck のための追加ログインはありません。</td></tr>
+      <tr><td class="k">WebSocket</td><td data-i18n-ja="Personal Access Token を設定したときだけ有効です。未設定の場合は定期取得で更新します。" data-i18n-en="Active only when you configure a personal access token. Without one, Deck refreshes by polling.">Personal Access Token を設定したときだけ有効です。未設定の場合は定期取得で更新します。</td></tr>
+      <tr><td class="k" data-i18n-ja="PAT の保存" data-i18n-en="Token storage">PAT の保存</td><td>
+        <span data-lang-panel="ja">既定は <code>chrome.storage.session</code>。永続保存は明示的に選んだときだけで、クライアント側で暗号化します。</span>
+        <span data-lang-panel="en" hidden>Defaults to <code>chrome.storage.session</code>. Persistent storage happens only when you choose it, and is encrypted client-side.</span>
+      </td></tr>
+      <tr><td class="k" data-i18n-ja="有効化の条件" data-i18n-en="Activation">有効化の条件</td><td data-i18n-ja="設定した origin と一致、許可した route kind に合致、任意のチーム slug 制限を満たす、health-check API が成功する。すべて満たしたときだけ描画します。" data-i18n-en="The origin matches the one you configured, the route kind is allowed, any team-slug restriction is satisfied, and the health-check API succeeds. Deck renders only when all of these hold.">設定した origin と一致、許可した route kind に合致、任意のチーム slug 制限を満たす、health-check API が成功する。すべて満たしたときだけ描画します。</td></tr>
+      <tr><td class="k" data-i18n-ja="保存されるもの" data-i18n-en="What is stored">保存されるもの</td><td data-i18n-ja="設定、レイアウト、お気に入り、要確認の状態、除外設定。すべてこのブラウザー内に、サーバーとアカウントごとに保存します。" data-i18n-en="Settings, layouts, favorites, review state, and exclusions. All of it stays in this browser, separated by server and account.">設定、レイアウト、お気に入り、要確認の状態、除外設定。すべてこのブラウザー内に、サーバーとアカウントごとに保存します。</td></tr>
+      <tr><td class="k" data-i18n-ja="送信先" data-i18n-en="Where data goes">送信先</td><td data-i18n-ja="設定した Mattermost サーバー以外へは送りません。第三者の analytics も広告もありません。" data-i18n-en="Nowhere except the Mattermost server you configured. No third-party analytics, no advertising.">設定した Mattermost サーバー以外へは送りません。第三者の analytics も広告もありません。</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <div class="head"><span class="no">06</span><h2 data-i18n-ja="導入手順" data-i18n-en="Getting started">導入手順</h2></div>
+    <div class="steps">
+      <div><span>STEP 1</span><b data-i18n-ja="Chrome ウェブストアから追加" data-i18n-en="Add it from the Chrome Web Store">Chrome ウェブストアから追加</b><p data-i18n-ja="インストールすると Options 画面が開きます。" data-i18n-en="The Options page opens once it is installed.">インストールすると Options 画面が開きます。</p></div>
+      <div><span>STEP 2</span><b data-i18n-ja="Mattermost Server URL を保存" data-i18n-en="Save your Mattermost server URL">Mattermost Server URL を保存</b><p data-i18n-ja="その origin への Chrome 権限が要求されます。リモートは HTTPS が必要です。" data-i18n-en="Chrome asks for permission on that origin. Remote servers must use HTTPS.">その origin への Chrome 権限が要求されます。リモートは HTTPS が必要です。</p></div>
+      <div><span>STEP 3</span><b data-i18n-ja="Mattermost を開いてペインを足す" data-i18n-en="Open Mattermost and add panes">Mattermost を開いてペインを足す</b><p data-i18n-ja="右側に Deck が出たら ＋ から追加します。" data-i18n-en="When Deck appears on the right, add panes with the + button.">右側に Deck が出たら ＋ から追加します。</p></div>
+    </div>
+  </section>
+
+  <section id="tips">
+    <div class="head"><span class="no">07</span><h2 data-i18n-ja="操作のヒント" data-i18n-en="Tips">操作のヒント</h2></div>
+    <ol class="tips">
+      <li><b>01</b>
+        <span data-lang-panel="ja">ペインのタイトルをダブルクリック、右クリック、または <kbd>F2</kbd> で別名を付けられます。空欄のまま保存すると元の名前に戻ります。</span>
+        <span data-lang-panel="en" hidden>Rename a pane by double-clicking its title, right-clicking it, or pressing <kbd>F2</kbd>. Save it blank to restore the original name.</span>
+      </li>
+      <li><b>02</b>
+        <span data-lang-panel="ja">タイトルのドラッグ中に <kbd>Esc</kbd> で並び替えを取り消します。投稿も検索条件もスクロール位置もそのままです。</span>
+        <span data-lang-panel="en" hidden>Press <kbd>Esc</kbd> while dragging a title to cancel the move. Posts, filters, and scroll positions all stay as they were.</span>
+      </li>
+      <li><b>03</b>
+        <span data-lang-panel="ja">上下の境界をダブルクリック、または <kbd>Home</kbd> で高さを均等に戻します。<kbd>↑</kbd> <kbd>↓</kbd> でも調整できます。</span>
+        <span data-lang-panel="en" hidden>Double-click the divider between rows, or press <kbd>Home</kbd>, to even out their heights. <kbd>↑</kbd> and <kbd>↓</kbd> adjust it too.</span>
+      </li>
+      <li><b>04</b>
+        <span data-lang-panel="ja">ペイン右端の境界をダブルクリック、または <kbd>Home</kbd> で既定幅に戻します。<kbd>←</kbd> <kbd>→</kbd> でも調整できます。</span>
+        <span data-lang-panel="en" hidden>Double-click a pane's right edge, or press <kbd>Home</kbd>, to return it to the default width. <kbd>←</kbd> and <kbd>→</kbd> adjust it too.</span>
+      </li>
+      <li><b>05</b>
+        <span data-lang-panel="ja">ペインの虫眼鏡で、読み込み済みの本文と投稿者を絞り込めます。追加の通信はなく、日本語入力の変換中も一覧が消えません。</span>
+        <span data-lang-panel="en" hidden>The magnifier in each pane filters the posts and authors already loaded. It sends no extra requests, and the list stays put while an IME conversion is in progress.</span>
+      </li>
+      <li><b>06</b>
+        <span data-lang-panel="ja">使い分けが複数あるときは Views に保存します。端末を移すときは JSON で書き出します。</span>
+        <span data-lang-panel="en" hidden>Save each way you work as a View. Export to JSON when you move to another machine.</span>
+      </li>
+      <li><b>07</b>
+        <span data-lang-panel="ja">Appearance のコンパクト表示で <code>時刻 投稿者: 本文</code> の 1 行表示になります。</span>
+        <span data-lang-panel="en" hidden>Compact mode under Appearance switches rows to a single line: <code>time author: message</code>.</span>
+      </li>
+      <li><b>08</b>
+        <span data-lang-panel="ja">投稿の「…」から、そのユーザーの投稿やその会話を表示しないよう設定できます。取得や既読には影響しません。</span>
+        <span data-lang-panel="en" hidden>The “…” menu on a post hides that author or that conversation. It changes nothing about fetching or read state.</span>
+      </li>
+    </ol>
+  </section>
+
+  <section id="faq">
+    <div class="head"><span class="no">08</span><h2 data-i18n-ja="よくある質問" data-i18n-en="Frequently asked questions">よくある質問</h2></div>
+    <div class="faq">
+      <div><h3 data-i18n-ja="Mattermost の代わりに使うものですか" data-i18n-en="Does it replace Mattermost?">Mattermost の代わりに使うものですか</h3><p data-i18n-ja="いいえ。ログイン、投稿、編集、スレッド操作は Mattermost 本体のままです。" data-i18n-en="No. Signing in, posting, editing, and threads all stay in Mattermost itself.">いいえ。ログイン、投稿、編集、スレッド操作は Mattermost 本体のままです。</p></div>
+      <div><h3 data-i18n-ja="Personal Access Token は必要ですか" data-i18n-en="Do I need a personal access token?">Personal Access Token は必要ですか</h3><p data-i18n-ja="必要ありません。未設定でも定期取得で更新します。設定すると WebSocket によるリアルタイム更新になります。" data-i18n-en="No. Without one, Deck refreshes by polling. Adding one switches it to realtime updates over WebSocket.">必要ありません。未設定でも定期取得で更新します。設定すると WebSocket によるリアルタイム更新になります。</p></div>
+      <div><h3 data-i18n-ja="どのサーバーでも自動的に動きますか" data-i18n-en="Does it activate on every server?">どのサーバーでも自動的に動きますか</h3><p data-i18n-ja="いいえ。Options に保存して Chrome の origin 権限を許可したサーバーだけです。リモートには HTTPS が必要です。" data-i18n-en="No. Only on the server you saved in Options and approved through Chrome's origin permission. Remote servers must use HTTPS.">いいえ。Options に保存して Chrome の origin 権限を許可したサーバーだけです。リモートには HTTPS が必要です。</p></div>
+      <div><h3 data-i18n-ja="データは開発者のサーバーへ送られますか" data-i18n-en="Is data sent to the developer?">データは開発者のサーバーへ送られますか</h3><p data-i18n-ja="送られません。通信するのは設定済みの Mattermost サーバーだけです。" data-i18n-en="No. The only server Deck talks to is the Mattermost server you configured.">送られません。通信するのは設定済みの Mattermost サーバーだけです。</p></div>
+      <div><h3 data-i18n-ja="Deck で読むと Mattermost 側も既読になりますか" data-i18n-en="Does reading in Deck mark posts read?">Deck で読むと Mattermost 側も既読になりますか</h3><p data-i18n-ja="なりません。「確認済みにする」も Mattermost の既読とは別の状態です。" data-i18n-en="No. Marking a post confirmed is also a separate state from Mattermost's read markers.">なりません。「確認済みにする」も Mattermost の既読とは別の状態です。</p></div>
+      <div><h3 data-i18n-ja="Mattermost Free Edition でも使えますか" data-i18n-en="Does it work with Mattermost Free Edition?">Mattermost Free Edition でも使えますか</h3><p data-i18n-ja="ブラウザーから Mattermost Web と必要な API にアクセスできれば使えます。グループメンションなど一部はサーバーのライセンスと設定次第です。" data-i18n-en="Yes, as long as your browser can reach Mattermost Web and the APIs Deck needs. Some features, group mentions among them, depend on your server's license and configuration.">ブラウザーから Mattermost Web と必要な API にアクセスできれば使えます。グループメンションなど一部はサーバーのライセンスと設定次第です。</p></div>
+      <div><h3 data-i18n-ja="拡張機能を削除するとどうなりますか" data-i18n-en="What happens if I uninstall it?">拡張機能を削除するとどうなりますか</h3><p data-i18n-ja="このブラウザーに保存していた設定、レイアウト、お気に入り、要確認の状態、除外設定も一緒に消えます。" data-i18n-en="The settings, layouts, favorites, review state, and exclusions kept in this browser are removed with it.">このブラウザーに保存していた設定、レイアウト、お気に入り、要確認の状態、除外設定も一緒に消えます。</p></div>
+      <div><h3 data-i18n-ja="不具合の報告はどこへ" data-i18n-en="Where do I report a problem?">不具合の報告はどこへ</h3><p data-i18n-ja="GitHub Issues で受け付けています。" data-i18n-en="GitHub Issues.">GitHub Issues で受け付けています。</p></div>
+    </div>
+  </section>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>Mattermost Deck v1.4.0</span><span>MIT License</span>
+    <a href="#">GitHub</a>
+    <a href="#" data-i18n-ja="プライバシーポリシー" data-i18n-en="Privacy Policy">プライバシーポリシー</a>
+    <a href="#" data-i18n-ja="利用規約" data-i18n-en="Terms">利用規約</a>
+    <a href="#" data-i18n-ja="セキュリティ" data-i18n-en="Security">セキュリティ</a>
+  </div>
+</footer>
+
+<script src="./vendor/glightbox.min.js"></script>
+<script src="./site-switches.js"></script>
+<script>
+  // 言語を切り替えると data-description が変わるので、ライトボックスを作り直す。
+  let lightbox = null;
+  const refreshLightbox = () => {
+    if (lightbox) {
+      lightbox.destroy();
+    }
+    lightbox = GLightbox({ selector: ".glightbox", touchNavigation: true, loop: true });
+  };
+  document.addEventListener("site:languagechange", refreshLightbox);
+  refreshLightbox();
+</script>
+</body>
+</html>

@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>案A ドキュメント型 - Mattermost Deck</title>
+<link rel="stylesheet" href="./vendor/glightbox.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#fbfaf7; --ink:#23211e; --ink2:#4b4740; --muted:#7c766c;
+  --rule:#ddd8cf; --rule2:#c9c2b6; --accent:#1b4d8f; --accent-bg:#edf2f9; --code:#f1efe9;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI","Noto Sans JP","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+  font-size:15px;line-height:1.85;letter-spacing:.01em}
+h1,h2,h3{font-family:"Noto Serif JP",serif;font-weight:600;letter-spacing:.02em;line-height:1.5;word-break:auto-phrase}
+a{color:var(--accent)}
+img{max-width:100%;display:block;height:auto}
+.layout{display:grid;grid-template-columns:232px minmax(0,1fr);gap:56px;max-width:1080px;margin:0 auto;padding:0 28px}
+.toc{position:sticky;top:0;align-self:start;height:100vh;padding:34px 0 24px;border-right:1px solid var(--rule);display:flex;flex-direction:column}
+.toc .mark{display:flex;align-items:center;gap:9px;margin-bottom:4px}
+.toc .mark img{width:26px;height:26px}
+.toc .mark b{font-size:14px;font-weight:600;letter-spacing:.02em}
+.toc .ver{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;margin-bottom:26px;padding-left:35px}
+.toc nav{display:flex;flex-direction:column;gap:1px;font-size:13px}
+.toc nav a{color:var(--ink2);text-decoration:none;padding:5px 0 5px 10px;border-left:2px solid transparent}
+.toc nav a:hover{color:var(--accent);border-left-color:var(--rule2)}
+.toc .acts{margin-top:auto;padding-top:22px;display:flex;flex-direction:column;gap:7px;font-size:13px}
+.toc .acts a{display:block;text-align:center;padding:7px 10px;text-decoration:none;border:1px solid var(--accent);color:#fff;background:var(--accent)}
+.toc .acts a.ghost{background:transparent;color:var(--accent)}
+main{padding:46px 0 96px;max-width:660px}
+h1{font-size:30px;margin:0 0 6px}
+.lede{font-size:16.5px;line-height:1.95;color:var(--ink2);margin:0 0 26px}
+.meta{font-size:12.5px;color:var(--muted);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:9px 0;margin:0 0 34px;display:flex;gap:18px;flex-wrap:wrap}
+section{margin:0 0 54px;scroll-margin-top:20px}
+h2{font-size:19px;margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid var(--rule2)}
+h3{font-size:15px;margin:26px 0 6px}
+p{margin:0 0 14px}
+figure{margin:22px 0 10px}
+figure a{display:block;border:1px solid var(--rule2);background:#fff;padding:5px}
+figure a:hover{border-color:var(--accent)}
+figcaption{font-size:12.5px;color:var(--muted);margin-top:7px}
+figcaption b{color:var(--ink2);font-weight:600;margin-right:7px;font-variant-numeric:tabular-nums}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:6px 0 10px}
+th,td{text-align:left;vertical-align:top;padding:9px 12px 9px 0;border-bottom:1px solid var(--rule)}
+th{width:150px;white-space:nowrap;color:var(--ink);font-weight:600;border-bottom:1px solid var(--rule2)}
+ol.tips{margin:0;padding:0;list-style:none;counter-reset:t}
+ol.tips li{counter-increment:t;position:relative;padding:12px 0 12px 34px;border-bottom:1px solid var(--rule)}
+ol.tips li::before{content:counter(t);position:absolute;left:0;top:12px;width:22px;height:22px;line-height:22px;text-align:center;font-size:11.5px;color:var(--muted);border:1px solid var(--rule2);border-radius:50%;font-variant-numeric:tabular-nums}
+kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;background:var(--code);border:1px solid var(--rule2);border-bottom-width:2px;border-radius:3px;padding:1px 6px;margin:0 1px}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;background:var(--code);padding:1px 5px}
+details{border-bottom:1px solid var(--rule);padding:3px 0}
+summary{cursor:pointer;padding:11px 0;font-weight:600;font-size:14.5px;list-style:none;display:flex;gap:10px}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"問";font-size:11px;color:var(--muted);border:1px solid var(--rule2);padding:0 4px;height:18px;line-height:18px;margin-top:4px;flex:none}
+details[open] summary{color:var(--accent)}
+details p{font-size:14px;color:var(--ink2);margin:0 0 14px;padding-left:28px}
+.note{background:var(--accent-bg);border-left:3px solid var(--accent);padding:12px 16px;font-size:13.5px;color:var(--ink2);margin:16px 0}
+.steps{counter-reset:s;margin:0;padding:0;list-style:none}
+.steps li{counter-increment:s;display:grid;grid-template-columns:28px 1fr;gap:14px;padding:12px 0;border-bottom:1px solid var(--rule)}
+.steps li::before{content:counter(s);font-family:"Noto Serif JP",serif;font-size:17px;color:var(--rule2)}
+.steps b{display:block;font-size:14.5px}
+.steps span{font-size:13.5px;color:var(--ink2)}
+footer{border-top:1px solid var(--rule2);margin-top:40px;padding-top:18px;font-size:12.5px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap}
+@media(max-width:860px){
+  .layout{grid-template-columns:1fr;gap:0}
+  .toc{position:static;height:auto;border-right:0;border-bottom:1px solid var(--rule);padding-bottom:18px}
+  .toc nav{flex-direction:row;flex-wrap:wrap;gap:0 14px}
+  .toc nav a{border-left:0;padding:3px 0}
+  .toc .acts{flex-direction:row;margin-top:16px}
+  .toc .acts a{flex:1}
+  main{padding-top:28px}
+}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="toc">
+    <div class="mark"><img src="./shots/icon.png" alt=""><b>Mattermost Deck</b></div>
+    <div class="ver">Chrome 拡張 v1.4.0</div>
+    <nav>
+      <a href="#about">これは何か</a>
+      <a href="#panes">ペインの種類</a>
+      <a href="#layout">画面の並べ方</a>
+      <a href="#mention">メンションの扱い</a>
+      <a href="#network">通信と保存</a>
+      <a href="#setup">導入手順</a>
+      <a href="#tips">操作のヒント</a>
+      <a href="#faq">よくある質問</a>
+    </nav>
+    <div class="acts">
+      <a href="#">Chrome ウェブストア</a>
+      <a class="ghost" href="#">GitHub</a>
+    </div>
+  </aside>
+
+  <main>
+    <h1>Mattermost Deck</h1>
+    <p class="lede">Mattermost Web の右側に、メンション・チャンネル・DM・検索結果を並べるペインを追加する Chrome 拡張です。ログイン、投稿、編集、スレッド操作は Mattermost 本体をそのまま使います。</p>
+    <div class="meta"><span>MIT License</span><span>UI 9言語</span><span>Chrome 120 以降</span><span>第三者トラッキングなし</span></div>
+
+    <figure>
+      <a class="glightbox" data-gallery="a" href="./shots/overview.png" data-description="左が Mattermost 本体、右が Deck。メンション・チャンネル・DM を並べた状態">
+        <img src="./shots/overview.png" width="1720" height="948" alt="Mattermost の右側に Deck を表示した画面">
+      </a>
+      <figcaption><b>図1</b>左が Mattermost 本体、右が Deck。メンション、チャンネル、DM の 3 ペインを並べた状態。</figcaption>
+    </figure>
+
+    <section id="about">
+      <h2>これは何か</h2>
+      <p>Mattermost には複数のチームとチャンネルがありますが、一度に見えるのは 1 つのチャンネルだけです。Deck は閲覧用のペインを右側に足して、別のチャンネルや自分宛のメンションを開いたまま並べられるようにします。</p>
+      <p>Deck は Mattermost を置き換えません。ページに Shadow DOM の右レールを差し込むだけで、投稿も編集もスレッドの操作も Mattermost 本体の画面で行います。</p>
+      <div class="note">拡張が描画するのは、設定した origin と一致し、許可した route kind に合致し、任意のチーム slug 制限を満たし、health-check API が成功したときだけです。それ以外のサイトでは何も挿入しません。</div>
+    </section>
+
+    <section id="panes">
+      <h2>ペインの種類</h2>
+      <table>
+        <tr><th>メンション</th><td>参加している全チーム・全チャンネルのメンションを 1 つの一覧にまとめます。カスタムメンションキー、<code>@all</code> <code>@channel</code> <code>@here</code>、グループメンション、DM と GM、CRT 有効時のスレッド返信を Mattermost の設定どおりに判定します。</td></tr>
+        <tr><th>要確認メンション</th><td>「確認済みにする」を押すまで消えない一覧です。Mattermost 側で既読にしても、投稿を開いても消えません。</td></tr>
+        <tr><th>チャンネル監視</th><td>特定のチャンネルを開いたままにします。</td></tr>
+        <tr><th>DM 監視</th><td>DM とグループメッセージを個別のペインとして常時表示します。</td></tr>
+        <tr><th>検索</th><td>検索結果をペインとして固定します。ハイライトキーワード設定と組み合わせて使います。</td></tr>
+        <tr><th>お気に入り</th><td>投稿の ☆ で登録する個人用のリストです。Mattermost の保存済み投稿や共有ピン留めとは別枠で、サーバーとアカウントごとに最大 100 件をこのブラウザーに保存します。</td></tr>
+        <tr><th>保存済み投稿</th><td>Mattermost の保存済み投稿を一覧にします。</td></tr>
+        <tr><th>Diagnostics</th><td>接続状態と同期の様子を表示します。Performance タブには API の件数・平均遅延・P95・エラー率、直近のトレース、JSONL 書き出しがあります。</td></tr>
+      </table>
+    </section>
+
+    <section id="layout">
+      <h2>画面の並べ方</h2>
+      <p>既定は横一列です。「ビュー」から上下 2 段に切り替えられます。上段と下段はそれぞれ独立して左右にスクロールし、境界をドラッグすると高さの配分を 20〜80% の範囲で変えられます。</p>
+      <figure>
+        <a class="glightbox" data-gallery="a" href="./shots/two-rows.png" data-description="上下2段。ペインに「Release watch」「Follow up」の別名を付けた状態">
+          <img src="./shots/two-rows.png" width="1720" height="948" loading="lazy" alt="上下2段に並べたペイン">
+        </a>
+        <figcaption><b>図2</b>上下 2 段の配置。ペインに「Release watch」「Follow up」という別名を付けています。</figcaption>
+      </figure>
+      <table>
+        <tr><th>幅</th><td>ペインごとに 260〜480px。右端の境界をドラッグします。</td></tr>
+        <tr><th>並び替え</th><td>タイトルをドラッグします。上下の段をまたいで移動でき、点線枠で移動先を確認してから離します。</td></tr>
+        <tr><th>別名</th><td>タイトルをダブルクリック、右クリック、または <kbd>F2</kbd>。空欄のまま保存すると元の名前に戻ります。</td></tr>
+        <tr><th>保存</th><td>ペインの組み合わせを Views に保存できます。JSON で書き出し・読み込みもできます。</td></tr>
+      </table>
+      <h3>Mattermost の右ペインを開いたとき</h3>
+      <p>スレッド、検索結果、ピン留め投稿などの右ペインを開くと、その実測幅の分だけ Deck が同じフレームで縮み、メイン表示の幅は開く前のまま保たれます。Deck の残り幅が 280px を下回る場合は 52px まで折り畳み、右ペインを閉じると指定の幅とスクロール位置に戻ります。</p>
+    </section>
+
+    <section id="mention">
+      <h2>メンションの扱い</h2>
+      <h3>要確認メンション</h3>
+      <p>メンションペインの操作欄から「要確認タブを複製」を選ぶと、元のペインを残したまま、同じ対象チームの要確認ペインを隣に作ります。「要確認モードに変更」はタブを増やさず、そのペインの対象チーム・名前・位置を保ったまま切り替えます。</p>
+      <p>各投稿の「確認済みにする」で一覧から外れます。直後の 5 秒間は「確認済みにしました　取り消す」が出て、その場で戻せます。表示が消えた後も、操作欄の確認済み履歴から未確認に戻せます。</p>
+      <h3>表示の除外</h3>
+      <p>投稿にマウスを重ねると出る「…」から、そのユーザーの投稿、またはその会話を表示しないよう設定できます。会話の除外は親投稿と今後増える返信にも適用されます。通常メンションと要確認メンションで同じ設定を共有します。</p>
+      <div class="note">除外は表示だけに効きます。投稿の取得、Mattermost 本体の通知、既読や確認済みの状態は変わりません。</div>
+    </section>
+
+    <section id="network">
+      <h2>通信と保存</h2>
+      <table>
+        <tr><th>REST</th><td>いまブラウザーで開いている Mattermost のセッションをそのまま使います。Deck のための追加ログインはありません。</td></tr>
+        <tr><th>WebSocket</th><td>Personal Access Token を設定したときだけ有効になります。未設定の場合は定期取得で更新します。</td></tr>
+        <tr><th>PAT の保存先</th><td>既定は <code>chrome.storage.session</code> です。永続保存は明示的に選んだときだけで、その場合はクライアント側で暗号化します。</td></tr>
+        <tr><th>保存されるもの</th><td>設定、レイアウト、お気に入り、要確認の状態、除外設定。すべてこのブラウザー内に、サーバーとアカウントごとに保存します。</td></tr>
+        <tr><th>送信先</th><td>設定した Mattermost サーバー以外へは送りません。開発者が運用するサーバーも、第三者の計測もありません。</td></tr>
+      </table>
+    </section>
+
+    <section id="setup">
+      <h2>導入手順</h2>
+      <ol class="steps">
+        <li><b>Chrome ウェブストアから追加する</b><span>インストールすると Options 画面が開きます。</span></li>
+        <li><b>Connection に Mattermost Server URL を保存する</b><span>保存すると、その origin に対する Chrome の権限が要求されます。リモートサーバーには HTTPS が必要です。</span></li>
+        <li><b>Mattermost を開いてペインを足す</b><span>右側に Deck が出たら ＋ から必要なペインを追加します。</span></li>
+      </ol>
+      <p style="margin-top:14px">Team Slug の制限、PAT、テーマ、幅、プロファイルは、必要になったときに追加で設定します。</p>
+    </section>
+
+    <section id="tips">
+      <h2>操作のヒント</h2>
+      <ol class="tips">
+        <li>ペインのタイトルをダブルクリック、右クリック、または <kbd>F2</kbd> で別名を付けられます。空欄のまま保存すると元の名前に戻ります。</li>
+        <li>タイトルのドラッグ中に <kbd>Esc</kbd> を押すと並び替えを取り消します。投稿も検索条件もスクロール位置もそのままです。</li>
+        <li>上下 2 段の境界をダブルクリック、または <kbd>Home</kbd> で高さを均等に戻します。<kbd>↑</kbd> <kbd>↓</kbd> でも調整できます。</li>
+        <li>ペイン右端の境界をダブルクリック、または <kbd>Home</kbd> で既定幅に戻します。<kbd>←</kbd> <kbd>→</kbd> でも調整できます。</li>
+        <li>ペインの虫眼鏡で、読み込み済みの本文と投稿者を絞り込めます。追加の通信はなく、日本語入力の変換中も一覧が消えません。<kbd>Esc</kbd> で閉じます。</li>
+        <li>運用用とサポート用のように使い分けが複数あるときは、ペインの組み合わせを Views に保存します。端末を移すときは JSON で書き出します。</li>
+        <li>表示が詰まってきたら Appearance のコンパクト表示へ。カードをやめて <code>時刻 投稿者: 本文</code> の 1 行表示になります。</li>
+        <li>どのペインがどのチームかわからなくなったら、ペイン識別カラーを付けると見分けやすくなります。</li>
+      </ol>
+    </section>
+
+    <section id="faq">
+      <h2>よくある質問</h2>
+      <details><summary>Mattermost の代わりに使うものですか</summary><p>いいえ。ログイン、投稿、編集、スレッド操作は Mattermost 本体のままです。Deck は読むための一覧を右側に足すだけです。</p></details>
+      <details><summary>Personal Access Token は必要ですか</summary><p>必要ありません。未設定のままでも定期取得で更新します。設定すると WebSocket によるリアルタイム更新に切り替わります。</p></details>
+      <details><summary>どのサーバーでも自動的に動きますか</summary><p>いいえ。Options に保存して Chrome の origin 権限を許可した Mattermost サーバーだけで有効になります。リモートサーバーには HTTPS が必要です。</p></details>
+      <details><summary>データは開発者のサーバーへ送られますか</summary><p>送られません。拡張が通信するのは設定済みの Mattermost サーバーだけで、第三者の analytics や広告、プロファイリングはありません。</p></details>
+      <details><summary>Deck で読むと Mattermost 側も既読になりますか</summary><p>なりません。要確認メンションの「確認済みにする」も、Mattermost の既読とは別の状態です。</p></details>
+      <details><summary>ウィンドウが狭いときはどうなりますか</summary><p>Mattermost の右ペインを開くと、その実測幅の分だけ Deck が縮みます。残りが 280px 未満になる場合は 52px に折り畳み、右ペインを閉じると元の幅とスクロール位置に戻ります。</p></details>
+      <details><summary>Mattermost Free Edition でも使えますか</summary><p>ブラウザーから Mattermost Web と必要な API にアクセスできれば使えます。グループメンションなど一部の機能は、サーバーのライセンス・設定・権限で利用できる場合に限られます。</p></details>
+      <details><summary>対応環境を教えてください</summary><p>Google Chrome 120 以降です。Docker の E2E 全テストを Mattermost 9.5.4 で実行し、経路変更・チーム切り替え・スレッドレイアウト・レスポンシブ動作は 9.5.11、10.11.22、11.8.2 でもリリースごとに確認しています。</p></details>
+    </section>
+
+    <footer>
+      <span>MIT License</span><a href="#">GitHub</a><a href="#">プライバシーポリシー</a><a href="#">利用規約</a><a href="#">セキュリティ</a>
+    </footer>
+  </main>
+</div>
+<script src="./vendor/glightbox.min.js"></script>
+<script>GLightbox({ selector: ".glightbox", touchNavigation: true, loop: true });</script>
+</body>
+</html>
