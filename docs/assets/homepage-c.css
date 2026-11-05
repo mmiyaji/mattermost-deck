@@ -3,6 +3,7 @@
   --bg:#fff; --ink:#111417; --ink2:#3d454d; --muted:#767f88;
   --line:#111417; --hair:#d9dde1; --accent:#1a5fd0; --tint:#f4f6f8;
   --figbg:#fff;
+  --font-sans:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Yu Gothic UI","Noto Sans JP","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
 @media (prefers-color-scheme:dark){
@@ -20,14 +21,13 @@
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:52px}
 body{margin:0;background:var(--bg);color:var(--ink);
-  font-family:system-ui,-apple-system,"Segoe UI","Noto Sans JP","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
-  font-size:14.5px;line-height:1.8}
+  font-family:var(--font-sans);font-size:14.5px;line-height:1.8;letter-spacing:.01em}
 img,svg{max-width:100%;display:block;height:auto}
 a{color:var(--accent)}
 h1,h2,h3{margin:0;line-height:1.4;font-weight:600;letter-spacing:.01em;word-break:auto-phrase}
 [hidden]{display:none !important}
 .wrap{width:min(1060px,calc(100% - 40px));margin:0 auto}
-.lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;color:var(--muted);text-transform:uppercase}
+.lbl{font-family:var(--font-sans);font-size:10.5px;letter-spacing:.08em;color:var(--muted);text-transform:uppercase}
 /* header */
 header{border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:20}
 header .wrap{display:flex;align-items:center;gap:18px;height:50px}
@@ -71,7 +71,7 @@ header .cta:hover{opacity:.86}
 .title .right{padding:44px 0 40px 36px}
 .spec{width:100%;border-collapse:collapse;font-size:13px}
 .spec th,.spec td{text-align:left;padding:7px 0;border-bottom:1px solid var(--hair);vertical-align:top}
-.spec th{width:38%;color:var(--muted);font-weight:400;font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding-top:9px}
+.spec th{width:38%;color:var(--muted);font-weight:400;font-family:var(--font-sans);font-size:11px;letter-spacing:.03em;text-transform:uppercase;padding-top:9px}
 .spec td{font-variant-numeric:tabular-nums}
 /* sections */
 section{border-bottom:1px solid var(--line);padding:46px 0}
@@ -84,13 +84,16 @@ figure{margin:0}
 .fig{border:1px solid var(--line);display:block;background:var(--figbg)}
 .fig:hover{outline:2px solid var(--accent);outline-offset:-1px}
 .fig img{width:100%}
-figcaption{font-size:12px;color:var(--muted);padding:7px 0 0;font-family:var(--mono);letter-spacing:.03em}
+figcaption{font-size:12px;color:var(--muted);padding:7px 0 0;font-family:var(--font-sans);letter-spacing:.02em}
+.glightbox-container .gslide-description{background:var(--bg);color:var(--ink);font-family:var(--font-sans)}
+.glightbox-container .gslide-title,.glightbox-container .gslide-desc{color:var(--ink);font-family:var(--font-sans)}
+.glightbox-container .gslide-desc a,.glightbox-container .gslide-title a{color:var(--accent)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
 .diagram{border:1px solid var(--hair);background:var(--tint);padding:22px 20px}
 /* catalog table */
 table.cat{width:100%;border-collapse:collapse;font-size:13.5px}
 table.cat th,table.cat td{border-bottom:1px solid var(--hair);padding:12px 14px 12px 0;text-align:left;vertical-align:top}
-table.cat thead th{border-bottom:1px solid var(--line);font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;padding-bottom:8px}
+table.cat thead th{border-bottom:1px solid var(--line);font-family:var(--font-sans);font-size:10.5px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;padding-bottom:8px}
 table.cat td.k{width:150px;font-weight:600}
 table.cat td.id{width:130px;font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.06em}
 /* tips */
@@ -149,4 +152,9 @@ footer a{color:var(--ink2);text-decoration:none}
   table.cat td.k{width:auto;font-size:14px;font-weight:600;}
   table.cat td.id{width:auto;font-size:10.5px;letter-spacing:.04em;}
   table.cat td:not(.k):not(.id){padding-top:4px;}
+}
+@media(max-width:768px){
+  .glightbox-mobile .glightbox-container .gslide-description{background:var(--bg);color:var(--ink);font-family:var(--font-sans)}
+  .glightbox-mobile .glightbox-container .gslide-title,.glightbox-mobile .glightbox-container .gslide-desc{color:var(--ink);font-family:var(--font-sans)}
+  .glightbox-mobile .glightbox-container .gslide-desc a,.glightbox-mobile .glightbox-container .gslide-title a{color:var(--accent)}
 }
