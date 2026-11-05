@@ -92,7 +92,7 @@ for (const [relativePath, requiredText] of [
   ["README.ja.md", `v${version}`],
   ["docs/index.html", `Chrome extension · v${version}`],
   ["docs/index.html", `Mattermost Deck v${version}`],
-  ["docs/index.html", `assets/styles.css?v=${version}`],
+  ["docs/index.html", `assets/homepage-c.css?v=${version}`],
   ["docs/privacy/index.html", `assets/styles.css?v=${version}`],
   ["docs/terms/index.html", `assets/styles.css?v=${version}`],
   ["docs/chrome-web-store-submission.md", `## v${version} release notes`],

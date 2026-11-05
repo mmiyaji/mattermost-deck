@@ -9,6 +9,11 @@ const requiredFiles = [
   "terms/index.html",
   "assets/styles.css",
   "assets/site.js",
+  "assets/homepage-c.css",
+  "assets/glightbox.min.css",
+  "assets/glightbox.min.js",
+  "assets/site-theme-init.js",
+  "assets/GLightbox-LICENSE.md",
   "assets/mattermost-deck-icon.png",
   "_headers",
   "_redirects",
@@ -79,8 +84,9 @@ for (const htmlFile of htmlFiles) {
   if (!source.includes('rel="canonical"') || !source.includes('name="description"')) {
     reportError(`${htmlFile}: canonical URL and description metadata are required`);
   }
-  if (!source.includes("assets/styles.css") || !source.includes("assets/site.js")) {
-    reportError(`${htmlFile}: shared stylesheet and script must be referenced`);
+  const hasPageStyles = source.includes("assets/styles.css") || (htmlFile === "index.html" && source.includes("assets/homepage-c.css"));
+  if (!hasPageStyles || !source.includes("assets/site.js")) {
+    reportError(`${htmlFile}: page stylesheet and shared script must be referenced`);
   }
 
   for (const [japanesePattern, englishPattern, label] of [
@@ -189,6 +195,16 @@ const css = read("assets/styles.css");
 if (count(css, /\{/g) !== count(css, /\}/g)) {
   reportError("assets/styles.css: unbalanced braces");
 }
+const homepageCss = read("assets/homepage-c.css");
+if (count(homepageCss, /\{/g) !== count(homepageCss, /\}/g)) {
+  reportError("assets/homepage-c.css: unbalanced braces");
+}
+if (!/@media\s*\(max-width:\s*640px\)[\s\S]*?table\.cat tr\s*\{[^}]*display:\s*grid/s.test(homepageCss)) {
+  reportError("assets/homepage-c.css: catalog rows must stack on narrow screens");
+}
+if (!read("index.html").includes('<table class="cat" role="table"')) {
+  reportError("index.html: responsive catalog tables must retain explicit table semantics");
+}
 const screenImageRule = css.match(/\.screen-card img\s*\{([^}]*)\}/)?.[1] ?? "";
 if (!/\bheight:\s*auto\s*;/.test(screenImageRule)) {
   reportError("assets/styles.css: screen previews must preserve their intrinsic aspect ratio");
@@ -199,6 +215,20 @@ const scriptCheck = spawnSync(process.execPath, ["--check", path.join(root, "ass
 });
 if (scriptCheck.status !== 0) {
   reportError(`assets/site.js: ${scriptCheck.stderr.trim() || "syntax check failed"}`);
+}
+
+const navigationScriptCheck = spawnSync(process.execPath, ["--check", path.join(root, "assets/site-theme-init.js")], {
+  encoding: "utf8",
+});
+if (navigationScriptCheck.status !== 0) {
+  reportError(`assets/site-theme-init.js: ${navigationScriptCheck.stderr.trim() || "syntax check failed"}`);
+}
+
+const navigationBehaviorCheck = spawnSync(process.execPath, [path.resolve("scripts/test-site-navigation.mjs")], {
+  encoding: "utf8",
+});
+if (navigationBehaviorCheck.status !== 0) {
+  reportError(`scripts/test-site-navigation.mjs: ${navigationBehaviorCheck.stderr.trim() || "behavior check failed"}`);
 }
 
 if (errors.length > 0) {
