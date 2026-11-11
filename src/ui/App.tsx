@@ -7884,7 +7884,7 @@ function MentionsColumn({
           )}
           </div>
         </div>
-        <div className="deck-badge" title={column.mentionReview ? reviewText.pending : text.mentionBadge(mentionCount, Boolean(column.teamId))}>
+        <div className="deck-badge" aria-label={column.mentionReview ? `${reviewText.pending}: ${review.ready ? reviewPendingCount : "—"}` : text.mentionBadge(mentionCount, Boolean(column.teamId))} title={column.mentionReview ? `${reviewText.pending}: ${review.ready ? reviewPendingCount : "—"}` : text.mentionBadge(mentionCount, Boolean(column.teamId))}>
           {column.mentionReview ? (review.ready ? reviewPendingCount : "—") : mentionCount}
         </div>
         <div className="deck-column-actions">
@@ -7972,18 +7972,22 @@ function MentionsColumn({
               <CloseIcon />
             </button>
           </div>
-          {!column.mentionReview ? <div className="deck-review-mode-actions">
-            <MentionModeAction kind="duplicate" label={reviewText.create} onClick={onCreateReview}
-              explanation={language === "ja" ? "元のペインを残し、同じ対象チームの要確認タブを隣に追加します。取得データを共有します。既読とは独立して確認し、元に戻す・確認済み履歴から未確認に戻すことができます。同じ投稿の確認状態は、このブラウザーに保存され、要確認タブ間で共有されます。" : "Keeps the original pane and adds an adjacent review pane for the same team, sharing fetched data. Confirmation is separate from reading. Undo or reopen posts from confirmed history. Confirmation state is saved in this browser and shared across review panes."} />
-            <MentionModeAction kind="convert" label={language === "ja" ? "要確認モードに変更" : "Switch to review mode"}
-              onClick={() => onUpdate(column.id, { mentionReview: true })}
-              explanation={language === "ja" ? "このペインだけを要確認モードに変更します。タブを追加せず、対象チーム・名前・位置を維持します。既読とは独立して確認し、元に戻す・確認済み履歴から未確認に戻すことができます。確認状態は、このブラウザーに保存され、要確認タブ間で共有されます。通常メンションに戻しても履歴は残ります。" : "Changes only the current pane to review mode, preserving its team, name and position without adding a tab. Confirmation is separate from reading. Undo or reopen posts from confirmed history. State is saved in this browser and shared across review panes; switching back keeps the history."} />
-          </div> : <>
+          {!column.mentionReview ? <details className="deck-controls-disclosure deck-review-mode-disclosure">
+            <summary>{language === "ja" ? "タブの作成・切替" : "Create or switch tabs"}</summary>
+            <div className="deck-review-mode-actions">
+              <MentionModeAction kind="duplicate" label={reviewText.create} onClick={onCreateReview}
+                explanation={language === "ja" ? "元のペインを残し、同じ対象チームの要確認タブを隣に追加します。取得データを共有します。既読とは独立して確認し、元に戻す・確認済み履歴から未確認に戻すことができます。同じ投稿の確認状態は、このブラウザーに保存され、要確認タブ間で共有されます。" : "Keeps the original pane and adds an adjacent review pane for the same team, sharing fetched data. Confirmation is separate from reading. Undo or reopen posts from confirmed history. Confirmation state is saved in this browser and shared across review panes."} />
+              <MentionModeAction kind="convert" label={language === "ja" ? "要確認モードに変更" : "Switch to review mode"}
+                onClick={() => onUpdate(column.id, { mentionReview: true })}
+                explanation={language === "ja" ? "このペインだけを要確認モードに変更します。タブを追加せず、対象チーム・名前・位置を維持します。既読とは独立して確認し、元に戻す・確認済み履歴から未確認に戻すことができます。確認状態は、このブラウザーに保存され、要確認タブ間で共有されます。通常メンションに戻しても履歴は残ります。" : "Changes only the current pane to review mode, preserving its team, name and position without adding a tab. Confirmation is separate from reading. Undo or reopen posts from confirmed history. State is saved in this browser and shared across review panes; switching back keeps the history."} />
+            </div>
+          </details> : <details className="deck-controls-disclosure deck-review-mode-disclosure">
+            <summary>{language === "ja" ? "確認履歴・モード" : "Review history and mode"}</summary>
             <button type="button" className="deck-button deck-button--secondary deck-review-create" data-deck-review-history aria-pressed={showConfirmed} onClick={() => setShowConfirmed(value => !value)}>{showConfirmed ? reviewText.pending : reviewText.history}</button>
             <button type="button" data-deck-exit-review className="deck-button deck-button--secondary deck-review-create"
               onClick={() => onUpdate(column.id, { mentionReview: false })}>{language === "ja" ? "通常メンションに戻す" : "Back to normal mentions"}</button>
             <p className="deck-review-note">{language === "ja" ? "取得範囲は通常のメンションと同じです。取得済みの投稿は、既読にしても明示的に確認するまで残ります。確認状態と履歴は通常メンションに戻しても保持します。" : "Uses the same retrieval range as Mentions. Collected posts remain pending until explicitly confirmed, even after reading. Switching back keeps confirmations and history."}</p>
-          </>}
+          </details>}
           <div className="deck-controls">
             <label className="deck-field">
               <span>{text.teamLabel}</span>
@@ -8005,26 +8009,29 @@ function MentionsColumn({
           </div>
 
           <MentionExclusionControls key={exclusionContext} rules={exclusions} directory={userDirectory} channelLabels={exclusionChannelLabels} showExcluded={showExcluded} onShowExcluded={setShowExcluded} language={language} onFeedback={setExclusionFeedback} />
-          <article className="deck-card deck-card--muted">
-            <strong>{text.scope}</strong>
-            <p>{selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.allTeams}</p>
-          </article>
-          <article className="deck-card deck-card--muted">
-          <strong>{column.mentionReview ? reviewText.title : text.addMentions}</strong>
-            <p>{column.mentionReview ? `${reviewText.pending}: ${reviewPendingCount}` : text.mentionBadge(mentionCount, Boolean(column.teamId))}</p>
-          </article>
-          {column.unreadOnly && !column.mentionReview ? (
+          <details className="deck-controls-disclosure deck-mention-scope-disclosure">
+            <summary>{language === "ja" ? "このペインについて" : "About this pane"}</summary>
             <article className="deck-card deck-card--muted">
-              <strong>{text.unreadOnly}</strong>
-              <p>{text.unreadOnlyNote}</p>
+              <strong>{text.scope}</strong>
+              <p>{selectedTeam ? selectedTeam.display_name || selectedTeam.name : text.allTeams}</p>
             </article>
-          ) : null}
-          {!column.teamId ? (
-            <article className="deck-card">
-              <strong>{text.allTeams}</strong>
-              <p>{text.allTeamsNote}</p>
+            <article className="deck-card deck-card--muted">
+              <strong>{column.mentionReview ? reviewText.title : text.addMentions}</strong>
+              <p>{column.mentionReview ? `${reviewText.pending}: ${reviewPendingCount}` : text.mentionBadge(mentionCount, Boolean(column.teamId))}</p>
             </article>
-          ) : null}
+            {column.unreadOnly && !column.mentionReview ? (
+              <article className="deck-card deck-card--muted">
+                <strong>{text.unreadOnly}</strong>
+                <p>{text.unreadOnlyNote}</p>
+              </article>
+            ) : null}
+            {!column.teamId ? (
+              <article className="deck-card">
+                <strong>{text.allTeams}</strong>
+                <p>{text.allTeamsNote}</p>
+              </article>
+            ) : null}
+          </details>
         </div>
       ) : null}
 

@@ -3241,7 +3241,7 @@ function OptionsApp(): React.JSX.Element {
                     </span>
                   )}
                 </label>
-                <label className="options-field">
+                <div className="options-field">
                   <span id="mattermost-team-label" className="options-label">{text.teamSlugLabel}</span>
                   <input
                     className="options-input options-team-input"
@@ -3255,7 +3255,11 @@ function OptionsApp(): React.JSX.Element {
                     spellCheck={false}
                   />
                   <span id="mattermost-team-hint" className="options-hint">{text.teamSlugHint}</span>
-                </label>
+                  <details className="options-connection-advanced options-team-help">
+                    <summary>{settings.language === "ja" ? "チームを指定する方法" : "How to choose one team"}</summary>
+                    <p className="options-copy">{t("options.teamSlugAdvancedHint")}</p>
+                  </details>
+                </div>
               </div>
 
               <div className="options-callout" role="note">
@@ -3553,6 +3557,7 @@ function OptionsApp(): React.JSX.Element {
               <div className="options-panel-header">
                 <h2>{text.appearanceTitle}</h2>
                 <p>{text.appearanceDesc}</p>
+                <a className="options-appearance-preview-jump" href="#appearance-preview-title">{t("options.appearancePreviewJump")}</a>
               </div>
 
               <div className="options-appearance-body">
@@ -3586,7 +3591,10 @@ function OptionsApp(): React.JSX.Element {
               </section>
               <section className="options-appearance-group" aria-labelledby="appearance-layout-group">
                 <h3 id="appearance-layout-group">{t("options.appearanceLayoutGroup")}</h3>
-                <WidthDiagram settings={settings} />
+                <details className="options-connection-advanced options-width-diagram-details">
+                  <summary>{t("options.widthDiagramSummary")}</summary>
+                  <WidthDiagram settings={settings} />
+                </details>
               <div className="options-grid">
                 <label className="options-field">
                   <span className="options-label">{text.fontScaleLabel}</span>
@@ -3848,9 +3856,32 @@ function OptionsApp(): React.JSX.Element {
                 </button>
               </div>
 
+              <div className="performance-controls-grid">
               <section className="options-callout options-cache-purpose" aria-labelledby="performance-cache-title" data-testid="performance-cache-purpose">
                 <strong id="performance-cache-title">{settings.language === "ja" ? "キャッシュ保持設定" : "Cache retention settings"}</strong>
-                <p id="performance-cache-description">{text.persistMentionCacheHint}</p>
+                <p id="performance-cache-description" className="options-hint">{settings.language === "ja" ? "オンにすると、メンションの投稿を次回すぐに表示できます。" : "On keeps mention posts ready to show on your next visit."}</p>
+                <details className="performance-help-details">
+                  <summary>{settings.language === "ja" ? "キャッシュ管理" : "Cache management"}</summary>
+                  <p>{text.persistMentionCacheHint}</p>
+                  <p className="options-hint">{settings.language === "ja" ? "変更後は、下の「保存」で適用します。オフにすると、次回は取得した投稿から表示します。" : "Apply changes with Save below. When off, posts appear as they are fetched on each visit."}</p>
+                  <div className="options-field options-cache-clear">
+                    <span className="options-label">{i18n.language.startsWith("ja") ? "本文キャッシュの削除" : "Clear body caches"}</span>
+                    <p className="options-hint">{i18n.language.startsWith("ja")
+                      ? "このブラウザーに保存した、全アカウントのメンション表示用キャッシュとお気に入り本文を削除します。次に表示するときに再取得します。要確認投稿の本文・未確認／確認済みの判断、お気に入り登録、設定は残ります。"
+                      : "Remove mention display caches and favorite bodies saved in this browser for all accounts. They are fetched again when needed. Review posts and decisions, favorite registrations and settings are retained."}</p>
+                    <button type="button" className="options-button" data-testid="options-clear-body-cache"
+                      disabled={bodyCacheClearing} onClick={async () => {
+                        setBodyCacheClearing(true); setBodyCacheClearStatus(null);
+                        try {
+                          await clearBodyCaches();
+                          setBodyCacheClearStatus(i18n.language.startsWith("ja") ? "本文キャッシュを削除しました。要確認データとお気に入り登録は保持しています。" : "Body caches cleared. Review data and favorite registrations were retained.");
+                        } catch {
+                          setBodyCacheClearStatus(i18n.language.startsWith("ja") ? "本文キャッシュを削除できませんでした。もう一度お試しください。" : "Could not clear all body caches. Please retry.");
+                        } finally { setBodyCacheClearing(false); }
+                      }}>{i18n.language.startsWith("ja") ? "本文キャッシュを削除" : "Clear body caches"}</button>
+                    {bodyCacheClearStatus && <p className="options-hint" role="status" data-testid="options-body-cache-status">{bodyCacheClearStatus}</p>}
+                  </div>
+                </details>
                 <fieldset className="options-cache-retention" aria-describedby="performance-cache-description">
                   <legend>{settings.language === "ja" ? "メンションのキャッシュ" : "Mention cache"}</legend>
                   <div className="options-cache-retention-choices">
@@ -3867,30 +3898,53 @@ function OptionsApp(): React.JSX.Element {
                   </div>
                   <SettingState enabled={settings.persistMentionCache} dirty={settings.persistMentionCache !== savedSettings.persistMentionCache} language={settings.language} />
                 </fieldset>
-                <p className="options-hint">{settings.language === "ja" ? "変更後は、下の「保存」で適用します。オフにすると、次回は取得した投稿から表示します。" : "Apply changes with Save below. When off, posts appear as they are fetched on each visit."}</p>
-                <div className="options-field options-cache-clear">
-                  <span className="options-label">{i18n.language.startsWith("ja") ? "本文キャッシュの削除" : "Clear body caches"}</span>
-                  <p className="options-hint">{i18n.language.startsWith("ja")
-                    ? "このブラウザーに保存した、全アカウントのメンション表示用キャッシュとお気に入り本文を削除します。次に表示するときに再取得します。要確認投稿の本文・未確認／確認済みの判断、お気に入り登録、設定は残ります。"
-                    : "Remove mention display caches and favorite bodies saved in this browser for all accounts. They are fetched again when needed. Review posts and decisions, favorite registrations and settings are retained."}</p>
-                  <button type="button" className="options-button" data-testid="options-clear-body-cache"
-                    disabled={bodyCacheClearing} onClick={async () => {
-                      setBodyCacheClearing(true); setBodyCacheClearStatus(null);
-                      try {
-                        await clearBodyCaches();
-                        setBodyCacheClearStatus(i18n.language.startsWith("ja") ? "本文キャッシュを削除しました。要確認データとお気に入り登録は保持しています。" : "Body caches cleared. Review data and favorite registrations were retained.");
-                      } catch {
-                        setBodyCacheClearStatus(i18n.language.startsWith("ja") ? "本文キャッシュを削除できませんでした。もう一度お試しください。" : "Could not clear all body caches. Please retry.");
-                      } finally { setBodyCacheClearing(false); }
-                    }}>{i18n.language.startsWith("ja") ? "本文キャッシュを削除" : "Clear body caches"}</button>
-                  {bodyCacheClearStatus && <p className="options-hint" role="status" data-testid="options-body-cache-status">{bodyCacheClearStatus}</p>}
-                </div>
-
               </section>
+              <div className="options-callout performance-trace-capture" role="note" data-testid="performance-trace-capture">
+                <strong>{text.performanceCaptureLabel}</strong>
+                <div className="options-inline options-trace-controls">
+                  <fieldset className="options-cache-retention">
+                    <legend>{settings.language === "ja" ? "トレースの記録" : "Trace recording"}</legend>
+                    <div className="options-cache-retention-choices">
+                      <label className={traceCaptureEnabled ? "is-selected" : ""}>
+                        <input type="radio" name="trace-capture" data-testid="trace-capture-on" checked={traceCaptureEnabled}
+                          onChange={() => setTraceCaptureEnabled(true)} />
+                        <span>{settings.language === "ja" ? "記録する（オン）" : "Record (On)"}</span>
+                      </label>
+                      <label className={!traceCaptureEnabled ? "is-selected" : ""}>
+                        <input type="radio" name="trace-capture" data-testid="trace-capture-off" checked={!traceCaptureEnabled}
+                          onChange={() => setTraceCaptureEnabled(false)} />
+                        <span>{settings.language === "ja" ? "記録しない（オフ）" : "Do not record (Off)"}</span>
+                      </label>
+                    </div>
+                    <strong role="status" data-testid="trace-capture-state">{traceCaptureEnabled
+                      ? (settings.language === "ja" ? "オン · 記録中" : "On · Recording")
+                      : (settings.language === "ja" ? "オフ · 停止中" : "Off · Stopped")}</strong>
+                  </fieldset>
+                </div>
+                <details className="performance-help-details">
+                  <summary>{settings.language === "ja" ? "記録の詳細とツール" : "Recording details and tools"}</summary>
+                  <p>{text.performanceCaptureHint}</p>
+                  <p>{settings.language === "ja"
+                    ? "詳細ログは24時間・最大10,000件または10 MBまで保持します。1分集計は7日間保持し、記録をOFFにすると両方を削除します。変更はすぐに適用されます。"
+                    : "Detailed logs are retained for 24 hours, up to 10,000 entries or 10 MB. One-minute aggregates are retained for 7 days. Turning capture off clears both. Changes apply immediately; Save is not required."}</p>
+                  <div className="options-inline options-trace-tools">
+                    <button type="button" className="options-button options-button--ghost" onClick={handleExportTraceJsonl} data-testid="trace-export" disabled={traceEntries.length === 0}>{text.performanceExport}</button>
+                    <button type="button" className="options-button options-button--ghost" onClick={handleClearTraceLog} data-testid="trace-clear" disabled={traceClearPending}>{text.performanceClear}</button>
+                  </div>
+                </details>
+                {traceExportError && <p className="options-hint" role="alert" data-testid="trace-export-error">
+                  {settings.language === "ja" ? "診断ログをエクスポートできませんでした。" : "Could not export diagnostic logs."}
+                  {" "}<button type="button" className="options-button" data-testid="trace-export-retry" onClick={() => void handleExportTraceJsonl()}>{settings.language === "ja" ? "再試行" : "Retry"}</button>
+                </p>}
+                {traceClearError && <p className="options-hint" role="alert" data-testid="trace-clear-error">
+                  {settings.language === "ja" ? "診断ログを削除できませんでした。" : "Could not clear diagnostic logs."}
+                  {" "}<button type="button" className="options-button" data-testid="trace-clear-retry" onClick={() => void handleClearTraceLog()}>{settings.language === "ja" ? "再試行" : "Retry"}</button>
+                </p>}
+              </div>
 
               <section className="options-callout performance-preset" aria-labelledby="performance-preset-title" data-testid="performance-preset">
                 <strong id="performance-preset-title">{settings.language === "ja" ? "パフォーマンス設定" : "Performance preset"}</strong>
-                <p>{settings.language === "ja" ? "取得負荷と更新頻度を選びます。プリセットの変更はプレビュー後に適用し、保存すると反映されます。" : "Choose request load and refresh frequency. Preview a preset, apply it to your draft, then Save to make it active."}</p>
+                <p>{settings.language === "ja" ? "取得負荷と更新頻度を選択します。プレビュー後に下書きへ適用し、保存すると反映されます。" : "Choose request load and refresh frequency. Preview, apply to your draft, then Save."}</p>
                 <div className="performance-preset-status" data-testid="performance-preset-state" aria-live="polite">
                   <span><strong>{settings.language === "ja" ? "保存済み" : "Saved"}:</strong> {performancePresetName(savedPerformancePreset)}</span>
                   <span><strong>{settings.language === "ja" ? "編集中" : "Editing"}:</strong> {performancePresetName(currentPerformancePreset)}{PERFORMANCE_FIELDS.some(field => settings[field] !== savedSettings[field]) ? ` · ${settings.language === "ja" ? "未保存の変更" : "Unsaved changes"}` : ` · ${settings.language === "ja" ? "プリセット変更なし" : "No preset changes"}`}</span>
@@ -3924,6 +3978,15 @@ function OptionsApp(): React.JSX.Element {
                     })}
                   </div>
                 </fieldset>
+                <details className="performance-help-details">
+                  <summary>{settings.language === "ja" ? "各プリセットについて" : "About presets"}</summary>
+                  <ul className="performance-preset-explanations">
+                    <li>{settings.language === "ja" ? "低：API取得量を抑え、メンションの更新頻度も下げます。" : "Low: Fewer API requests; mentions refresh less often."}</li>
+                    <li>{settings.language === "ja" ? "標準：従来の既定値です。" : "Standard: The existing default values."}</li>
+                    <li>{settings.language === "ja" ? "高：取得枠を増やします。サーバー負荷が増える場合があります。" : "High: Larger request budgets may increase server load."}</li>
+                    <li>{settings.language === "ja" ? "カスタム：詳細設定で項目ごとに調整します。" : "Custom: Tune individual values in Advanced settings."}</li>
+                  </ul>
+                </details>
                 {performanceCustomMode && currentPerformancePreset !== "custom" && <p className="performance-preset-custom-hint" data-testid="performance-custom-mode-hint">{settings.language === "ja" ? "詳細設定の値を変更すると、編集中の設定はカスタムとして判定されます。変更せずに閉じると現在の設定が維持されます。" : "Editing values below marks the current draft Custom. Close without edits to keep the current settings."}</p>}
                 {performancePresetPreview && <div className="performance-preset-preview" data-testid="performance-preset-preview">
                   <h3>{settings.language === "ja" ? `${performancePresetName(performancePresetPreview)}の変更内容` : `${performancePresetName(performancePresetPreview)} preset changes`}</h3>
@@ -3961,62 +4024,8 @@ function OptionsApp(): React.JSX.Element {
                   </button>
                 </div>
               </details>
-
-              <h3 className="options-diagnostics-title">{settings.language === "ja" ? "診断ログ" : "Diagnostic logs"}</h3>
-              <div className="options-callout" role="note" data-testid="performance-trace-capture">
-                <strong>{text.performanceCaptureLabel}</strong>
-                <p>{text.performanceCaptureHint}</p>
-                <p style={{ marginTop: "6px" }}>{settings.language === "ja"
-                  ? "詳細ログは24時間・最大10,000件または10 MBまで保持します。1分集計は7日間保持し、記録をOFFにすると両方を削除します。"
-                  : "Detailed logs are retained for 24 hours, up to 10,000 entries or 10 MB. One-minute aggregates are retained for 7 days. Turning capture off clears both."}</p>
-                <div className="options-inline options-trace-controls" style={{ marginTop: "12px" }}>
-                  <fieldset className="options-cache-retention" aria-describedby="trace-capture-description">
-                    <legend>{settings.language === "ja" ? "トレースの記録" : "Trace recording"}</legend>
-                    <div className="options-cache-retention-choices">
-                      <label className={traceCaptureEnabled ? "is-selected" : ""}>
-                        <input type="radio" name="trace-capture" data-testid="trace-capture-on" checked={traceCaptureEnabled}
-                          onChange={() => setTraceCaptureEnabled(true)} />
-                        <span>{settings.language === "ja" ? "記録する（オン）" : "Record (On)"}</span>
-                      </label>
-                      <label className={!traceCaptureEnabled ? "is-selected" : ""}>
-                        <input type="radio" name="trace-capture" data-testid="trace-capture-off" checked={!traceCaptureEnabled}
-                          onChange={() => setTraceCaptureEnabled(false)} />
-                        <span>{settings.language === "ja" ? "記録しない（オフ）" : "Do not record (Off)"}</span>
-                      </label>
-                    </div>
-                    <strong role="status" data-testid="trace-capture-state">{traceCaptureEnabled
-                      ? (settings.language === "ja" ? "オン · 記録中" : "On · Recording")
-                      : (settings.language === "ja" ? "オフ · 停止中" : "Off · Stopped")}</strong>
-                    <p id="trace-capture-description" className="options-hint">{settings.language === "ja" ? "変更はすぐに適用されます。下の「保存」は不要です。" : "Changes apply immediately. You do not need to use Save below."}</p>
-                  </fieldset>
-                  <button
-                    type="button"
-                    className="options-button options-button--ghost"
-                    onClick={handleExportTraceJsonl}
-                    data-testid="trace-export"
-                    disabled={traceEntries.length === 0}
-                  >
-                    {text.performanceExport}
-                  </button>
-                  <button
-                    type="button"
-                    className="options-button options-button--ghost"
-                    onClick={handleClearTraceLog}
-                    data-testid="trace-clear"
-                    disabled={traceClearPending}
-                  >
-                    {text.performanceClear}
-                  </button>
-                </div>
-                {traceExportError && <p className="options-hint" role="alert" data-testid="trace-export-error">
-                  {settings.language === "ja" ? "診断ログをエクスポートできませんでした。" : "Could not export diagnostic logs."}
-                  {" "}<button type="button" className="options-button" data-testid="trace-export-retry" onClick={() => void handleExportTraceJsonl()}>{settings.language === "ja" ? "再試行" : "Retry"}</button>
-                </p>}
-                {traceClearError && <p className="options-hint" role="alert" data-testid="trace-clear-error">
-                  {settings.language === "ja" ? "診断ログを削除できませんでした。" : "Could not clear diagnostic logs."}
-                  {" "}<button type="button" className="options-button" data-testid="trace-clear-retry" onClick={() => void handleClearTraceLog()}>{settings.language === "ja" ? "再試行" : "Retry"}</button>
-                </p>}
               </div>
+              <h3 className="options-diagnostics-title">{settings.language === "ja" ? "診断ログ" : "Diagnostic logs"}</h3>
 
               <PerformanceOverview entries={traceEntries} language={settings.language} capturing={traceCaptureEnabled} onReviewAdvice={preset => {
                 setPerformancePresetPreview(preset);

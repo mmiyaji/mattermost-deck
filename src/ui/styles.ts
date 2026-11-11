@@ -1099,7 +1099,7 @@ export const railCssText = `
     flex: none;
     justify-content: space-between;
     align-items: flex-start;
-    gap: 12px;
+    gap: 8px;
   }
 
   .deck-column-heading {
@@ -1110,8 +1110,10 @@ export const railCssText = `
   .deck-column-actions {
     display: flex;
     align-items: center;
+    flex: none;
     gap: 8px;
   }
+  .deck-column-header > .deck-badge { flex: none; }
 
   .deck-inline-actions {
     display: flex;
@@ -1130,6 +1132,17 @@ export const railCssText = `
   .deck-review-undo:focus-visible { outline: 2px solid var(--deck-accent); outline-offset: 3px; border-radius: 2px; }
   .deck-review-undo:disabled { opacity: .5; cursor: default; }
   .deck-review-mode-actions { display: grid; gap: 8px; min-width: 0; }
+  .deck-controls-disclosure { min-width: 0; border-top: 1px solid var(--deck-border); padding-top: 8px; }
+  .deck-controls-disclosure > summary, .deck-exclusion-settings > summary {
+    width: fit-content; max-width: 100%; color: var(--deck-text-soft); font-size: calc(12px * var(--deck-font-scale));
+    line-height: 1.5; cursor: pointer; overflow-wrap: anywhere;
+  }
+  .deck-controls-disclosure > summary:focus-visible, .deck-exclusion-settings > summary:focus-visible {
+    outline: 2px solid var(--deck-accent); outline-offset: 3px; border-radius: 2px;
+  }
+  .deck-controls-disclosure[open] > summary, .deck-exclusion-settings[open] > summary { margin-bottom: 8px; }
+  .deck-controls-disclosure > .deck-review-mode-actions { margin-top: 8px; }
+  .deck-mention-scope-disclosure > .deck-card { margin-top: 8px; }
   .deck-review-mode-action { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; }
   .deck-review-mode-action .deck-review-create { flex: 1 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
   .deck-review-info { flex: none; font-size: 18px; }
@@ -1148,6 +1161,7 @@ export const railCssText = `
     background: color-mix(in srgb, var(--deck-text) 5%, var(--deck-card));
   }
   .deck-exclusion-settings { min-width: 0; padding: 12px 0; border-top: 1px solid var(--deck-border); }
+  .deck-exclusion-content { padding-top: 8px; }
   .deck-exclusion-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
   .deck-exclusion-heading > span, .deck-exclusion-note, .deck-exclusion-empty { color: var(--deck-text-soft); font-size: calc(11px * var(--deck-font-scale)); line-height: 1.5; }
   .deck-exclusion-note { margin: 7px 0 12px; }
@@ -2834,23 +2848,17 @@ export const railCssText = `
   }
   .deck-drag-ghost--outside { opacity: 0.5; }
 
-  /* Overlay header tools without reserving title space on hover-capable pointers. */
+  /* Keep header tools in their own stable slot across hover and focus states. */
   @media (hover: hover) and (pointer: fine) {
-    .deck-column-header { position: relative; flex-wrap: nowrap; min-height: 36px; }
+    .deck-column-header { flex-wrap: nowrap; min-height: 36px; }
     .deck-column-heading { flex: 1 1 0; }
     .deck-column-heading .deck-title-with-icon { max-width: 100%; }
     .deck-column-heading .deck-title-with-icon > span:last-child:not(:first-child) {
       min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .deck-column-actions {
-      position: absolute; top: 0; right: 0; z-index: 2;
-      flex-wrap: nowrap; width: auto; max-width: 100%;
-      opacity: 0; pointer-events: none; background: var(--deck-panel);
-    }
-    .deck-column-actions::before {
-      content: ""; position: absolute; top: 0; bottom: 0; right: 100%; width: 16px;
-      background: linear-gradient(to right, transparent, var(--deck-panel));
-      pointer-events: none;
+      flex-wrap: nowrap; width: auto; max-width: none;
+      opacity: 0; pointer-events: none;
     }
     .deck-column:hover > .deck-column-header > .deck-column-actions,
     .deck-column:focus-within > .deck-column-header > .deck-column-actions,

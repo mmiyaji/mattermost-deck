@@ -1,51 +1,56 @@
-# Settings design QA — 2026-11-03
+# UI audit polish — design QA
+
+Date: 2026-11-11. Branch: `feature/ui-audit-polish`.
+
+## Visual target and evidence
+
+Approved direction: the user's three-screen audit table, with graphite settings surfaces, compact performance controls and persistent pane count space.
+
+Source mockups: `.tmp-unslop-comparison-20261111/assets/settings-after-dark-palette-v2.png` (1448×1086), `performance-after-mock.png` and `panes-after-mock.png` (1586×992 each).
+
+Implementation screenshots and measurements: `.tmp-ui-polish-validation-20261111/` (fresh extension build, version 1.4.1). Test data is fictional; seeded performance logs are UI fixtures, not benchmark results.
+
+Full-view combined comparisons: `assets/settings-target-vs-actual.png`, `assets/performance-target-vs-actual.png`, and `panes-target-vs-actual.png` under that directory. Mockups are scaled to the corresponding CSS viewport; actual captures use deviceScaleFactor 1. Settings: 1024×768 dark (also checked 1440×900 light and 800×768 narrow). Performance: 1440×900. Panes: 1600×1000 with actual 280/320px columns. These are direction comparisons rather than pixel-exact cloning: real controls, existing save/draft workflows and product typography are retained. The performance target is light; its dark implementation is compared for structure, with light captures checked separately for color.
+
+## Comparison history
+
+### Iteration 1 — blocked
+
+- [P1] Performance controls still bury diagnostics. Initial capture measured metric cards starting at y=1288, below the scroll viewport bottom of 829. Fix: paired cache/trace controls and compact preset controls. The latest screenshots and geometry replace these intermediate captures; this entry preserves the measured finding.
+- Settings appearance preview is visible without scrolling at 1024 × 768: top 221, bottom 641. Document width equals viewport width at 800, 1024 and 1440. Graphite shell tokens are applied while the Deck preview retains its independent theme.
+
+### Iteration 2 — blocked
+
+- [P1] Paired controls reduced the metric start to y=947, but the long diagnostic finding still preceded the metrics. Fix: lead with metric cards and put explanatory methodology in a native disclosure; compact the preset without removing preview/apply/save state.
+
+### Iteration 3 — final verification
+
+- Metrics now occupy y=636–742 inside the y=69–829 scrollport. All four cards are visible at 1440×900. Evidence: `assets/performance-1440-dark-top.png`, `geometry.json`, and the combined performance comparison.
+- Pane count/action boxes have a 6px gap at both 280px and 320px. Outer controls open with nested groups closed retain 519px of post viewport; exclusions expanded retain 232px in the 1000px-high capture. Evidence: `pane-geometry-1600.json`, `pane-geometry-280.json`, `panes-target-vs-actual.png`.
+- Focused evidence: `panes-header-focus-pair.png`, `assets/appearance-1024-dark.png`, and `assets/performance-1440-light-detail.png` supplement the combined full views. Existing per-post author alignment and hover overlay are retained.
+- [P2, resolved] Expanded-detail screenshots exposed a CSS specificity conflict: untouched request detail buttons still used the primary fill. Fixed by scoping secondary button rules under `.perf-overview`. The fresh `assets/performance-1440-light-detail.png` shows quiet text buttons and a distinct expanded state. High-preset preview spans its full panel (table width 1088px); Apply still enables Save without saving automatically.
+
+## Fidelity surfaces
+
+- Fonts/typography: existing Segoe UI / Japanese fallback, readable heading hierarchy and real form sizing retained. Narrow titles truncate without shifting the count.
+- Spacing/layout: preview remains accessible at 1024px and has a jump link below 960px. Diagnostic cards fit the initial viewport. Charts remain below the diagnostic context; preserving real draft/save controls is an intentional difference from the compressed mock.
+- Colors/tokens: graphite settings surfaces, light theme, selected radio states and theme buttons checked. Deck preview colors remain independent of the settings shell. Sampled primary/secondary/muted text contrast against the dark page is 14.82/9.18/6.09:1; this is targeted verification, not a full WCAG audit. Secondary detail-button correction is verified in the fresh rendered capture.
+- Image/assets: existing app logo, icons and real preview components retained; no mockup image is shipped as UI. Preview raster logo uses the existing source asset.
+- Copy/content: short connection help and always-visible cache purpose replace long introductions. Chart captions use actual 5/15/34-minute bins at 1/3/7-day ranges. Missing timing is distinguished from 0ms; absent optional detail fields are omitted.
+
+## Validation
+
+- Final type check (`npm run check`) and build (`npm run build`) passed.
+- Unit tests: 73 files / 736 tests passed after translation parity was fixed.
+- Serial focused E2E: 23 of 24 passed initially; the sole remaining failure was the test's missing trace-export disclosure step. After correcting the helper, all 3 relevant performance E2Es passed on the final build (23.5s). All 24 selected cases are therefore covered by passing runs; this is not a claim of a single all-green 24-case run. Logs: `e2e-final-serial.log` and `e2e-performance-final2.log` in the evidence directory.
+- Real Mattermost 9.5.4 Docker captures completed on an isolated fictional workspace; that audit container was stopped. `git diff --check` passed. The extension version remains 1.4.1.
+- Final options capture recorded no uncaught page errors or browser console errors (`errors.json`).
+- Not run: a fresh whole-repository Docker E2E or performance benchmark. The live-session privacy test was excluded because its separate default 8066 fixture was unavailable; manual cache deletion and retention tests passed, and the visual check used isolated Docker Mattermost at 8074.
+
+## Final result
 
 final result: passed
 
-## Follow-up: user-reported theme, purpose and footer issues
+No actionable P0/P1/P2 visual findings remain. Final regression completion is recorded above. P3 follow-up: the small 280px pane intentionally truncates long custom titles to preserve count and action space.
 
-The user's screenshots exposed gaps in the initial QA scope. Explicit dark/light checks did not cover `mattermost` fallback, and initial footer geometry did not cover the state after drilldown scrolling. Both now have reproduction and regression tests.
-
-- P1 resolved: the request view used light tokens unless the theme was exactly `dark`. It now inherits the shell's surface/text tokens, including `mattermost` fallback. Five theme/media combinations have measured normal-text contrast of at least 4.5.
-- P1 resolved: `scrollIntoView` could scroll the overflow-hidden root by 94px, translating the header/footer and exposing a blank strip. Non-scrolling shell layers use `overflow: clip`; only the panel and sidebar can scroll. The root remains at scrollTop 0 and the footer remains at the viewport bottom after metric selection and row expansion.
-- P1 resolved: CSS-injected page zoom could shrink a 100vh app below the actual viewport. A fixed-inset root with a percentage-height app fills the viewport across the tested browser/body/html/root zoom combinations.
-- P2 resolved: previous-display caching is now explained by what appears on reopening Deck, with no database/API implementation terms. Visible On/Off and Saved/Unsaved labels distinguish draft state from the saved state.
-- P2 resolved: the fetching preset is a separate action with Applied/Not applied/Ready to save feedback and does not override the user's cache choice.
-
-Latest visual review: `test-results/settings-theme-delivery/`, including readable Mattermost request details and the off/saved cache purpose state. All three new regression scenarios pass (11.6s); related performance/settings scenarios also pass. These follow-up checks replace the narrower initial theme/footer conclusions below.
-
-## Target and comparison
-
-Selected visual target: the first displayed mock, `D:/AI/Codex/.codex/generated_images/01a178af-ad77-7093-8839-6a9295560a23/exec-5c825104-a4d8-4596-aec0-51447cc253a2.png`.
-
-The target and the latest production-extension Behavior screenshot were opened together for comparison. The source image is approximately 1488×1056 pixels; the actual app uses a 1440×1024 CSS-pixel viewport at device scale 1. Compare composition proportionally, without treating the generator's slight size difference as a defect.
-
-Actual captures: `test-results/settings-design-delivery/`. Additional focused views cover Appearance, dark theme, 900px and 390px widths, chart overview and expanded failure details. Existing full-page performance captures check content beyond the viewport.
-
-## Findings resolved
-
-- P1: Appearance used a margin derived from a 740px form despite its wider layout, shifting the panel outside its available area. Removed the offset and aligned panel headings.
-- P1: Fixed-size preview content could widen its parent. The viewport now owns horizontal scrolling; configured deck/pane widths and font sizes stay exact. Pane and width-diagram dimensions include padding and borders.
-- P1: Recharts' hidden tooltip retained its desktop transform after a narrow resize and widened the settings scroll area. The chart host clips this overflow; the request table retains its own horizontal scroller.
-- P2: An injected browser stylesheet replaced the inherited Japanese UI font. An explicit author-level body inheritance rule restores the selected font stack. Browser diagnostics confirm Yu Gothic UI and YuGothicUI-Bold glyphs.
-- P2: Early screenshots captured the navigation's 100ms transition, making the previous page appear selected. Final captures disable animations; the current page has the selected background and `aria-current="page"`.
-- P2: The body-cache clear action originally had the same fill as Save. It now uses the secondary outlined treatment.
-
-## Required fidelity surfaces
-
-- **Typography:** Japanese sans-serif stack, 24px panel headings, readable form labels, compact explanatory text. Confirmed actual font selection rather than relying on the declared stack alone.
-- **Spacing/layout:** navy header, restrained left navigation, white main surface, aligned headings, divided setting rows and a fixed save footer. Appearance uses two columns when space allows and stacks at narrower widths.
-- **Colors:** pale neutral navigation, navy primary actions, neutral borders and restrained status colors. Dark theme remains supported. Active, hover, focus and disabled states were checked.
-- **Assets:** existing Deck icon and existing application icons are reused without stretching. Charts are rendered by Recharts; no new decorative imagery is required.
-- **Copy/content:** existing operational controls, localization, profile target and retention explanations are preserved. The real screen intentionally contains more settings than the simplified mock. It identifies the configured server/profile rather than inventing a connected-user indicator.
-
-## Interaction and accessibility checks
-
-- Draft save/discard, profile switching, saved-state footer and preview controls remain functional.
-- Failed metric and actual red chart bars filter the same normalized request model used by the aggregate counts.
-- Request table provides outcome, time, path, timing and expanded error details, with 50-row pagination.
-- Metric activation with Enter and native time selection with arrow keys work. Time/status/search filters and reset are available without clicking chart geometry.
-- HTTP errors and failures without an HTTP response are distinguished; unmeasured timing is not displayed as zero.
-- No horizontal main-page overflow at 1440, 900 or 390px, including after interacting with a chart and resizing.
-
-All P0/P1/P2 findings are resolved. Remaining differences from the mock are intentional production content/density and platform-native font rendering; no P3 item blocks delivery.
+Design review method: unslop by Damir Sokolovsky (CC BY 4.0); adapted to the existing Mattermost Deck interface.

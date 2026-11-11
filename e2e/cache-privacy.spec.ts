@@ -100,6 +100,7 @@ test("manual body-cache deletion spans all accounts, preserves judgments, and re
       expect(stored.favorites[0]?.post?.message).toContain(userId);
     }
     await page.getByTestId("options-nav-performance").click();
+    await page.locator(".performance-help-details > summary").filter({ hasText: "Cache management" }).click();
     await expect(page.getByTestId("performance-cache-on")).toBeChecked();
     page.on("dialog", dialog => dialog.accept());
     await page.getByTestId("options-clear-body-cache").click();

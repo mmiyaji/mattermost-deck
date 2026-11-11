@@ -67,8 +67,8 @@ test("review mentions share collection, persist confirmation and survive source 
         const el = root?.querySelector(selector) as HTMLElement | null;
         if (click) { el?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, composed: true })); el?.focus(); el?.click(); }
         const rect = el?.getBoundingClientRect();
-        return el ? { text: el.textContent, expanded: el.getAttribute("aria-expanded"), count: root!.querySelectorAll(selector).length,
-          left: rect!.left, top: rect!.top, right: rect!.right,
+        return el ? { text: el.textContent, expanded: el.getAttribute("aria-expanded") ?? String((el as HTMLDetailsElement).open), count: root!.querySelectorAll(selector).length,
+          left: rect!.left, top: rect!.top, right: rect!.right, bottom: rect!.bottom,
           order: [...root!.querySelectorAll(".deck-pane-frame")].map((pane: Element) => (pane as HTMLElement).dataset.paneId) } : null;
       }, args: [selector, click] });
       return result.result;
@@ -80,6 +80,14 @@ test("review mentions share collection, persist confirmation and survive source 
     const openControls = async (pane: string) => {
       const selector = controlsToggle(pane);
       if ((await inspect(selector))?.expanded !== "true") await inspect(selector, true);
+      const disclosure = `${pane} .deck-review-mode-disclosure`;
+      if ((await inspect(disclosure))?.expanded !== "true") {
+        const summary = await inspect(`${disclosure} > summary`);
+        if (summary) {
+          await page.mouse.click((summary.left + summary.right) / 2, (summary.top + summary.bottom) / 2);
+          await expect.poll(async () => (await inspect(disclosure))?.expanded).toBe("true");
+        }
+      }
     };
     const toggleHistory = async (pane: string) => {
       await openControls(pane);
