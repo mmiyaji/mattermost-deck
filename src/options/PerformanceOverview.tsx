@@ -119,6 +119,12 @@ export function PerformanceOverview({ entries, language, capturing, onReviewAdvi
     }
     return { rows: grouped, binMs };
   }, [aggregates, trendDays]);
+  const recordedCoverage = useMemo(() => {
+    if (!aggregates.length) return null;
+    const start = Math.min(...aggregates.map(bucket => bucket.start));
+    const end = Math.max(...aggregates.map(bucket => bucket.start + 60_000));
+    return { start, end };
+  }, [aggregates]);
   const aggregateSummary = useMemo(() => aggregates.reduce((sum, bucket) => ({
     count: sum.count + bucket.count, errors: sum.errors + bucket.errors,
     totalSum: sum.totalSum + bucket.totalSum, totalCount: sum.totalCount + bucket.totalCount,
@@ -153,12 +159,29 @@ export function PerformanceOverview({ entries, language, capturing, onReviewAdvi
     : titles[a.status];
   const waitLabel = label("拡張内の待ち", "Waiting inside Deck");
   const netLabel = label("通信・応答", "Network / response");
+  const metrics = <div className="perf-metrics">
+    {[
+      [label("平均リクエスト所要時間", "Average request time"), ms(aggregateSummary.totalCount ? aggregateSummary.totalSum / aggregateSummary.totalCount : null), label("選択期間の保存集計・待ち時間を含む", "Persisted aggregate for selected range, including waiting")],
+      [waitLabel, ms(aggregateSummary.waitCount ? aggregateSummary.waitSum / aggregateSummary.waitCount : null), label("選択期間の計測済み平均", "Measured mean for selected range")],
+      [netLabel, ms(aggregateSummary.networkCount ? aggregateSummary.networkSum / aggregateSummary.networkCount : null), label("選択期間の計測済み平均", "Measured mean for selected range")],
+    ].map(([title, value, hint]) => <article className="options-metric-card" key={title}><strong>{title}</strong><p>{value}</p><span className="options-hint">{hint}</span></article>)}
+    <button type="button" className="options-metric-card perf-metric-action" data-testid="performance-failed-metric"
+      onClick={() => chooseFilter({ ...EMPTY_REQUEST_FILTER, failedOnly: true }, true)} aria-controls="performance-request-details">
+      <strong>{label("失敗 / 全リクエスト（選択期間）", "Failed / all requests (selected range)")}</strong><p>{aggregateSummary.errors} / {aggregateSummary.count}</p>
+      <span className="options-hint">{label("失敗したリクエストを確認 →", "Inspect failed requests →")}</span>
+    </button>
+  </div>;
   return <div className="perf-overview" data-testid="performance-overview">
+    {metrics}
     <section className={`perf-finding perf-finding--${a.status}`} aria-labelledby="perf-finding-title">
       <div className="perf-period">{label("直近100件以内の詳細サンプル診断", "Diagnosis from up to 100 recent detail samples")} · {capturing ? label("記録中", "Recording") : label("記録OFF", "Recording off")}</div>
-      <h3 id="perf-finding-title">{findingTitle}</h3><p>{a.samples === 0 && aggregateSummary.count > 0 ? label("詳細ログの保持期間を過ぎたため、期間集計から原因を判定できません。", "Detailed logs have expired, so the remaining aggregates cannot diagnose a cause.") : hints[a.status]}</p>
+      <h3 id="perf-finding-title">{findingTitle}</h3>
       <p className="options-hint">{a.start !== null && a.end !== null ? `${date(a.start)} → ${date(a.end)} · ${a.samples} ${label("リクエスト", "requests")}` : label("記録待ち", "Awaiting samples")}</p>
-      <p className="options-hint">{label("この診断は直近100件以内の詳細サンプルに基づきます。下の件数と平均値は選択期間の保存集計です。現在のキュー待ち数や操作全体の所要時間ではありません。", "This diagnosis uses up to 100 recent detail samples. Counts and means below use saved aggregates for the selected range. They do not represent the live queue or full interaction time.")}</p>
+      <details className="perf-finding-details">
+        <summary>{label("診断の根拠と対象範囲", "Diagnosis scope and methodology")}</summary>
+        <p>{a.samples === 0 && aggregateSummary.count > 0 ? label("詳細ログの保持期間を過ぎたため、期間集計から原因を判定できません。", "Detailed logs have expired, so the remaining aggregates cannot diagnose a cause.") : hints[a.status]}</p>
+        <p>{label("この診断は直近100件以内の詳細サンプルに基づきます。上の件数と平均値は選択期間の保存集計です。現在のキュー待ち数や操作全体の所要時間ではありません。", "This diagnosis uses up to 100 recent detail samples. The metrics above use saved aggregates for the selected range; they do not represent the live queue or full interaction time.")}</p>
+      </details>
     </section>
     {advice && <section className="options-callout" data-testid="performance-advice" aria-live="polite">
       <strong>{advice.preset === "high" ? label("キュー待ちに関する提案", "Queue wait suggestion") : label("通信・応答時間に関する提案", "Network / response suggestion")}</strong>
@@ -177,18 +200,6 @@ export function PerformanceOverview({ entries, language, capturing, onReviewAdvi
           : a.end !== null && Date.now() - a.end > 24 * 60 * 60_000
             ? label("ログが古いため、プリセットを提案しません。新しい記録で再確認してください。", "No preset advice is offered from stale logs. Record a fresh sample and review again.")
             : label("現在の記録からは、負荷設定を変える根拠が足りません。", "The current records do not provide enough evidence to change request load settings.")}</p>}
-    <div className="perf-metrics">
-      {[
-        [label("平均リクエスト所要時間", "Average request time"), ms(aggregateSummary.totalCount ? aggregateSummary.totalSum / aggregateSummary.totalCount : null), label("選択期間の保存集計・待ち時間を含む", "Persisted aggregate for selected range, including waiting")],
-        [waitLabel, ms(aggregateSummary.waitCount ? aggregateSummary.waitSum / aggregateSummary.waitCount : null), label("選択期間の計測済み平均", "Measured mean for selected range")],
-        [netLabel, ms(aggregateSummary.networkCount ? aggregateSummary.networkSum / aggregateSummary.networkCount : null), label("選択期間の計測済み平均", "Measured mean for selected range")],
-      ].map(([title, value, hint]) => <article className="options-metric-card" key={title}><strong>{title}</strong><p>{value}</p><span className="options-hint">{hint}</span></article>)}
-      <button type="button" className="options-metric-card perf-metric-action" data-testid="performance-failed-metric"
-        onClick={() => chooseFilter({ ...EMPTY_REQUEST_FILTER, failedOnly: true }, true)} aria-controls="performance-request-details">
-        <strong>{label("失敗 / 全リクエスト（選択期間）", "Failed / all requests (selected range)")}</strong><p>{aggregateSummary.errors} / {aggregateSummary.count}</p>
-        <span className="options-hint">{label("失敗したリクエストを確認 →", "Inspect failed requests →")}</span>
-      </button>
-    </div>
     <div className="perf-facts">
       <span>{label("所要時間 p95", "Request time p95")}: <b>{label("選択期間では未算出（詳細ページの標本値ではありません）", "Unavailable from aggregates (no raw percentile computed)")}</b></span>
       <span>{label("レート制限待ちの記録", "Recorded rate-limit waits")}: <b>{aggregateSummary.clientLimiterWaits}</b></span>
@@ -208,11 +219,11 @@ export function PerformanceOverview({ entries, language, capturing, onReviewAdvi
     </section>}
     <div className="options-field perf-trend-range"><label htmlFor="performance-trend-range">{label("傾向の期間", "Trend range")}</label><select id="performance-trend-range" className="options-input" data-testid="performance-trend-range" value={trendDays} onChange={event => setTrendDays(Number(event.target.value))}><option value={1}>{label("24時間", "24 hours")}</option><option value={3}>{label("3日", "3 days")}</option><option value={7}>{label("7日", "7 days")}</option></select></div>
     <div className="perf-charts">
-      {(["latency", "count"] as const).map(kind => <figure className="options-analysis-card" key={kind} data-testid={`performance-chart-${kind}`}>
+      {(["latency", "count"] as const).map(kind => <figure className={`options-analysis-card perf-chart-${kind}`} key={kind} data-testid={`performance-chart-${kind}`}>
         <figcaption><strong>{kind === "latency" ? label("待ち時間と通信・応答の推移", "Waiting and response over time") : label("リクエスト数と失敗の推移", "Requests and failures over time")}</strong>
-          <p className="options-hint">{label("選択範囲の1分ごとの保存集計", "Persisted 1-minute aggregates for the selected range")} · {kind === "latency" ? label("平均 ms", "mean ms") : `${label("件／", "requests per ")}${Math.round(chartData.binMs / 60_000)} ${label("分", "minutes")}`}</p></figcaption>
+          <p className="options-hint">{kind === "latency" ? `${Math.round(chartData.binMs / 60_000)}${label("分平均・ms", "-minute mean · ms")}` : `${Math.round(chartData.binMs / 60_000)}${label("分ごと・件", "-minute totals · requests")}`}</p></figcaption>
         <div className="perf-legend">{kind === "latency" ? <><span className="perf-key perf-key--wait">{waitLabel}</span><span className="perf-key perf-key--network">{netLabel}</span></> : <><span className="perf-key perf-key--network">{label("成功", "Succeeded")}</span><span className="perf-key perf-key--error">{label("失敗", "Failed")}</span></>}</div>
-        <div className="perf-recharts-host" role="group" aria-label={kind === "latency" ? label("平均所要時間の内訳、単位ms", "Mean request time breakdown in milliseconds") : label("リクエスト数、単位件／分", "Requests per minute")}>
+        <div className="perf-recharts-host" role="group" aria-label={kind === "latency" ? label(`${Math.round(chartData.binMs / 60_000)}分平均の所要時間、単位ms`, `Mean request time per ${Math.round(chartData.binMs / 60_000)} minutes, in milliseconds`) : label(`${Math.round(chartData.binMs / 60_000)}分ごとの件数`, `Request totals per ${Math.round(chartData.binMs / 60_000)} minutes`)}>
           <BarChart responsive style={{ width: "100%", minWidth: 0 }} height={240} data={chartData.rows} accessibilityLayer margin={{ top: 12, right: 12, bottom: 4, left: 0 }}>
             <CartesianGrid vertical={false} stroke="var(--perf-grid, #d6deea)" />
             <XAxis dataKey="start" tickFormatter={value => trendDays === 1 ? time(Number(value)) : date(Number(value))} minTickGap={28} tick={{ fill: "var(--perf-muted, #62728a)", fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -228,6 +239,10 @@ export function PerformanceOverview({ entries, language, capturing, onReviewAdvi
         <p className="options-hint">{label(`空白は記録なし。棒は${Math.round(chartData.binMs / 60_000)}分単位です。選択するとその期間の詳細を表示します。`, `Blank buckets have no records. Each bar covers ${Math.round(chartData.binMs / 60_000)} minutes; select one to inspect that range.`)}</p>
       </figure>)}
     </div>
+    <p className="options-hint perf-recorded-coverage" data-testid="performance-recorded-coverage" role="status">
+      {recordedCoverage ? label(`記録のある範囲: ${date(recordedCoverage.start)} ～ ${date(recordedCoverage.end)} · 選択期間の集計値は全範囲を対象`, `Recorded coverage: ${date(recordedCoverage.start)} – ${date(recordedCoverage.end)} · selected range statistics cover the full range`)
+        : label("記録のある範囲: なし", "Recorded coverage: none")}
+    </p>
     {aggregateError && <p className="options-hint" role="alert">{label("保存集計を読み込めませんでした。", "Could not load saved aggregates.")} <button type="button" className="options-button" onClick={() => setAggregateRetry(value => value + 1)}>{label("再試行", "Retry")}</button></p>}
     <p className="options-hint" data-testid="performance-retention-note">{label("グラフは1分ごとの保存集計です。リクエスト詳細は直近24時間のみ保持し、古いグラフの棒から詳細を開けない場合があります。", "Charts use persisted 1-minute aggregates. Request details are retained for 24 hours, so older bars may not have drilldown records.")}</p>
     <section className="perf-request-details" id="performance-request-details" data-testid="performance-request-details" aria-labelledby="perf-request-heading" tabIndex={-1} ref={details}>
@@ -267,16 +282,23 @@ export function PerformanceOverview({ entries, language, capturing, onReviewAdvi
             <td><button type="button" className="perf-request-expand options-button" data-testid="performance-request-expand" aria-expanded={expanded === request.key} aria-controls={`performance-request-${request.key}`} onClick={() => setExpanded(expanded === request.key ? null : request.key)}>{expanded === request.key ? label("閉じる", "Close") : label("詳細", "Details")}</button></td>
           </tr>
           {expanded === request.key && <tr className="perf-request-detail-row"><td colSpan={6}><div className="perf-request-expanded" data-testid="performance-request-expanded" id={`performance-request-${request.key}`}>
-              <h4>{request.method} {request.path}</h4><dl>
-                <dt>{label("日時", "Recorded at")}</dt><dd>{date(request.entry.timestamp)}</dd>
-                <dt>{label("結果", "Outcome")}</dt><dd>{request.failed ? label("失敗", "Failed") : label("成功", "Succeeded")} · {request.status === null ? label("HTTPステータス未記録", "HTTP status not recorded") : `HTTP ${request.status}`}</dd>
-                <dt>{label("所要時間", "Duration")}</dt><dd>{ms(request.total)}</dd><dt>{label("拡張内の待ち", "Waiting inside Deck")}</dt><dd>{ms(request.queueWait)}</dd><dt>{netLabel}</dt><dd>{ms(request.network)}</dd>
-                <dt>{label("呼び出し元", "Caller")}</dt><dd>{request.reason || "—"}</dd>
-                <dt>{label("処理", "Purpose")}</dt><dd>{typeof request.entry.payload?.purpose === "string" ? request.entry.payload.purpose : "—"}</dd>
-                <dt>{label("優先度", "Priority")}</dt><dd>{typeof request.entry.payload?.priority === "string" ? request.entry.payload.priority : "—"}</dd>
-                <dt>{label("受付時の滞留数", "Outstanding at enqueue")}</dt><dd>{typeof request.entry.payload?.queueDepth === "number" ? request.entry.payload.queueDepth : "—"}</dd>
+              <h4>{request.method} {request.path}</h4>
+              <div className="perf-detail-summary" aria-label={label("結果と時間", "Outcome and timing")}>
+                <div><span>{label("結果", "Outcome")}</span><strong>{request.failed ? label("失敗", "Failed") : label("成功", "Succeeded")} · {request.status === null ? label("HTTPステータス未記録", "HTTP status not recorded") : `HTTP ${request.status}`}</strong></div>
+                <div><span>{label("所要時間", "Duration")}</span><strong>{ms(request.total)}</strong></div>
+                {request.queueWait !== null && <div><span>{label("拡張内の待ち", "Waiting inside Deck")}</span><strong>{ms(request.queueWait)}</strong></div>}
+                {request.network !== null && <div><span>{netLabel}</span><strong>{ms(request.network)}</strong></div>}
+              </div>
+              {request.network === null && <p className="options-hint">{label("通信・応答の内訳は未計測です。0 msを意味しません。", "Network / response was not measured; this does not mean 0 ms.")}</p>}
+              <dl className="perf-detail-context">
+                <dt>{label("日時", "Recorded at")}</dt><dd><time dateTime={new Date(request.entry.timestamp).toISOString()}>{date(request.entry.timestamp)}</time></dd>
+                {request.reason && <><dt>{label("呼び出し元", "Caller")}</dt><dd>{request.reason}</dd></>}
+                {typeof request.entry.payload?.purpose === "string" && <><dt>{label("処理", "Purpose")}</dt><dd>{request.entry.payload.purpose}</dd></>}
+                {typeof request.entry.payload?.priority === "string" && <><dt>{label("優先度", "Priority")}</dt><dd>{request.entry.payload.priority}</dd></>}
+                {typeof request.entry.payload?.queueDepth === "number" && <><dt>{label("受付時の滞留数", "Outstanding at enqueue")}</dt><dd>{request.entry.payload.queueDepth}</dd></>}
                 {request.error && <><dt>{label("エラー", "Error")}</dt><dd className="perf-error-message">{request.error}</dd></>}
-              </dl><p className="options-hint">{request.network === null ? label("通信・応答の内訳は計測されていません。未計測は0 msを意味しません。", "The response breakdown was not measured. Missing values do not mean zero milliseconds.") : label("通信・応答には通信と本文読み取りを含みます。", "Network / response includes transport and body reading.")}</p>
+              </dl>
+              {request.network !== null && <p className="options-hint">{label("通信・応答には通信と本文読み取りを含みます。", "Network / response includes transport and body reading.")}</p>}
             </div></td></tr>}
         </React.Fragment>)}</tbody>
       </table></div> : null}

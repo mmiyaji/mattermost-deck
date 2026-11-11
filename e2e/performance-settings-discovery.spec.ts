@@ -30,15 +30,23 @@ test("performance controls precede diagnostics, expose their state and work with
     await expect(cache.locator("#performance-cache-title")).toHaveText("キャッシュ保持設定");
     await expect(advanced).not.toHaveAttribute("open", "");
     await expect(advanced.getByRole("spinbutton").first()).not.toBeVisible();
-    // Changing settings should not require scrolling through an activity log first.
-    for (const control of [cache, advanced]) {
-      for (const diagnostic of [capture, overview]) {
-        const follows = await control.evaluate((element, target) =>
-          Boolean(element.compareDocumentPosition(target as Node) & Node.DOCUMENT_POSITION_FOLLOWING),
-        await diagnostic.elementHandle());
-        expect(follows).toBe(true);
-      }
+    const preset = page.getByTestId("performance-preset");
+    // Compact controls and advanced tuning all appear before the diagnostic data.
+    for (const control of [cache, capture, preset, advanced]) {
+      const follows = await control.evaluate((element, target) =>
+        Boolean(element.compareDocumentPosition(target as Node) & Node.DOCUMENT_POSITION_FOLLOWING),
+      await overview.elementHandle());
+      expect(follows).toBe(true);
     }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const metrics = page.locator('[data-testid="performance-overview"] .perf-metrics');
+    const scrollport = page.locator(".options-panel-scroll");
+    const metricsFit = await metrics.evaluate((element, port) => {
+      const metricsBounds = element.getBoundingClientRect();
+      const portBounds = (port as Element).getBoundingClientRect();
+      return metricsBounds.top >= portBounds.top && metricsBounds.bottom <= portBounds.bottom;
+    }, await scrollport.elementHandle());
+    expect(metricsFit).toBe(true);
     await expect(cache.locator("#performance-cache-title")).toBeInViewport();
     await advanced.locator("summary").scrollIntoViewIfNeeded();
     await expect(advanced.locator("summary")).toBeVisible();
@@ -61,6 +69,7 @@ test("performance controls precede diagnostics, expose their state and work with
     await expect(page.getByTestId("virtual-post-list-toggle")).toHaveCount(0);
     await expect(page.getByText("投稿リストの描画方式を比較（試験）", { exact: true })).toHaveCount(0);
 
+    await cache.locator(".performance-help-details > summary").click();
     await expect(cache.getByTestId("options-clear-body-cache")).toHaveText("本文キャッシュを削除");
     await expect(cache).toContainText("要確認投稿の本文・未確認／確認済みの判断、お気に入り登録、設定は残ります");
     await expect(page.getByTestId("options-clear-body-cache")).toHaveCount(1);

@@ -4,6 +4,13 @@ export const performanceDrilldownCss = `
     --perf-grid: var(--settings-border, #40516a); --perf-selection: var(--settings-selected, #2c3b52);
     --perf-network: #79acd9; --perf-wait: #d4ab67; --perf-error: #ef8c91;
   }
+  .perf-overview .perf-charts { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
+  .perf-overview .perf-chart-latency { min-width: 0; }
+  .perf-recorded-coverage { margin: 8px 0 18px; }
+  .perf-finding-details { margin-top: 8px; }
+  .perf-finding-details summary { display: list-item; width: fit-content; cursor: pointer; color: var(--perf-muted); font-size: 12px; }
+  .perf-finding-details summary:focus-visible { outline: 2px solid var(--perf-network); outline-offset: 3px; }
+  .perf-finding-details p { margin: 8px 0 0; }
   body[data-theme="light"] .perf-overview {
     --perf-network: #4d82b5; --perf-wait: #a57535; --perf-error: #b43e44;
   }
@@ -44,11 +51,22 @@ export const performanceDrilldownCss = `
   .perf-request-path code { font-size: 12px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
   .perf-request-outcome { color: var(--perf-muted); }
   .perf-request-outcome--failed { color: var(--perf-error); font-weight: 600; }
-  .perf-request-table .perf-request-expand { padding: 4px 9px; min-height: 28px; font-size: 12px; }
+  .perf-overview .perf-request-table .perf-request-expand { padding: 4px 9px; min-height: 28px; font-size: 12px; }
+  .perf-overview .perf-request-table .perf-request-expand { background: transparent; color: var(--perf-muted); border-color: transparent; }
+  .perf-overview .perf-request-table .perf-request-expand:hover { color: var(--perf-text); background: var(--perf-selection); border-color: var(--perf-grid); }
+  .perf-overview .perf-request-table .perf-request-expand[aria-expanded="true"] { color: var(--perf-text); background: var(--perf-selection); border-color: var(--perf-network); }
   .perf-request-detail-row > td { padding: 0; white-space: normal !important; }
   .perf-request-expanded { padding: 20px; background: var(--perf-selection); white-space: normal; overflow-wrap: anywhere; }
   .perf-request-expanded h4 { margin: 0 0 16px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+  .perf-detail-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .perf-detail-summary > div { min-width: 0; padding: 10px 12px; border: 1px solid var(--perf-grid); border-radius: 5px; background: var(--perf-surface); }
+  .perf-detail-summary span, .perf-detail-summary strong { display: block; overflow-wrap: anywhere; }
+  .perf-detail-summary span { color: var(--perf-muted); font-size: 11px; }
+  .perf-detail-summary strong { margin-top: 3px; font-size: 13px; font-variant-numeric: tabular-nums; }
   .perf-request-expanded dl { display: grid; grid-template-columns: minmax(140px, auto) minmax(0, 1fr); gap: 10px 20px; line-height: 1.6; margin: 0; }
+  .perf-request-expanded .perf-detail-context { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; }
+  .perf-request-expanded .perf-detail-context dt { grid-column: 1; }
+  .perf-request-expanded .perf-detail-context dd { grid-column: 2; }
   .perf-request-expanded dt { color: var(--perf-muted); }
   .perf-request-expanded dd { margin: 0; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .perf-error-message { color: var(--perf-error); }
@@ -56,10 +74,15 @@ export const performanceDrilldownCss = `
   .perf-request-pagination > span { margin-right: auto; }
   .perf-request-empty { padding: 24px 0; color: var(--perf-muted); font-size: 14px; line-height: 1.6; }
   .perf-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  @media (max-width: 900px) {
+    .perf-overview .perf-charts { grid-template-columns: minmax(0, 1fr); }
+  }
   @media (max-width: 720px) {
     .perf-request-filters { align-items: stretch; }
     .perf-request-filters label { flex: 1 1 200px; }
     .perf-request-expanded dl { grid-template-columns: minmax(0, 1fr); gap: 4px; }
     .perf-request-expanded dd { margin-bottom: 8px; }
+    .perf-detail-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .perf-request-expanded .perf-detail-context dt, .perf-request-expanded .perf-detail-context dd { grid-column: 1; }
   }
 `;

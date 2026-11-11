@@ -100,7 +100,7 @@ test("mention exclusions share author/thread rules, survive browser restart and 
         if ((action === "check" || action === "uncheck") && (element as HTMLInputElement).checked !== (action === "check")) element.click();
       }
       const rect = element?.getBoundingClientRect();
-      return element ? { text: element.textContent, count: shadow.querySelectorAll(selector).length, expanded: element.getAttribute("aria-expanded"), pressed: element.getAttribute("aria-pressed"), checked: (element as HTMLInputElement).checked, disabled: (element as HTMLButtonElement).disabled,
+      return element ? { text: element.textContent, count: shadow.querySelectorAll(selector).length, expanded: element.getAttribute("aria-expanded"), open: (element as HTMLDetailsElement).open, pressed: element.getAttribute("aria-pressed"), checked: (element as HTMLInputElement).checked, disabled: (element as HTMLButtonElement).disabled,
         actionOpacity: getComputedStyle(element.closest(".deck-mention-actions") ?? element).opacity,
         background: getComputedStyle(element).backgroundColor, color: getComputedStyle(element).color,
         theme: shadow.querySelector(".deck-shell")?.getAttribute("data-theme"),
@@ -132,6 +132,8 @@ test("mention exclusions share author/thread rules, survive browser restart and 
   const openControls = async (pane: string) => {
     const toggle = `${pane} .deck-column-header [aria-expanded]:not(.deck-pane-search-toggle)`;
     if ((await inspect(toggle))?.expanded !== "true") await inspect(toggle, "click");
+    const exclusions = `${pane} [data-deck-exclusion-controls]`;
+    if (!(await inspect(exclusions))?.open) await inspect(`${exclusions} > summary`, "click");
   };
   const columnState = (pane: string) => sw.evaluate(async ({ origin, pane }) => {
     const tab = (await chrome.tabs.query({})).find(candidate => candidate.url?.startsWith(origin) && candidate.title === "Mention exclusions fixture target");

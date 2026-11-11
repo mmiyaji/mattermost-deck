@@ -12,7 +12,9 @@ test("performance overview explains queue delays, failures, chart periods, and d
     const worker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
     const page = await waitForInstalledOptions(context, worker);
     const now = Date.now();
-    const entries = Array.from({ length: 180 }, (_, i) => ({ id: `overview-${i}`, timestamp: now - i * 14000, source: "api", level: "info", event: "request.complete", payload: { path: "/posts/search", purpose: "Team post search", method: "POST", status: 200, durationMs: 1450 + i * 9, queueWaitMs: 1200 + i * 8, queueDepth: 42 - i % 40 } }));
+    const entries = Array.from({ length: 180 }, (_, i) => ({ id: `overview-${i}`, timestamp: now - i * 14000, source: "api", level: "info", event: "request.complete", payload: i === 179
+      ? { path: "/posts/search", method: "POST", status: 200, durationMs: 1450 }
+      : { path: "/posts/search", purpose: "Team post search", method: "POST", status: 200, durationMs: 1450 + i * 9, queueWaitMs: 1200 + i * 8, queueDepth: 42 - i % 40 } }));
     await worker.evaluate(async entries => {
       await chrome.storage.local.clear();
       await chrome.storage.local.set({ "mattermostDeck.language.v1": "ja", "mattermostDeck.optionsTheme.v1": "dark" });
@@ -38,6 +40,9 @@ test("performance overview explains queue delays, failures, chart periods, and d
     expect(widths.content - widths.panel).toBeLessThan(90);
     await expect(overview.getByTestId("performance-chart-latency").getByRole("application")).toBeVisible();
     await expect(overview.getByTestId("performance-chart-count").getByRole("application")).toBeVisible();
+    await expect(overview.getByTestId("performance-chart-latency")).toContainText("5分平均・ms");
+    await expect(overview.getByTestId("performance-chart-count")).toContainText("5分ごと・件");
+    await expect(overview.getByTestId("performance-recorded-coverage")).toContainText("記録のある範囲");
     const expiredStart = Math.floor((Date.now() - 2 * 24 * 60 * 60_000) / 60_000) * 60_000;
     await page.evaluate(async start => {
       const db = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open("mattermost-deck-traces", 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
@@ -46,6 +51,10 @@ test("performance overview explains queue delays, failures, chart periods, and d
     }, expiredStart);
     await overview.getByTestId("performance-trend-range").selectOption("7");
     await expect(overview.getByTestId("performance-trend-range")).toHaveValue("7");
+    await expect(overview.getByTestId("performance-chart-latency")).toContainText("34分平均・ms");
+    await overview.getByTestId("performance-trend-range").selectOption("3");
+    await expect(overview.getByTestId("performance-chart-count")).toContainText("15分ごと・件");
+    await overview.getByTestId("performance-trend-range").selectOption("7");
     await expect.poll(() => page.evaluate(async () => { const response = await chrome.runtime.sendMessage({ type: "mattermost-deck:trace-storage", operation: "aggregates", from: Date.now() - 7 * 24 * 60 * 60_000, to: Date.now() }); return response.aggregates.some((bucket: { count: number }) => bucket.count === 3); })).toBe(true);
     await overview.getByTestId("performance-chart-count").locator(".recharts-bar-rectangle").first().click();
     await expect(overview.getByTestId("performance-detail-expired")).toBeVisible();
@@ -68,7 +77,14 @@ test("performance overview explains queue delays, failures, chart periods, and d
     await expect(overview.getByTestId("performance-request-row")).toHaveCount(30);
     await overview.getByTestId("performance-request-expand").first().click();
     await expect(overview.getByTestId("performance-request-expanded").first()).toContainText("Team post search");
+    await expect(overview.getByTestId("performance-request-expanded").first().locator(".perf-detail-summary > div")).toHaveCount(4);
+    await expect(overview.getByTestId("performance-request-expanded").first().locator(".perf-detail-context")).not.toContainText("—");
     await overview.getByTestId("performance-request-expand").first().click();
+    await overview.getByTestId("performance-request-expand").last().click();
+    await expect(overview.getByTestId("performance-request-expanded").last().locator(".perf-detail-summary > div")).toHaveCount(2);
+    await expect(overview.getByTestId("performance-request-expanded").last().locator(".perf-detail-context")).not.toContainText("—");
+    await expect(overview.getByTestId("performance-request-expanded").last()).toContainText("未計測です");
+    await overview.getByTestId("performance-request-expand").last().click();
     await overview.getByTestId("performance-page-previous").click();
     await overview.getByTestId("performance-page-previous").click();
     await overview.getByTestId("performance-page-previous").click();
@@ -107,6 +123,7 @@ test("performance overview explains queue delays, failures, chart periods, and d
       return [await query(429), await query(501)];
     });
     expect(statusCounts).toEqual([1, 1]);
+    await page.getByTestId("performance-trace-capture").locator(".performance-help-details > summary").click();
     const exportDownload = page.waitForEvent("download");
     await page.getByTestId("trace-export").click();
     const downloaded = await exportDownload;
@@ -142,6 +159,7 @@ test("performance overview explains queue delays, failures, chart periods, and d
     }, clearOnlyAggregateStart);
     await expect(page.getByTestId("performance-request-empty")).toBeVisible();
     await expect.poll(() => page.evaluate(async () => { const response = await chrome.runtime.sendMessage({ type: "mattermost-deck:trace-storage", operation: "aggregates", from: Date.now() - 7 * 24 * 60 * 60_000, to: Date.now() }); return response.aggregates.some((bucket: { count: number }) => bucket.count === 3); })).toBe(true);
+    await page.getByTestId("performance-trace-capture").locator(".performance-help-details > summary").click();
     await expect(page.getByTestId("trace-clear")).toBeEnabled();
     await page.getByTestId("trace-clear").click();
     await expect(page.getByTestId("performance-request-empty")).toBeVisible();

@@ -47,8 +47,9 @@ export function MentionExclusionControls({ rules, directory, channelLabels, show
     } catch { /* The shared store exposes write errors. */ } finally { setBusy(false); }
   };
   const restore = async (run: () => Promise<void>) => { setBusy(true); try { await run(); } catch { /* Store error remains visible outside the fold. */ } finally { setBusy(false); } };
-  return <section className="deck-exclusion-settings" data-deck-exclusion-controls aria-label={ja ? "表示の除外" : "Display exclusions"}>
-    <div className="deck-exclusion-heading"><strong>{ja ? "表示の除外" : "Display exclusions"}</strong><span>{ja ? `ユーザー ${rules.users.length}人・会話 ${rules.conversations.length}件` : `${rules.users.length} users · ${rules.conversations.length} conversations`}</span></div>
+  return <details className="deck-exclusion-settings" data-deck-exclusion-controls>
+    <summary>{ja ? `表示の除外（${rules.users.length}人・${rules.conversations.length}会話）` : `Display exclusions (${rules.users.length} users, ${rules.conversations.length} conversations)`}</summary>
+    <div className="deck-exclusion-content" aria-label={ja ? "表示の除外" : "Display exclusions"}>
     <p className="deck-exclusion-note">{ja ? "すべてのメンションペインで共有し、再起動後も保持します。非表示にしても既読・確認済みにはなりません。" : "Shared across mention panes and saved across restarts. Hiding does not mark posts read or confirmed."}</p>
     <h3>{ja ? "ユーザー" : "Users"}</h3>
     <label className="deck-field"><span className="deck-sr-only">{ja ? "除外するユーザーを検索" : "Search users to exclude"}</span><input type="search" className="deck-input" data-deck-exclusion-user-search value={query} onChange={event => setQuery(event.currentTarget.value)} placeholder={ja ? "ユーザーを検索" : "Search users"} disabled={!rules.ready || busy} /></label>
@@ -61,7 +62,8 @@ export function MentionExclusionControls({ rules, directory, channelLabels, show
     <h3>{ja ? "会話" : "Conversations"}</h3>
     <div className="deck-exclusion-list">{rules.conversations.map(conversation => <div className="deck-exclusion-row" key={conversation.rootId} data-deck-excluded-thread={conversation.rootId}><span className="deck-exclusion-avatar" aria-hidden="true">↳</span><span className="deck-exclusion-label"><strong>{conversation.label}</strong><small>{conversation.authorUsername ? `@${conversation.authorUsername} · ` : ""}{channelLabels[conversation.channelId] || conversation.channelId}</small></span><button type="button" className="deck-exclusion-link" data-deck-restore-excluded-thread={conversation.rootId} disabled={busy} onClick={() => void restore(() => rules.restoreConversation(conversation.rootId))} aria-label={`${ja ? "会話の除外を解除" : "Restore conversation"}: ${conversation.label}`}>{ja ? "解除" : "Restore"}</button></div>)}{!rules.conversations.length ? <p className="deck-exclusion-empty">{ja ? "除外している会話はありません" : "No excluded conversations"}</p> : null}</div>
     <label className="deck-toggle deck-exclusion-reveal"><input type="checkbox" data-deck-show-excluded checked={showExcluded} onChange={event => onShowExcluded(event.currentTarget.checked)} /><span>{ja ? "除外した投稿を一時表示" : "Temporarily show excluded posts"}</span></label>
-  </section>;
+    </div>
+  </details>;
 }
 
 export function MentionPostMenu({ post, user, rootPost, rootUser, channelLabel, rules, language, onFeedback }: {
