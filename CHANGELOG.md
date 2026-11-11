@@ -7,6 +7,17 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-11-12
+
+### Changed
+
+- Polish the settings and pane controls: shorter Server URL labels and hints, the team URL-name guidance moved into advanced help, a width-diagram summary, and a preview jump link in appearance settings (all nine UI languages).
+- Refine settings shell, performance drill-down and pane control styling, and mention header controls.
+
+### Fixed
+
+- Keep mention header controls aligned and covered by a new E2E spec.
+
 ## [1.4.1] - 2026-11-05
 
 ### Added
