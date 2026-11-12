@@ -1,3 +1,4 @@
+import { replaceEmojiShortcodes } from "./emoji";
 import React from "react";
 import { getMattermostUrl, type MattermostPost, type MattermostUser } from "../mattermost/api";
 import i18n from "./i18n";
@@ -255,9 +256,9 @@ function renderHighlightedTokens(tokens: PostTextToken[], terms: string[]): Reac
     } else if (token.raw.trim().length === 0) {
       nodes.push(<React.Fragment key={`token-${index}`}>{token.raw}</React.Fragment>);
     } else if (token.display !== token.raw) {
-      nodes.push(<span key={`token-${index}`} className="deck-inline-ellipsis" title={token.raw}>{token.display}</span>);
+      nodes.push(<span key={`token-${index}`} className="deck-inline-ellipsis" title={token.raw}>{replaceEmojiShortcodes(token.display)}</span>);
     } else {
-      nodes.push(<React.Fragment key={`token-${index}`}>{renderTextHighlights(token.raw, terms)}</React.Fragment>);
+      nodes.push(<React.Fragment key={`token-${index}`}>{renderTextHighlights(replaceEmojiShortcodes(token.raw), terms)}</React.Fragment>);
     }
     index += 1;
   }

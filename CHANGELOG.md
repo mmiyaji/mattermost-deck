@@ -9,6 +9,10 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.4.2] - 2026-11-12
 
+### Added
+
+- Show Unicode emoji for standard `:shortcode:` names in post text. Unknown names and workspace custom emoji stay as text. Bundles `node-emoji` (MIT); no extension permissions were added.
+
 ### Changed
 
 - Polish the settings and pane controls: shorter Server URL labels and hints, the team URL-name guidance moved into advanced help, a width-diagram summary, and a preview jump link in appearance settings (all nine UI languages).
