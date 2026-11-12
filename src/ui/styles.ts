@@ -1118,7 +1118,7 @@ export const railCssText = `
   /* The theme's mention colour can match the pane background, so use the accent for counts. */
   .deck-column-header > .deck-badge {
     min-width: 16px; height: 16px; padding: 0 5px; font-size: calc(10px * var(--deck-font-scale)); font-weight: 600;
-    background: var(--deck-accent-soft); color: var(--deck-accent-strong);
+    background: color-mix(in srgb, var(--deck-accent) 22%, transparent); color: var(--deck-accent-strong);
   }
   .deck-column-header > .deck-badge[data-empty] { background: var(--deck-card); color: var(--deck-text-soft); box-shadow: inset 0 0 0 1px var(--deck-border); font-weight: 600; }
 
