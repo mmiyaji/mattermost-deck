@@ -1,3 +1,5 @@
+import { IconFileGeneric, IconFileText, IconFilePdf, IconFileArchive, IconFileSpreadsheet, IconFileVideo, IconFileAudio, IconFileCode, FileTypeIcon, IconExternalLink, IconDownload, IconClose, IconZoomOut, IconZoomIn, IconFitScreen, IconMaximize } from "./fileIcons";
+import { ChevronIcon, CloseIcon, ArrowIcon, FocusIcon, DrawerToggleIcon, SettingsIcon, StatusModeIcon, PlusIcon, ViewsIcon, HamburgerIcon, RefreshIcon, PauseIcon, PlayIcon, JumpToLatestIcon, SearchIcon } from "./icons";
 import { isInitialPostWindow } from "./postListWindow";
 import { isReviewContextInvalidated } from "./reviewStorageClient";
 import { persistUiSetting, STORAGE_ERROR_EVENT } from "./storageFailure";
@@ -960,88 +962,6 @@ function openMattermostThread(teamName: string, target: OpenThreadTarget, channe
   void focusMattermostPost(target.postId, 5000, target.rootId);
 }
 
-function ChevronIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
-  return (
-    <svg
-      className={`deck-chevron${expanded ? " deck-chevron--expanded" : ""}`}
-      viewBox="0 0 12 12"
-      aria-hidden="true"
-    >
-      <path d="M4 2.5L7.5 6L4 9.5" />
-    </svg>
-  );
-}
-
-function CloseIcon(): React.JSX.Element {
-  return (
-    <svg className="deck-close-icon" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M3 3L9 9" />
-      <path d="M9 3L3 9" />
-    </svg>
-  );
-}
-
-function ArrowIcon({ direction }: { direction: "left" | "right" }): React.JSX.Element {
-  return (
-    <svg className={`deck-arrow-icon deck-arrow-icon--${direction}`} viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M4 2.5L7.5 6L4 9.5" />
-    </svg>
-  );
-}
-
-function FocusIcon({ active }: { active: boolean }): React.JSX.Element {
-  return active ? (
-    <svg className="deck-focus-icon" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M1.8 4V1.8H4" />
-      <path d="M8 1.8h2.2V4" />
-      <path d="M10.2 8V10.2H8" />
-      <path d="M4 10.2H1.8V8" />
-      <path d="M4.2 4.2L7.8 7.8" />
-      <path d="M7.8 4.2L4.2 7.8" />
-    </svg>
-  ) : (
-    <svg className="deck-focus-icon" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M4.5 1.8H1.8V4.5" />
-      <path d="M7.5 1.8h2.7V4.5" />
-      <path d="M10.2 7.5v2.7H7.5" />
-      <path d="M4.5 10.2H1.8V7.5" />
-    </svg>
-  );
-}
-
-function DrawerToggleIcon({ open }: { open: boolean }): React.JSX.Element {
-  return (
-    <svg className={`deck-drawer-icon${open ? " deck-drawer-icon--open" : ""}`} viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M4 2.5L7.5 6L4 9.5" />
-    </svg>
-  );
-}
-
-function SettingsIcon(): React.JSX.Element {
-  return (
-    <svg className="deck-settings-icon" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M6.9 1.6h2.2l.4 1.6c.4.1.8.3 1.2.5l1.5-.8 1.5 1.5-.8 1.5c.2.4.4.8.5 1.2l1.6.4v2.2l-1.6.4c-.1.4-.3.8-.5 1.2l.8 1.5-1.5 1.5-1.5-.8c-.4.2-.8.4-1.2.5l-.4 1.6H6.9l-.4-1.6c-.4-.1-.8-.3-1.2-.5l-1.5.8-1.5-1.5.8-1.5c-.2-.4-.4-.8-.5-1.2L.9 9.1V6.9l1.6-.4c.1-.4.3-.8.5-1.2l-.8-1.5 1.5-1.5 1.5.8c.4-.2.8-.4 1.2-.5l.4-1.6Z" />
-      <circle cx="8" cy="8" r="2.3" />
-    </svg>
-  );
-}
-
-function StatusModeIcon({ realtimeEnabled }: { realtimeEnabled: boolean }): React.JSX.Element {
-  return realtimeEnabled ? (
-    <svg className="deck-status-mode-icon" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M1.8 5.6a6.2 6.2 0 0 1 8.4 0" />
-      <path d="M3.5 7.4a3.8 3.8 0 0 1 5 0" />
-      <path d="M5.1 9a1.8 1.8 0 0 1 1.8 0" />
-      <circle cx="6" cy="10.1" r="0.7" fill="currentColor" stroke="none" />
-    </svg>
-  ) : (
-    <svg className="deck-status-mode-icon" viewBox="0 0 12 12" aria-hidden="true">
-      <circle cx="6" cy="6" r="4.2" />
-      <path d="M6 3.5v2.8l1.8 1" />
-    </svg>
-  );
-}
-
 function HealthStatusIcon({ status }: { status: ApiHealthStatus }): React.JSX.Element {
   if (status === "healthy") {
     return (
@@ -1067,26 +987,6 @@ function HealthStatusIcon({ status }: { status: ApiHealthStatus }): React.JSX.El
       <circle cx="6" cy="6" r="4.5" />
       <path d="M4.1 4.1l3.8 3.8" />
       <path d="M7.9 4.1L4.1 7.9" />
-    </svg>
-  );
-}
-
-function PlusIcon(): React.JSX.Element {
-  return (
-    <svg className="deck-plus-icon" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M6 2v8" />
-      <path d="M2 6h8" />
-    </svg>
-  );
-}
-
-function ViewsIcon(): React.JSX.Element {
-  return (
-    <svg className="deck-views-icon" viewBox="0 0 16 16" aria-hidden="true">
-      <rect x="2.2" y="2.2" width="4.2" height="4.2" rx="1" />
-      <rect x="9.6" y="2.2" width="4.2" height="4.2" rx="1" />
-      <rect x="2.2" y="9.6" width="4.2" height="4.2" rx="1" />
-      <rect x="9.6" y="9.6" width="4.2" height="4.2" rx="1" />
     </svg>
   );
 }
@@ -1239,55 +1139,6 @@ function ColumnMenuLabel({ type, label }: { type: DeckColumnType; label: string 
       <ColumnTypeBadge type={type} />
       <span>{label}</span>
     </span>
-  );
-}
-
-function HamburgerIcon(): React.JSX.Element {
-  return (
-    <svg className="deck-hamburger-icon" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M3 4h10" />
-      <path d="M3 8h10" />
-      <path d="M3 12h10" />
-    </svg>
-  );
-}
-
-function RefreshIcon({ spinning = false }: { spinning?: boolean }): React.JSX.Element {
-  return (
-    <svg className={`deck-refresh-icon${spinning ? " deck-refresh-icon--spinning" : ""}`} viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M12.5 6.5A4.8 4.8 0 0 0 4.3 4.9" />
-      <path d="M4.3 4.9V2.8" />
-      <path d="M4.3 4.9H6.5" />
-      <path d="M3.5 9.5a4.8 4.8 0 0 0 8.2 1.6" />
-      <path d="M11.7 11.1v2.1" />
-      <path d="M11.7 11.1H9.5" />
-    </svg>
-  );
-}
-
-function PauseIcon(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
-      <rect x="4" y="3" width="3" height="10" rx="1" fill="currentColor" stroke="none" />
-      <rect x="9" y="3" width="3" height="10" rx="1" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function PlayIcon(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <polygon points="5,3 13,8 5,13" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function JumpToLatestIcon({ reversed = false }: { reversed?: boolean }): React.JSX.Element {
-  return (
-    <svg className={`deck-jump-latest-icon${reversed ? " deck-jump-latest-icon--reversed" : ""}`} viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M8 3.5v9" />
-      <path d="M4.8 6.7 8 3.5l3.2 3.2" />
-    </svg>
   );
 }
 
@@ -3697,175 +3548,7 @@ function formatFileSize(bytes: number): string {
 }
 
 // File-type SVG icons
-function IconFileGeneric(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-    </svg>
-  );
-}
-function IconFileText(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="8" y1="13" x2="16" y2="13" />
-      <line x1="8" y1="17" x2="16" y2="17" />
-      <line x1="8" y1="9" x2="11" y2="9" />
-    </svg>
-  );
-}
-function IconFilePdf(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <path d="M8 13h2a1.5 1.5 0 0 1 0 3H8v-3z" />
-      <path d="M14 13h1.5a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H14v-3z" />
-    </svg>
-  );
-}
-function IconFileArchive(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="10" y1="2" x2="10" y2="8" />
-      <line x1="10" y1="12" x2="10" y2="12.01" />
-      <line x1="10" y1="16" x2="10" y2="16.01" />
-      <rect x="8.5" y="10" width="3" height="8" rx="1" />
-    </svg>
-  );
-}
-function IconFileSpreadsheet(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <rect x="7" y="12" width="10" height="7" rx="0.5" />
-      <line x1="7" y1="15.5" x2="17" y2="15.5" />
-      <line x1="12" y1="12" x2="12" y2="19" />
-    </svg>
-  );
-}
-function IconFileVideo(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <polygon points="9,12 9,18 16,15" />
-    </svg>
-  );
-}
-function IconFileAudio(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <circle cx="9.5" cy="17.5" r="1.5" />
-      <path d="M11 17.5V12l5-1v4.5" />
-    </svg>
-  );
-}
-function IconFileCode(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <polyline points="9,13 7,15 9,17" />
-      <polyline points="15,13 17,15 15,17" />
-    </svg>
-  );
-}
-
-function FileTypeIcon({ mimeType, extension }: { mimeType: string; extension: string }): React.JSX.Element {
-  const ext = extension.toLowerCase();
-  const mime = mimeType.toLowerCase();
-  if (mime.startsWith("video/")) return <IconFileVideo />;
-  if (mime.startsWith("audio/")) return <IconFileAudio />;
-  if (mime === "application/pdf" || ext === "pdf") return <IconFilePdf />;
-  if (mime.includes("zip") || mime.includes("rar") || mime.includes("tar") || mime.includes("7z") ||
-      ext === "zip" || ext === "rar" || ext === "gz" || ext === "tar" || ext === "7z") return <IconFileArchive />;
-  if (mime.includes("spreadsheet") || mime.includes("excel") || ext === "xls" || ext === "xlsx" || ext === "csv") return <IconFileSpreadsheet />;
-  if (mime.includes("word") || mime.includes("wordprocessing") || ext === "doc" || ext === "docx" || ext === "odt") return <IconFileText />;
-  if (mime.includes("powerpoint") || mime.includes("presentation") || ext === "ppt" || ext === "pptx" || ext === "odp") return <IconFileGeneric />;
-  if (mime.startsWith("text/") || ext === "txt" || ext === "md" || ext === "log") return <IconFileText />;
-  if (["js", "ts", "jsx", "tsx", "py", "java", "go", "rb", "php", "css", "html", "json", "xml", "sh", "yaml", "yml"].includes(ext)) return <IconFileCode />;
-  return <IconFileGeneric />;
-}
-
 // Lightbox SVG icons (Feather-style, stroke-based)
-function IconExternalLink(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8.5 4H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-3.5" />
-      <path d="M11 3h6v6" />
-      <line x1="17" y1="3" x2="10" y2="10" />
-    </svg>
-  );
-}
-function IconDownload(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <line x1="10" y1="3" x2="10" y2="13" />
-      <polyline points="6,9 10,13 14,9" />
-      <line x1="4" y1="16" x2="16" y2="16" />
-    </svg>
-  );
-}
-function IconClose(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
-      <line x1="4" y1="4" x2="16" y2="16" />
-      <line x1="16" y1="4" x2="4" y2="16" />
-    </svg>
-  );
-}
-function IconZoomOut(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="8.5" cy="8.5" r="5" />
-      <line x1="17" y1="17" x2="13" y2="13" />
-      <line x1="6" y1="8.5" x2="11" y2="8.5" />
-    </svg>
-  );
-}
-function IconZoomIn(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="8.5" cy="8.5" r="5" />
-      <line x1="17" y1="17" x2="13" y2="13" />
-      <line x1="8.5" y1="6" x2="8.5" y2="11" />
-      <line x1="6" y1="8.5" x2="11" y2="8.5" />
-    </svg>
-  );
-}
-function IconFitScreen(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <polyline points="3,8 3,3 8,3" />
-      <polyline points="17,8 17,3 12,3" />
-      <polyline points="3,12 3,17 8,17" />
-      <polyline points="17,12 17,17 12,17" />
-    </svg>
-  );
-}
-function IconMaximize(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <polyline points="3,8 3,3 8,3" />
-      <polyline points="17,8 17,3 12,3" />
-      <polyline points="3,12 3,17 8,17" />
-      <polyline points="17,12 17,17 12,17" />
-      <line x1="3" y1="3" x2="7.5" y2="7.5" />
-      <line x1="17" y1="3" x2="12.5" y2="7.5" />
-      <line x1="3" y1="17" x2="7.5" y2="12.5" />
-      <line x1="17" y1="17" x2="12.5" y2="12.5" />
-    </svg>
-  );
-}
-
 const ZOOM_STEP = 1.3;
 const MAX_SCALE = 16;
 const MIN_SCALE = 0.02;
@@ -8961,15 +8644,6 @@ function ChannelWatchColumn({
     </section>
   );
 }
-function SearchIcon(): React.JSX.Element {
-  return (
-    <svg className="deck-search-icon" viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="7" cy="7" r="4.5" />
-      <path d="M10.5 10.5L14 14" />
-    </svg>
-  );
-}
-
 function InitialLoadingState({ message }: { message: string }): React.JSX.Element {
   const text = useAppText();
   return (
