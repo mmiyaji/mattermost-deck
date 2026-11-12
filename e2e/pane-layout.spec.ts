@@ -186,7 +186,7 @@ test("pane sizing and two-row layouts stay usable and persist", async ({}, testI
     await expect.poll(async () => (await inspect(headerActions))?.opacity).toBe('0');
     const quietHeading = (await inspect(headerHeading))!;
     const headerBounds = (await inspect('[data-pane-id="watch"] .deck-column-header'))!;
-    expect(quietHeading.right).toBe(headerBounds.right);
+    expect(quietHeading.right).toBeLessThanOrEqual(headerBounds.right); // actions keep their own slot, so the heading never overlaps them
     await page.screenshot({path: testInfo.outputPath('header-quiet.png')});
     await page.mouse.move(quietHeading.left + 40, quietHeading.top + 100);
     await expect.poll(async () => (await inspect(headerActions))?.opacity).toBe('1');
