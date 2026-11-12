@@ -7884,7 +7884,7 @@ function MentionsColumn({
           )}
           </div>
         </div>
-        <div className="deck-badge" aria-label={column.mentionReview ? `${reviewText.pending}: ${review.ready ? reviewPendingCount : "—"}` : text.mentionBadge(mentionCount, Boolean(column.teamId))} title={column.mentionReview ? `${reviewText.pending}: ${review.ready ? reviewPendingCount : "—"}` : text.mentionBadge(mentionCount, Boolean(column.teamId))}>
+        <div className="deck-badge" data-empty={(column.mentionReview ? (review.ready ? reviewPendingCount : 0) : mentionCount) === 0 ? "true" : undefined} aria-label={column.mentionReview ? `${reviewText.pending}: ${review.ready ? reviewPendingCount : "—"}` : text.mentionBadge(mentionCount, Boolean(column.teamId))} title={column.mentionReview ? `${reviewText.pending}: ${review.ready ? reviewPendingCount : "—"}` : text.mentionBadge(mentionCount, Boolean(column.teamId))}>
           {column.mentionReview ? (review.ready ? reviewPendingCount : "—") : mentionCount}
         </div>
         <div className="deck-column-actions">
