@@ -7,6 +7,22 @@ and this version adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-11-12
+
+### Added
+
+- Show Unicode emoji for standard `:shortcode:` names in post text. Unknown names and workspace custom emoji stay as text. Bundles `node-emoji` (MIT); no extension permissions were added.
+
+### Changed
+
+- Polish the settings and pane controls: shorter Server URL labels and hints, the team URL-name guidance moved into advanced help, a width-diagram summary, and a preview jump link in appearance settings (all nine UI languages).
+- Refine settings shell, performance drill-down and pane control styling, and mention header controls.
+- Show the mention count as a small, theme-aware badge next to the pane title, offer "Choose another channel" when a watched channel is no longer accessible, and prompt for an extension reload when a stale background worker rejects review-state messages.
+
+### Fixed
+
+- Keep mention header controls aligned and covered by a new E2E spec.
+
 ## [1.4.1] - 2026-11-05
 
 ### Added

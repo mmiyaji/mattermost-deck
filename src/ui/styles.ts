@@ -1104,7 +1104,7 @@ export const railCssText = `
 
   .deck-column-heading {
     min-width: 0;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
   }
 
   .deck-column-actions {
@@ -1112,8 +1112,15 @@ export const railCssText = `
     align-items: center;
     flex: none;
     gap: 8px;
+    margin-left: auto;
   }
-  .deck-column-header > .deck-badge { flex: none; }
+  .deck-column-header > .deck-badge { flex: none; margin-top: 1px; }
+  /* The theme's mention colour can match the pane background, so use the accent for counts. */
+  .deck-column-header > .deck-badge {
+    min-width: 16px; height: 16px; padding: 0 5px; font-size: calc(10px * var(--deck-font-scale)); font-weight: 600;
+    background: color-mix(in srgb, var(--deck-accent) 22%, transparent); color: var(--deck-accent-strong);
+  }
+  .deck-column-header > .deck-badge[data-empty] { background: var(--deck-card); color: var(--deck-text-soft); box-shadow: inset 0 0 0 1px var(--deck-border); font-weight: 600; }
 
   .deck-inline-actions {
     display: flex;
@@ -2851,7 +2858,7 @@ export const railCssText = `
   /* Keep header tools in their own stable slot across hover and focus states. */
   @media (hover: hover) and (pointer: fine) {
     .deck-column-header { flex-wrap: nowrap; min-height: 36px; }
-    .deck-column-heading { flex: 1 1 0; }
+    .deck-column-heading { flex: 0 1 auto; }
     .deck-column-heading .deck-title-with-icon { max-width: 100%; }
     .deck-column-heading .deck-title-with-icon > span:last-child:not(:first-child) {
       min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

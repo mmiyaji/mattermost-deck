@@ -7884,7 +7884,7 @@ function MentionsColumn({
           )}
           </div>
         </div>
-        <div className="deck-badge" aria-label={column.mentionReview ? `${reviewText.pending}: ${review.ready ? reviewPendingCount : "—"}` : text.mentionBadge(mentionCount, Boolean(column.teamId))} title={column.mentionReview ? `${reviewText.pending}: ${review.ready ? reviewPendingCount : "—"}` : text.mentionBadge(mentionCount, Boolean(column.teamId))}>
+        <div className="deck-badge" data-empty={(column.mentionReview ? (review.ready ? reviewPendingCount : 0) : mentionCount) === 0 ? "true" : undefined} aria-label={column.mentionReview ? `${reviewText.pending}: ${review.ready ? reviewPendingCount : "—"}` : text.mentionBadge(mentionCount, Boolean(column.teamId))} title={column.mentionReview ? `${reviewText.pending}: ${review.ready ? reviewPendingCount : "—"}` : text.mentionBadge(mentionCount, Boolean(column.teamId))}>
           {column.mentionReview ? (review.ready ? reviewPendingCount : "—") : mentionCount}
         </div>
         <div className="deck-column-actions">
@@ -7923,6 +7923,8 @@ function MentionsColumn({
       </div> : null}
       {(column.mentionReview || (feedOwner && feedHasReview)) && review.error ? <div className="deck-exclusion-error" role="alert" data-deck-review-error>
         <span>{language === "ja" ? "確認状態を読み込み・保存できませんでした" : "Could not load or save review state"}: {review.error}</span>
+        {isReviewContextInvalidated(review.error)
+          ? <span>{language === "ja" ? "拡張機能が更新されたようです。拡張機能を再読み込みしてからページを更新してください。" : "The extension may have been updated. Reload the extension, then reload this page."}</span> : null}
         {isReviewContextInvalidated(review.error)
           ? <button type="button" className="deck-exclusion-link" onClick={() => window.location.reload()}>{language === "ja" ? "ページを再読み込み" : "Reload page"}</button>
           : <button type="button" className="deck-exclusion-link" onClick={() => void review.retry()}>{language === "ja" ? "再試行" : "Retry"}</button>}
@@ -8046,6 +8048,11 @@ function MentionsColumn({
             startRefresh();
             setRefreshNonce((current) => current + 1);
           }}
+          onReselect={
+            column.channelId && postState.error === i18n.t("deck.apiPermissionDenied")
+              ? () => onUpdate(column.id, { channelId: undefined, channelLabel: undefined })
+              : undefined
+          }
         />
       ) : shouldShowLoadingState ? (
         <ColumnLoadingState
@@ -9006,12 +9013,14 @@ function PaneErrorState({
   detail,
   muted = false,
   onRetry,
+  onReselect,
 }: {
   title: string;
   error: string;
   detail?: string;
   muted?: boolean;
   onRetry: () => void;
+  onReselect?: () => void;
 }): React.JSX.Element {
   return (
     <article
@@ -9031,6 +9040,16 @@ function PaneErrorState({
         >
           {i18n.t("deck.retry")}
         </button>
+        {onReselect ? (
+          <button
+            type="button"
+            className="deck-add-item deck-add-item--secondary"
+            data-deck-reselect-channel
+            onClick={onReselect}
+          >
+            {i18n.t("deck.reselectChannel")}
+          </button>
+        ) : null}
       </div>
     </article>
   );

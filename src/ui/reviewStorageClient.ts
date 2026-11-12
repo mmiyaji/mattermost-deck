@@ -5,7 +5,7 @@ export function usesReviewDatabase(): boolean {
 }
 /** A disposed extension world requires a page reload; a sleeping worker can retry. */
 export function isReviewContextInvalidated(error: string | null): boolean {
-  return typeof error === "string" && /extension context invalidated/i.test(error);
+  return typeof error === "string" && /extension context invalidated|unknown message type/i.test(error);
 }
 export function reviewStorageClient(prefix: string) {
   const request = async (operation: "get" | "write", sets?: Record<string, unknown>, removes?: string[]) => {

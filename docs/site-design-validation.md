@@ -2,7 +2,7 @@
 
 The homepage implementation follows the approved catalog layout in `mock/pattern-c.html`. Its screenshots reuse the current production images in `docs/assets/` rather than the mock copies.
 
-Keep the product facts current when updating this page: version 1.4.1, Chrome 120 or later, nine UI languages, the current Mattermost release test matrix, mention review behavior, favorites and saved posts, and the existing polling/WebSocket conditions. The Chrome Web Store CTA points to the current listing. Privacy, terms, and security links point to their live destinations.
+Keep the product facts current when updating this page: version 1.4.2, Chrome 120 or later, nine UI languages, the current Mattermost release test matrix, mention review behavior, favorites and saved posts, and the existing polling/WebSocket conditions. The Chrome Web Store CTA points to the current listing. Privacy, terms, and security links point to their live destinations.
 
 The page keeps the Japanese and English selector, system-aware light/dark control, GLightbox image viewer, and section navigation. CSS, JavaScript, and the GLightbox license are external files to comply with `docs/_headers` CSP. Run `npm run check:site` and `npm run test:site-navigation` after homepage or navigation changes.
 

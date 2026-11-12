@@ -8,6 +8,14 @@ Use this copy when maintaining the Chrome Web Store listing and its Privacy prac
 - Privacy policy URL: https://mattermost-deck.ruhenheim.org/privacy/
 - Store screenshot (1280 x 800): `docs/assets/readme-overview-dark-store.png`
 
+## v1.4.2 release notes
+
+- Clearer settings: shorter Server URL labels and hints, team URL-name guidance in advanced help, and refined settings and pane control styling.
+- Keep mention header controls aligned, and show the mention count as a small badge next to the pane title.
+- Show Unicode emoji for standard `:shortcode:` names in posts (custom emoji stay as text).
+- Offer to choose another channel when a watched channel is no longer accessible.
+- No additional extension permissions.
+
 ## v1.4.1 release notes
 
 - Choose a performance preset and review persistent seven-day API minute trends.

@@ -1,6 +1,6 @@
 {
   "name": "mattermost-deck",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "i18next": "^26.0.4",
+    "node-emoji": "2.2.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-i18next": "^17.0.2",
