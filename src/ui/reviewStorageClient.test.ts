@@ -4,6 +4,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe("review storage adapter recovery", () => {
   it("distinguishes invalidated page contexts from transient worker failures", () => {
     expect(isReviewContextInvalidated("Extension context invalidated.")).toBe(true);
+    expect(isReviewContextInvalidated("Unknown message type")).toBe(true);
     expect(isReviewContextInvalidated("Could not establish connection. Receiving end does not exist.")).toBe(false);
     expect(isReviewContextInvalidated(null)).toBe(false);
   });

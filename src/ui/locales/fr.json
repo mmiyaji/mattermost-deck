@@ -79,6 +79,7 @@
     "sessionExpired": "Session expir\u00e9e. Veuillez vous reconnecter.",
     "apiSessionExpired": "Votre session Mattermost a expiré. Reconnectez-vous, puis réessayez.",
     "apiPermissionDenied": "Mattermost a refusé cette demande. Vérifiez que votre compte a accès à ce canal ou à cette ressource.",
+    "reselectChannel": "Choisir un autre canal",
     "apiRateLimited": "Mattermost reçoit trop de demandes. Patientez un instant, puis réessayez.",
     "apiRequestTimeout": "La réponse prend trop de temps. Veuillez patienter un moment, puis réessayer.",
     "apiServerUnavailable": "Mattermost est temporairement indisponible. Vérifiez l’état du serveur ou contactez votre administrateur.",
