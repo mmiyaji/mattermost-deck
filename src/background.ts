@@ -1,3 +1,4 @@
+import { UNKNOWN_MESSAGE_TYPE_ERROR } from "./messageErrors";
 import { SETTINGS_KEYS, normaliseServerUrl, originToPermissionPattern } from "./ui/settings";
 import { getProfileStorageKey, PROFILES_STORAGE_KEY } from "./ui/profiles";
 import { resolveDeckLanguage } from "./ui/language";
@@ -587,7 +588,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
 
-      sendResponse({ success: false, error: "Unknown message type" });
+      sendResponse({ success: false, error: UNKNOWN_MESSAGE_TYPE_ERROR });
     } catch (error) {
       sendResponse({ success: false, error: error instanceof Error ? error.message : String(error) });
     }

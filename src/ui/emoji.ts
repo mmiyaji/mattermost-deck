@@ -10,7 +10,7 @@ const MATTERMOST_ALIASES: Readonly<Record<string, string>> = {
   "100": "💯",
 };
 
-const SHORTCODE = /:([a-z0-9_+-]+):/gi;
+const SHORTCODE_SOURCE = ":([a-z0-9_+-]+):";
 
 /**
  * Replaces known `:shortcode:` names with Unicode emoji. Unknown names,
@@ -18,6 +18,6 @@ const SHORTCODE = /:([a-z0-9_+-]+):/gi;
  */
 export function replaceEmojiShortcodes(text: string): string {
   if (!text.includes(":")) return text;
-  const withAliases = text.replace(SHORTCODE, (match, name: string) => MATTERMOST_ALIASES[name.toLowerCase()] ?? match);
+  const withAliases = text.replace(new RegExp(SHORTCODE_SOURCE, "gi"), (match, name: string) => MATTERMOST_ALIASES[name.toLowerCase()] ?? match);
   return emojify(withAliases, { fallback: (name: string) => `:${name}:` });
 }
