@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="ja" data-lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mattermost Deck</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="../docs/assets/mattermost-deck-icon.png">
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#0f1114; --bar:#0a0b0d; --pane:#16191d; --card:#1b1f24; --card2:#20252b;
+  --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.14);
+  --text:#e8ecf1; --soft:#aab3be; --faint:#7d8793;
+  --btn:#1c58d9; --btn-h:#2466ec; --accent:#8ab4ff;
+  --r:10px; --gap:12px;
+  --font:"Segoe UI","Noto Sans JP","Yu Gothic UI",Meiryo,system-ui,sans-serif;
+  --mono:ui-monospace,Consolas,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:60px}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.75 var(--font)}
+a{color:var(--accent)}
+img{max-width:100%;height:auto;display:block}
+code,kbd{font-family:var(--mono);font-size:.9em;background:var(--card2);border:1px solid var(--line);border-radius:4px;padding:0 .35em}
+html[data-lang="ja"] [lang="en"], html[data-lang="en"] [lang="ja"]{display:none}
+.wrap{width:min(1120px,100% - 24px);margin:0 auto}
+
+/* top bar (Deck header) */
+.bar{position:sticky;top:0;z-index:10;background:var(--bar);border-bottom:1px solid var(--line)}
+.bar .wrap{display:flex;align-items:center;gap:var(--gap);height:48px}
+.brand{display:flex;align-items:center;gap:8px;color:var(--text);text-decoration:none;font-weight:600}
+.brand img{width:22px;height:22px;border-radius:5px}
+.brand small{font-weight:400;font-size:11px;color:var(--faint)}
+.bar nav{margin-left:auto;display:flex;gap:4px}
+.bar nav a{color:var(--soft);text-decoration:none;font-size:13px;padding:4px 10px;border-radius:6px}
+.bar nav a:hover{background:var(--card);color:var(--text)}
+.seg{display:flex;border:1px solid var(--line2);border-radius:7px;overflow:hidden}
+.seg button{all:unset;cursor:pointer;font-size:12px;padding:4px 10px;color:var(--soft)}
+.seg button[aria-pressed="true"]{background:var(--card2);color:var(--text)}
+.seg button:focus-visible,.btn:focus-visible,.bar nav a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn{display:inline-block;background:var(--btn);color:#fff;text-decoration:none;font-weight:600;font-size:13px;padding:6px 14px;border-radius:7px}
+.btn:hover{background:var(--btn-h)}
+.btn.ghost{background:transparent;border:1px solid var(--line2);color:var(--text);font-weight:400}
+.btn.ghost:hover{background:var(--card)}
+
+/* pane / card */
+.pane{background:var(--pane);border:1px solid var(--line);border-radius:var(--r);padding:var(--gap)}
+.pane>h2{margin:0 0 var(--gap);font-size:15px;font-weight:600;display:flex;align-items:baseline;gap:8px}
+.pane>h2 .sub{font-size:12px;font-weight:400;color:var(--faint)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.card+.card{margin-top:8px}
+.card b{font-weight:600}
+.card p{margin:2px 0 0;color:var(--soft);font-size:13px}
+.id{font-family:var(--mono);font-size:11px;color:var(--faint);margin-left:6px;font-weight:400}
+
+main{padding:var(--gap) 0 24px;display:grid;gap:var(--gap)}
+.cols{display:grid;gap:var(--gap)}
+@media(min-width:860px){
+  .cols.a{grid-template-columns:5fr 7fr}
+  .cols.b{grid-template-columns:7fr 5fr}
+  .cols.c{grid-template-columns:1fr 1fr}
+}
+
+/* hero */
+.hero{display:grid;gap:var(--gap)}
+@media(min-width:860px){.hero{grid-template-columns:minmax(0,4fr) minmax(0,8fr)}}
+.hero .intro{display:flex;flex-direction:column;gap:12px}
+.hero h1{margin:0;font-size:22px;line-height:1.5;font-weight:600;word-break:auto-phrase}
+.hero p{margin:0;color:var(--soft)}
+.hero .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.spec{width:100%;border-collapse:collapse;font-size:13px;margin-top:auto}
+.spec th{width:6.5em;text-align:left;font-weight:400;color:var(--faint);padding:5px 0;border-top:1px solid var(--line);vertical-align:top}
+.spec td{padding:5px 0;border-top:1px solid var(--line);color:var(--soft)}
+.shot{margin:0;display:block;border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:#000}
+figcaption{font-size:12px;color:var(--faint);margin-top:8px}
+
+/* width diagram */
+.diagram{display:grid;gap:10px}
+.strip{display:flex;height:44px;gap:2px;font-size:11px;color:var(--faint)}
+.strip i{display:grid;place-items:center;border-radius:4px;background:var(--card2);font-style:normal;overflow:hidden;white-space:nowrap}
+.strip .mm{flex:150;background:#262b32;color:var(--soft)}
+.strip .rp{flex:96;background:#2b3340;color:var(--soft)}
+.strip .d{border:1px solid rgba(138,180,255,.35);background:rgba(28,88,217,.16);color:var(--accent)}
+.strip .side{flex:24}.strip .nav{flex:72}
+.strip .d1{flex:52}.strip .d2{flex:34}
+.cap{font-size:12px;color:var(--faint);margin:0}
+
+/* tables */
+table.list{width:100%;border-collapse:collapse;font-size:13px}
+table.list td{padding:8px 10px;border-top:1px solid var(--line);vertical-align:top;color:var(--soft)}
+table.list tr:first-child td{border-top:0}
+table.list td.k{color:var(--text);white-space:nowrap;font-weight:600;width:1%;padding-right:18px}
+@media(max-width:620px){
+  table.list,table.list tbody,table.list tr,table.list td{display:block;width:auto}
+  table.list tr{padding:8px 0;border-top:1px solid var(--line)}
+  table.list tr:first-child{border-top:0}
+  table.list td{border:0;padding:1px 2px}
+  table.list td.k{width:auto}
+}
+.shots{display:grid;gap:var(--gap);align-items:start}
+@media(min-width:700px){.shots{grid-template-columns:1fr 1fr}}
+ol.tips{margin:0;padding:0;list-style:none;display:grid;gap:8px}
+@media(min-width:700px){ol.tips{grid-template-columns:1fr 1fr}}
+ol.tips li{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;color:var(--soft);font-size:13px}
+details{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:0 12px}
+details+details{margin-top:8px}
+summary{cursor:pointer;padding:9px 0;font-weight:600;font-size:13.5px}
+details p{margin:0 0 10px;color:var(--soft);font-size:13px}
+.steps{display:grid;gap:8px;counter-reset:s}
+.steps .card{counter-increment:s}
+.steps .card b::before{content:counter(s) ".";color:var(--faint);margin-right:.5em;font-family:var(--mono);font-weight:400}
+footer{border-top:1px solid var(--line);color:var(--faint);font-size:12px;padding:16px 0 28px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:6px 18px}
+footer a{color:var(--soft)}
+@media(max-width:620px){.brand small,.bar .btn{display:none}.brand,.btn{white-space:nowrap}.bar nav{display:none}.bar .wrap{justify-content:space-between}.seg{margin-left:auto}.hero h1{font-size:19px}}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="wrap">
+    <a class="brand" href="#"><img src="../docs/assets/mattermost-deck-icon.png" alt="">Mattermost Deck <small>v1.4.2</small></a>
+    <nav aria-label="Site">
+      <a href="#layout"><span lang="ja">レイアウト</span><span lang="en">Layout</span></a>
+      <a href="#panes"><span lang="ja">ペイン</span><span lang="en">Panes</span></a>
+      <a href="#data"><span lang="ja">通信と保存</span><span lang="en">Data</span></a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="seg" role="group" aria-label="Language">
+      <button type="button" data-set="ja" aria-pressed="true">日本語</button>
+      <button type="button" data-set="en" aria-pressed="false">English</button>
+    </div>
+    <a class="btn" href="https://chromewebstore.google.com/detail/mattermost-deck/imbnblgiedelpebcfkenbhomcibomdpi" rel="noopener noreferrer"><span lang="ja">Chrome に追加</span><span lang="en">Add to Chrome</span></a>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="hero">
+    <div class="pane intro">
+      <h1>
+        <span lang="ja">Mattermost Web の右側に、メンション・チャンネル・DM・検索結果を並べるペインを追加します。</span>
+        <span lang="en">Adds panes beside Mattermost Web for mentions, channels, DMs, and search results.</span>
+      </h1>
+      <p>
+        <span lang="ja">ログイン、投稿、編集、スレッド操作は Mattermost 本体のままです。Deck が足すのは読むための一覧だけで、Mattermost の設定やチーム構成は変更しません。</span>
+        <span lang="en">Signing in, posting, editing, and threads stay in Mattermost itself. Deck only adds lists to read from; it does not change your Mattermost settings or team structure.</span>
+      </p>
+      <div class="actions">
+        <a class="btn" href="https://chromewebstore.google.com/detail/mattermost-deck/imbnblgiedelpebcfkenbhomcibomdpi" rel="noopener noreferrer"><span lang="ja">Chrome に追加</span><span lang="en">Add to Chrome</span></a>
+        <a class="btn ghost" href="https://github.com/mmiyaji/mattermost-deck" rel="noopener noreferrer">GitHub</a>
+      </div>
+      <table class="spec">
+        <tr><th>Browser</th><td><span lang="ja">Google Chrome 120 以降</span><span lang="en">Google Chrome 120 or later</span></td></tr>
+        <tr><th>UI</th><td><span lang="ja">9 言語</span><span lang="en">9 languages</span></td></tr>
+        <tr><th><span lang="ja">保存先</span><span lang="en">Storage</span></th><td><span lang="ja">このブラウザー内のみ</span><span lang="en">This browser only</span></td></tr>
+        <tr><th><span lang="ja">ライセンス</span><span lang="en">License</span></th><td>MIT</td></tr>
+      </table>
+    </div>
+    <figure class="shot">
+      <img src="../docs/assets/readme-overview-dark.png" width="1720" height="948" alt="Mattermost の右側に Deck を表示した画面（メンション・チャンネル・DM の 3 ペイン）">
+    </figure>
+  </section>
+
+  <section id="layout" class="cols a">
+    <div class="pane">
+      <h2><span lang="ja">幅の使い方</span><span lang="en">How it uses width</span></h2>
+      <div class="diagram">
+        <p class="cap"><span lang="ja">通常</span><span lang="en">Normal</span></p>
+        <div class="strip" aria-hidden="true"><i class="side">&nbsp;</i><i class="nav">&nbsp;</i><i class="mm">Mattermost</i><i class="d" style="flex:156">Deck</i></div>
+        <p class="cap"><span lang="ja">スレッドや検索の右ペインを開いたとき</span><span lang="en">With a thread or search pane open</span></p>
+        <div class="strip" aria-hidden="true"><i class="side">&nbsp;</i><i class="nav">&nbsp;</i><i class="mm">Mattermost</i><i class="rp"><span lang="ja">右ペイン</span><span lang="en">right pane</span></i><i class="d d1"></i><i class="d d2"></i></div>
+        <p class="cap">
+          <span lang="ja">Mattermost の本文幅は変えず、Deck が縮みます。残りが 280px を下回ると 52px のレールに折り畳み、右ペインを閉じると指定幅とスクロール位置に戻ります。</span>
+          <span lang="en">The Mattermost main area keeps its width and Deck shrinks. Below 280 px it collapses to a 52 px rail, then restores its width and scroll position when the right pane closes.</span>
+        </p>
+      </div>
+      <table class="list" style="margin-top:8px">
+        <tr><td class="k"><span lang="ja">配置</span><span lang="en">Rows</span></td><td><span lang="ja">1 段／2 段（Views で切替）。段ごとに独立してスクロール</span><span lang="en">One or two rows (Views menu), each scrolling independently</span></td></tr>
+        <tr><td class="k"><span lang="ja">高さ</span><span lang="en">Height</span></td><td><span lang="ja">境界のドラッグで 20〜80%。ダブルクリックで均等</span><span lang="en">Drag the divider, 20–80%. Double-click to even out</span></td></tr>
+        <tr><td class="k"><span lang="ja">ペイン幅</span><span lang="en">Pane width</span></td><td>260–480 px</td></tr>
+        <tr><td class="k"><span lang="ja">別名</span><span lang="en">Rename</span></td><td><span lang="ja">タイトルをダブルクリック／右クリック／<kbd>F2</kbd></span><span lang="en">Double-click or right-click the title, or <kbd>F2</kbd></span></td></tr>
+      </table>
+    </div>
+    <figure class="shot" style="align-self:start">
+      <img src="../docs/assets/layout-two-rows.png" width="1720" height="948" loading="lazy" alt="上下 2 段に並べたペイン">
+    </figure>
+  </section>
+
+  <section id="panes" class="pane">
+    <h2><span lang="ja">ペインの種類</span><span lang="en">Pane types</span><span class="sub"><span lang="ja">＋ から追加。同じ種類を複数並べられます</span><span lang="en">Add with +. The same type can be used more than once</span></span></h2>
+    <table class="list">
+      <tr><td class="k"><span lang="ja">メンション</span><span lang="en">Mentions</span><span class="id">mentions</span></td><td><span lang="ja">参加している全チーム・全チャンネルのメンションを 1 つの一覧に。カスタムメンションキー、<code>@all</code> <code>@channel</code> <code>@here</code>、グループメンション、DM／GM、CRT 有効時のスレッド返信を Mattermost の設定どおりに扱います。</span><span lang="en">Mentions from every joined team and channel in one list: custom keys, <code>@all</code> <code>@channel</code> <code>@here</code>, group mentions, DMs/GMs, and thread replies under CRT, resolved per your Mattermost settings.</span></td></tr>
+      <tr><td class="k"><span lang="ja">要確認</span><span lang="en">Review</span><span class="id">mentions / review</span></td><td><span lang="ja">「確認済みにする」を押すまで消えない一覧。Mattermost 側で既読にしても、投稿を開いても消えません。直後 5 秒は取り消せ、履歴から戻せます。</span><span lang="en">Posts stay until you confirm them explicitly; reading or opening them in Mattermost does not remove them. Undo for five seconds; restore from history.</span></td></tr>
+      <tr><td class="k"><span lang="ja">チャンネル／DM</span><span lang="en">Channel / DM</span><span class="id">channelWatch, dmWatch</span></td><td><span lang="ja">特定のチャンネル、DM、グループメッセージを個別のペインとして開いたままにします。</span><span lang="en">Keeps a channel, DM, or group message open as its own pane.</span></td></tr>
+      <tr><td class="k"><span lang="ja">検索</span><span lang="en">Search</span><span class="id">search</span></td><td><span lang="ja">検索結果をペインとして固定します。</span><span lang="en">Pins a set of search results as a pane.</span></td></tr>
+      <tr><td class="k"><span lang="ja">お気に入り</span><span lang="en">Favorites</span><span class="id">favorites</span></td><td><span lang="ja">投稿の ☆ で登録する個人用リスト。Mattermost の保存済み投稿とは別で、サーバーとアカウントごとに最大 100 件。</span><span lang="en">A personal list added with ☆ on a post, separate from Mattermost saved posts. Up to 100 per server and account.</span></td></tr>
+      <tr><td class="k"><span lang="ja">保存済み</span><span lang="en">Saved</span><span class="id">saved</span></td><td><span lang="ja">Mattermost の保存済み投稿を一覧にします。</span><span lang="en">Lists your Mattermost saved posts.</span></td></tr>
+      <tr><td class="k">Diagnostics<span class="id">diagnostics</span></td><td><span lang="ja">接続状態と同期の様子。Performance タブに API の件数・平均遅延・P95・エラー率、JSONL の書き出し。</span><span lang="en">Connection and sync activity. The Performance tab shows API counts, average latency, P95, error rate, and JSONL export.</span></td></tr>
+    </table>
+  </section>
+
+  <section class="shots">
+    <figure class="shot"><img src="../docs/assets/readme-overview.png" width="1720" height="948" loading="lazy" alt="ライトテーマ"><figcaption style="padding:0 10px 8px"><span lang="ja">ライトテーマ。Mattermost のテーマに追従します。</span><span lang="en">Light theme. Deck follows your Mattermost theme.</span></figcaption></figure>
+    <figure class="shot"><img src="../docs/assets/locale/demo-ja.png" width="1720" height="948" loading="lazy" alt="日本語 UI"><figcaption style="padding:0 10px 8px"><span lang="ja">日本語 UI（ほか 8 言語）</span><span lang="en">Japanese UI (eight other languages available)</span></figcaption></figure>
+  </section>
+
+  <section id="data" class="cols c">
+    <div class="pane">
+      <h2><span lang="ja">通信と保存</span><span lang="en">Network and storage</span></h2>
+      <table class="list">
+        <tr><td class="k">REST</td><td><span lang="ja">ブラウザーで開いている Mattermost のセッションを使います。Deck 用の追加ログインはありません。</span><span lang="en">Uses the Mattermost session already open in the browser. No separate sign-in.</span></td></tr>
+        <tr><td class="k">WebSocket</td><td><span lang="ja">Personal Access Token を設定したときだけ有効。未設定なら定期取得で更新します。</span><span lang="en">Only when a personal access token is set. Otherwise Deck polls.</span></td></tr>
+        <tr><td class="k">PAT</td><td><span lang="ja">既定は <code>chrome.storage.session</code>。永続保存は明示的に選んだときのみで、暗号化します。</span><span lang="en">Defaults to <code>chrome.storage.session</code>. Persistent storage only if you choose it, encrypted.</span></td></tr>
+        <tr><td class="k"><span lang="ja">送信先</span><span lang="en">Sent to</span></td><td><span lang="ja">設定した Mattermost サーバーのみ。第三者の analytics や広告はありません。</span><span lang="en">Only the Mattermost server you configured. No third-party analytics or ads.</span></td></tr>
+      </table>
+    </div>
+    <div class="pane">
+      <h2><span lang="ja">導入手順</span><span lang="en">Getting started</span></h2>
+      <div class="steps">
+        <div class="card"><b><span lang="ja">Chrome ウェブストアから追加</span><span lang="en">Add it from the Chrome Web Store</span></b><p><span lang="ja">インストールすると Options 画面が開きます。</span><span lang="en">The Options page opens after installation.</span></p></div>
+        <div class="card"><b><span lang="ja">Mattermost Server URL を保存</span><span lang="en">Save your Mattermost server URL</span></b><p><span lang="ja">その origin への Chrome 権限が要求されます。リモートは HTTPS が必要です。</span><span lang="en">Chrome asks for permission on that origin. Remote servers need HTTPS.</span></p></div>
+        <div class="card"><b><span lang="ja">Mattermost を開いてペインを足す</span><span lang="en">Open Mattermost and add panes</span></b><p><span lang="ja">右側に Deck が出たら ＋ から追加します。</span><span lang="en">When Deck appears on the right, add panes with +.</span></p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="pane">
+    <h2><span lang="ja">操作のヒント</span><span lang="en">Tips</span></h2>
+    <ol class="tips">
+      <li><span lang="ja">タイトルのドラッグ中に <kbd>Esc</kbd> で並び替えを取り消します。投稿も検索条件もスクロール位置もそのままです。</span><span lang="en">Press <kbd>Esc</kbd> while dragging a title to cancel the move. Posts, filters, and scroll positions stay as they were.</span></li>
+      <li><span lang="ja">ペイン右端のダブルクリック、または <kbd>Home</kbd> で既定幅に戻します。<kbd>←</kbd> <kbd>→</kbd> でも調整できます。</span><span lang="en">Double-click a pane's right edge or press <kbd>Home</kbd> for the default width. <kbd>←</kbd> <kbd>→</kbd> adjust it.</span></li>
+      <li><span lang="ja">虫眼鏡で、読み込み済みの本文と投稿者を絞り込めます。追加の通信はありません。</span><span lang="en">The magnifier filters loaded posts by text or author. No extra requests.</span></li>
+      <li><span lang="ja">使い分けは Views に保存。端末を移すときは JSON で書き出します。</span><span lang="en">Save each setup as a View. Export to JSON to move machines.</span></li>
+      <li><span lang="ja">コンパクト表示では <code>時刻 投稿者: 本文</code> の 1 行になります。</span><span lang="en">Compact mode shows one line: <code>time author: message</code>.</span></li>
+      <li><span lang="ja">投稿の「…」から、投稿者や会話を非表示にできます。取得や既読には影響しません。</span><span lang="en">The “…” menu on a post hides its author or conversation. Fetching and read state are unchanged.</span></li>
+    </ol>
+  </section>
+
+  <section id="faq" class="pane">
+    <h2>FAQ</h2>
+    <details><summary><span lang="ja">Mattermost の代わりに使うものですか</span><span lang="en">Does it replace Mattermost?</span></summary><p><span lang="ja">いいえ。ログイン、投稿、編集、スレッド操作は Mattermost 本体のままです。</span><span lang="en">No. Signing in, posting, editing, and threads stay in Mattermost.</span></p></details>
+    <details><summary><span lang="ja">Personal Access Token は必要ですか</span><span lang="en">Do I need a personal access token?</span></summary><p><span lang="ja">必要ありません。未設定でも定期取得で更新します。設定すると WebSocket によるリアルタイム更新になります。</span><span lang="en">No. Without one Deck polls; with one it uses WebSocket for realtime updates.</span></p></details>
+    <details><summary><span lang="ja">Deck で読むと Mattermost 側も既読になりますか</span><span lang="en">Does reading in Deck mark posts read?</span></summary><p><span lang="ja">なりません。「確認済みにする」も Mattermost の既読とは別の状態です。</span><span lang="en">No. “Confirm” is also separate from Mattermost read state.</span></p></details>
+    <details><summary><span lang="ja">データは開発者のサーバーへ送られますか</span><span lang="en">Is data sent to the developer?</span></summary><p><span lang="ja">送られません。通信するのは設定済みの Mattermost サーバーだけです。</span><span lang="en">No. Deck talks only to the Mattermost server you configured.</span></p></details>
+    <details><summary><span lang="ja">不具合の報告はどこへ</span><span lang="en">Where do I report a problem?</span></summary><p><span lang="ja">GitHub Issues で受け付けています。</span><span lang="en">GitHub Issues.</span></p></details>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Mattermost Deck v1.4.2</span><span>MIT License</span>
+    <a href="https://github.com/mmiyaji/mattermost-deck" rel="noopener noreferrer">GitHub</a>
+    <a href="../docs/privacy/"><span lang="ja">プライバシーポリシー</span><span lang="en">Privacy Policy</span></a>
+    <a href="../docs/terms/"><span lang="ja">利用規約</span><span lang="en">Terms</span></a>
+  </div>
+</footer>
+
+<script>
+(()=>{const k="mattermost-deck-site-language",h=document.documentElement;
+const set=l=>{h.dataset.lang=l;h.lang=l;document.querySelectorAll("[data-set]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.set===l)));try{localStorage.setItem(k,l)}catch{}};
+let l=new URLSearchParams(location.search).get("lang");try{l=l||localStorage.getItem(k)}catch{}
+if(l!=="ja"&&l!=="en")l=navigator.language.toLowerCase().startsWith("ja")?"ja":"en";
+set(l);document.querySelectorAll("[data-set]").forEach(b=>b.onclick=()=>set(b.dataset.set));})();
+</script>
+</body>
+</html>
