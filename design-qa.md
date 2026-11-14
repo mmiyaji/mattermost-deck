@@ -1,56 +1,94 @@
-# UI audit polish — design QA
-
-Date: 2026-11-11. Branch: `feature/ui-audit-polish`.
-
-## Visual target and evidence
-
-Approved direction: the user's three-screen audit table, with graphite settings surfaces, compact performance controls and persistent pane count space.
-
-Source mockups: `.tmp-unslop-comparison-20261111/assets/settings-after-dark-palette-v2.png` (1448×1086), `performance-after-mock.png` and `panes-after-mock.png` (1586×992 each).
-
-Implementation screenshots and measurements: `.tmp-ui-polish-validation-20261111/` (fresh extension build, version 1.4.1). Test data is fictional; seeded performance logs are UI fixtures, not benchmark results.
-
-Full-view combined comparisons: `assets/settings-target-vs-actual.png`, `assets/performance-target-vs-actual.png`, and `panes-target-vs-actual.png` under that directory. Mockups are scaled to the corresponding CSS viewport; actual captures use deviceScaleFactor 1. Settings: 1024×768 dark (also checked 1440×900 light and 800×768 narrow). Performance: 1440×900. Panes: 1600×1000 with actual 280/320px columns. These are direction comparisons rather than pixel-exact cloning: real controls, existing save/draft workflows and product typography are retained. The performance target is light; its dark implementation is compared for structure, with light captures checked separately for color.
-
-## Comparison history
-
-### Iteration 1 — blocked
-
-- [P1] Performance controls still bury diagnostics. Initial capture measured metric cards starting at y=1288, below the scroll viewport bottom of 829. Fix: paired cache/trace controls and compact preset controls. The latest screenshots and geometry replace these intermediate captures; this entry preserves the measured finding.
-- Settings appearance preview is visible without scrolling at 1024 × 768: top 221, bottom 641. Document width equals viewport width at 800, 1024 and 1440. Graphite shell tokens are applied while the Deck preview retains its independent theme.
-
-### Iteration 2 — blocked
-
-- [P1] Paired controls reduced the metric start to y=947, but the long diagnostic finding still preceded the metrics. Fix: lead with metric cards and put explanatory methodology in a native disclosure; compact the preset without removing preview/apply/save state.
-
-### Iteration 3 — final verification
-
-- Metrics now occupy y=636–742 inside the y=69–829 scrollport. All four cards are visible at 1440×900. Evidence: `assets/performance-1440-dark-top.png`, `geometry.json`, and the combined performance comparison.
-- Pane count/action boxes have a 6px gap at both 280px and 320px. Outer controls open with nested groups closed retain 519px of post viewport; exclusions expanded retain 232px in the 1000px-high capture. Evidence: `pane-geometry-1600.json`, `pane-geometry-280.json`, `panes-target-vs-actual.png`.
-- Focused evidence: `panes-header-focus-pair.png`, `assets/appearance-1024-dark.png`, and `assets/performance-1440-light-detail.png` supplement the combined full views. Existing per-post author alignment and hover overlay are retained.
-- [P2, resolved] Expanded-detail screenshots exposed a CSS specificity conflict: untouched request detail buttons still used the primary fill. Fixed by scoping secondary button rules under `.perf-overview`. The fresh `assets/performance-1440-light-detail.png` shows quiet text buttons and a distinct expanded state. High-preset preview spans its full panel (table width 1088px); Apply still enables Save without saving automatically.
-
-## Fidelity surfaces
-
-- Fonts/typography: existing Segoe UI / Japanese fallback, readable heading hierarchy and real form sizing retained. Narrow titles truncate without shifting the count.
-- Spacing/layout: preview remains accessible at 1024px and has a jump link below 960px. Diagnostic cards fit the initial viewport. Charts remain below the diagnostic context; preserving real draft/save controls is an intentional difference from the compressed mock.
-- Colors/tokens: graphite settings surfaces, light theme, selected radio states and theme buttons checked. Deck preview colors remain independent of the settings shell. Sampled primary/secondary/muted text contrast against the dark page is 14.82/9.18/6.09:1; this is targeted verification, not a full WCAG audit. Secondary detail-button correction is verified in the fresh rendered capture.
-- Image/assets: existing app logo, icons and real preview components retained; no mockup image is shipped as UI. Preview raster logo uses the existing source asset.
-- Copy/content: short connection help and always-visible cache purpose replace long introductions. Chart captions use actual 5/15/34-minute bins at 1/3/7-day ranges. Missing timing is distinguished from 0ms; absent optional detail fields are omitted.
-
-## Validation
-
-- Final type check (`npm run check`) and build (`npm run build`) passed.
-- Unit tests: 73 files / 736 tests passed after translation parity was fixed.
-- Serial focused E2E: 23 of 24 passed initially; the sole remaining failure was the test's missing trace-export disclosure step. After correcting the helper, all 3 relevant performance E2Es passed on the final build (23.5s). All 24 selected cases are therefore covered by passing runs; this is not a claim of a single all-green 24-case run. Logs: `e2e-final-serial.log` and `e2e-performance-final2.log` in the evidence directory.
-- Real Mattermost 9.5.4 Docker captures completed on an isolated fictional workspace; that audit container was stopped. `git diff --check` passed. The extension version remains 1.4.1.
-- Final options capture recorded no uncaught page errors or browser console errors (`errors.json`).
-- Not run: a fresh whole-repository Docker E2E or performance benchmark. The live-session privacy test was excluded because its separate default 8066 fixture was unavailable; manual cache deletion and retention tests passed, and the visual check used isolated Docker Mattermost at 8074.
-
-## Final result
+# Homepage design QA
 
 final result: passed
 
-No actionable P0/P1/P2 visual findings remain. Final regression completion is recorded above. P3 follow-up: the small 280px pane intentionally truncates long custom titles to preserve count and action space.
+## Target and evidence
 
-Design review method: unslop by Damir Sokolovsky (CC BY 4.0); adapted to the existing Mattermost Deck interface.
+- Source: D:/AI/Codex/.codex/generated_images/01a1da42-75ec-72b0-849c-609b8f0c5954/exec-0fdd09c5-bbae-4e05-80ef-478841e10da9.png
+- Requested adjustment: remove the storage tagline; use factual product and operation descriptions.
+- Implementation: http://127.0.0.1:8773/?lang=ja, branch feature/homepage-refresh, based on origin/main cc8ca02.
+- Viewport: 1440 x 900 CSS px, Japanese, dark, page top, no open dialog.
+- Source: 1586 x 992 pixels, resized to 1440 x 900 for comparison.
+- Implementation: .artifacts/homepage-refresh/desktop-final.jpg, 1425 x 900 pixels. Browser screenshot omits the 15px scrollbar; comparison adds empty padding, without scaling content.
+- Full comparison: .artifacts/homepage-refresh/comparison-final.jpg.
+- Focused heading/copy/action comparison: .artifacts/homepage-refresh/comparison-hero.jpg.
+- Responsive evidence: .artifacts/homepage-refresh/mobile-comparison.jpg, tablet-full-viewport.jpg, laptop-full-viewport.jpg.
+- Interaction evidence: .artifacts/homepage-refresh/lightbox.jpg and features-final.jpg.
+
+## Findings and comparison history
+
+1. Initial PC capture placed the setup section below the first viewport (P2).
+   Evidence: desktop-dark.jpg, setup began at y=876.
+   Fix: reduce introduction gaps, cap the desktop preview height at 408px, and reduce setup top spacing. The preview uses object-fit: cover, without stretching; enlargement shows the complete original screenshot. Mobile keeps the full image ratio.
+   Final evidence: desktop-final.jpg, setup begins at y=770.5 and the three setup links end at y=877.3.
+
+2. Navigation links must follow the page section order because the existing scroll tracker iterates in link order (P2).
+   Fix: order navigation as Setup, Features, FAQ.
+   Verification: Setup and Features each acquire aria-current=location at the correct scroll position; section tops remain below the sticky header.
+
+No actionable P0/P1/P2 findings remain.
+
+## Fidelity surfaces
+
+- Typography: Segoe UI with Japanese system fallbacks; 40px semibold product name, 16px description, 14px support copy. The generic headline is absent.
+- Layout: centered introduction, two actions, wide product capture with Mattermost/Deck labels, followed by three numbered setup links. Detail sections use spacing and separators. Mobile stacks the setup list; actions wrap as needed.
+- Colors: graphite background, neutral text, blue primary action; existing light/dark tokens and switching retained.
+- Images: existing real Japanese/English light/dark captures and supplied brand icon. No generated screenshot is used as page UI. Desktop preview crops a small amount at the lower edge to fit the PC viewport; the original remains available in the viewer.
+- Content: the storage tagline is absent from the hero. Product behavior, optional PAT, compatibility matrix, privacy information and detailed instructions remain. Internal pane identifiers were removed from the catalog.
+
+## Interaction and responsive checks
+
+- Setup CTA, detailed-settings link, Features and FAQ navigation.
+- Image viewer opens and Escape closes it.
+- FAQ question expands.
+- Japanese/English and light/dark switching update copy and the product image.
+- Privacy page opens with the current language; Back returns to the homepage.
+- Widths 360, 390, 768, 1024 and 1440: no horizontal overflow observed.
+- Mobile home link retains an accessible name; language/theme controls have 44px height.
+- Preview server applies the production CSP from docs/_headers. No warning/error entries were returned by the browser console check.
+
+## Automated validation
+
+- npm run check:site: passed.
+- npm run test:site-navigation: passed.
+- npm run check:release: passed (v1.4.2).
+- git diff --check: passed.
+
+## Accepted deviations and limits
+
+- The reference is a generated visual proposal. Its invented chat text is replaced with real product captures.
+- Header link order follows actual page order. Preview labels use simple rules instead of decorative brackets. No arrow icons were added to the ordered setup list.
+- Firefox/WebKit, physical devices, screen reader and a full keyboard audit were not run. Extension runtime tests were not rerun because changes are limited to site markup/styles.
+- Screenshots and comparison artifacts are local ignored files under .artifacts/homepage-refresh.
+
+## Implementation checklist
+
+- [x] Apply selected centered layout and requested copy removal.
+- [x] Retain real assets, localization, themes and image viewer.
+- [x] Fix first-viewport setup visibility and section navigation order.
+- [x] Compare source and implementation together, including a focused region.
+- [x] Run site/navigation/release metadata checks and inspect responsive states.
+
+## Header follow-up (2026-11-15)
+
+- User requested straight active-navigation rules and a correction to the language dropdown.
+- Removed navigation corner rounding and inset shadow; selected links use a 2px bottom border.
+- Removed the transparent select overlay, duplicate label and custom arrow. The visible native select handles both the current language and the popup choices.
+- Explicit light/dark color-scheme and option foreground/background follow the selected page theme. Keyboard focus remains visible on the containing language control.
+- Verified Japanese/English selection, light/dark styles, active-section tracking and 390px layout. Browser computed styles confirm border-radius 0, box-shadow none, 2px bottom border, select opacity 1, and theme-matched native control colors.
+- Visual evidence: .artifacts/homepage-refresh/header-proof.jpg. The full-page capture places the sticky header at its original scroll offset (687px); the evidence crop preserves that header exactly.
+- Native OS popup surfaces are not included in tab screenshots; verification of the control covers selection changes and its effective styles.
+- npm run check:site, npm run test:site-navigation and git diff --check passed.
+
+## Main image region labels follow-up (2026-11-15)
+
+- Replaced low-contrast 1px rules with 2px range brackets, including short vertical endpoints.
+- Mattermost uses the readable secondary text color; Deck uses the theme accent for its label and bracket.
+- Added a non-interactive 2px vertical divider at the actual Mattermost/Deck boundary, 48.84% across the preview.
+- Both label columns use the actual screenshot ratio (48.84/51.16) without a grid gap shifting their boundary.
+- Inspected .artifacts/homepage-refresh/regions-dark.jpg, regions-light.jpg and regions-mobile.jpg. PC and 390px layouts show aligned region ranges; mobile has no horizontal overflow.
+- Site validation, navigation behavior checks and whitespace checks passed. This follow-up changes CSS and the homepage asset cache key only.
+
+## Remove image overlay divider (2026-11-15)
+
+- Removed the added vertical divider inside the main product image to avoid implying that it is part of the extension UI. External region labels and brackets remain.

@@ -32,3 +32,29 @@ Homepage Japanese text uses the shared system Japanese sans-serif stack; figure 
 - Facts were checked against the implementation. The per-pane width range is 200-800 px (`src/ui/columnWidth.ts`); README and this page previously said 260-480 px.
 - `npm run check:site` and `npm run test:site-navigation` pass.
 - Chromium checks with the CSP from `docs/_headers`: no horizontal overflow and no broken images at 360, 390, 768, 1024, 1280 and 1920 px, in light/dark and Japanese/English. The only console message is the GLightbox `style-src-attr` warning, which does not change the layout. Firefox and WebKit were not run.
+
+## Centered homepage layout (2026-11-15)
+
+- Based on the selected PC mockup: product name, factual description, installation/setup actions, a real wide product capture, and a three-step setup overview.
+- Removed the hero storage tagline and moved version/compatibility details below the feature and setup sections. Detailed privacy and PAT explanations remain.
+- Kept Japanese/English content, system-aware light/dark themes, GLightbox and legal-page links. Hero screenshots load eagerly; lower screenshots retain lazy loading.
+- Header link order follows page order for the existing section tracker. Mobile branding has an accessible name and language/theme controls are 44px high.
+- Checked desktop and responsive widths 360, 390, 768, 1024 and 1440 in Chromium. Verified setup/detail links, section tracking, language/theme switches, image enlargement/Escape, FAQ and privacy navigation under the production CSP.
+- Site validation, navigation checks and release metadata checks passed. See ../design-qa.md for source comparison and local screenshot paths.
+- Firefox/WebKit and extension runtime tests were not run for this static homepage change. No push or deployment was performed.
+
+## Header controls follow-up (2026-11-15)
+
+- Active section links use a straight 2px bottom border, without rounded corners or inset shadows.
+- Language selection uses a visible native select. Native controls and option colors follow the page theme through explicit color-scheme values.
+- Japanese/English selection, both themes, current-section tracking and 390px width were checked. Site/navigation validation and whitespace checks passed.
+
+## Main image region labels follow-up (2026-11-15)
+
+- Main image region labels have 2px brackets and a vertical divider aligned to the 48.84% Mattermost/Deck boundary.
+- Mattermost uses a neutral rule; Deck uses the theme accent. Dark/light and 390px layouts were visually checked.
+- Site/navigation validation and whitespace checks passed.
+
+## Remove image overlay divider (2026-11-15)
+
+- Removed the added vertical divider inside the main product image to avoid implying that it is part of the extension UI. External region labels and brackets remain.
