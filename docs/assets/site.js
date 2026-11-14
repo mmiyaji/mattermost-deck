@@ -201,11 +201,17 @@
       return;
     }
     let lightbox = null;
+    // Screenshots exist per language and theme; only the visible ones form the gallery.
     const refresh = () => {
       lightbox?.destroy();
+      let hidden = 0;
+      document.querySelectorAll(".glightbox").forEach((anchor) => {
+        anchor.dataset.gallery = anchor.offsetParent ? "visible" : `hidden-${hidden++}`;
+      });
       lightbox = window.GLightbox({ selector: ".glightbox", touchNavigation: true, loop: true });
     };
     document.addEventListener("site:languagechange", refresh);
+    document.querySelector("[data-theme-toggle]")?.addEventListener("click", () => window.setTimeout(refresh, 0));
     refresh();
   };
 
