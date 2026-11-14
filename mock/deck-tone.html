@@ -91,15 +91,14 @@ main{padding:var(--gap) 0 24px;display:grid;gap:var(--gap)}
 .shot{margin:0;display:block;border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:var(--shotbg)}
 figcaption{font-size:12px;color:var(--faint);margin-top:8px}
 
-/* width diagram */
-.diagram{display:grid;gap:10px}
-.strip{display:flex;height:44px;gap:2px;font-size:11px;color:var(--faint)}
-.strip i{display:grid;place-items:center;border-radius:4px;background:var(--card2);font-style:normal;overflow:hidden;white-space:nowrap}
-.strip .mm{flex:150;background:var(--mm);color:var(--soft)}
-.strip .rp{flex:96;background:var(--rp);color:var(--soft)}
-.strip .d{border:1px solid var(--dbd);background:var(--dbg);color:var(--accent)}
-.strip .d1{flex:52}.strip .d2{flex:34}
-.cap{font-size:12px;color:var(--faint);margin:0}
+.lead{margin:0 0 var(--gap);color:var(--soft);max-width:70em}
+.stack{display:grid;gap:var(--gap)}
+.band{display:flex;height:26px;font-size:12px;line-height:26px;margin-top:-1px}
+.band .seg{display:block;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--soft);background:var(--mm);border-top:2px solid var(--line2)}
+.band .seg+.seg{border-left:1px solid var(--bg)}
+.band .rp{background:var(--rp)}
+.band .dk{background:var(--dbg);color:var(--accent);border-top-color:var(--dbd)}
+@media(max-width:620px){.band{font-size:10px}}
 
 /* tables */
 table.list{width:100%;border-collapse:collapse;font-size:13px}
@@ -181,42 +180,48 @@ footer a{color:var(--soft)}
     </figure>
   </section>
 
-  <section id="layout" class="cols a">
+  <section id="layout" class="pane">
+    <h2><span lang="ja">画面の占め方</span><span lang="en">How it uses the width</span></h2>
+    <p class="lead">
+      <span lang="ja">Mattermost の本文幅は変えず、Deck が縮みます。スレッドや検索の右ペインを開くと、その幅の分だけ Deck が狭くなります。残りが 280px を下回ると 52px のレールに折り畳み、右ペインを閉じると指定幅とスクロール位置に戻ります。ペイン幅は 260–480px で、右端のドラッグで変えられます。</span>
+      <span lang="en">The Mattermost main area keeps its width and Deck shrinks. Opening a thread or search pane narrows Deck by the same width. Below 280 px it collapses to a 52 px rail, then restores its width and scroll position when the pane closes. Each pane is 260–480 px wide and resizes by dragging its right edge.</span>
+    </p>
+    <div class="stack">
+      <figure class="shot annotated">
+        <img class="t-dark" lang="ja" src="shots/wide-dark-ja.png" width="1720" height="620" loading="lazy" alt="Mattermost の右側に Deck を表示した画面">
+        <img class="t-dark" lang="en" src="shots/wide-dark-en.png" width="1720" height="620" loading="lazy" alt="Deck displayed beside Mattermost">
+        <img class="t-light" lang="ja" src="shots/wide-light-ja.png" width="1720" height="620" loading="lazy" alt="Mattermost の右側に Deck を表示した画面">
+        <img class="t-light" lang="en" src="shots/wide-light-en.png" width="1720" height="620" loading="lazy" alt="Deck displayed beside Mattermost">
+        <div class="band" aria-hidden="false"><span class="seg mm" style="width:48.84%"><span lang="ja">Mattermost メインコンテンツ</span><span lang="en">Mattermost main content</span></span><span class="seg dk" style="width:51.16%">Deck</span></div>
+      </figure>
+      <figure class="shot annotated">
+        <img class="t-dark" lang="ja" src="shots/rhs-dark-ja.png" width="1720" height="620" loading="lazy" alt="スレッドを右ペインで開いたときの画面">
+        <img class="t-dark" lang="en" src="shots/rhs-dark-en.png" width="1720" height="620" loading="lazy" alt="With a thread open in the right pane">
+        <img class="t-light" lang="ja" src="shots/rhs-light-ja.png" width="1720" height="620" loading="lazy" alt="スレッドを右ペインで開いたときの画面">
+        <img class="t-light" lang="en" src="shots/rhs-light-en.png" width="1720" height="620" loading="lazy" alt="With a thread open in the right pane">
+        <div class="band"><span class="seg mm" style="width:46%"><span lang="ja">Mattermost メインコンテンツ</span><span lang="en">Mattermost main content</span></span><span class="seg rp" style="width:31.9%"><span lang="ja">右ペイン（スレッド）</span><span lang="en">Right pane (thread)</span></span><span class="seg dk" style="width:22.1%"><span lang="ja">Deck（縮む）</span><span lang="en">Deck (narrower)</span></span></div>
+      </figure>
+    </div>
+  </section>
+
+  <section id="rows" class="cols b">
+    <figure class="shot" style="align-self:start">
+        <img class="t-dark" lang="ja" src="shots/two-rows-dark-ja.png" width="1720" height="948" loading="lazy" alt="上下 2 段に並べたペイン">
+        <img class="t-dark" lang="en" src="shots/two-rows-dark-en.png" width="1720" height="948" loading="lazy" alt="Panes arranged in two rows">
+        <img class="t-light" lang="ja" src="shots/two-rows-light-ja.png" width="1720" height="948" loading="lazy" alt="上下 2 段に並べたペイン">
+        <img class="t-light" lang="en" src="shots/two-rows-light-en.png" width="1720" height="948" loading="lazy" alt="Panes arranged in two rows">
+    </figure>
     <div class="pane">
-      <h2><span lang="ja">幅の使い方</span><span lang="en">How it uses width</span></h2>
-      <div class="diagram">
-        <p class="cap"><span lang="ja">通常</span><span lang="en">Normal</span></p>
-        <div class="strip" aria-hidden="true"><i class="mm">Mattermost</i><i class="d" style="flex:156">Deck</i></div>
-        <p class="cap"><span lang="ja">スレッドや検索の右ペインを開いたとき</span><span lang="en">With a thread or search pane open</span></p>
-        <div class="strip" aria-hidden="true"><i class="mm">Mattermost</i><i class="rp"><span lang="ja">右ペイン</span><span lang="en">right pane</span></i><i class="d d1"></i><i class="d d2"></i></div>
-        <p class="cap">
-          <span lang="ja">Mattermost の本文幅は変えず、Deck が縮みます。残りが 280px を下回ると 52px のレールに折り畳み、右ペインを閉じると指定幅とスクロール位置に戻ります。</span>
-          <span lang="en">The Mattermost main area keeps its width and Deck shrinks. Below 280 px it collapses to a 52 px rail, then restores its width and scroll position when the right pane closes.</span>
-        </p>
-      </div>
-      <table class="list" style="margin-top:8px">
-        <tr><td class="k"><span lang="ja">配置</span><span lang="en">Rows</span></td><td><span lang="ja">1 段／2 段（Views で切替）。段ごとに独立してスクロール</span><span lang="en">One or two rows (Views menu), each scrolling independently</span></td></tr>
-        <tr><td class="k"><span lang="ja">高さ</span><span lang="en">Height</span></td><td><span lang="ja">境界のドラッグで 20〜80%。ダブルクリックで均等</span><span lang="en">Drag the divider, 20–80%. Double-click to even out</span></td></tr>
-        <tr><td class="k"><span lang="ja">ペイン幅</span><span lang="en">Pane width</span></td><td>260–480 px</td></tr>
-        <tr><td class="k"><span lang="ja">別名</span><span lang="en">Rename</span></td><td><span lang="ja">タイトルをダブルクリック／右クリック／<kbd>F2</kbd></span><span lang="en">Double-click or right-click the title, or <kbd>F2</kbd></span></td></tr>
+      <h2><span lang="ja">上下 2 段</span><span lang="en">Two rows</span></h2>
+      <table class="list">
+        <tr><td class="k"><span lang="ja">切替</span><span lang="en">Switch</span></td><td><span lang="ja">Views で 1 段／2 段を切り替えます。初回のみ上部の「2 段を試す」から切り替えられます。</span><span lang="en">Switch between one and two rows from Views. A one-time “Try two rows” shortcut also appears above the panes.</span></td></tr>
+        <tr><td class="k"><span lang="ja">スクロール</span><span lang="en">Scrolling</span></td><td><span lang="ja">段ごとに独立して横スクロールします。</span><span lang="en">Each row scrolls horizontally on its own.</span></td></tr>
+        <tr><td class="k"><span lang="ja">高さ</span><span lang="en">Height</span></td><td><span lang="ja">境界のドラッグで 20〜80%。ダブルクリックか <kbd>Home</kbd> で均等、<kbd>↑</kbd> <kbd>↓</kbd> で微調整。</span><span lang="en">Drag the divider, 20–80%. Double-click or <kbd>Home</kbd> to even out; <kbd>↑</kbd> <kbd>↓</kbd> adjust.</span></td></tr>
+        <tr><td class="k"><span lang="ja">並び替え</span><span lang="en">Reorder</span></td><td><span lang="ja">タイトルのドラッグ（段をまたげます）。<kbd>Esc</kbd> で取り消し。</span><span lang="en">Drag a title, across rows too. <kbd>Esc</kbd> cancels.</span></td></tr>
+        <tr><td class="k"><span lang="ja">別名</span><span lang="en">Rename</span></td><td><span lang="ja">タイトルをダブルクリック／右クリック／<kbd>F2</kbd>。空で保存すると元の名前に戻ります。</span><span lang="en">Double-click or right-click the title, or <kbd>F2</kbd>. Save empty to restore the original.</span></td></tr>
+        <tr><td class="k"><span lang="ja">保存</span><span lang="en">Saving</span></td><td><span lang="ja">Views に保存、JSON で書き出し・読み込み。段の高さ配分も含みます。</span><span lang="en">Save as Views; export and import as JSON, including the height split.</span></td></tr>
       </table>
     </div>
-    <div style="display:grid;gap:var(--gap);align-self:start">
-    <figure class="shot" >
-      <img class="t-dark" lang="ja" src="shots/two-rows-dark-ja.png" width="1720" height="948" loading="lazy" alt="上下 2 段に並べたペイン">
-      <img class="t-dark" lang="en" src="shots/two-rows-dark-en.png" width="1720" height="948" loading="lazy" alt="Panes arranged in two rows">
-      <img class="t-light" lang="ja" src="shots/two-rows-light-ja.png" width="1720" height="948" loading="lazy" alt="上下 2 段に並べたペイン">
-      <img class="t-light" lang="en" src="shots/two-rows-light-en.png" width="1720" height="948" loading="lazy" alt="Panes arranged in two rows">
-    <figcaption style="padding:0 10px 8px"><span lang="ja">上下 2 段とペインの別名。</span><span lang="en">Two rows, with panes renamed.</span></figcaption>
-    </figure>
-    <figure class="shot">
-        <img class="t-dark" lang="ja" src="shots/two-rows-rhs-dark-ja.png" width="1720" height="948" loading="lazy" alt="右ペインを開いたときの表示">
-        <img class="t-dark" lang="en" src="shots/two-rows-rhs-dark-en.png" width="1720" height="948" loading="lazy" alt="With a right pane open">
-        <img class="t-light" lang="ja" src="shots/two-rows-rhs-light-ja.png" width="1720" height="948" loading="lazy" alt="右ペインを開いたときの表示">
-        <img class="t-light" lang="en" src="shots/two-rows-rhs-light-en.png" width="1720" height="948" loading="lazy" alt="With a right pane open">
-      <figcaption style="padding:0 10px 8px"><span lang="ja">スレッドや検索の右ペインを開くと、Deck がその幅の分だけ縮みます。</span><span lang="en">Opening a thread or search pane makes Deck shrink by the same width.</span></figcaption>
-    </figure>
-  </div>
   </section>
 
   <section id="panes" class="pane">
