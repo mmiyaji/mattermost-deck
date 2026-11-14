@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="ja" data-lang="ja">
+<head>
+
+
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title
+      data-i18n-ja="Mattermost Deck - Chrome 拡張"
+      data-i18n-en="Mattermost Deck - Chrome extension"
+    >Mattermost Deck - Chrome 拡張</title>
+    <meta
+      name="description"
+      content="Mattermost Web の右側に、メンション、チャンネル、DM、検索結果などをペインとして並べる Chrome 拡張。"
+      data-i18n-content-ja="Mattermost Web の右側に、メンション、チャンネル、DM、検索結果などをペインとして並べる Chrome 拡張。"
+      data-i18n-content-en="A Chrome extension that adds panes beside Mattermost Web for mentions, channels, DMs, and search results."
+    >
+    <meta name="theme-color" content="#ffffff">
+    <meta name="robots" content="index,follow">
+    <link rel="canonical" href="https://mattermost-deck.ruhenheim.org/">
+    <link rel="icon" type="image/png" sizes="128x128" href="./assets/mattermost-deck-icon.png">
+    <link rel="apple-touch-icon" href="./assets/mattermost-deck-icon.png">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mattermost Deck">
+    <meta property="og:url" content="https://mattermost-deck.ruhenheim.org/">
+    <meta
+      property="og:title"
+      content="Mattermost Deck - Chrome 拡張"
+      data-i18n-content-ja="Mattermost Deck - Chrome 拡張"
+      data-i18n-content-en="Mattermost Deck - Chrome extension"
+    >
+    <meta
+      property="og:description"
+      content="Mattermost Web の右側に、メンション、チャンネル、DM、検索結果などをペインとして並べる Chrome 拡張。"
+      data-i18n-content-ja="Mattermost Web の右側に、メンション、チャンネル、DM、検索結果などをペインとして並べる Chrome 拡張。"
+      data-i18n-content-en="A Chrome extension that adds panes beside Mattermost Web for mentions, channels, DMs, and search results."
+    >
+    <meta
+      property="og:image"
+      content="https://mattermost-deck.ruhenheim.org/assets/webstore/marquee-promo-tile-1400x560.png"
+    >
+    <meta property="og:image:width" content="1400">
+    <meta property="og:image:height" content="560">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="https://mattermost-deck.ruhenheim.org/assets/webstore/marquee-promo-tile-1400x560.png">
+    <link rel="stylesheet" href="./assets/glightbox.min.css?v=1.4.2&design=d1">
+    <link rel="stylesheet" href="./assets/homepage-c.css?v=1.4.2&design=d1">
+    <script src="./assets/site-theme-init.js?v=1.4.2&design=d1"></script>
+    <script src="./assets/glightbox.min.js?v=1.4.2&design=d1" defer></script>
+    <script src="./assets/site.js?v=1.4.2&design=d1" defer></script>
+  </head>
+<body>
+
+<a class="skip-link" href="#main" data-i18n-ja="本文へ移動" data-i18n-en="Skip to content">本文へ移動</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="./" data-lang-link><img src="./assets/mattermost-deck-icon.png" alt=""><span>Mattermost Deck</span></a>
+    <nav class="nav" aria-label="サイトナビゲーション" data-i18n-aria-ja="サイトナビゲーション" data-i18n-aria-en="Site navigation">
+      <a href="#layout" data-section-link data-i18n-ja="レイアウト" data-i18n-en="Layout">レイアウト</a>
+      <a href="#panes" data-section-link data-i18n-ja="ペイン" data-i18n-en="Panes">ペイン</a>
+      <a href="#setup" data-section-link data-i18n-ja="設定手順" data-i18n-en="Setup">設定手順</a>
+      <a href="#data" data-section-link data-i18n-ja="通信と保存" data-i18n-en="Data">通信と保存</a>
+      <a href="#faq" data-section-link>FAQ</a>
+    </nav>
+    <div class="tools">
+      <span class="lang">
+        <svg class="globe" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.6"/><ellipse cx="10" cy="10" rx="3.4" ry="7.6"/><path d="M2.6 7.6h14.8M2.6 12.4h14.8"/></svg>
+        <span class="current" data-lang-current aria-hidden="true">日本語</span>
+        <svg class="chev" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 4l3 3 3-3"/></svg>
+        <select data-lang-select aria-label="言語" data-i18n-aria-ja="言語" data-i18n-aria-en="Language">
+          <option value="ja">日本語</option>
+          <option value="en">English</option>
+        </select>
+      </span>
+      <button type="button" class="theme-toggle" data-theme-toggle
+        data-label-to-dark="ダークテーマに切り替え" data-label-to-light="ライトテーマに切り替え"
+        data-i18n-to-dark-ja="ダークテーマに切り替え" data-i18n-to-dark-en="Switch to dark theme"
+        data-i18n-to-light-ja="ライトテーマに切り替え" data-i18n-to-light-en="Switch to light theme"
+        aria-label="ダークテーマに切り替え">
+        <svg class="icon-moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.3 12.4A6.9 6.9 0 0 1 7.6 3.7a6.9 6.9 0 1 0 8.7 8.7z"/></svg>
+        <svg class="icon-sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.6"/><path d="M10 1.6v2.2M10 16.2v2.2M18.4 10h-2.2M3.8 10H1.6M15.9 4.1l-1.6 1.6M5.7 14.3l-1.6 1.6M15.9 15.9l-1.6-1.6M5.7 5.7 4.1 4.1"/></svg>
+      </button>
+      <a class="cta" href="https://chromewebstore.google.com/detail/mattermost-deck/imbnblgiedelpebcfkenbhomcibomdpi"
+        target="_blank" rel="noopener noreferrer" data-i18n-ja="Chrome に追加" data-i18n-en="Add to Chrome">Chrome に追加</a>
+    </div>
+  </div>
+</header>
+<main id="main" class="wrap">
+
+  <section class="hero">
+    <div class="pane intro">
+      <div class="ident">
+        <img class="appicon" src="./assets/mattermost-deck-icon.png" width="56" height="56" alt="">
+        <div>
+          <h1>Mattermost Deck</h1>
+          <p class="meta"><span data-i18n-ja="Chrome 拡張" data-i18n-en="Chrome extension">Chrome 拡張</span> · v1.4.2</p>
+        </div>
+      </div>
+      <p>
+        <span data-i18n-ja="Mattermost Web の右側に、メンション、チャンネル、DM、検索結果などをペインとして並べます。" data-i18n-en="Adds panes beside Mattermost Web for mentions, channels, DMs, and search results.">Mattermost Web の右側に、メンション、チャンネル、DM、検索結果などをペインとして並べます。</span>
+      </p>
+      <p class="note">
+        <span data-i18n-ja="ログイン、投稿、編集、スレッド操作は Mattermost 本体で行います。" data-i18n-en="Signing in, posting, editing, and threads stay in Mattermost itself.">ログイン、投稿、編集、スレッド操作は Mattermost 本体で行います。</span>
+      </p>
+      <div class="actions">
+        <a class="btn" href="https://chromewebstore.google.com/detail/mattermost-deck/imbnblgiedelpebcfkenbhomcibomdpi" target="_blank" rel="noopener noreferrer"><span data-i18n-ja="Chrome に追加" data-i18n-en="Add to Chrome">Chrome に追加</span></a>
+        <a class="btn ghost" href="https://github.com/mmiyaji/mattermost-deck" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+      <table class="spec">
+        <tr><th>Browser</th><td><span data-i18n-ja="Google Chrome 120 以降" data-i18n-en="Google Chrome 120 or later">Google Chrome 120 以降</span></td></tr>
+        <tr><th>UI</th><td><span data-i18n-ja="9 言語" data-i18n-en="9 languages">9 言語</span></td></tr>
+        <tr><th><span data-i18n-ja="保存先" data-i18n-en="Storage">保存先</span></th><td><span data-i18n-ja="このブラウザー内のみ" data-i18n-en="This browser only">このブラウザー内のみ</span></td></tr>
+        <tr><th><span data-i18n-ja="ライセンス" data-i18n-en="License">ライセンス</span></th><td>MIT</td></tr>
+      </table>
+    </div>
+    <figure class="shot">
+      <a class="glightbox t-dark" data-lang-panel="ja" href="./assets/shots/overview-dark-ja.png" data-gallery="g1" data-description="Mattermost の右側に Deck を表示した画面（メンション・チャンネル・DM の 3 ペイン）"><img src="./assets/shots/overview-dark-ja.png" width="1720" height="948" loading="lazy" alt="Mattermost の右側に Deck を表示した画面（メンション・チャンネル・DM の 3 ペイン）"></a>
+      <a class="glightbox t-dark" data-lang-panel="en" hidden href="./assets/shots/overview-dark-en.png" data-gallery="g2" data-description="Deck displayed beside Mattermost: mentions, channel, and DM panes"><img src="./assets/shots/overview-dark-en.png" width="1720" height="948" loading="lazy" alt="Deck displayed beside Mattermost: mentions, channel, and DM panes"></a>
+      <a class="glightbox t-light" data-lang-panel="ja" href="./assets/shots/overview-light-ja.png" data-gallery="g3" data-description="Mattermost の右側に Deck を表示した画面（メンション・チャンネル・DM の 3 ペイン）"><img src="./assets/shots/overview-light-ja.png" width="1720" height="948" loading="lazy" alt="Mattermost の右側に Deck を表示した画面（メンション・チャンネル・DM の 3 ペイン）"></a>
+      <a class="glightbox t-light" data-lang-panel="en" hidden href="./assets/shots/overview-light-en.png" data-gallery="g4" data-description="Deck displayed beside Mattermost: mentions, channel, and DM panes"><img src="./assets/shots/overview-light-en.png" width="1720" height="948" loading="lazy" alt="Deck displayed beside Mattermost: mentions, channel, and DM panes"></a>
+    </figure>
+  </section>
+
+  <section id="layout" class="pane">
+    <h2><span data-i18n-ja="画面の占め方" data-i18n-en="How it uses the width">画面の占め方</span></h2>
+    <p class="lead">
+      <span data-i18n-ja="Mattermost の本文幅は変わらず、右ペイン（スレッドや検索）を開いた分だけ Deck が狭くなります。Deck の幅が 280px を下回ると 52px のレールに折り畳み、右ペインを閉じると元の幅とスクロール位置に戻ります。各ペインの幅は 200〜800px で、右端のドラッグで変えます。" data-i18n-en="The Mattermost main area keeps its width; Deck narrows by the width of the right pane (thread or search). Below 280 px it collapses to a 52 px rail, and returns to its width and scroll position when the pane closes. Panes are 200–800 px wide, resized by dragging the right edge.">Mattermost の本文幅は変わらず、右ペイン（スレッドや検索）を開いた分だけ Deck が狭くなります。Deck の幅が 280px を下回ると 52px のレールに折り畳み、右ペインを閉じると元の幅とスクロール位置に戻ります。各ペインの幅は 200〜800px で、右端のドラッグで変えます。</span>
+    </p>
+    <div class="stack">
+      <figure class="shot annotated">
+        <a class="glightbox t-dark" data-lang-panel="ja" href="./assets/shots/wide-dark-ja.png" data-gallery="g5" data-description="Mattermost の右側に Deck を表示した画面"><img src="./assets/shots/wide-dark-ja.png" width="1720" height="620" loading="lazy" alt="Mattermost の右側に Deck を表示した画面"></a>
+        <a class="glightbox t-dark" data-lang-panel="en" hidden href="./assets/shots/wide-dark-en.png" data-gallery="g6" data-description="Deck displayed beside Mattermost"><img src="./assets/shots/wide-dark-en.png" width="1720" height="620" loading="lazy" alt="Deck displayed beside Mattermost"></a>
+        <a class="glightbox t-light" data-lang-panel="ja" href="./assets/shots/wide-light-ja.png" data-gallery="g7" data-description="Mattermost の右側に Deck を表示した画面"><img src="./assets/shots/wide-light-ja.png" width="1720" height="620" loading="lazy" alt="Mattermost の右側に Deck を表示した画面"></a>
+        <a class="glightbox t-light" data-lang-panel="en" hidden href="./assets/shots/wide-light-en.png" data-gallery="g8" data-description="Deck displayed beside Mattermost"><img src="./assets/shots/wide-light-en.png" width="1720" height="620" loading="lazy" alt="Deck displayed beside Mattermost"></a>
+        <div class="band" aria-hidden="false"><span class="seg mm w4884"><span data-i18n-ja="Mattermost メインコンテンツ" data-i18n-en="Mattermost main content">Mattermost メインコンテンツ</span></span><span class="seg dk w5116" >Deck</span></div>
+      </figure>
+      <figure class="shot annotated">
+        <a class="glightbox t-dark" data-lang-panel="ja" href="./assets/shots/rhs-dark-ja.png" data-gallery="g9" data-description="スレッドを右ペインで開いたときの画面"><img src="./assets/shots/rhs-dark-ja.png" width="1720" height="620" loading="lazy" alt="スレッドを右ペインで開いたときの画面"></a>
+        <a class="glightbox t-dark" data-lang-panel="en" hidden href="./assets/shots/rhs-dark-en.png" data-gallery="g10" data-description="With a thread open in the right pane"><img src="./assets/shots/rhs-dark-en.png" width="1720" height="620" loading="lazy" alt="With a thread open in the right pane"></a>
+        <a class="glightbox t-light" data-lang-panel="ja" href="./assets/shots/rhs-light-ja.png" data-gallery="g11" data-description="スレッドを右ペインで開いたときの画面"><img src="./assets/shots/rhs-light-ja.png" width="1720" height="620" loading="lazy" alt="スレッドを右ペインで開いたときの画面"></a>
+        <a class="glightbox t-light" data-lang-panel="en" hidden href="./assets/shots/rhs-light-en.png" data-gallery="g12" data-description="With a thread open in the right pane"><img src="./assets/shots/rhs-light-en.png" width="1720" height="620" loading="lazy" alt="With a thread open in the right pane"></a>
+        <div class="band"><span class="seg mm w46"><span data-i18n-ja="Mattermost メインコンテンツ" data-i18n-en="Mattermost main content">Mattermost メインコンテンツ</span></span><span class="seg rp w319"><span data-i18n-ja="右ペイン（スレッド）" data-i18n-en="Right pane (thread)">右ペイン（スレッド）</span></span><span class="seg dk w221"><span data-i18n-ja="Deck（縮む）" data-i18n-en="Deck (narrower)">Deck（縮む）</span></span></div>
+      </figure>
+    </div>
+  </section>
+
+  <section id="rows" class="cols b">
+    <figure class="shot top">
+        <a class="glightbox t-dark" data-lang-panel="ja" href="./assets/shots/two-rows-dark-ja.png" data-gallery="g13" data-description="上下 2 段に並べたペイン"><img src="./assets/shots/two-rows-dark-ja.png" width="1720" height="948" loading="lazy" alt="上下 2 段に並べたペイン"></a>
+        <a class="glightbox t-dark" data-lang-panel="en" hidden href="./assets/shots/two-rows-dark-en.png" data-gallery="g14" data-description="Panes arranged in two rows"><img src="./assets/shots/two-rows-dark-en.png" width="1720" height="948" loading="lazy" alt="Panes arranged in two rows"></a>
+        <a class="glightbox t-light" data-lang-panel="ja" href="./assets/shots/two-rows-light-ja.png" data-gallery="g15" data-description="上下 2 段に並べたペイン"><img src="./assets/shots/two-rows-light-ja.png" width="1720" height="948" loading="lazy" alt="上下 2 段に並べたペイン"></a>
+        <a class="glightbox t-light" data-lang-panel="en" hidden href="./assets/shots/two-rows-light-en.png" data-gallery="g16" data-description="Panes arranged in two rows"><img src="./assets/shots/two-rows-light-en.png" width="1720" height="948" loading="lazy" alt="Panes arranged in two rows"></a>
+    </figure>
+    <div class="pane">
+      <h2><span data-i18n-ja="上下 2 段" data-i18n-en="Two rows">上下 2 段</span></h2>
+      <table class="cat" role="table">
+        <tr><td class="k"><span data-i18n-ja="切替" data-i18n-en="Switch">切替</span></td><td><span data-i18n-ja="Views で 1 段／2 段を切り替えます。初回のみ上部の「2 段を試す」から切り替えられます。" data-i18n-en="Switch rows from Views. A one-time “Try two rows” shortcut appears above the panes.">Views で 1 段／2 段を切り替えます。初回のみ上部の「2 段を試す」から切り替えられます。</span></td></tr>
+        <tr><td class="k"><span data-i18n-ja="スクロール" data-i18n-en="Scrolling">スクロール</span></td><td><span data-i18n-ja="段ごとに独立して横スクロールします。" data-i18n-en="Each row scrolls horizontally on its own.">段ごとに独立して横スクロールします。</span></td></tr>
+        <tr><td class="k"><span data-i18n-ja="高さ" data-i18n-en="Height">高さ</span></td><td><span data-lang-panel="ja">境界のドラッグで 20〜80%。ダブルクリックか <kbd>Home</kbd> で均等、<kbd>↑</kbd> <kbd>↓</kbd> で微調整。</span><span data-lang-panel="en" hidden>Drag the divider, 20–80%. Double-click or <kbd>Home</kbd> to even out; <kbd>↑</kbd> <kbd>↓</kbd> adjust.</span></td></tr>
+        <tr><td class="k"><span data-i18n-ja="並び替え" data-i18n-en="Reorder">並び替え</span></td><td><span data-lang-panel="ja">タイトルのドラッグ（段をまたげます）。<kbd>Esc</kbd> で取り消し。</span><span data-lang-panel="en" hidden>Drag a title, across rows too. <kbd>Esc</kbd> cancels.</span></td></tr>
+        <tr><td class="k"><span data-i18n-ja="別名" data-i18n-en="Rename">別名</span></td><td><span data-lang-panel="ja">タイトルをダブルクリック／右クリック／<kbd>F2</kbd>。空で保存すると元の名前に戻ります。</span><span data-lang-panel="en" hidden>Double-click, right-click, or <kbd>F2</kbd> on the title. Blank restores the name.</span></td></tr>
+        <tr><td class="k"><span data-i18n-ja="保存" data-i18n-en="Saving">保存</span></td><td><span data-i18n-ja="Views に保存、JSON で書き出し・読み込み。段の高さ配分も含みます。" data-i18n-en="Save as Views; export and import as JSON, including the height split.">Views に保存、JSON で書き出し・読み込み。段の高さ配分も含みます。</span></td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section id="panes" class="pane">
+    <h2><span data-i18n-ja="ペインの種類" data-i18n-en="Pane types">ペインの種類</span><span class="sub"><span data-i18n-ja="＋ から追加。同じ種類を複数並べられます" data-i18n-en="Add with +. The same type can be used more than once">＋ から追加。同じ種類を複数並べられます</span></span></h2>
+    <table class="cat" role="table">
+      <tr><td class="k"><span data-i18n-ja="メンション" data-i18n-en="Mentions">メンション</span><span class="id">mentions</span></td><td><span data-lang-panel="ja">参加している全チーム・全チャンネルのメンションを 1 つの一覧に。カスタムメンションキー、<code>@all</code> <code>@channel</code> <code>@here</code>、グループメンション、DM／GM、CRT 有効時のスレッド返信を Mattermost の設定どおりに扱います。自分のユーザー名は強調表示されます。画像の添付はサムネイル（設定で切り替え可）、それ以外のファイルはファイル名とサイズで表示します。</span><span data-lang-panel="en" hidden>Mentions from every joined team and channel in one list: custom keys, <code>@all</code> <code>@channel</code> <code>@here</code>, group mentions, DMs/GMs, and thread replies under CRT, resolved per your Mattermost settings. Your own username is highlighted. Image attachments show as thumbnails (switchable in settings); other files show as a name and size.</span></td></tr>
+      <tr><td class="k"><span data-i18n-ja="要確認" data-i18n-en="Review">要確認</span><span class="id">mentions / review</span></td><td><span data-i18n-ja="「確認済みにする」を押すまで消えない一覧。Mattermost 側で既読にしても、投稿を開いても消えません。直後 5 秒は取り消せ、履歴から戻せます。" data-i18n-en="Posts stay until you confirm them; reading or opening them in Mattermost does not remove them. Five-second undo, plus history.">「確認済みにする」を押すまで消えない一覧。Mattermost 側で既読にしても、投稿を開いても消えません。直後 5 秒は取り消せ、履歴から戻せます。</span></td></tr>
+      <tr><td class="k"><span data-i18n-ja="チャンネル／DM" data-i18n-en="Channel / DM">チャンネル／DM</span><span class="id">channelWatch, dmWatch</span></td><td><span data-i18n-ja="特定のチャンネル、DM、グループメッセージを個別のペインとして開いたままにします。" data-i18n-en="Keeps a channel, DM, or group message open as its own pane.">特定のチャンネル、DM、グループメッセージを個別のペインとして開いたままにします。</span></td></tr>
+      <tr><td class="k"><span data-i18n-ja="検索" data-i18n-en="Search">検索</span><span class="id">search</span></td><td><span data-i18n-ja="検索結果をペインとして固定します。" data-i18n-en="Pins a set of search results as a pane.">検索結果をペインとして固定します。</span></td></tr>
+      <tr><td class="k"><span data-i18n-ja="お気に入り" data-i18n-en="Favorites">お気に入り</span><span class="id">favorites</span></td><td><span data-i18n-ja="投稿の ☆ で登録する個人用リスト。Mattermost の保存済み投稿とは別で、サーバーとアカウントごとに最大 100 件。" data-i18n-en="A personal list added with ☆ on a post, separate from Mattermost saved posts. Up to 100 per server and account.">投稿の ☆ で登録する個人用リスト。Mattermost の保存済み投稿とは別で、サーバーとアカウントごとに最大 100 件。</span></td></tr>
+      <tr><td class="k"><span data-i18n-ja="保存済み" data-i18n-en="Saved">保存済み</span><span class="id">saved</span></td><td><span data-i18n-ja="Mattermost の保存済み投稿を一覧にします。" data-i18n-en="Lists your Mattermost saved posts.">Mattermost の保存済み投稿を一覧にします。</span></td></tr>
+      <tr><td class="k">Diagnostics<span class="id">diagnostics</span></td><td><span data-i18n-ja="接続状態、ポーリング、WebSocket の再接続、API の平均遅延とエラー率、描画時間、直近の同期ログ。トレースの JSONL 書き出しは設定画面から行います。" data-i18n-en="Connection status, polling, WebSocket reconnects, API latency and error rate, render time, recent sync log. JSONL trace export is in Settings.">接続状態、ポーリング、WebSocket の再接続、API の平均遅延とエラー率、描画時間、直近の同期ログ。トレースの JSONL 書き出しは設定画面から行います。</span></td></tr>
+    </table>
+  </section>
+
+  <section class="shots">
+    <figure class="shot"><a class="glightbox" data-lang-panel="ja" href="./assets/shots/overview-light-ja.png" data-gallery="g17" data-description="Deck ライトテーマ"><img src="./assets/shots/overview-light-ja.png" width="1720" height="948" loading="lazy" alt="Deck ライトテーマ"></a><a class="glightbox" data-lang-panel="en" hidden href="./assets/shots/overview-light-en.png" data-gallery="g18" data-description="Deck, light theme"><img src="./assets/shots/overview-light-en.png" width="1720" height="948" loading="lazy" alt="Deck, light theme"></a><figcaption class="pad"><span data-i18n-ja="ライトテーマ（Mattermost のテーマに追従します）" data-i18n-en="Light theme (Deck follows your Mattermost theme)">ライトテーマ（Mattermost のテーマに追従します）</span></figcaption></figure>
+    <figure class="shot"><a class="glightbox" data-lang-panel="ja" href="./assets/shots/overview-dark-ja.png" data-gallery="g19" data-description="Deck ダークテーマ"><img src="./assets/shots/overview-dark-ja.png" width="1720" height="948" loading="lazy" alt="Deck ダークテーマ"></a><a class="glightbox" data-lang-panel="en" hidden href="./assets/shots/overview-dark-en.png" data-gallery="g20" data-description="Deck, dark theme"><img src="./assets/shots/overview-dark-en.png" width="1720" height="948" loading="lazy" alt="Deck, dark theme"></a><figcaption class="pad"><span data-i18n-ja="ダークテーマ" data-i18n-en="Dark theme">ダークテーマ</span></figcaption></figure>
+  </section>
+
+  <section id="setup" class="pane">
+    <h2><span data-i18n-ja="設定の手順" data-i18n-en="Setup">設定の手順</span></h2>
+    <div class="steps">
+      <div class="card"><b><span data-i18n-ja="Chrome ウェブストアから追加" data-i18n-en="Add it from the Chrome Web Store">Chrome ウェブストアから追加</span></b><p><span data-i18n-ja="インストールすると設定画面が開きます。" data-i18n-en="The Settings page opens after installation.">インストールすると設定画面が開きます。</span></p></div>
+      <div class="card step has-shot"><div><b><span data-i18n-ja="「接続」でサーバーURLを保存" data-i18n-en="Save the Server URL under Connection">「接続」でサーバーURLを保存</span></b><p><span data-i18n-ja="サーバーURLを入力して「保存」を押します。初回は、そのサーバーへのアクセス許可を Chrome が求めるので承認します。リモートのサーバーは HTTPS が必要です（HTTP は localhost などの開発用のみ）。サブパス付きの Site URL も使えます。" data-i18n-en="Enter the Server URL and click Save. The first time, Chrome asks for permission to access that server; approve it. Remote servers need HTTPS (HTTP is for localhost and loopback development only). Site URLs with a subpath also work.">サーバーURLを入力して「保存」を押します。初回は、そのサーバーへのアクセス許可を Chrome が求めるので承認します。リモートのサーバーは HTTPS が必要です（HTTP は localhost などの開発用のみ）。サブパス付きの Site URL も使えます。</span></p></div><figure class="shot opt"><a class="glightbox t-dark" data-lang-panel="ja" href="./assets/shots/options-conn-dark-ja.png" data-gallery="g21" data-description="設定画面の「接続」。サーバーURLの欄と保存ボタンを枠で示している"><img src="./assets/shots/options-conn-dark-ja.png" width="1100" height="700" loading="lazy" alt="設定画面の「接続」。サーバーURLの欄と保存ボタンを枠で示している"></a><a class="glightbox t-dark" data-lang-panel="en" hidden href="./assets/shots/options-conn-dark-en.png" data-gallery="g22" data-description="The Connection page, with the Server URL field and Save button outlined"><img src="./assets/shots/options-conn-dark-en.png" width="1100" height="700" loading="lazy" alt="The Connection page, with the Server URL field and Save button outlined"></a><a class="glightbox t-light" data-lang-panel="ja" href="./assets/shots/options-conn-light-ja.png" data-gallery="g23" data-description="設定画面の「接続」。サーバーURLの欄と保存ボタンを枠で示している"><img src="./assets/shots/options-conn-light-ja.png" width="1100" height="700" loading="lazy" alt="設定画面の「接続」。サーバーURLの欄と保存ボタンを枠で示している"></a><a class="glightbox t-light" data-lang-panel="en" hidden href="./assets/shots/options-conn-light-en.png" data-gallery="g24" data-description="The Connection page, with the Server URL field and Save button outlined"><img src="./assets/shots/options-conn-light-en.png" width="1100" height="700" loading="lazy" alt="The Connection page, with the Server URL field and Save button outlined"></a></figure></div>
+      <div class="card"><b><span data-i18n-ja="チームを絞る（任意）" data-i18n-en="Limit to one team (optional)">チームを絞る（任意）</span></b><p><span data-i18n-ja="「対象チーム（任意）」を空欄にすると、サーバー上の全チームが対象です。1 つに絞るときは、表示名ではなく URL の名前（team slug）を入れます。例: https://mattermost.example.com/myteam/channels/town-square の myteam。" data-i18n-en="Leave “Team (optional)” blank to use every team on the server. To use one team, enter its URL name (team slug), not its display name. Example: myteam in https://mattermost.example.com/myteam/channels/town-square.">「対象チーム（任意）」を空欄にすると、サーバー上の全チームが対象です。1 つに絞るときは、表示名ではなく URL の名前（team slug）を入れます。例: https://mattermost.example.com/myteam/channels/town-square の myteam。</span></p></div>
+      <div class="card"><b><span data-i18n-ja="Mattermost を開いてペインを足す" data-i18n-en="Open Mattermost and add panes">Mattermost を開いてペインを足す</span></b><p><span data-i18n-ja="サーバーを開くと右側に Deck が出ます。「＋」からペインを追加します。" data-i18n-en="Open the server and Deck appears on the right. Add panes with “+”.">サーバーを開くと右側に Deck が出ます。「＋」からペインを追加します。</span></p></div>
+      <div class="card step has-shot"><div><b><span data-i18n-ja="「更新方法」を選ぶ（任意）" data-i18n-en="Choose an update method (optional)">「更新方法」を選ぶ（任意）</span></b><p><span data-i18n-ja="既定は定期更新です（間隔は 15 秒以上）。リアルタイム更新が必要なときだけ、「リアルタイム更新を設定」に PAT を入力します。PAT は Mattermost の User Settings &gt; Security &gt; Personal Access Tokens で作成します（管理者側で有効化が必要）。保存方法は「セッションのみ」が既定です。リスクは「PAT の扱い」を参照してください。" data-i18n-en="Updates are periodic by default (15 seconds or more). Enter a PAT under “Configure realtime updates” only when you need realtime. Create it in Mattermost under User Settings &gt; Security &gt; Personal Access Tokens (an administrator must enable PATs). Storage defaults to “Session only”. See “Using a PAT” for the risks.">既定は定期更新です（間隔は 15 秒以上）。リアルタイム更新が必要なときだけ、「リアルタイム更新を設定」に PAT を入力します。PAT は Mattermost の User Settings > Security > Personal Access Tokens で作成します（管理者側で有効化が必要）。保存方法は「セッションのみ」が既定です。リスクは「PAT の扱い」を参照してください。</span></p></div><figure class="shot opt"><a class="glightbox t-dark" data-lang-panel="ja" href="./assets/shots/options-pat-dark-ja.png" data-gallery="g25" data-description="設定画面の「更新方法」。PAT の入力欄と保存方法の選択を枠で示している"><img src="./assets/shots/options-pat-dark-ja.png" width="1100" height="700" loading="lazy" alt="設定画面の「更新方法」。PAT の入力欄と保存方法の選択を枠で示している"></a><a class="glightbox t-dark" data-lang-panel="en" hidden href="./assets/shots/options-pat-dark-en.png" data-gallery="g26" data-description="The Update method page, with the PAT field and storage choice outlined"><img src="./assets/shots/options-pat-dark-en.png" width="1100" height="700" loading="lazy" alt="The Update method page, with the PAT field and storage choice outlined"></a><a class="glightbox t-light" data-lang-panel="ja" href="./assets/shots/options-pat-light-ja.png" data-gallery="g27" data-description="設定画面の「更新方法」。PAT の入力欄と保存方法の選択を枠で示している"><img src="./assets/shots/options-pat-light-ja.png" width="1100" height="700" loading="lazy" alt="設定画面の「更新方法」。PAT の入力欄と保存方法の選択を枠で示している"></a><a class="glightbox t-light" data-lang-panel="en" hidden href="./assets/shots/options-pat-light-en.png" data-gallery="g28" data-description="The Update method page, with the PAT field and storage choice outlined"><img src="./assets/shots/options-pat-light-en.png" width="1100" height="700" loading="lazy" alt="The Update method page, with the PAT field and storage choice outlined"></a></figure></div>
+      <div class="card"><b><span data-i18n-ja="外観・動作を調整する（任意）" data-i18n-en="Adjust Appearance and Behavior (optional)">外観・動作を調整する（任意）</span></b><p><span data-i18n-ja="外観: テーマ、言語、文字サイズ、ペイン幅、コンパクト表示、画像プレビューなど。動作: 投稿クリック時の動作、ハイライトするキーワードなど。" data-i18n-en="Appearance: theme, language, font size, pane width, compact mode, image previews. Behavior: post click action, highlight keywords.">外観: テーマ、言語、文字サイズ、ペイン幅、コンパクト表示、画像プレビューなど。動作: 投稿クリック時の動作、ハイライトするキーワードなど。</span></p></div>
+      <div class="card"><b><span data-i18n-ja="プロファイルを使う（任意）" data-i18n-en="Use profiles (optional)">プロファイルを使う（任意）</span></b><p><span data-i18n-ja="用途ごとに設定を分けたいとき、または複数のサーバーに参加していて設定をサーバーごとに分けたいときに使います。接続が動くことを確認してから作成します。" data-i18n-en="Use them to keep separate settings per purpose, or per server when you join more than one. Create them once the connection works.">用途ごとに設定を分けたいとき、または複数のサーバーに参加していて設定をサーバーごとに分けたいときに使います。接続が動くことを確認してから作成します。</span></p></div>
+    </div>
+  </section>
+
+  <section id="data" class="cols c">
+    <div class="pane">
+      <h2><span data-i18n-ja="通信と保存" data-i18n-en="Network and storage">通信と保存</span></h2>
+      <table class="cat" role="table">
+      <tr><td class="k">REST</td><td><span data-i18n-ja="ブラウザーで開いている Mattermost のセッションを使います。Deck 用の追加ログインはありません。" data-i18n-en="Uses the Mattermost session already open in the browser. No separate sign-in.">ブラウザーで開いている Mattermost のセッションを使います。Deck 用の追加ログインはありません。</span></td></tr>
+      <tr><td class="k">WebSocket</td><td><span data-i18n-ja="PAT を設定したときだけ有効です。未設定なら定期取得で更新します。" data-i18n-en="Only when a PAT is set. Otherwise Deck polls.">PAT を設定したときだけ有効です。未設定なら定期取得で更新します。</span></td></tr>
+      <tr><td class="k">PAT</td><td><span data-lang-panel="ja">既定は <code>chrome.storage.session</code> で、ブラウザーを閉じると消えます。再起動後も保持するかは選べます。</span><span data-lang-panel="en" hidden>Kept in <code>chrome.storage.session</code> by default and cleared when the browser session ends. Persisting across restarts is optional.</span></td></tr>
+      <tr><td class="k"><span data-i18n-ja="送信先" data-i18n-en="Sent to">送信先</span></td><td><span data-i18n-ja="設定した Mattermost サーバーのみ。第三者の analytics や広告はありません。" data-i18n-en="Only the Mattermost server you configured. No third-party analytics or ads.">設定した Mattermost サーバーのみ。第三者の analytics や広告はありません。</span></td></tr>
+      <tr><td class="k"><span data-i18n-ja="保存先" data-i18n-en="Stored in">保存先</span></td><td><span data-i18n-ja="設定、レイアウト、お気に入り、確認状態などは、このブラウザー内にサーバーとアカウントごとに保存します。" data-i18n-en="Settings, layouts, favorites, and review state are kept in this browser, per server and account.">設定、レイアウト、お気に入り、確認状態などは、このブラウザー内にサーバーとアカウントごとに保存します。</span></td></tr>
+      </table>
+    </div>
+    <div class="pane">
+      <h2><span data-i18n-ja="PAT の扱い" data-i18n-en="Using a PAT">PAT の扱い</span></h2>
+      <div class="notes">
+      <p><b><span data-i18n-ja="利点" data-i18n-en="Benefit">利点</span></b><span data-i18n-ja="PAT を設定すると WebSocket で更新を受け取り、リアルタイムに表示します。未設定でも定期更新で使えます。" data-i18n-en="With a PAT, Deck receives updates over WebSocket and shows them in real time. Without one, it polls.">PAT を設定すると WebSocket で更新を受け取り、リアルタイムに表示します。未設定でも定期更新で使えます。</span></p>
+      <p><b><span data-i18n-ja="リスク" data-i18n-en="Risk">リスク</span></b><span data-i18n-ja="PAT は、発行したアカウントの権限で API を呼べる認証情報です。漏えいすると、そのアカウントの権限で操作される可能性があります。利便性とリスクを比べて判断してください。" data-i18n-en="A PAT calls the API with the permissions of the account that created it. If it leaks, it can be misused with those permissions. Weigh the convenience against that risk.">PAT は、発行したアカウントの権限で API を呼べる認証情報です。漏えいすると、そのアカウントの権限で操作される可能性があります。利便性とリスクを比べて判断してください。</span></p>
+      <p><b><span data-i18n-ja="暗号化" data-i18n-en="Encryption">暗号化</span></b><span data-i18n-ja="保存時にクライアント側で暗号化しますが、鍵も同じブラウザー内にあります。平文で残さないための最低限の措置で、安全を保証するものではありません。拡張機能のローカル保存領域は Chrome が暗号化しません。" data-i18n-en="A stored PAT is encrypted on the client, but the key is in the same browser. That only avoids plain text and guarantees nothing. Chrome does not encrypt extension local storage.">保存時にクライアント側で暗号化しますが、鍵も同じブラウザー内にあります。平文で残さないための最低限の措置で、安全を保証するものではありません。拡張機能のローカル保存領域は Chrome が暗号化しません。</span></p>
+      <p><b><span data-i18n-ja="運用" data-i18n-en="Practice">運用</span></b><span data-i18n-ja="保存方法は既定の「セッションのみ」を推奨します。専用の低権限トークンを使い、不要になったら Mattermost で削除します。" data-i18n-en="Keep the default “Session only” storage. Use a dedicated low-privilege token and delete it in Mattermost when done.">保存方法は既定の「セッションのみ」を推奨します。専用の低権限トークンを使い、不要になったら Mattermost で削除します。</span></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="pane">
+    <h2><span data-i18n-ja="操作のヒント" data-i18n-en="Tips">操作のヒント</span></h2>
+    <ol class="tips">
+      <li><span data-lang-panel="ja">タイトルのドラッグ中に <kbd>Esc</kbd> で並び替えを取り消します。投稿も検索条件もスクロール位置もそのままです。</span><span data-lang-panel="en" hidden><kbd>Esc</kbd> while dragging a title cancels the move. Posts, filters, and scroll positions stay put.</span></li>
+      <li><span data-lang-panel="ja">ペイン右端のダブルクリック、または <kbd>Home</kbd> で既定幅に戻します。<kbd>←</kbd> <kbd>→</kbd> でも調整できます。</span><span data-lang-panel="en" hidden>Double-click a pane's right edge or press <kbd>Home</kbd> for the default width. <kbd>←</kbd> <kbd>→</kbd> adjust it.</span></li>
+      <li><span data-i18n-ja="虫眼鏡で、読み込み済みの本文と投稿者を絞り込めます。追加の通信はありません。" data-i18n-en="The magnifier filters loaded posts by text or author. No extra requests.">虫眼鏡で、読み込み済みの本文と投稿者を絞り込めます。追加の通信はありません。</span></li>
+      <li><span data-i18n-ja="使い分けは Views に保存。端末を移すときは JSON で書き出します。" data-i18n-en="Save each setup as a View. Export to JSON to move machines.">使い分けは Views に保存。端末を移すときは JSON で書き出します。</span></li>
+      <li><span data-lang-panel="ja">コンパクト表示では <code>時刻 投稿者: 本文</code> の 1 行になります。</span><span data-lang-panel="en" hidden>Compact mode shows one line: <code>time author: message</code>.</span></li>
+      <li><span data-i18n-ja="投稿の「…」から、その投稿者や会話を非表示にできます。取得や既読には影響しません。" data-i18n-en="“…” on a post hides its author or conversation. Fetching and read state are unaffected.">投稿の「…」から、その投稿者や会話を非表示にできます。取得や既読には影響しません。</span></li>
+    </ol>
+  </section>
+
+  <section id="faq" class="pane">
+    <h2>FAQ</h2>
+    <details><summary><span data-i18n-ja="Mattermost の代わりに使うものですか" data-i18n-en="Does it replace Mattermost?">Mattermost の代わりに使うものですか</span></summary><p><span data-i18n-ja="いいえ。ログイン、投稿、編集、スレッド操作は Mattermost 本体のままです。" data-i18n-en="No. Signing in, posting, editing, and threads stay in Mattermost.">いいえ。ログイン、投稿、編集、スレッド操作は Mattermost 本体のままです。</span></p></details>
+    <details><summary><span data-i18n-ja="PAT は必要ですか" data-i18n-en="Do I need a PAT?">PAT は必要ですか</span></summary><p><span data-i18n-ja="必要ありません。未設定なら定期取得で更新します。設定するとリアルタイム更新になりますが、トークンの管理が必要になります。「PAT の扱い」を参照してください。" data-i18n-en="No. Without one, Deck polls. A PAT enables realtime updates but means managing a token. See “Using a PAT”.">必要ありません。未設定なら定期取得で更新します。設定するとリアルタイム更新になりますが、トークンの管理が必要になります。「PAT の扱い」を参照してください。</span></p></details>
+    <details><summary><span data-i18n-ja="Deck で読むと Mattermost 側も既読になりますか" data-i18n-en="Does reading in Deck mark posts read?">Deck で読むと Mattermost 側も既読になりますか</span></summary><p><span data-i18n-ja="なりません。「確認済みにする」も Mattermost の既読とは別の状態です。" data-i18n-en="No. “Confirm” is also separate from Mattermost read state.">なりません。「確認済みにする」も Mattermost の既読とは別の状態です。</span></p></details>
+    <details><summary><span data-i18n-ja="データは開発者のサーバーへ送られますか" data-i18n-en="Is data sent to the developer?">データは開発者のサーバーへ送られますか</span></summary><p><span data-i18n-ja="送られません。通信するのは設定済みの Mattermost サーバーだけです。" data-i18n-en="No. Deck talks only to the Mattermost server you configured.">送られません。通信するのは設定済みの Mattermost サーバーだけです。</span></p></details>
+    <details><summary><span data-i18n-ja="不具合の報告はどこへ" data-i18n-en="Where do I report a problem?">不具合の報告はどこへ</span></summary><p><span data-i18n-ja="GitHub Issues で受け付けています。" data-i18n-en="GitHub Issues.">GitHub Issues で受け付けています。</span></p></details>
+  </section>
+</main>
+<footer class="site-footer">
+  <div class="wrap">
+    <span>Mattermost Deck v1.4.2</span><span>MIT License</span>
+    <a href="https://github.com/mmiyaji/mattermost-deck" target="_blank" rel="noopener noreferrer">GitHub</a><a href="https://ruhenheim.org/" target="_blank" rel="noopener noreferrer" data-i18n-ja="開発者サイト" data-i18n-en="Developer site">開発者サイト</a>
+    <a href="./privacy/" data-lang-link data-i18n-ja="プライバシーポリシー" data-i18n-en="Privacy Policy">プライバシーポリシー</a>
+    <a href="./terms/" data-lang-link data-i18n-ja="利用規約" data-i18n-en="Terms">利用規約</a>
+    <a href="https://github.com/mmiyaji/mattermost-deck/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer" data-i18n-ja="セキュリティ" data-i18n-en="Security">セキュリティ</a>
+    <a href="./assets/GLightbox-LICENSE.md" data-i18n-ja="GLightbox のライセンス" data-i18n-en="GLightbox license">GLightbox のライセンス</a>
+  </div>
+</footer>
+</body>
+</html>
