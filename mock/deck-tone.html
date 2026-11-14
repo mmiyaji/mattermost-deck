@@ -6,9 +6,11 @@
 <title>Mattermost Deck</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="shots/icon.png">
+<script>try{var t=localStorage.getItem('mattermost-deck-site-theme');if(!t)t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.dataset.theme=t}catch(e){}</script>
 <style>
 :root{
   color-scheme:dark;
+  --mm:#262b32; --rp:#2b3340; --dbg:rgba(28,88,217,.16); --dbd:rgba(138,180,255,.35); --shotbg:#000;
   --bg:#0f1114; --bar:#0a0b0d; --pane:#16191d; --card:#1b1f24; --card2:#20252b;
   --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.14);
   --text:#e8ecf1; --soft:#aab3be; --faint:#7d8793;
@@ -16,6 +18,15 @@
   --r:10px; --gap:12px;
   --font:"Segoe UI","Noto Sans JP","Yu Gothic UI",Meiryo,system-ui,sans-serif;
   --mono:ui-monospace,Consolas,Menlo,monospace;
+}
+
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#eef1f5; --bar:#fff; --pane:#fff; --card:#f6f8fa; --card2:#e9edf2;
+  --line:rgba(20,30,45,.10); --line2:rgba(20,30,45,.18);
+  --text:#1b2330; --soft:#4a5565; --faint:#6b7685;
+  --btn:#1c58d9; --btn-h:#1549b8; --accent:#1c58d9;
+  --mm:#e3e8ee; --rp:#d5dde8; --dbg:rgba(28,88,217,.10); --dbd:rgba(28,88,217,.45); --shotbg:#fff;
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:60px}
@@ -39,6 +50,10 @@ html[data-lang="ja"] [lang="en"], html[data-lang="en"] [lang="ja"]{display:none}
 .seg button{all:unset;cursor:pointer;font-size:12px;padding:4px 10px;color:var(--soft)}
 .seg button[aria-pressed="true"]{background:var(--card2);color:var(--text)}
 .seg button:focus-visible,.btn:focus-visible,.bar nav a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tt{all:unset;cursor:pointer;width:30px;height:28px;display:grid;place-items:center;border:1px solid var(--line2);border-radius:7px;color:var(--soft)}
+.tt:hover{background:var(--card);color:var(--text)}.tt:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tt svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round}
+.tt .sun{display:none}:root[data-theme="light"] .tt .sun{display:block}:root[data-theme="light"] .tt .moon{display:none}
 .btn{display:inline-block;background:var(--btn);color:#fff;text-decoration:none;font-weight:600;font-size:13px;padding:6px 14px;border-radius:7px}
 .btn:hover{background:var(--btn-h)}
 .btn.ghost{background:transparent;border:1px solid var(--line2);color:var(--text);font-weight:400}
@@ -72,17 +87,16 @@ main{padding:var(--gap) 0 24px;display:grid;gap:var(--gap)}
 .spec{width:100%;border-collapse:collapse;font-size:13px;margin-top:auto}
 .spec th{width:6.5em;text-align:left;font-weight:400;color:var(--faint);padding:5px 0;border-top:1px solid var(--line);vertical-align:top}
 .spec td{padding:5px 0;border-top:1px solid var(--line);color:var(--soft)}
-.shot{margin:0;display:block;border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:#000}
+.shot{margin:0;display:block;border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:var(--shotbg)}
 figcaption{font-size:12px;color:var(--faint);margin-top:8px}
 
 /* width diagram */
 .diagram{display:grid;gap:10px}
 .strip{display:flex;height:44px;gap:2px;font-size:11px;color:var(--faint)}
 .strip i{display:grid;place-items:center;border-radius:4px;background:var(--card2);font-style:normal;overflow:hidden;white-space:nowrap}
-.strip .mm{flex:150;background:#262b32;color:var(--soft)}
-.strip .rp{flex:96;background:#2b3340;color:var(--soft)}
-.strip .d{border:1px solid rgba(138,180,255,.35);background:rgba(28,88,217,.16);color:var(--accent)}
-.strip .side{flex:24}.strip .nav{flex:72}
+.strip .mm{flex:150;background:var(--mm);color:var(--soft)}
+.strip .rp{flex:96;background:var(--rp);color:var(--soft)}
+.strip .d{border:1px solid var(--dbd);background:var(--dbg);color:var(--accent)}
 .strip .d1{flex:52}.strip .d2{flex:34}
 .cap{font-size:12px;color:var(--faint);margin:0}
 
@@ -130,6 +144,7 @@ footer a{color:var(--soft)}
       <button type="button" data-set="ja" aria-pressed="true">日本語</button>
       <button type="button" data-set="en" aria-pressed="false">English</button>
     </div>
+    <button type="button" class="tt" id="tt" aria-label="Theme"><svg class="moon" viewBox="0 0 20 20"><path d="M16.3 12.4A6.9 6.9 0 0 1 7.6 3.7a6.9 6.9 0 1 0 8.7 8.7z"/></svg><svg class="sun" viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.6"/><path d="M10 1.6v2.2M10 16.2v2.2M18.4 10h-2.2M3.8 10H1.6M15.9 4.1l-1.6 1.6M5.7 14.3l-1.6 1.6M15.9 15.9l-1.6-1.6M5.7 5.7 4.1 4.1"/></svg></button>
     <a class="btn" href="https://chromewebstore.google.com/detail/mattermost-deck/imbnblgiedelpebcfkenbhomcibomdpi" rel="noopener noreferrer"><span lang="ja">Chrome に追加</span><span lang="en">Add to Chrome</span></a>
   </div>
 </header>
@@ -167,9 +182,9 @@ footer a{color:var(--soft)}
       <h2><span lang="ja">幅の使い方</span><span lang="en">How it uses width</span></h2>
       <div class="diagram">
         <p class="cap"><span lang="ja">通常</span><span lang="en">Normal</span></p>
-        <div class="strip" aria-hidden="true"><i class="side">&nbsp;</i><i class="nav">&nbsp;</i><i class="mm">Mattermost</i><i class="d" style="flex:156">Deck</i></div>
+        <div class="strip" aria-hidden="true"><i class="mm">Mattermost</i><i class="d" style="flex:156">Deck</i></div>
         <p class="cap"><span lang="ja">スレッドや検索の右ペインを開いたとき</span><span lang="en">With a thread or search pane open</span></p>
-        <div class="strip" aria-hidden="true"><i class="side">&nbsp;</i><i class="nav">&nbsp;</i><i class="mm">Mattermost</i><i class="rp"><span lang="ja">右ペイン</span><span lang="en">right pane</span></i><i class="d d1"></i><i class="d d2"></i></div>
+        <div class="strip" aria-hidden="true"><i class="mm">Mattermost</i><i class="rp"><span lang="ja">右ペイン</span><span lang="en">right pane</span></i><i class="d d1"></i><i class="d d2"></i></div>
         <p class="cap">
           <span lang="ja">Mattermost の本文幅は変えず、Deck が縮みます。残りが 280px を下回ると 52px のレールに折り畳み、右ペインを閉じると指定幅とスクロール位置に戻ります。</span>
           <span lang="en">The Mattermost main area keeps its width and Deck shrinks. Below 280 px it collapses to a 52 px rail, then restores its width and scroll position when the right pane closes.</span>
@@ -261,6 +276,7 @@ footer a{color:var(--soft)}
 const set=l=>{h.dataset.lang=l;h.lang=l;document.querySelectorAll("[data-set]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.set===l)));try{localStorage.setItem(k,l)}catch{}};
 let l=new URLSearchParams(location.search).get("lang");try{l=l||localStorage.getItem(k)}catch{}
 if(l!=="ja"&&l!=="en")l=navigator.language.toLowerCase().startsWith("ja")?"ja":"en";
+document.getElementById('tt').onclick=()=>{const n=h.dataset.theme==='light'?'dark':'light';h.dataset.theme=n;try{localStorage.setItem('mattermost-deck-site-theme',n)}catch{}};
 set(l);document.querySelectorAll("[data-set]").forEach(b=>b.onclick=()=>set(b.dataset.set));})();
 </script>
 </body>
