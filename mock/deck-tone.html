@@ -87,6 +87,7 @@ main{padding:var(--gap) 0 24px;display:grid;gap:var(--gap)}
 .spec{width:100%;border-collapse:collapse;font-size:13px;margin-top:auto}
 .spec th{width:6.5em;text-align:left;font-weight:400;color:var(--faint);padding:5px 0;border-top:1px solid var(--line);vertical-align:top}
 .spec td{padding:5px 0;border-top:1px solid var(--line);color:var(--soft)}
+:root[data-theme="light"] .t-dark,:root[data-theme="dark"] .t-light{display:none}
 .shot{margin:0;display:block;border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:var(--shotbg)}
 figcaption{font-size:12px;color:var(--faint);margin-top:8px}
 
@@ -173,7 +174,10 @@ footer a{color:var(--soft)}
       </table>
     </div>
     <figure class="shot">
-      <img src="shots/readme-overview-dark.png" width="1720" height="948" alt="Mattermost の右側に Deck を表示した画面（メンション・チャンネル・DM の 3 ペイン）">
+      <img class="t-dark" lang="ja" src="shots/overview-dark-ja.png" width="1720" height="948" loading="lazy" alt="Mattermost の右側に Deck を表示した画面（メンション・チャンネル・DM の 3 ペイン）">
+      <img class="t-dark" lang="en" src="shots/overview-dark-en.png" width="1720" height="948" loading="lazy" alt="Deck displayed beside Mattermost: mentions, channel, and DM panes">
+      <img class="t-light" lang="ja" src="shots/overview-light-ja.png" width="1720" height="948" loading="lazy" alt="Mattermost の右側に Deck を表示した画面（メンション・チャンネル・DM の 3 ペイン）">
+      <img class="t-light" lang="en" src="shots/overview-light-en.png" width="1720" height="948" loading="lazy" alt="Deck displayed beside Mattermost: mentions, channel, and DM panes">
     </figure>
   </section>
 
@@ -198,7 +202,10 @@ footer a{color:var(--soft)}
       </table>
     </div>
     <figure class="shot" style="align-self:start">
-      <img src="shots/two-rows.png" width="1720" height="948" loading="lazy" alt="上下 2 段に並べたペイン">
+      <img class="t-dark" lang="ja" src="shots/two-rows-dark-ja.png" width="1720" height="948" loading="lazy" alt="上下 2 段に並べたペイン">
+      <img class="t-dark" lang="en" src="shots/two-rows-dark-en.png" width="1720" height="948" loading="lazy" alt="Panes arranged in two rows">
+      <img class="t-light" lang="ja" src="shots/two-rows-light-ja.png" width="1720" height="948" loading="lazy" alt="上下 2 段に並べたペイン">
+      <img class="t-light" lang="en" src="shots/two-rows-light-en.png" width="1720" height="948" loading="lazy" alt="Panes arranged in two rows">
     </figure>
   </section>
 
@@ -216,8 +223,8 @@ footer a{color:var(--soft)}
   </section>
 
   <section class="shots">
-    <figure class="shot"><img src="shots/overview.png" width="1720" height="948" loading="lazy" alt="ライトテーマ"><figcaption style="padding:0 10px 8px"><span lang="ja">ライトテーマ。Mattermost のテーマに追従します。</span><span lang="en">Light theme. Deck follows your Mattermost theme.</span></figcaption></figure>
-    <figure class="shot"><img src="shots/locale-ja.png" width="1720" height="948" loading="lazy" alt="日本語 UI"><figcaption style="padding:0 10px 8px"><span lang="ja">日本語 UI（ほか 8 言語）</span><span lang="en">Japanese UI (eight other languages available)</span></figcaption></figure>
+    <figure class="shot"><img lang="ja" src="shots/overview-light-ja.png" width="1720" height="948" loading="lazy" alt="Deck ライトテーマ"><img lang="en" src="shots/overview-light-en.png" width="1720" height="948" loading="lazy" alt="Deck, light theme"><figcaption style="padding:0 10px 8px"><span lang="ja">ライトテーマ（Mattermost のテーマに追従します）</span><span lang="en">Light theme (Deck follows your Mattermost theme)</span></figcaption></figure>
+    <figure class="shot"><img lang="ja" src="shots/overview-dark-ja.png" width="1720" height="948" loading="lazy" alt="Deck ダークテーマ"><img lang="en" src="shots/overview-dark-en.png" width="1720" height="948" loading="lazy" alt="Deck, dark theme"><figcaption style="padding:0 10px 8px"><span lang="ja">ダークテーマ</span><span lang="en">Dark theme</span></figcaption></figure>
   </section>
 
   <section id="data" class="cols c">
