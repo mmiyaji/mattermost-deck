@@ -59,14 +59,18 @@ const POSTS = {
       ["bridgeUser", "I will write it once the checklist is done."],
     ],
     showcase: [
-      "@cab-bridge Please review the release checklist before 10:00.",
-      "@cab-bridge The final notes are ready after the smoke test.",
-      "Support handoff and the FAQ draft are ready for publishing.",
+      { actor: "memberUser", text: "@mm95admin Please review the release checklist before 10:00.", file: "checklist" },
+      { actor: "memberUser", text: "@mm95admin The final notes are ready after the smoke test." },
+      { actor: "memberUser", text: "@mm95admin This is the error rate during the deploy. It stayed flat.", file: "chart" },
+      { actor: "bridgeUser", text: "Support handoff and the FAQ draft are ready for publishing." },
     ],
     dm: [
-      "@cab-bridge Can you post the deployment summary here when ready?",
-      "I only need a short summary and the rollback note.",
+      { actor: "memberUser", text: "@mm95admin Can you post the deployment summary here when ready?" },
+      { actor: "memberUser", text: "I only need a short summary and the rollback note." },
     ],
+    chartTitle: "Error rate during deploy (%)",
+    checklistTitle: "Release checklist",
+    checklistItems: ["Smoke test passed", "Release notes reviewed", "Rollback steps confirmed", "Support handoff done"],
     reply: "Thanks. I will post the summary after the smoke test.",
   },
   ja: {
@@ -85,14 +89,18 @@ const POSTS = {
       ["bridgeUser", "チェックリストが終わったら書きます。"],
     ],
     showcase: [
-      "@cab-bridge 10:00 までにリリースチェックリストを確認してください。",
-      "@cab-bridge スモークテストの後に最終のメモが揃います。",
-      "サポートへの引き継ぎと FAQ の下書きは公開できる状態です。",
+      { actor: "memberUser", text: "@mm95admin 10:00 までにリリースチェックリストを確認してください。", file: "checklist" },
+      { actor: "memberUser", text: "@mm95admin スモークテストの後に最終のメモが揃います。" },
+      { actor: "memberUser", text: "@mm95admin デプロイ中のエラー率です。横ばいでした。", file: "chart" },
+      { actor: "bridgeUser", text: "サポートへの引き継ぎと FAQ の下書きは公開できる状態です。" },
     ],
     dm: [
-      "@cab-bridge 準備ができたら、デプロイの概要をここに投稿してもらえますか。",
-      "短い概要とロールバックの注記だけで足ります。",
+      { actor: "memberUser", text: "@mm95admin 準備ができたら、デプロイの概要をここに投稿してもらえますか。" },
+      { actor: "memberUser", text: "短い概要とロールバックの注記だけで足ります。" },
     ],
+    chartTitle: "デプロイ中のエラー率（%）",
+    checklistTitle: "リリースチェックリスト",
+    checklistItems: ["スモークテスト完了", "リリースノート確認済み", "ロールバック手順の確認", "サポートへの引き継ぎ"],
     reply: "了解です。スモークテストの後に概要を投稿します。",
   },
 };
@@ -267,21 +275,67 @@ async function listRecentPosts(baseUrl, token, channelId) {
 async function deleteOwnedPosts(baseUrl, state, channelId) {
   const posts = await listRecentPosts(baseUrl, state.bridgeUser.token, channelId);
   for (const post of posts) {
-    if (post.user_id === state.bridgeUser.id) {
-      await mattermostFetch(baseUrl, state.bridgeUser.token, `/posts/${post.id}`, { method: "DELETE" });
-      continue;
-    }
-    if (post.user_id === state.memberUser.id) {
-      await mattermostFetch(baseUrl, state.memberUser.token, `/posts/${post.id}`, { method: "DELETE" });
+    const owner = [state.bridgeUser, state.memberUser].find((user) => user.id === post.user_id);
+    if (!owner) continue;
+    try {
+      await mattermostFetch(baseUrl, owner.token, `/posts/${post.id}`, { method: "DELETE" });
+    } catch (error) {
+      // Replies disappear with their root post, so a late delete can be refused.
+      if (!(error instanceof Error) || !/ 40[34]:/.test(error.message)) throw error;
     }
   }
 }
 
-async function createPost(baseUrl, token, channelId, message) {
+async function createPost(baseUrl, token, channelId, message, fileIds = []) {
   await mattermostFetch(baseUrl, token, "/posts", {
     method: "POST",
-    body: JSON.stringify({ channel_id: channelId, message }),
+    body: JSON.stringify({ channel_id: channelId, message, file_ids: fileIds }),
   });
+}
+
+async function uploadFile(baseUrl, token, channelId, file) {
+  const form = new FormData();
+  form.append("channel_id", channelId);
+  form.append("files", new Blob([file.data], { type: file.type }), file.name);
+  const response = await fetch(`${baseUrl}/api/v4/files`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  if (!response.ok) {
+    throw new Error(`Upload of ${file.name} failed with ${response.status}: ${await response.text()}`);
+  }
+  return (await response.json()).file_infos[0].id;
+}
+
+// Demo attachments: a plain error-rate chart and a one-page checklist PDF.
+async function buildAttachments(content) {
+  const browser = await chromium.launch({ channel: "chromium" });
+  try {
+    const page = await browser.newPage({ viewport: { width: 640, height: 320 } });
+    const points = [0.31, 0.28, 0.33, 0.3, 0.52, 0.34, 0.29, 0.31, 0.27, 0.3, 0.29, 0.28];
+    const x = (i) => 56 + i * 52;
+    const y = (v) => 270 - v * 380;
+    const line = points.map((v, i) => `${i ? "L" : "M"}${x(i)},${y(v)}`).join(" ");
+    await page.setContent(`<body style="margin:0;font-family:Segoe UI,Noto Sans JP,sans-serif">
+      <svg xmlns="http://www.w3.org/2000/svg" width="640" height="320" viewBox="0 0 640 320">
+        <rect width="640" height="320" fill="#ffffff"/>
+        <text x="24" y="34" font-size="16" font-weight="600" fill="#1f2d3d">${content.chartTitle}</text>
+        ${[0, 0.2, 0.4, 0.6].map((v) => `<line x1="56" x2="620" y1="${y(v)}" y2="${y(v)}" stroke="#e3e8ee"/><text x="20" y="${y(v) + 4}" font-size="11" fill="#6b7685">${v.toFixed(1)}</text>`).join("")}
+        <path d="${line}" fill="none" stroke="#1c58d9" stroke-width="2.5"/>
+      </svg></body>`);
+    const chart = await page.screenshot({ type: "png" });
+    await page.setContent(`<body style="font-family:Segoe UI,Noto Sans JP,sans-serif;padding:48px;color:#1f2d3d">
+      <h1 style="font-size:22px">${content.checklistTitle}</h1>
+      <ul style="line-height:2.2;font-size:15px">${content.checklistItems.map((item) => `<li>${item}</li>`).join("")}</ul></body>`);
+    const pdf = await page.pdf({ format: "A4" });
+    return {
+      chart: { name: "error-rate.png", type: "image/png", data: chart },
+      checklist: { name: "release-checklist.pdf", type: "application/pdf", data: pdf },
+    };
+  } finally {
+    await browser.close();
+  }
 }
 
 async function debugRequest(page, action, payload) {
@@ -426,11 +480,14 @@ async function prepareShowcaseData(state, language) {
   for (const [actor, message] of posts.earlier) {
     await createPost(baseUrl, state[actor].token, showcaseChannel.id, message);
   }
-  for (const message of [posts.welcome, ...posts.showcase]) {
-    await createPost(baseUrl, state.bridgeUser.token, showcaseChannel.id, message);
+  await createPost(baseUrl, state.bridgeUser.token, showcaseChannel.id, posts.welcome);
+  const files = await buildAttachments(posts);
+  for (const entry of posts.showcase) {
+    const fileIds = entry.file ? [await uploadFile(baseUrl, state[entry.actor].token, showcaseChannel.id, files[entry.file])] : [];
+    await createPost(baseUrl, state[entry.actor].token, showcaseChannel.id, entry.text, fileIds);
   }
-  for (const message of posts.dm) {
-    await createPost(baseUrl, state.bridgeUser.token, dmChannel.id, message);
+  for (const entry of posts.dm) {
+    await createPost(baseUrl, state[entry.actor].token, dmChannel.id, entry.text);
   }
   const recent = await listRecentPosts(baseUrl, state.bridgeUser.token, showcaseChannel.id);
   const root = recent.find((post) => post.message.includes(posts.threadKey));
