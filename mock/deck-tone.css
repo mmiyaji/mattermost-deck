@@ -138,3 +138,9 @@ p,td,li,summary{text-wrap:pretty}
 .step{display:grid;gap:12px;grid-template-columns:minmax(0,1fr)}
 @media(min-width:900px){.step.has-shot{grid-template-columns:minmax(0,1fr) minmax(0,540px);gap:20px;align-items:start}}
 .step .shot{margin:0}
+.shot a.glightbox{display:block;cursor:zoom-in}
+.shot a.glightbox:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.glightbox-container .gslide-description{background:var(--pane);color:var(--text);font-family:var(--font)}
+.glightbox-container .gslide-title,.glightbox-container .gslide-desc{color:var(--text);font-family:var(--font)}
+.glightbox-mobile .glightbox-container .gslide-description{background:var(--pane);color:var(--text)}
+html[data-lang="ja"] .shot a[lang="en"],html[data-lang="en"] .shot a[lang="ja"],:root[data-theme="light"] .shot a.t-dark,:root[data-theme="dark"] .shot a.t-light{display:none}
