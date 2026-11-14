@@ -69,8 +69,8 @@
   <section id="layout" class="pane">
     <h2><span lang="ja">画面の占め方</span><span lang="en">How it uses the width</span></h2>
     <p class="lead">
-      <span lang="ja">Mattermost の本文幅は変えず、Deck が縮みます。スレッドや検索の右ペインを開くと、その幅の分だけ Deck が狭くなります。残りが 280px を下回ると 52px のレールに折り畳み、右ペインを閉じると指定幅とスクロール位置に戻ります。ペイン幅は 260–480px で、右端のドラッグで変えられます。</span>
-      <span lang="en">The Mattermost main area keeps its width and Deck shrinks. Opening a thread or search pane narrows Deck by the same width. Below 280 px it collapses to a 52 px rail, then restores its width and scroll position when the pane closes. Each pane is 260–480 px wide and resizes by dragging its right edge.</span>
+      <span lang="ja">Mattermost の本文幅は変えず、Deck が縮みます。スレッドや検索の右ペインを開くと、その幅の分だけ Deck が狭くなります。残りが 280px を下回ると 52px のレールに折り畳み、右ペインを閉じると指定幅とスクロール位置に戻ります。ペイン幅は 200〜800px の範囲で、右端のドラッグで変えられます。</span>
+      <span lang="en">The Mattermost main area keeps its width and Deck shrinks. Opening a thread or search pane narrows Deck by the same width. Below 280 px it collapses to a 52 px rail, then restores its width and scroll position when the pane closes. Each pane can be 200–800 px wide and resizes by dragging its right edge.</span>
     </p>
     <div class="stack">
       <figure class="shot annotated">
@@ -119,7 +119,7 @@
       <tr><td class="k"><span lang="ja">検索</span><span lang="en">Search</span><span class="id">search</span></td><td><span lang="ja">検索結果をペインとして固定します。</span><span lang="en">Pins a set of search results as a pane.</span></td></tr>
       <tr><td class="k"><span lang="ja">お気に入り</span><span lang="en">Favorites</span><span class="id">favorites</span></td><td><span lang="ja">投稿の ☆ で登録する個人用リスト。Mattermost の保存済み投稿とは別で、サーバーとアカウントごとに最大 100 件。</span><span lang="en">A personal list added with ☆ on a post, separate from Mattermost saved posts. Up to 100 per server and account.</span></td></tr>
       <tr><td class="k"><span lang="ja">保存済み</span><span lang="en">Saved</span><span class="id">saved</span></td><td><span lang="ja">Mattermost の保存済み投稿を一覧にします。</span><span lang="en">Lists your Mattermost saved posts.</span></td></tr>
-      <tr><td class="k">Diagnostics<span class="id">diagnostics</span></td><td><span lang="ja">接続状態と同期の様子。Performance タブに API の件数・平均遅延・P95・エラー率、JSONL の書き出し。</span><span lang="en">Connection and sync activity. The Performance tab shows API counts, average latency, P95, error rate, and JSONL export.</span></td></tr>
+      <tr><td class="k">Diagnostics<span class="id">diagnostics</span></td><td><span lang="ja">接続状態、ポーリング、WebSocket の再接続、API の平均遅延とエラー率、描画時間、直近の同期ログ。トレースの JSONL 書き出しは設定画面から行います。</span><span lang="en">Connection status, polling, WebSocket reconnects, API average latency and error rate, render time, and the recent sync log. Trace export as JSONL is in Settings.</span></td></tr>
     </table>
   </section>
 
@@ -174,6 +174,7 @@
   <div class="wrap">
     <span>Mattermost Deck v1.4.2</span><span>MIT License</span>
     <a href="https://github.com/mmiyaji/mattermost-deck" target="_blank" rel="noopener noreferrer">GitHub</a>
+    <a href="https://ruhenheim.org/" target="_blank" rel="noopener noreferrer"><span lang="ja">開発者サイト</span><span lang="en">Developer site</span></a>
     <a href="../docs/privacy/index.html"><span lang="ja">プライバシーポリシー</span><span lang="en">Privacy Policy</span></a>
     <a href="../docs/terms/index.html"><span lang="ja">利用規約</span><span lang="en">Terms</span></a>
   </div>
