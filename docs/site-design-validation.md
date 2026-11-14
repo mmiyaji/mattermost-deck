@@ -1,6 +1,6 @@
 # Homepage design validation
 
-The homepage implementation follows the approved catalog layout in `mock/pattern-c.html`. Its screenshots reuse the current production images in `docs/assets/` rather than the mock copies.
+The homepage follows the Deck-tone design in `mock/deck-tone.html`: a graphite base, 10 px rounded panes and cards, the Deck button blue (`#1c58d9`), and the Segoe UI / Noto Sans JP stack. The page follows the system light/dark setting until the visitor chooses a theme. Screenshots are real captures of the extension, taken with `scripts/capture-site-shots.mjs` (overview, two rows, wide, right pane, and settings pages; Japanese and English; light and dark) and stored in `docs/assets/shots/`. The earlier catalog layout (`mock/pattern-c.html`) is kept in `mock/` for reference.
 
 Keep the product facts current when updating this page: version 1.4.2, Chrome 120 or later, nine UI languages, the current Mattermost release test matrix, mention review behavior, favorites and saved posts, and the existing polling/WebSocket conditions. The Chrome Web Store CTA points to the current listing. Privacy, terms, and security links point to their live destinations.
 
@@ -24,3 +24,11 @@ Homepage Japanese text uses the shared system Japanese sans-serif stack; figure 
 - Chrome rendered the old Japanese figure caption with MS Gothic and Consolas; the corrected caption uses Yu Gothic UI consistently on this Windows environment.
 - Verified Japanese light/dark captions, English dark captions, 390px layouts without horizontal overflow, and next-image/close controls. Theme colors now pair white/#111417 in light mode and #15181c/#e9edf1 in dark mode.
 - Site validation, navigation regression checks, release metadata and whitespace checks passed. No extension code changed, so extension E2E tests were not rerun. Not deployed.
+
+## Deck-tone redesign (2026-11-15)
+
+- Replaced `index.html` and `assets/homepage-c.css`. `assets/site.js` now builds the lightbox gallery from the screenshots visible for the current language and theme, and rebuilds it when either changes.
+- Text is written as plain statements of what the extension does. The setup section covers the Connection and Update method pages with outlined screenshots, and a separate section states the trade-off of a personal access token: realtime updates against the risk of a leaked credential, and that client-side encryption of a stored token does not guarantee safety.
+- Facts were checked against the implementation. The per-pane width range is 200-800 px (`src/ui/columnWidth.ts`); README and this page previously said 260-480 px.
+- `npm run check:site` and `npm run test:site-navigation` pass.
+- Chromium checks with the CSP from `docs/_headers`: no horizontal overflow and no broken images at 360, 390, 768, 1024, 1280 and 1920 px, in light/dark and Japanese/English. The only console message is the GLightbox `style-src-attr` warning, which does not change the layout. Firefox and WebKit were not run.
