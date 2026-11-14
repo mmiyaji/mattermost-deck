@@ -42,7 +42,7 @@ Two-row layout with custom pane titles:
 - Drag a pane title to change its position, including between rows. A filled, dashed placeholder shows the destination; release to save, or press Escape to cancel.
 - In two-row mode, each row scrolls horizontally independently; the height divider stays in place.
 - In two-row mode, drag the boundary to adjust the height split (20–80%). Double-click or Home restores equal heights; up/down keys adjust it. Saved sets and layout exports retain the split.
-- Resize each pane by dragging its right edge (260–480 px). Double-click or press Home on the resize handle to restore the default width; arrow keys adjust it. Views switches between a single row and two rows. Saved sets and layout exports retain the widths and arrangement.
+- Resize each pane by dragging its right edge (200–800 px). Double-click or press Home on the resize handle to restore the default width; arrow keys adjust it. Views switches between a single row and two rows. Saved sets and layout exports retain the widths and arrangement.
 
 - Resizable right-side deck that gives a Mattermost right pane, such as a thread, search results, or pinned posts, its full measured width by shrinking Deck by the same amount; it collapses to a 52 px rail when less than 280 px would remain, then restores the requested width and scroll position. An explicit manual resize may expand Deck while keeping at least 320 px of Mattermost visible; automatic preferred sizing reserves 720 px.
 - Pane types:
