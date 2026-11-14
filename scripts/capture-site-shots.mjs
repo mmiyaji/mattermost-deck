@@ -41,29 +41,62 @@ const SHOWCASE_CHANNEL = {
   purpose: "Mattermost Deck README capture",
 };
 
-// Older posts push the channel introduction out of view in the main pane.
-const EARLIER_MESSAGES = [
-  ["memberUser", "The staging deploy finished without errors."],
-  ["bridgeUser", "Release notes draft is in the wiki."],
-  ["bridgeUser", "I moved the rollback steps to the top of the page."],
-  ["memberUser", "Smoke test list is updated for the new build."],
-  ["bridgeUser", "Which build are we shipping on Thursday?"],
-  ["memberUser", "The one from this morning. CI is green."],
-  ["memberUser", "I will check the dashboards again after lunch."],
-  ["bridgeUser", "Thanks. Ping me if the error rate moves."],
-  ["memberUser", "Support asked for a short status for the customer."],
-  ["bridgeUser", "I will write it once the checklist is done."],
-];
-
-const SHOWCASE_MESSAGES = [
-  { actor: "bridgeUser", channel: "showcase", message: "Welcome to the README showcase channel." },
-  { actor: "bridgeUser", channel: "showcase", message: "@cab-bridge Please review the release checklist before 10:00." },
-  { actor: "bridgeUser", channel: "showcase", message: "@cab-bridge The final notes are ready after the smoke test." },
-  { actor: "bridgeUser", channel: "showcase", message: "Support handoff and the FAQ draft are ready for publishing." },
-  { actor: "bridgeUser", channel: "dm", message: "@cab-bridge Can you post the deployment summary here when ready?" },
-  { actor: "bridgeUser", channel: "dm", message: "I only need a short summary and the rollback note." },
-];
-const THREAD_REPLY = "Thanks. I will post the summary after the smoke test.";
+// Posts per language. The older posts push the channel introduction out of view.
+const POSTS = {
+  en: {
+    welcome: "Welcome to the README showcase channel.",
+    threadKey: "final notes are ready",
+    earlier: [
+      ["memberUser", "The staging deploy finished without errors."],
+      ["bridgeUser", "Release notes draft is in the wiki."],
+      ["bridgeUser", "I moved the rollback steps to the top of the page."],
+      ["memberUser", "Smoke test list is updated for the new build."],
+      ["bridgeUser", "Which build are we shipping on Thursday?"],
+      ["memberUser", "The one from this morning. CI is green."],
+      ["memberUser", "I will check the dashboards again after lunch."],
+      ["bridgeUser", "Thanks. Ping me if the error rate moves."],
+      ["memberUser", "Support asked for a short status for the customer."],
+      ["bridgeUser", "I will write it once the checklist is done."],
+    ],
+    showcase: [
+      "@cab-bridge Please review the release checklist before 10:00.",
+      "@cab-bridge The final notes are ready after the smoke test.",
+      "Support handoff and the FAQ draft are ready for publishing.",
+    ],
+    dm: [
+      "@cab-bridge Can you post the deployment summary here when ready?",
+      "I only need a short summary and the rollback note.",
+    ],
+    reply: "Thanks. I will post the summary after the smoke test.",
+  },
+  ja: {
+    welcome: "READMEショーケースのチャンネルへようこそ。",
+    threadKey: "最終のメモが揃います",
+    earlier: [
+      ["memberUser", "ステージングへのデプロイはエラーなく完了しました。"],
+      ["bridgeUser", "リリースノートの下書きを Wiki に置きました。"],
+      ["bridgeUser", "ロールバック手順をページの先頭に移しました。"],
+      ["memberUser", "新しいビルド向けにスモークテストの項目を更新しました。"],
+      ["bridgeUser", "木曜に出すのはどのビルドですか。"],
+      ["memberUser", "今朝のビルドです。CI は通っています。"],
+      ["memberUser", "昼食後にもう一度ダッシュボードを確認します。"],
+      ["bridgeUser", "ありがとうございます。エラー率が動いたら教えてください。"],
+      ["memberUser", "サポートから、お客様向けの短い状況報告を頼まれています。"],
+      ["bridgeUser", "チェックリストが終わったら書きます。"],
+    ],
+    showcase: [
+      "@cab-bridge 10:00 までにリリースチェックリストを確認してください。",
+      "@cab-bridge スモークテストの後に最終のメモが揃います。",
+      "サポートへの引き継ぎと FAQ の下書きは公開できる状態です。",
+    ],
+    dm: [
+      "@cab-bridge 準備ができたら、デプロイの概要をここに投稿してもらえますか。",
+      "短い概要とロールバックの注記だけで足ります。",
+    ],
+    reply: "了解です。スモークテストの後に概要を投稿します。",
+  },
+};
+let posts = POSTS.en;
 
 const DARK_CSS = `
         #root,
@@ -282,10 +315,10 @@ async function prepareDeckView(page) {
   let deckText = debugBridgeAvailable;
   while (Date.now() < deadline) {
     deckText = await debugRequest(page, "getRenderedText") ?? "";
-    if (deckText.includes("Welcome to the README showcase channel.")) break;
+    if (deckText.includes(posts.welcome)) break;
     await page.waitForTimeout(500);
   }
-  if (!deckText.includes("Welcome to the README showcase channel.")) {
+  if (!deckText.includes(posts.welcome)) {
     throw new Error(`Deck posts did not render. Visible Deck text: ${deckText.slice(0, 1_000)}`);
   }
   await page.evaluate(() => {
@@ -378,7 +411,8 @@ async function setUserLocale(state, locale) {
   }
 }
 
-async function prepareShowcaseData(state) {
+async function prepareShowcaseData(state, language) {
+  posts = POSTS[language];
   const baseUrl = state.serverUrl;
   const team = state.team;
   await ensureTeamMember(baseUrl, state.bridgeUser.token, team.id, state.memberUser.id);
@@ -389,19 +423,21 @@ async function prepareShowcaseData(state) {
   await deleteOwnedPosts(baseUrl, state, showcaseChannel.id);
   await deleteOwnedPosts(baseUrl, state, dmChannel.id);
 
-  for (const [actor, message] of EARLIER_MESSAGES) {
+  for (const [actor, message] of posts.earlier) {
     await createPost(baseUrl, state[actor].token, showcaseChannel.id, message);
   }
-  for (const entry of SHOWCASE_MESSAGES) {
-    const channelId = entry.channel === "showcase" ? showcaseChannel.id : dmChannel.id;
-    await createPost(baseUrl, state[entry.actor].token, channelId, entry.message);
+  for (const message of [posts.welcome, ...posts.showcase]) {
+    await createPost(baseUrl, state.bridgeUser.token, showcaseChannel.id, message);
   }
-  const posts = await listRecentPosts(baseUrl, state.bridgeUser.token, showcaseChannel.id);
-  const root = posts.find((post) => post.message.includes("final notes are ready"));
+  for (const message of posts.dm) {
+    await createPost(baseUrl, state.bridgeUser.token, dmChannel.id, message);
+  }
+  const recent = await listRecentPosts(baseUrl, state.bridgeUser.token, showcaseChannel.id);
+  const root = recent.find((post) => post.message.includes(posts.threadKey));
   if (root) {
     await mattermostFetch(baseUrl, state.memberUser.token, "/posts", {
       method: "POST",
-      body: JSON.stringify({ channel_id: showcaseChannel.id, root_id: root.id, message: THREAD_REPLY }),
+      body: JSON.stringify({ channel_id: showcaseChannel.id, root_id: root.id, message: posts.reply }),
     });
   }
   return { team, showcaseChannel, dmChannel };
@@ -579,7 +615,7 @@ async function shot(page, name, height) {
 }
 
 async function openThread(page) {
-  const post = page.locator(".post").filter({ hasText: "final notes are ready" }).first();
+  const post = page.locator(".post").filter({ hasText: posts.threadKey }).first();
   await post.hover();
   await page.waitForTimeout(400);
   await post.locator('button[aria-label*="eply" i], [id^="CENTER_commentIcon"]').first().click();
@@ -597,7 +633,7 @@ async function captureShowcase(language) {
   const state = await readState();
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-site-"));
   await setUserLocale(state, "en");
-  const { team, showcaseChannel, dmChannel } = await prepareShowcaseData(state);
+  const { team, showcaseChannel, dmChannel } = await prepareShowcaseData(state, language);
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: "chromium",
     headless,
