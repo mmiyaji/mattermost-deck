@@ -131,10 +131,10 @@ figcaption.pad{padding:0 10px 8px}
 .notes{display:grid;gap:10px;font-size:13px}
 .notes p{margin:0;color:var(--soft)}
 .notes b{display:block;color:var(--text);font-weight:600;margin-bottom:2px}
-.card p,.notes p{overflow-wrap:break-word}
+.card p,.notes p{overflow-wrap:anywhere}
 table.list td{overflow-wrap:anywhere}
 body{word-break:auto-phrase;line-break:strict}
 p,td,li,summary{text-wrap:pretty}
-.step{display:grid;gap:12px}
+.step{display:grid;gap:12px;grid-template-columns:minmax(0,1fr)}
 @media(min-width:900px){.step.has-shot{grid-template-columns:minmax(0,1fr) minmax(0,540px);gap:20px;align-items:start}}
 .step .shot{margin:0}
