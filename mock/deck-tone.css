@@ -128,3 +128,7 @@ footer a{color:var(--soft)}
 figcaption.pad{padding:0 10px 8px}
 .band .w4884{width:48.84%}.band .w5116{width:51.16%}
 .band .w46{width:46%}.band .w319{width:31.9%}.band .w221{width:22.1%}
+.notes{display:grid;gap:10px;font-size:13px}
+.notes p{margin:0;color:var(--soft)}
+.notes b{display:block;color:var(--text);font-weight:600;margin-bottom:2px}
+.steps .card p{max-width:60em}
