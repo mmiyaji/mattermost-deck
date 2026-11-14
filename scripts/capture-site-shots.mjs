@@ -755,6 +755,85 @@ async function captureShowcase(language) {
   }
 }
 
-for (const language of languages) {
-  await captureShowcase(language);
+// Settings page shots with rectangles drawn around the fields a setup step refers to.
+async function captureOptions(language) {
+  const copy = JSON.parse(await fs.readFile(path.resolve(`src/ui/locales/${language}.json`), "utf8"));
+  const t = (key) => key.split(".").reduce((value, part) => value?.[part], copy) ?? copy[key];
+  const exampleUrl = "https://mattermost.example.com";
+  const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mattermost-deck-options-"));
+  const context = await chromium.launchPersistentContext(userDataDir, {
+    channel: "chromium",
+    headless,
+    viewport: { width: 1100, height: 700 },
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+  });
+  try {
+    const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
+    const extensionId = new URL(worker.url()).host;
+    const annotate = async (page, locators) => {
+      const boxes = [];
+      for (const locator of locators) {
+        await locator.scrollIntoViewIfNeeded();
+      }
+      for (const locator of locators) {
+        boxes.push(await locator.boundingBox());
+      }
+      await page.evaluate((rects) => {
+        for (const box of rects) {
+          if (!box) continue;
+          const frame = document.createElement("div");
+          frame.style.cssText = `position:fixed;left:${box.x - 6}px;top:${box.y - 6}px;width:${box.width + 12}px;height:${box.height + 12}px;border:3px solid #ff6b3d;border-radius:8px;pointer-events:none;z-index:99999`;
+          document.body.appendChild(frame);
+        }
+      }, boxes);
+    };
+    for (const theme of ["light", "dark"]) {
+      await worker.evaluate(({ language: lang, theme: mode, url }) => chrome.storage.local.set({
+        "mattermostDeck.language.v1": lang,
+        "mattermostDeck.optionsTheme.v1": mode,
+        "mattermostDeck.serverUrl.v1": url,
+      }), { language, theme, url: exampleUrl });
+      const page = await context.newPage();
+      await page.goto(`chrome-extension://${extensionId}/options.html`);
+      await page.waitForTimeout(1500);
+      const nav = (label) => page.locator(".options-nav-item").filter({ hasText: label }).first();
+
+      await nav(t("options.connTitle")).click();
+      await page.waitForTimeout(600);
+      await annotate(page, [
+        page.locator(`input[placeholder="${t("options.serverUrlPlaceholder")}"]`).first(),
+        page.getByRole("button", { name: t("options.save"), exact: true }).first(),
+      ]);
+      await page.screenshot({ path: path.join(outDir, `options-conn-${theme}-${language}.png`) });
+      console.log(`Saved options-conn-${theme}-${language}.png`);
+      await page.reload({ waitUntil: "networkidle" });
+      await page.waitForTimeout(800);
+
+      await nav(t("options.realtimeTitle")).click();
+      await page.waitForTimeout(600);
+      await page.locator("summary").first().click();
+      await page.waitForTimeout(500);
+      await annotate(page, [
+        page.locator(`input[placeholder="${t("options.patPlaceholder")}"]`).first(),
+        page.locator("label").filter({ hasText: t("options.patStorageSessionLabel") }).locator("xpath=..").first(),
+      ]);
+      await page.screenshot({ path: path.join(outDir, `options-pat-${theme}-${language}.png`) });
+      console.log(`Saved options-pat-${theme}-${language}.png`);
+      await page.close();
+    }
+  } finally {
+    await context.close();
+  }
+}
+
+if (process.argv.includes("--only-options")) {
+  await fs.mkdir(outDir, { recursive: true });
+  for (const language of languages) {
+    await captureOptions(language);
+  }
+} else {
+  for (const language of languages) {
+    await captureShowcase(language);
+    await captureOptions(language);
+  }
 }
