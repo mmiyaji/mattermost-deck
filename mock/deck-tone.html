@@ -70,7 +70,7 @@
   <section id="layout" class="pane">
     <h2><span lang="ja">画面の占め方</span><span lang="en">How it uses the width</span></h2>
     <p class="lead">
-      <span lang="ja">Mattermost の本文幅は変わらず、右ペイン（スレッドや検索）を開いた分だけ Deck が狭くなります。Deck の幅が 280px を下回ると 52px のレールに折り畳み、右ペインを閉じると元の幅とスクロール位置に戻ります。各ペインの幅は 200〜800px で、右端のドラッグで変えます。</span><span lang="en">The Mattermost main area keeps its width, and Deck narrows by the width of the right pane (thread or search). Below 280 px, Deck collapses to a 52 px rail; when the right pane closes, it returns to its width and scroll position. Each pane is 200–800 px wide and resizes by dragging its right edge.</span>
+      <span lang="ja">Mattermost の本文幅は変わらず、右ペイン（スレッドや検索）を開いた分だけ Deck が狭くなります。Deck の幅が 280px を下回ると 52px のレールに折り畳み、右ペインを閉じると元の幅とスクロール位置に戻ります。各ペインの幅は 200〜800px で、右端のドラッグで変えます。</span><span lang="en">The Mattermost main area keeps its width; Deck narrows by the width of the right pane (thread or search). Below 280 px it collapses to a 52 px rail, and returns to its width and scroll position when the pane closes. Panes are 200–800 px wide, resized by dragging the right edge.</span>
     </p>
     <div class="stack">
       <figure class="shot annotated">
@@ -100,11 +100,11 @@
     <div class="pane">
       <h2><span lang="ja">上下 2 段</span><span lang="en">Two rows</span></h2>
       <table class="list">
-        <tr><td class="k"><span lang="ja">切替</span><span lang="en">Switch</span></td><td><span lang="ja">Views で 1 段／2 段を切り替えます。初回のみ上部の「2 段を試す」から切り替えられます。</span><span lang="en">Switch between one and two rows from Views. A one-time “Try two rows” shortcut also appears above the panes.</span></td></tr>
+        <tr><td class="k"><span lang="ja">切替</span><span lang="en">Switch</span></td><td><span lang="ja">Views で 1 段／2 段を切り替えます。初回のみ上部の「2 段を試す」から切り替えられます。</span><span lang="en">Switch rows from Views. A one-time “Try two rows” shortcut appears above the panes.</span></td></tr>
         <tr><td class="k"><span lang="ja">スクロール</span><span lang="en">Scrolling</span></td><td><span lang="ja">段ごとに独立して横スクロールします。</span><span lang="en">Each row scrolls horizontally on its own.</span></td></tr>
         <tr><td class="k"><span lang="ja">高さ</span><span lang="en">Height</span></td><td><span lang="ja">境界のドラッグで 20〜80%。ダブルクリックか <kbd>Home</kbd> で均等、<kbd>↑</kbd> <kbd>↓</kbd> で微調整。</span><span lang="en">Drag the divider, 20–80%. Double-click or <kbd>Home</kbd> to even out; <kbd>↑</kbd> <kbd>↓</kbd> adjust.</span></td></tr>
         <tr><td class="k"><span lang="ja">並び替え</span><span lang="en">Reorder</span></td><td><span lang="ja">タイトルのドラッグ（段をまたげます）。<kbd>Esc</kbd> で取り消し。</span><span lang="en">Drag a title, across rows too. <kbd>Esc</kbd> cancels.</span></td></tr>
-        <tr><td class="k"><span lang="ja">別名</span><span lang="en">Rename</span></td><td><span lang="ja">タイトルをダブルクリック／右クリック／<kbd>F2</kbd>。空で保存すると元の名前に戻ります。</span><span lang="en">Double-click or right-click the title, or <kbd>F2</kbd>. Save empty to restore the original.</span></td></tr>
+        <tr><td class="k"><span lang="ja">別名</span><span lang="en">Rename</span></td><td><span lang="ja">タイトルをダブルクリック／右クリック／<kbd>F2</kbd>。空で保存すると元の名前に戻ります。</span><span lang="en">Double-click, right-click, or <kbd>F2</kbd> on the title. Blank restores the name.</span></td></tr>
         <tr><td class="k"><span lang="ja">保存</span><span lang="en">Saving</span></td><td><span lang="ja">Views に保存、JSON で書き出し・読み込み。段の高さ配分も含みます。</span><span lang="en">Save as Views; export and import as JSON, including the height split.</span></td></tr>
       </table>
     </div>
@@ -114,12 +114,12 @@
     <h2><span lang="ja">ペインの種類</span><span lang="en">Pane types</span><span class="sub"><span lang="ja">＋ から追加。同じ種類を複数並べられます</span><span lang="en">Add with +. The same type can be used more than once</span></span></h2>
     <table class="list">
       <tr><td class="k"><span lang="ja">メンション</span><span lang="en">Mentions</span><span class="id">mentions</span></td><td><span lang="ja">参加している全チーム・全チャンネルのメンションを 1 つの一覧に。カスタムメンションキー、<code>@all</code> <code>@channel</code> <code>@here</code>、グループメンション、DM／GM、CRT 有効時のスレッド返信を Mattermost の設定どおりに扱います。自分のユーザー名は強調表示されます。画像の添付はサムネイル（設定で切り替え可）、それ以外のファイルはファイル名とサイズで表示します。</span><span lang="en">Mentions from every joined team and channel in one list: custom keys, <code>@all</code> <code>@channel</code> <code>@here</code>, group mentions, DMs/GMs, and thread replies under CRT, resolved per your Mattermost settings. Your own username is highlighted. Image attachments show as thumbnails (switchable in settings); other files show as a name and size.</span></td></tr>
-      <tr><td class="k"><span lang="ja">要確認</span><span lang="en">Review</span><span class="id">mentions / review</span></td><td><span lang="ja">「確認済みにする」を押すまで消えない一覧。Mattermost 側で既読にしても、投稿を開いても消えません。直後 5 秒は取り消せ、履歴から戻せます。</span><span lang="en">Posts stay until you confirm them explicitly; reading or opening them in Mattermost does not remove them. Undo for five seconds; restore from history.</span></td></tr>
+      <tr><td class="k"><span lang="ja">要確認</span><span lang="en">Review</span><span class="id">mentions / review</span></td><td><span lang="ja">「確認済みにする」を押すまで消えない一覧。Mattermost 側で既読にしても、投稿を開いても消えません。直後 5 秒は取り消せ、履歴から戻せます。</span><span lang="en">Posts stay until you confirm them; reading or opening them in Mattermost does not remove them. Five-second undo, plus history.</span></td></tr>
       <tr><td class="k"><span lang="ja">チャンネル／DM</span><span lang="en">Channel / DM</span><span class="id">channelWatch, dmWatch</span></td><td><span lang="ja">特定のチャンネル、DM、グループメッセージを個別のペインとして開いたままにします。</span><span lang="en">Keeps a channel, DM, or group message open as its own pane.</span></td></tr>
       <tr><td class="k"><span lang="ja">検索</span><span lang="en">Search</span><span class="id">search</span></td><td><span lang="ja">検索結果をペインとして固定します。</span><span lang="en">Pins a set of search results as a pane.</span></td></tr>
       <tr><td class="k"><span lang="ja">お気に入り</span><span lang="en">Favorites</span><span class="id">favorites</span></td><td><span lang="ja">投稿の ☆ で登録する個人用リスト。Mattermost の保存済み投稿とは別で、サーバーとアカウントごとに最大 100 件。</span><span lang="en">A personal list added with ☆ on a post, separate from Mattermost saved posts. Up to 100 per server and account.</span></td></tr>
       <tr><td class="k"><span lang="ja">保存済み</span><span lang="en">Saved</span><span class="id">saved</span></td><td><span lang="ja">Mattermost の保存済み投稿を一覧にします。</span><span lang="en">Lists your Mattermost saved posts.</span></td></tr>
-      <tr><td class="k">Diagnostics<span class="id">diagnostics</span></td><td><span lang="ja">接続状態、ポーリング、WebSocket の再接続、API の平均遅延とエラー率、描画時間、直近の同期ログ。トレースの JSONL 書き出しは設定画面から行います。</span><span lang="en">Connection status, polling, WebSocket reconnects, API average latency and error rate, render time, and the recent sync log. Trace export as JSONL is in Settings.</span></td></tr>
+      <tr><td class="k">Diagnostics<span class="id">diagnostics</span></td><td><span lang="ja">接続状態、ポーリング、WebSocket の再接続、API の平均遅延とエラー率、描画時間、直近の同期ログ。トレースの JSONL 書き出しは設定画面から行います。</span><span lang="en">Connection status, polling, WebSocket reconnects, API latency and error rate, render time, recent sync log. JSONL trace export is in Settings.</span></td></tr>
     </table>
   </section>
 
@@ -136,8 +136,8 @@
       <div class="card"><b><span lang="ja">チームを絞る（任意）</span><span lang="en">Limit to one team (optional)</span></b><p><span lang="ja">Team を空欄にすると、サーバー上の全チームが対象です。1 つに絞るときは、表示名ではなく URL の名前（team slug）を入れます。例: https://mattermost.example.com/myteam/channels/town-square の myteam。</span><span lang="en">Leave Team blank to use every team on the server. To use one team, enter its URL name (team slug), not its display name. Example: myteam in https://mattermost.example.com/myteam/channels/town-square.</span></p></div>
       <div class="card"><b><span lang="ja">Mattermost を開いてペインを足す</span><span lang="en">Open Mattermost and add panes</span></b><p><span lang="ja">サーバーを開くと右側に Deck が出ます。「＋」からペインを追加します。</span><span lang="en">Open the server and Deck appears on the right. Add panes with “+”.</span></p></div>
       <div class="card"><b><span lang="ja">「更新方法」を選ぶ（任意）</span><span lang="en">Choose an update method (optional)</span></b><p><span lang="ja">既定は定期更新です（間隔は 15 秒以上）。リアルタイム更新が必要なときだけ PAT を設定します。PAT は Mattermost の User Settings > Security > Personal Access Tokens で作成します。管理者側で PAT を有効にしておく必要があります。リスクは「PAT の扱い」を参照してください。</span><span lang="en">Updates are periodic by default (interval of 15 seconds or more). Set a PAT only when you need realtime updates. Create it in Mattermost under User Settings > Security > Personal Access Tokens; an administrator must have enabled PATs. See “Using a PAT” for the risks.</span></p></div>
-      <div class="card"><b><span lang="ja">外観・動作を調整する（任意）</span><span lang="en">Adjust Appearance and Behavior (optional)</span></b><p><span lang="ja">外観: テーマ、言語、文字サイズ、ペイン幅、コンパクト表示、画像プレビューなど。動作: 投稿クリック時の動作、ハイライトするキーワードなど。</span><span lang="en">Appearance: theme, language, font size, pane width, compact mode, image previews. Behavior: post click action, highlight keywords, and similar options.</span></p></div>
-      <div class="card"><b><span lang="ja">プロファイルを使う（任意）</span><span lang="en">Use profiles (optional)</span></b><p><span lang="ja">同じサーバーで用途を分けたいときに使います。接続が動くことを確認してから作成します。</span><span lang="en">Use them to keep separate setups for one server. Create them once the connection works.</span></p></div>
+      <div class="card"><b><span lang="ja">外観・動作を調整する（任意）</span><span lang="en">Adjust Appearance and Behavior (optional)</span></b><p><span lang="ja">外観: テーマ、言語、文字サイズ、ペイン幅、コンパクト表示、画像プレビューなど。動作: 投稿クリック時の動作、ハイライトするキーワードなど。</span><span lang="en">Appearance: theme, language, font size, pane width, compact mode, image previews. Behavior: post click action, highlight keywords.</span></p></div>
+      <div class="card"><b><span lang="ja">プロファイルを使う（任意）</span><span lang="en">Use profiles (optional)</span></b><p><span lang="ja">用途ごとに設定を分けたいとき、または複数のサーバーに参加していて設定をサーバーごとに分けたいときに使います。接続が動くことを確認してから作成します。</span><span lang="en">Use them to keep separate settings per purpose, or per server when you join more than one. Create them once the connection works.</span></p></div>
     </div>
   </section>
 
@@ -147,7 +147,7 @@
       <table class="list">
       <tr><td class="k">REST</td><td><span lang="ja">ブラウザーで開いている Mattermost のセッションを使います。Deck 用の追加ログインはありません。</span><span lang="en">Uses the Mattermost session already open in the browser. No separate sign-in.</span></td></tr>
       <tr><td class="k">WebSocket</td><td><span lang="ja">PAT を設定したときだけ有効です。未設定なら定期取得で更新します。</span><span lang="en">Only when a PAT is set. Otherwise Deck polls.</span></td></tr>
-      <tr><td class="k">PAT</td><td><span lang="ja">既定は <code>chrome.storage.session</code> で、ブラウザーを閉じると消えます。再起動後も保持するかは選べます。</span><span lang="en">Stored in <code>chrome.storage.session</code> by default, which is cleared when the browser session ends. You can choose to keep it across restarts.</span></td></tr>
+      <tr><td class="k">PAT</td><td><span lang="ja">既定は <code>chrome.storage.session</code> で、ブラウザーを閉じると消えます。再起動後も保持するかは選べます。</span><span lang="en">Kept in <code>chrome.storage.session</code> by default and cleared when the browser session ends. Persisting across restarts is optional.</span></td></tr>
       <tr><td class="k"><span lang="ja">送信先</span><span lang="en">Sent to</span></td><td><span lang="ja">設定した Mattermost サーバーのみ。第三者の analytics や広告はありません。</span><span lang="en">Only the Mattermost server you configured. No third-party analytics or ads.</span></td></tr>
       <tr><td class="k"><span lang="ja">保存先</span><span lang="en">Stored in</span></td><td><span lang="ja">設定、レイアウト、お気に入り、確認状態などは、このブラウザー内にサーバーとアカウントごとに保存します。</span><span lang="en">Settings, layouts, favorites, and review state are kept in this browser, per server and account.</span></td></tr>
       </table>
@@ -156,9 +156,9 @@
       <h2><span lang="ja">PAT の扱い</span><span lang="en">Using a PAT</span></h2>
       <div class="notes">
       <p><b><span lang="ja">利点</span><span lang="en">Benefit</span></b><span lang="ja">PAT を設定すると WebSocket で更新を受け取り、リアルタイムに表示します。未設定でも定期更新で使えます。</span><span lang="en">With a PAT, Deck receives updates over WebSocket and shows them in real time. Without one, it polls.</span></p>
-      <p><b><span lang="ja">リスク</span><span lang="en">Risk</span></b><span lang="ja">PAT は、発行したアカウントの権限で API を呼べる認証情報です。漏えいすると、そのアカウントの権限で操作される可能性があります。利便性とリスクを比べて判断してください。</span><span lang="en">A PAT is a credential that can call the API with the permissions of the account that created it. If it leaks, it can be used with that account's permissions. Weigh the convenience against that risk.</span></p>
-      <p><b><span lang="ja">暗号化</span><span lang="en">Encryption</span></b><span lang="ja">保存時にクライアント側で暗号化しますが、鍵も同じブラウザー内にあります。平文で残さないための最低限の措置で、安全を保証するものではありません。拡張機能のローカル保存領域は Chrome が暗号化しません。</span><span lang="en">A stored PAT is encrypted on the client, but the key is in the same browser. This only avoids keeping it as plain text and does not guarantee safety. Chrome does not encrypt an extension's local storage.</span></p>
-      <p><b><span lang="ja">運用</span><span lang="en">Practice</span></b><span lang="ja">保存方法は既定の「セッションのみ」を推奨します。専用の低権限トークンを使い、不要になったら Mattermost で削除します。</span><span lang="en">Keep the default “Session only” storage. Use a dedicated low-privilege token and delete it in Mattermost when you stop using it.</span></p>
+      <p><b><span lang="ja">リスク</span><span lang="en">Risk</span></b><span lang="ja">PAT は、発行したアカウントの権限で API を呼べる認証情報です。漏えいすると、そのアカウントの権限で操作される可能性があります。利便性とリスクを比べて判断してください。</span><span lang="en">A PAT calls the API with the permissions of the account that created it. If it leaks, it can be misused with those permissions. Weigh the convenience against that risk.</span></p>
+      <p><b><span lang="ja">暗号化</span><span lang="en">Encryption</span></b><span lang="ja">保存時にクライアント側で暗号化しますが、鍵も同じブラウザー内にあります。平文で残さないための最低限の措置で、安全を保証するものではありません。拡張機能のローカル保存領域は Chrome が暗号化しません。</span><span lang="en">A stored PAT is encrypted on the client, but the key is in the same browser. That only avoids plain text and guarantees nothing. Chrome does not encrypt extension local storage.</span></p>
+      <p><b><span lang="ja">運用</span><span lang="en">Practice</span></b><span lang="ja">保存方法は既定の「セッションのみ」を推奨します。専用の低権限トークンを使い、不要になったら Mattermost で削除します。</span><span lang="en">Keep the default “Session only” storage. Use a dedicated low-privilege token and delete it in Mattermost when done.</span></p>
       </div>
     </div>
   </section>
@@ -166,12 +166,12 @@
   <section class="pane">
     <h2><span lang="ja">操作のヒント</span><span lang="en">Tips</span></h2>
     <ol class="tips">
-      <li><span lang="ja">タイトルのドラッグ中に <kbd>Esc</kbd> で並び替えを取り消します。投稿も検索条件もスクロール位置もそのままです。</span><span lang="en">Press <kbd>Esc</kbd> while dragging a title to cancel the move. Posts, filters, and scroll positions stay as they were.</span></li>
+      <li><span lang="ja">タイトルのドラッグ中に <kbd>Esc</kbd> で並び替えを取り消します。投稿も検索条件もスクロール位置もそのままです。</span><span lang="en"><kbd>Esc</kbd> while dragging a title cancels the move. Posts, filters, and scroll positions stay put.</span></li>
       <li><span lang="ja">ペイン右端のダブルクリック、または <kbd>Home</kbd> で既定幅に戻します。<kbd>←</kbd> <kbd>→</kbd> でも調整できます。</span><span lang="en">Double-click a pane's right edge or press <kbd>Home</kbd> for the default width. <kbd>←</kbd> <kbd>→</kbd> adjust it.</span></li>
       <li><span lang="ja">虫眼鏡で、読み込み済みの本文と投稿者を絞り込めます。追加の通信はありません。</span><span lang="en">The magnifier filters loaded posts by text or author. No extra requests.</span></li>
       <li><span lang="ja">使い分けは Views に保存。端末を移すときは JSON で書き出します。</span><span lang="en">Save each setup as a View. Export to JSON to move machines.</span></li>
       <li><span lang="ja">コンパクト表示では <code>時刻 投稿者: 本文</code> の 1 行になります。</span><span lang="en">Compact mode shows one line: <code>time author: message</code>.</span></li>
-      <li><span lang="ja">投稿の「…」から、投稿者や会話を非表示にできます。取得や既読には影響しません。</span><span lang="en">The “…” menu on a post hides its author or conversation. Fetching and read state are unchanged.</span></li>
+      <li><span lang="ja">投稿の「…」から、その投稿者や会話を非表示にできます。取得や既読には影響しません。</span><span lang="en">“…” on a post hides its author or conversation. Fetching and read state are unaffected.</span></li>
     </ol>
   </section>
 
