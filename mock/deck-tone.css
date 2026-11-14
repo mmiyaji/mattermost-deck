@@ -144,3 +144,4 @@ p,td,li,summary{text-wrap:pretty}
 .glightbox-container .gslide-title,.glightbox-container .gslide-desc{color:var(--text);font-family:var(--font)}
 .glightbox-mobile .glightbox-container .gslide-description{background:var(--pane);color:var(--text)}
 html[data-lang="ja"] .shot a[lang="en"],html[data-lang="en"] .shot a[lang="ja"],:root[data-theme="light"] .shot a.t-dark,:root[data-theme="dark"] .shot a.t-light{display:none}
+.glightbox-container .gslide-description{box-sizing:border-box;width:min(100%,1100px);margin-inline:auto}
