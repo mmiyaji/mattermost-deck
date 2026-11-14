@@ -61,14 +61,13 @@ const POSTS = {
     showcase: [
       { actor: "memberUser", text: "@mm95admin Please review the release checklist before 10:00.", file: "checklist" },
       { actor: "memberUser", text: "@mm95admin The final notes are ready after the smoke test." },
-      { actor: "memberUser", text: "@mm95admin This is the error rate during the deploy. It stayed flat.", file: "chart" },
+      { actor: "memberUser", text: "@mm95admin Here is the deploy log. No errors.", file: "log" },
       { actor: "bridgeUser", text: "Support handoff and the FAQ draft are ready for publishing." },
     ],
     dm: [
       { actor: "memberUser", text: "@mm95admin Can you post the deployment summary here when ready?" },
       { actor: "memberUser", text: "I only need a short summary and the rollback note." },
     ],
-    chartTitle: "Error rate during deploy (%)",
     checklistTitle: "Release checklist",
     checklistItems: ["Smoke test passed", "Release notes reviewed", "Rollback steps confirmed", "Support handoff done"],
     reply: "Thanks. I will post the summary after the smoke test.",
@@ -91,14 +90,13 @@ const POSTS = {
     showcase: [
       { actor: "memberUser", text: "@mm95admin 10:00 までにリリースチェックリストを確認してください。", file: "checklist" },
       { actor: "memberUser", text: "@mm95admin スモークテストの後に最終のメモが揃います。" },
-      { actor: "memberUser", text: "@mm95admin デプロイ中のエラー率です。横ばいでした。", file: "chart" },
+      { actor: "memberUser", text: "@mm95admin デプロイのログです。エラーは出ていません。", file: "log" },
       { actor: "bridgeUser", text: "サポートへの引き継ぎと FAQ の下書きは公開できる状態です。" },
     ],
     dm: [
       { actor: "memberUser", text: "@mm95admin 準備ができたら、デプロイの概要をここに投稿してもらえますか。" },
       { actor: "memberUser", text: "短い概要とロールバックの注記だけで足ります。" },
     ],
-    chartTitle: "デプロイ中のエラー率（%）",
     checklistTitle: "リリースチェックリスト",
     checklistItems: ["スモークテスト完了", "リリースノート確認済み", "ロールバック手順の確認", "サポートへの引き継ぎ"],
     reply: "了解です。スモークテストの後に概要を投稿します。",
@@ -312,25 +310,24 @@ async function uploadFile(baseUrl, token, channelId, file) {
 async function buildAttachments(content) {
   const browser = await chromium.launch({ channel: "chromium" });
   try {
-    const page = await browser.newPage({ viewport: { width: 640, height: 320 } });
-    const points = [0.31, 0.28, 0.33, 0.3, 0.52, 0.34, 0.29, 0.31, 0.27, 0.3, 0.29, 0.28];
-    const x = (i) => 56 + i * 52;
-    const y = (v) => 270 - v * 380;
-    const line = points.map((v, i) => `${i ? "L" : "M"}${x(i)},${y(v)}`).join(" ");
-    await page.setContent(`<body style="margin:0;font-family:Segoe UI,Noto Sans JP,sans-serif">
-      <svg xmlns="http://www.w3.org/2000/svg" width="640" height="320" viewBox="0 0 640 320">
-        <rect width="640" height="320" fill="#ffffff"/>
-        <text x="24" y="34" font-size="16" font-weight="600" fill="#1f2d3d">${content.chartTitle}</text>
-        ${[0, 0.2, 0.4, 0.6].map((v) => `<line x1="56" x2="620" y1="${y(v)}" y2="${y(v)}" stroke="#e3e8ee"/><text x="20" y="${y(v) + 4}" font-size="11" fill="#6b7685">${v.toFixed(1)}</text>`).join("")}
-        <path d="${line}" fill="none" stroke="#1c58d9" stroke-width="2.5"/>
-      </svg></body>`);
-    const chart = await page.screenshot({ type: "png" });
+    const page = await browser.newPage({ viewport: { width: 640, height: 220 } });
+    const logLines = [
+      "10:02:14  deploy started        build=1.4.2",
+      "10:02:41  migrations applied    3 of 3",
+      "10:02:58  services restarted    api, worker",
+      "10:03:05  health check passed   3 of 3 nodes",
+      "10:03:06  deploy finished       errors=0",
+    ];
+    await page.setContent(`<body style="margin:0;background:#f6f8fa">
+      <div style="font:600 12px Segoe UI,sans-serif;color:#51657d;padding:10px 16px;border-bottom:1px solid #d9dee5">deploy.log</div>
+      <pre style="margin:0;padding:14px 16px;font:13px/1.9 Consolas,Menlo,monospace;color:#1f2d3d">${logLines.join("\n")}</pre></body>`);
+    const log = await page.screenshot({ type: "png" });
     await page.setContent(`<body style="font-family:Segoe UI,Noto Sans JP,sans-serif;padding:48px;color:#1f2d3d">
       <h1 style="font-size:22px">${content.checklistTitle}</h1>
       <ul style="line-height:2.2;font-size:15px">${content.checklistItems.map((item) => `<li>${item}</li>`).join("")}</ul></body>`);
     const pdf = await page.pdf({ format: "A4" });
     return {
-      chart: { name: "error-rate.png", type: "image/png", data: chart },
+      log: { name: "deploy-log.png", type: "image/png", data: log },
       checklist: { name: "release-checklist.pdf", type: "application/pdf", data: pdf },
     };
   } finally {
@@ -721,7 +718,7 @@ async function captureShowcase(language) {
       await chrome.storage.local.set({ ...settings, ...Object.fromEntries(Object.entries(settings).map(([key, value]) => [key + ".profile." + profileId, value])) });
     }, { originalLayout, twoRows, profileId: captureProfileId });
 
-    for (const [theme, mattermostTheme] of [["light", "Quartz"], ["dark", "Onyx"]]) {
+    for (const [theme, mattermostTheme] of [["light", "Denim"], ["dark", "Onyx"]]) {
       // Mattermost's settings dialog is driven by its English labels.
       await setUserLocale(state, "en");
       await setTwoRows(false);
