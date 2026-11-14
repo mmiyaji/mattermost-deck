@@ -237,6 +237,7 @@ export function renderPostSnippet(message: string, terms: string[], query?: stri
 
 function renderHighlightedTokens(tokens: PostTextToken[], terms: string[]): React.ReactNode {
   const nodes: React.ReactNode[] = [];
+  const emojiTerms = terms.map(replaceEmojiShortcodes);
   let index = 0;
   for (const token of tokens) {
     if (token.type === "url" && token.href) {
@@ -256,9 +257,9 @@ function renderHighlightedTokens(tokens: PostTextToken[], terms: string[]): Reac
     } else if (token.raw.trim().length === 0) {
       nodes.push(<React.Fragment key={`token-${index}`}>{token.raw}</React.Fragment>);
     } else if (token.display !== token.raw) {
-      nodes.push(<span key={`token-${index}`} className="deck-inline-ellipsis" title={token.raw}>{replaceEmojiShortcodes(token.display)}</span>);
+      nodes.push(<span key={`token-${index}`} className="deck-inline-ellipsis" title={replaceEmojiShortcodes(token.raw)}>{replaceEmojiShortcodes(token.display)}</span>);
     } else {
-      nodes.push(<React.Fragment key={`token-${index}`}>{renderTextHighlights(replaceEmojiShortcodes(token.raw), terms)}</React.Fragment>);
+      nodes.push(<React.Fragment key={`token-${index}`}>{renderTextHighlights(replaceEmojiShortcodes(token.raw), emojiTerms)}</React.Fragment>);
     }
     index += 1;
   }

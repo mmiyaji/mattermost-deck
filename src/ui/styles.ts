@@ -108,7 +108,7 @@ export const railCssText = `
     justify-content: space-between;
     align-items: center;
     gap: 16px;
-    padding: 8px 18px 6px 54px;
+    padding: 8px 12px 6px 54px;
     border-bottom: 1px solid var(--deck-border);
     background: var(--deck-bg-elevated);
     min-height: 52px;
@@ -870,7 +870,7 @@ export const railCssText = `
     min-height: 0;
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 0px 14px 8px 14px;
+    padding: 0px 12px 12px 12px;
     scrollbar-color: rgba(143, 164, 193, 0.45) transparent;
   }
 
@@ -1216,7 +1216,9 @@ export const railCssText = `
 
   .deck-column-header h2 {
     font-size: calc(16px * var(--deck-font-scale));
-    line-height: 1.2;
+    /* Center the first line on the 28px action buttons without growing the header. */
+    line-height: 28px;
+    margin-bottom: -9px;
     color: var(--deck-text);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1628,7 +1630,6 @@ export const railCssText = `
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
-    padding-right: 2px;
   }
 
   .deck-list-viewport--content-fit {
@@ -2894,7 +2895,7 @@ export const railCssText = `
 .deck-rename-dialog button { padding: 6px 12px; font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--deck-border-strong); background: var(--deck-panel-2); color: var(--deck-text); }
 .deck-rename-dialog button[type="submit"] { background: var(--deck-accent); color: var(--deck-panel); }
 
-.deck-layout-tip { container-type: inline-size; display: flex; align-items: center; flex: 0 0 auto; gap: 10px; padding: 7px 12px; margin-bottom: 8px; border-bottom: 1px solid var(--deck-border); background: linear-gradient(100deg, color-mix(in srgb, var(--deck-accent) 9%, var(--deck-panel)), var(--deck-panel)); }
+.deck-layout-tip { container-type: inline-size; display: flex; align-items: center; flex: 0 0 auto; gap: 10px; padding: 7px 12px; margin-bottom: 12px; border-bottom: 1px solid var(--deck-border); background: linear-gradient(100deg, color-mix(in srgb, var(--deck-accent) 9%, var(--deck-panel)), var(--deck-panel)); }
 .deck-layout-tip-preview { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 8px; color: var(--deck-accent); background: color-mix(in srgb, var(--deck-accent) 10%, var(--deck-panel)); }
 .deck-layout-tip-copy { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .deck-layout-tip-copy strong { font-size: 12px; font-weight: 600; }
