@@ -44,10 +44,10 @@
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="https://mattermost-deck.ruhenheim.org/assets/webstore/marquee-promo-tile-1400x560.png">
     <link rel="stylesheet" href="./assets/glightbox.min.css?v=1.4.2&design=d5">
-    <link rel="stylesheet" href="./assets/homepage-c.css?v=1.4.2&design=d5">
+    <link rel="stylesheet" href="./assets/homepage-c.css?v=1.4.2&design=d6">
     <script src="./assets/site-theme-init.js?v=1.4.2&design=d5"></script>
     <script src="./assets/glightbox.min.js?v=1.4.2&design=d5" defer></script>
-    <script src="./assets/site.js?v=1.4.2&design=d5" defer></script>
+    <script src="./assets/site.js?v=1.4.2&design=d6" defer></script>
   </head>
 <body>
 
@@ -61,13 +61,17 @@
       <a href="#faq" data-section-link>FAQ</a>
     </nav>
     <div class="tools">
-      <span class="lang">
-        <svg class="globe" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.6"/><ellipse cx="10" cy="10" rx="3.4" ry="7.6"/><path d="M2.6 7.6h14.8M2.6 12.4h14.8"/></svg>
-        <select data-lang-select aria-label="言語" data-i18n-aria-ja="言語" data-i18n-aria-en="Language">
-          <option value="ja">日本語</option>
-          <option value="en">English</option>
-        </select>
-      </span>
+      <details class="lang" data-lang-menu>
+        <summary aria-label="言語" data-i18n-aria-ja="言語" data-i18n-aria-en="Language">
+          <svg class="globe" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.6"/><ellipse cx="10" cy="10" rx="3.4" ry="7.6"/><path d="M2.6 7.6h14.8M2.6 12.4h14.8"/></svg>
+          <span data-lang-current>日本語</span>
+          <svg class="lang-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+        </summary>
+        <div class="lang-menu">
+          <button type="button" data-lang-choice="ja" aria-pressed="true">日本語</button>
+          <button type="button" data-lang-choice="en" aria-pressed="false">English</button>
+        </div>
+      </details>
       <button type="button" class="theme-toggle" data-theme-toggle
         data-label-to-dark="ダークテーマに切り替え" data-label-to-light="ライトテーマに切り替え"
         data-i18n-to-dark-ja="ダークテーマに切り替え" data-i18n-to-dark-en="Switch to dark theme"
@@ -229,7 +233,7 @@
     <table class="cat">
       <tr><th scope="row">Browser</th><td><span data-i18n-ja="Google Chrome 120 以降" data-i18n-en="Google Chrome 120 or later">Google Chrome 120 以降</span></td></tr>
       <tr><th scope="row">Mattermost</th><td><span data-i18n-ja="9.5.4 で E2E 全テスト／9.5.11・10.11.22・11.8.2 で主要テスト" data-i18n-en="Full E2E suite on 9.5.4; core route, team-switch, thread-layout, and responsive tests on 9.5.11, 10.11.22, and 11.8.2">9.5.4 で E2E 全テスト／9.5.11・10.11.22・11.8.2 で主要テスト</span></td></tr>
-      <tr><th scope="row">UI</th><td><span data-i18n-ja="9 言語" data-i18n-en="9 languages">9 言語</span></td></tr>
+      <tr><th scope="row">UI</th><td><span data-i18n-ja="9 言語：日本語、英語、ドイツ語、中国語（簡体字）、フランス語、ロシア語、ウクライナ語、スペイン語、韓国語" data-i18n-en="9 languages: Japanese, English, German, Simplified Chinese, French, Russian, Ukrainian, Spanish, and Korean">9 言語：日本語、英語、ドイツ語、中国語（簡体字）、フランス語、ロシア語、ウクライナ語、スペイン語、韓国語</span></td></tr>
       <tr><th scope="row"><span data-i18n-ja="ライセンス" data-i18n-en="License">ライセンス</span></th><td>MIT</td></tr>
     </table>
   </section>
