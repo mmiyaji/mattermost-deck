@@ -128,6 +128,12 @@
       const selected = button.dataset.langChoice === nextLanguage;
       button.setAttribute("aria-pressed", selected ? "true" : "false");
     });
+    document.querySelectorAll("[data-lang-current]").forEach((current) => {
+      current.textContent = nextLanguage === "ja" ? "日本語" : "English";
+    });
+    document.querySelectorAll("[data-lang-menu] > summary").forEach((summary) => {
+      summary.setAttribute("aria-label", nextLanguage === "ja" ? "言語：日本語" : "Language: English");
+    });
     document.querySelectorAll("[data-lang-select]").forEach((select) => {
       select.value = nextLanguage;
       const current = document.querySelector("[data-lang-current]");
@@ -373,8 +379,25 @@
     document.querySelectorAll("[data-lang-choice]").forEach((button) => {
       button.addEventListener("click", () => {
         setLanguage(button.dataset.langChoice, { updateUrl: true });
+        const menu = button.closest("[data-lang-menu]");
+        if (menu) {
+          menu.open = false;
+          menu.querySelector("summary")?.focus();
+        }
       });
     });
+    const languageMenu = document.querySelector("[data-lang-menu]");
+    if (languageMenu) {
+      document.addEventListener("click", (event) => {
+        if (!languageMenu.contains(event.target)) languageMenu.open = false;
+      });
+      languageMenu.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && languageMenu.open) {
+          languageMenu.open = false;
+          languageMenu.querySelector("summary")?.focus();
+        }
+      });
+    }
     document.querySelectorAll("[data-lang-select]").forEach((select) => {
       select.addEventListener("change", () => {
         const language = select.value;
